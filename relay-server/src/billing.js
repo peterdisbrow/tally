@@ -1,6 +1,7 @@
 'use strict';
 
 const { CircuitBreaker, CircuitOpenError } = require('./circuitBreaker');
+const { createQueryClient } = require('./db');
 
 /**
  * Tally Billing — Stripe Integration
@@ -107,11 +108,65 @@ function getInvalidPriceEnvKeys() {
   return missing;
 }
 
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const CHURCH_BILLING_SELECT = `
+  SELECT
+    churchId AS "churchId",
+    name,
+    email,
+    portal_email,
+    token,
+    registeredAt AS "registeredAt",
+    billing_tier,
+    billing_status,
+    billing_trial_ends,
+    billing_interval
+  FROM churches
+`;
+
+const BILLING_CUSTOMER_SELECT = `
+  SELECT
+    id,
+    church_id,
+    reseller_id,
+    stripe_customer_id,
+    stripe_subscription_id,
+    stripe_session_id,
+    tier,
+    billing_interval,
+    status,
+    trial_ends_at,
+    current_period_end,
+    cancel_at_period_end,
+    grace_ends_at,
+    email,
+    created_at,
+    updated_at
+  FROM billing_customers
+`;
+
+function isDuplicateColumnError(error) {
+  return /duplicate column|already exists/i.test(String(error?.message || ''));
+}
+
 class BillingSystem {
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
+    this.runtimeChurches = null;
     this.lifecycleEmails = null;
-    this._ensureSchema();
+    if (this.db) {
+      this._ensureSchemaSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
     this._validatePriceIds();
 
     // Circuit breaker for outbound Stripe API calls (checkout, portal).
@@ -120,6 +175,57 @@ class BillingSystem {
       failureThreshold: 5,
       cooldownMs: 60_000,
     });
+  }
+
+  setChurchRuntimeStore(runtimeChurches) {
+    this.runtimeChurches = runtimeChurches || null;
+  }
+
+  _syncChurchRuntime(churchId, patch = {}) {
+    if (!this.runtimeChurches?.has(churchId)) return;
+    const church = this.runtimeChurches.get(churchId);
+    Object.assign(church, patch);
+  }
+
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[Billing] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureSchema();
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    return this._requireClient().run(sql, params);
+  }
+
+  async _exec(sql) {
+    if (this.db) return this.db.exec(sql);
+    return this._requireClient().exec(sql);
   }
 
   /** Validate Stripe checkout config. Dev/test warns; non-dev throws. */
@@ -155,7 +261,7 @@ class BillingSystem {
     this.lifecycleEmails = engine;
   }
 
-  _ensureSchema() {
+  _ensureSchemaSync() {
     // Webhook idempotency table — Stripe retries delivery on non-2xx responses.
     // Without this guard the same event (e.g. checkout.session.completed) would
     // be processed twice, causing double-activations and duplicate emails.
@@ -217,6 +323,73 @@ class BillingSystem {
     }
   }
 
+  async _ensureSchema() {
+    const client = this._requireClient();
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS processed_webhook_events (
+        event_id     TEXT PRIMARY KEY,
+        event_type   TEXT NOT NULL,
+        processed_at TEXT NOT NULL
+      )
+    `);
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS billing_customers (
+        id TEXT PRIMARY KEY,
+        church_id TEXT REFERENCES churches(churchId),
+        reseller_id TEXT,
+        stripe_customer_id TEXT UNIQUE,
+        stripe_subscription_id TEXT,
+        stripe_session_id TEXT,
+        tier TEXT NOT NULL DEFAULT 'connect',
+        billing_interval TEXT,
+        status TEXT NOT NULL DEFAULT 'trialing',
+        trial_ends_at TEXT,
+        current_period_end TEXT,
+        cancel_at_period_end INTEGER DEFAULT 0,
+        grace_ends_at TEXT,
+        email TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    const billingCustomerCols = {
+      grace_ends_at: 'TEXT',
+      billing_interval: 'TEXT',
+    };
+    for (const [col, def] of Object.entries(billingCustomerCols)) {
+      try {
+        await client.queryOne(`SELECT ${col} FROM billing_customers LIMIT 1`);
+      } catch {
+        try {
+          await client.exec(`ALTER TABLE billing_customers ADD COLUMN ${col} ${def}`);
+        } catch (error) {
+          if (!isDuplicateColumnError(error)) throw error;
+        }
+      }
+    }
+
+    const cols = {
+      billing_tier: 'TEXT DEFAULT NULL',
+      billing_status: "TEXT DEFAULT 'inactive'",
+      billing_trial_ends: 'TEXT DEFAULT NULL',
+      billing_interval: 'TEXT DEFAULT NULL',
+    };
+    for (const [col, def] of Object.entries(cols)) {
+      try {
+        await client.queryOne(`SELECT ${col} FROM churches LIMIT 1`);
+      } catch {
+        try {
+          await client.exec(`ALTER TABLE churches ADD COLUMN ${col} ${def}`);
+        } catch (error) {
+          if (!isDuplicateColumnError(error)) throw error;
+        }
+      }
+    }
+  }
+
   isEnabled() {
     return !!stripe && !!process.env.STRIPE_SECRET_KEY;
   }
@@ -249,6 +422,108 @@ class BillingSystem {
     return PRICES[tier]?.[billingInterval] || null;
   }
 
+  async _getChurchRecord(churchId) {
+    if (this.db) return this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId) || null;
+    return this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [churchId]);
+  }
+
+  async _getBillingByChurchId(churchId) {
+    return this._one(`${BILLING_CUSTOMER_SELECT} WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1`, [churchId]);
+  }
+
+  async _getBillingBySubscriptionId(subscriptionId) {
+    return this._one(`${BILLING_CUSTOMER_SELECT} WHERE stripe_subscription_id = ?`, [subscriptionId]);
+  }
+
+  async _getBillingByCustomerId(customerId) {
+    return this._one(`${BILLING_CUSTOMER_SELECT} WHERE stripe_customer_id = ?`, [customerId]);
+  }
+
+  async _upsertBillingCustomer(record) {
+    const params = [
+      record.id,
+      record.church_id || null,
+      record.reseller_id || null,
+      record.stripe_customer_id || null,
+      record.stripe_subscription_id || null,
+      record.stripe_session_id || null,
+      record.tier || 'connect',
+      record.billing_interval || null,
+      record.status || 'trialing',
+      record.trial_ends_at || null,
+      record.current_period_end || null,
+      record.cancel_at_period_end ? 1 : 0,
+      record.grace_ends_at || null,
+      record.email || null,
+      record.created_at,
+      record.updated_at,
+    ];
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO billing_customers
+          (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
+           tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
+           grace_ends_at, email, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(...params);
+      return;
+    }
+
+    const client = this._requireClient();
+    if (client.driver === 'postgres') {
+      await client.run(`
+        INSERT INTO billing_customers
+          (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
+           tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
+           grace_ends_at, email, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          church_id = EXCLUDED.church_id,
+          reseller_id = EXCLUDED.reseller_id,
+          stripe_customer_id = EXCLUDED.stripe_customer_id,
+          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+          stripe_session_id = EXCLUDED.stripe_session_id,
+          tier = EXCLUDED.tier,
+          billing_interval = EXCLUDED.billing_interval,
+          status = EXCLUDED.status,
+          trial_ends_at = EXCLUDED.trial_ends_at,
+          current_period_end = EXCLUDED.current_period_end,
+          cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+          grace_ends_at = EXCLUDED.grace_ends_at,
+          email = EXCLUDED.email,
+          created_at = EXCLUDED.created_at,
+          updated_at = EXCLUDED.updated_at
+      `, params);
+      return;
+    }
+
+    await client.run(`
+      INSERT OR REPLACE INTO billing_customers
+        (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
+         tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
+         grace_ends_at, email, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, params);
+  }
+
+  async _ensureDisputesTable() {
+    await this._exec(`
+      CREATE TABLE IF NOT EXISTS billing_disputes (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        stripe_dispute_id TEXT UNIQUE NOT NULL,
+        stripe_charge_id TEXT,
+        amount INTEGER,
+        currency TEXT DEFAULT 'usd',
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      )
+    `);
+  }
+
   // ─── CHECKOUT ─────────────────────────────────────────────────────────────
 
   /**
@@ -257,6 +532,7 @@ class BillingSystem {
    */
   async createCheckout({ tier, churchId, email, successUrl, cancelUrl, isEvent = false, billingInterval }) {
     if (!this.isEnabled()) throw new Error('Stripe not configured');
+    await this.ready;
 
     const normalizedTier = this._normaliseTier(tier);
     if (!normalizedTier) throw new Error(`Invalid billing tier "${tier}"`);
@@ -298,16 +574,22 @@ class BillingSystem {
     // Store pending session
     if (churchId) {
       const now = new Date().toISOString();
-      this.db.prepare(`
-        INSERT OR REPLACE INTO billing_customers
-          (id, church_id, stripe_session_id, tier, billing_interval, status, email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-      `).run(`billing_${churchId}`, churchId, session.id, normalizedTier, effectiveInterval, email || '', now, now);
-      this.db.prepare(`
+      await this._upsertBillingCustomer({
+        id: `billing_${churchId}`,
+        church_id: churchId,
+        stripe_session_id: session.id,
+        tier: normalizedTier,
+        billing_interval: effectiveInterval,
+        status: 'pending',
+        email: email || '',
+        created_at: now,
+        updated_at: now,
+      });
+      await this._run(`
         UPDATE churches
         SET billing_tier = ?, billing_interval = ?
         WHERE churchId = ?
-      `).run(normalizedTier, effectiveInterval, churchId);
+      `, [normalizedTier, effectiveInterval, churchId]);
     }
 
     return { url: session.url, sessionId: session.id, tier: normalizedTier, billingInterval: effectiveInterval };
@@ -320,8 +602,9 @@ class BillingSystem {
    */
   async createPortalSession({ churchId, returnUrl }) {
     if (!this.isEnabled()) throw new Error('Stripe not configured');
+    await this.ready;
 
-    const billing = this.db.prepare('SELECT * FROM billing_customers WHERE church_id = ?').get(churchId);
+    const billing = await this._getBillingByChurchId(churchId);
     if (!billing?.stripe_customer_id) throw new Error('No billing record found for this church');
 
     const session = await this._stripeCircuit.call(() =>
@@ -342,6 +625,7 @@ class BillingSystem {
    */
   async handleWebhook(rawBody, signature) {
     if (!this.isEnabled()) throw new Error('Stripe not configured');
+    await this.ready;
 
     let event;
     try {
@@ -353,16 +637,18 @@ class BillingSystem {
     // Idempotency guard — Stripe retries webhooks on non-2xx responses.
     // Record the event ID before processing; skip if already seen.
     try {
-      const already = this.db.prepare(
-        'SELECT event_id FROM processed_webhook_events WHERE event_id = ?'
-      ).get(event.id);
+      const already = await this._one(
+        'SELECT event_id FROM processed_webhook_events WHERE event_id = ?',
+        [event.id]
+      );
       if (already) {
         console.log(`[Billing] Webhook ${event.id} (${event.type}) already processed — skipping`);
         return { received: true };
       }
-      this.db.prepare(
-        'INSERT INTO processed_webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)'
-      ).run(event.id, event.type, new Date().toISOString());
+      await this._run(
+        'INSERT INTO processed_webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)',
+        [event.id, event.type, new Date().toISOString()]
+      );
     } catch (e) {
       // DB error writing idempotency record — log and continue processing
       // rather than reject a valid webhook.
@@ -412,16 +698,16 @@ class BillingSystem {
 
     // Update billing record with customer ID
     if (session.customer) {
-      this.db.prepare(`
+      await this._run(`
         UPDATE billing_customers
         SET stripe_customer_id = ?, stripe_subscription_id = ?, billing_interval = COALESCE(?, billing_interval), status = 'active', updated_at = ?
         WHERE stripe_session_id = ? OR church_id = ?
-      `).run(session.customer, session.subscription || null, billingInterval || null, now, session.id, churchId || '');
+      `, [session.customer, session.subscription || null, billingInterval || null, now, session.id, churchId || '']);
     }
 
     // Activate the church
     if (churchId) {
-      this._activateChurch(churchId, tier, 'active', billingInterval);
+      await this._activateChurch(churchId, tier, 'active', billingInterval);
     }
 
     // Process referral credit — give the referrer a free month
@@ -437,7 +723,7 @@ class BillingSystem {
 
     // Send appropriate email based on checkout type
     if (this.lifecycleEmails && churchId) {
-      const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [churchId]);
       if (church) {
         if (session.metadata?.reactivation === 'true') {
           this.lifecycleEmails.sendReactivationConfirmation(church).catch(e => console.error('[Billing] Reactivation email failed:', e.message));
@@ -454,19 +740,19 @@ class BillingSystem {
     const periodEnd = new Date(sub.current_period_end * 1000).toISOString();
     const now = new Date().toISOString();
 
-    this.db.prepare(`
+    await this._run(`
       UPDATE billing_customers
       SET status = ?, current_period_end = ?, cancel_at_period_end = ?, billing_interval = COALESCE(?, billing_interval), updated_at = ?
       WHERE stripe_subscription_id = ? OR church_id = ?
-    `).run(status, periodEnd, sub.cancel_at_period_end ? 1 : 0, billingInterval || null, now, sub.id, churchId || '');
+    `, [status, periodEnd, sub.cancel_at_period_end ? 1 : 0, billingInterval || null, now, sub.id, churchId || '']);
 
     if (churchId) {
       const isActive = ['active', 'trialing'].includes(status);
-      this._activateChurch(
+      await this._activateChurch(
         churchId,
-        tier || this._getChurchTier(churchId),
+        tier || await this._getChurchTier(churchId),
         isActive ? status : 'inactive',
-        billingInterval || this._getChurchBillingInterval(churchId),
+        billingInterval || await this._getChurchBillingInterval(churchId),
       );
     }
   }
@@ -475,16 +761,15 @@ class BillingSystem {
     const { churchId } = sub.metadata || {};
     const now = new Date().toISOString();
 
-    this.db.prepare(`UPDATE billing_customers SET status = 'canceled', updated_at = ? WHERE stripe_subscription_id = ?`)
-      .run(now, sub.id);
+    await this._run(`UPDATE billing_customers SET status = 'canceled', updated_at = ? WHERE stripe_subscription_id = ?`, [now, sub.id]);
 
     if (churchId) {
-      this._deactivateChurch(churchId, 'subscription_cancelled');
+      await this._deactivateChurch(churchId, 'subscription_cancelled');
       console.log(`[Billing] ❌ Subscription cancelled for church ${churchId}`);
 
       // Send cancellation confirmation email
       if (this.lifecycleEmails) {
-        const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(churchId);
+        const church = await this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [churchId]);
         const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
         if (church) this.lifecycleEmails.sendCancellationConfirmation(church, { periodEnd }).catch(e => console.error('[Billing] Cancellation email failed:', e.message));
       }
@@ -493,27 +778,30 @@ class BillingSystem {
 
   async _onPaymentFailed(invoice) {
     const subId = invoice.subscription;
-    const billingRecord = this.db.prepare('SELECT * FROM billing_customers WHERE stripe_subscription_id = ?').get(subId);
+    const billingRecord = await this._getBillingBySubscriptionId(subId);
     if (billingRecord) {
       const now = new Date();
       const graceEndsAt = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      this.db.prepare(`
+      await this._run(`
         UPDATE billing_customers
         SET status = 'past_due', grace_ends_at = ?, updated_at = ?
         WHERE stripe_subscription_id = ?
-      `).run(graceEndsAt, now.toISOString(), subId);
+      `, [graceEndsAt, now.toISOString(), subId]);
 
       // Update churches table status
       if (billingRecord.church_id) {
-        this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
-          .run('past_due', billingRecord.church_id);
+        await this._run('UPDATE churches SET billing_status = ? WHERE churchId = ?', ['past_due', billingRecord.church_id]);
+        this._syncChurchRuntime(billingRecord.church_id, {
+          billing_status: 'past_due',
+          billing_grace_ends_at: graceEndsAt,
+        });
       }
 
       console.log(`[Billing] ⚠️ Payment failed for church ${billingRecord.church_id} — grace period until ${graceEndsAt}`);
 
       // Send payment-failed dunning email
       if (this.lifecycleEmails && billingRecord.church_id) {
-        const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
+        const church = await this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [billingRecord.church_id]);
         if (church) this.lifecycleEmails.sendPaymentFailed(church).catch(e => console.error(`[Billing] Payment-failed email error for ${church.name}: ${e.message}`));
       }
     }
@@ -521,13 +809,15 @@ class BillingSystem {
 
   async _onPaymentSucceeded(invoice) {
     const subId = invoice.subscription;
-    const billing = this.db.prepare('SELECT * FROM billing_customers WHERE stripe_subscription_id = ?').get(subId);
+    const billing = await this._getBillingBySubscriptionId(subId);
     if (billing && billing.status === 'past_due') {
       const now = new Date().toISOString();
-      this.db.prepare(`UPDATE billing_customers SET status = 'active', updated_at = ? WHERE stripe_subscription_id = ?`)
-        .run(now, subId);
-      this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
-        .run('active', billing.church_id);
+      await this._run(`UPDATE billing_customers SET status = 'active', updated_at = ? WHERE stripe_subscription_id = ?`, [now, subId]);
+      await this._run('UPDATE churches SET billing_status = ? WHERE churchId = ?', ['active', billing.church_id]);
+      this._syncChurchRuntime(billing.church_id, {
+        billing_status: 'active',
+        billing_grace_ends_at: null,
+      });
       console.log(`[Billing] ✅ Payment recovered for church ${billing.church_id}`);
     }
   }
@@ -538,9 +828,7 @@ class BillingSystem {
     const customerId = dispute.customer;
     if (!customerId) return;
 
-    const billingRecord = this.db.prepare(
-      'SELECT * FROM billing_customers WHERE stripe_customer_id = ?'
-    ).get(customerId);
+    const billingRecord = await this._getBillingByCustomerId(customerId);
 
     if (!billingRecord) {
       console.log(`[Billing] Dispute created for unknown customer ${customerId}`);
@@ -550,26 +838,10 @@ class BillingSystem {
     const now = new Date().toISOString();
 
     // Log the dispute
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS billing_disputes (
-        id TEXT PRIMARY KEY,
-        church_id TEXT NOT NULL,
-        stripe_dispute_id TEXT UNIQUE NOT NULL,
-        stripe_charge_id TEXT,
-        amount INTEGER,
-        currency TEXT DEFAULT 'usd',
-        reason TEXT,
-        status TEXT NOT NULL DEFAULT 'open',
-        created_at TEXT NOT NULL,
-        resolved_at TEXT
-      )
-    `);
+    await this._ensureDisputesTable();
 
     try {
-      this.db.prepare(`
-        INSERT OR IGNORE INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
-      `).run(
+      const params = [
         `dispute_${billingRecord.church_id}_${Date.now()}`,
         billingRecord.church_id,
         dispute.id,
@@ -577,23 +849,42 @@ class BillingSystem {
         dispute.amount || 0,
         dispute.currency || 'usd',
         dispute.reason || 'unknown',
-        now
-      );
+        now,
+      ];
+      if (this.db) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
+        `).run(...params);
+      } else if (this._requireClient().driver === 'postgres') {
+        await this._requireClient().run(`
+          INSERT INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
+          ON CONFLICT (stripe_dispute_id) DO NOTHING
+        `, params);
+      } else {
+        await this._requireClient().run(`
+          INSERT OR IGNORE INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
+        `, params);
+      }
     } catch (e) {
       console.error(`[Billing] Failed to record dispute: ${e.message}`);
     }
 
     // Immediately flag the church — disputes are serious
-    this.db.prepare('UPDATE billing_customers SET status = ?, updated_at = ? WHERE stripe_customer_id = ?')
-      .run('disputed', now, customerId);
-    this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
-      .run('disputed', billingRecord.church_id);
+    await this._run('UPDATE billing_customers SET status = ?, updated_at = ? WHERE stripe_customer_id = ?', ['disputed', now, customerId]);
+    await this._run('UPDATE churches SET billing_status = ? WHERE churchId = ?', ['disputed', billingRecord.church_id]);
+    this._syncChurchRuntime(billingRecord.church_id, {
+      billing_status: 'disputed',
+      billing_grace_ends_at: null,
+    });
 
     console.log(`[Billing] ⚠️ Dispute opened for church ${billingRecord.church_id} — reason: ${dispute.reason}, amount: $${(dispute.amount / 100).toFixed(2)}`);
 
     // Send dispute alert email
     if (this.lifecycleEmails && billingRecord.church_id) {
-      const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
+      const church = await this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [billingRecord.church_id]);
       if (church) this.lifecycleEmails.sendDisputeAlert(church, { amount: dispute.amount, reason: dispute.reason, disputeId: dispute.id }).catch(e => console.error(`[Billing] Dispute alert email error for ${church.name}: ${e.message}`));
     }
   }
@@ -602,9 +893,7 @@ class BillingSystem {
     const customerId = dispute.customer;
     if (!customerId) return;
 
-    const billingRecord = this.db.prepare(
-      'SELECT * FROM billing_customers WHERE stripe_customer_id = ?'
-    ).get(customerId);
+    const billingRecord = await this._getBillingByCustomerId(customerId);
 
     if (!billingRecord) return;
 
@@ -612,23 +901,23 @@ class BillingSystem {
 
     // Update dispute record
     try {
-      this.db.prepare(
-        "UPDATE billing_disputes SET status = ?, resolved_at = ? WHERE stripe_dispute_id = ?"
-      ).run(dispute.status || 'closed', now, dispute.id);
+      await this._run(
+        "UPDATE billing_disputes SET status = ?, resolved_at = ? WHERE stripe_dispute_id = ?",
+        [dispute.status || 'closed', now, dispute.id]
+      );
     } catch { /* table might not exist */ }
 
     // If won, restore to active. If lost, keep as inactive.
     if (dispute.status === 'won') {
-      this.db.prepare('UPDATE billing_customers SET status = ?, updated_at = ? WHERE stripe_customer_id = ?')
-        .run('active', now, customerId);
+      await this._run('UPDATE billing_customers SET status = ?, updated_at = ? WHERE stripe_customer_id = ?', ['active', now, customerId]);
       if (billingRecord.church_id) {
-        this._activateChurch(billingRecord.church_id, billingRecord.tier, 'active', billingRecord.billing_interval);
+        await this._activateChurch(billingRecord.church_id, billingRecord.tier, 'active', billingRecord.billing_interval);
       }
       console.log(`[Billing] ✅ Dispute WON for church ${billingRecord.church_id} — restored to active`);
     } else {
       // Lost or other outcome — deactivate
       if (billingRecord.church_id) {
-        this._deactivateChurch(billingRecord.church_id, `dispute_${dispute.status}`);
+        await this._deactivateChurch(billingRecord.church_id, `dispute_${dispute.status}`);
       }
       console.log(`[Billing] ❌ Dispute ${dispute.status} for church ${billingRecord.church_id} — deactivated`);
     }
@@ -640,16 +929,14 @@ class BillingSystem {
     const customerId = invoice.customer;
     if (!customerId) return;
 
-    const billingRecord = this.db.prepare(
-      'SELECT * FROM billing_customers WHERE stripe_customer_id = ?'
-    ).get(customerId);
+    const billingRecord = await this._getBillingByCustomerId(customerId);
     if (!billingRecord) return;
 
     const amount = invoice.amount_due || invoice.total || 0;
     const dueDate = invoice.due_date || invoice.next_payment_attempt;
 
     if (this.lifecycleEmails && billingRecord.church_id) {
-      const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
+      const church = await this._one(`${CHURCH_BILLING_SELECT} WHERE churchId = ?`, [billingRecord.church_id]);
       if (church) {
         this.lifecycleEmails.sendInvoiceUpcoming(church, { amount, dueDate }).catch(e => console.error('[Billing] Invoice upcoming email failed:', e.message));
         console.log(`[Billing] Invoice upcoming email queued for ${billingRecord.church_id} — $${(amount / 100).toFixed(2)}`);
@@ -665,8 +952,9 @@ class BillingSystem {
    */
   async reactivate({ churchId, tier, billingInterval, successUrl, cancelUrl }) {
     if (!this.isEnabled()) throw new Error('Stripe not configured');
+    await this.ready;
 
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = await this._getChurchRecord(churchId);
     if (!church) throw new Error('Church not found');
 
     const allowedStatuses = ['canceled', 'inactive', 'trial_expired', 'disputed'];
@@ -684,9 +972,10 @@ class BillingSystem {
     }
 
     // Check if we have an existing Stripe customer to reuse
-    const existingBilling = this.db.prepare(
-      'SELECT stripe_customer_id FROM billing_customers WHERE church_id = ? AND stripe_customer_id IS NOT NULL ORDER BY datetime(updated_at) DESC LIMIT 1'
-    ).get(churchId);
+    const existingBilling = await this._one(
+      'SELECT stripe_customer_id FROM billing_customers WHERE church_id = ? AND stripe_customer_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1',
+      [churchId]
+    );
 
     const sessionParams = {
       mode: 'subscription',
@@ -710,23 +999,26 @@ class BillingSystem {
     );
 
     const now = new Date().toISOString();
-    this.db.prepare(`
-      INSERT OR REPLACE INTO billing_customers
-        (id, church_id, stripe_session_id, stripe_customer_id, tier, billing_interval, status, email, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-    `).run(
-      `billing_${churchId}`,
-      churchId,
-      session.id,
-      existingBilling?.stripe_customer_id || null,
-      effectiveTier,
-      effectiveInterval,
-      church.portal_email || church.email || '',
-      now, now
-    );
+    await this._upsertBillingCustomer({
+      id: `billing_${churchId}`,
+      church_id: churchId,
+      stripe_session_id: session.id,
+      stripe_customer_id: existingBilling?.stripe_customer_id || null,
+      tier: effectiveTier,
+      billing_interval: effectiveInterval,
+      status: 'pending',
+      email: church.portal_email || church.email || '',
+      created_at: now,
+      updated_at: now,
+    });
 
-    this.db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ? WHERE churchId = ?')
-      .run(effectiveTier, 'pending', churchId);
+    await this._run('UPDATE churches SET billing_tier = ?, billing_status = ? WHERE churchId = ?', [effectiveTier, 'pending', churchId]);
+    this._syncChurchRuntime(churchId, {
+      billing_tier: effectiveTier,
+      billing_status: 'pending',
+      billing_interval: effectiveInterval,
+      billing_grace_ends_at: null,
+    });
 
     console.log(`[Billing] Reactivation checkout created for church ${churchId} (${effectiveTier}, ${effectiveInterval})`);
     return { url: session.url, sessionId: session.id };
@@ -735,28 +1027,82 @@ class BillingSystem {
   // ─── CHURCH ACTIVATION ────────────────────────────────────────────────────
 
   _activateChurch(churchId, tier, status, billingInterval) {
-    this.db.prepare(`
+    if (this.db) {
+      this.db.prepare(`
+        UPDATE churches
+        SET billing_tier = ?, billing_status = ?, billing_interval = COALESCE(?, billing_interval)
+        WHERE churchId = ?
+      `).run(tier || 'connect', status, billingInterval || null, churchId);
+      this._syncChurchRuntime(churchId, {
+        billing_tier: tier || 'connect',
+        billing_status: status,
+        billing_interval: billingInterval || this.runtimeChurches?.get(churchId)?.billing_interval || null,
+        billing_grace_ends_at: null,
+      });
+      return;
+    }
+
+    return this._run(`
       UPDATE churches
       SET billing_tier = ?, billing_status = ?, billing_interval = COALESCE(?, billing_interval)
       WHERE churchId = ?
-    `).run(tier || 'connect', status, billingInterval || null, churchId);
+    `, [tier || 'connect', status, billingInterval || null, churchId]).then(() => {
+      this._syncChurchRuntime(churchId, {
+        billing_tier: tier || 'connect',
+        billing_status: status,
+        billing_interval: billingInterval || this.runtimeChurches?.get(churchId)?.billing_interval || null,
+        billing_grace_ends_at: null,
+      });
+    });
   }
 
   _deactivateChurch(churchId, reason) {
-    this.db.prepare(`
-      UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?
-    `).run(churchId);
-    console.log(`[Billing] Church ${churchId} deactivated: ${reason}`);
+    if (this.db) {
+      this.db.prepare(`UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?`).run(churchId);
+      this._syncChurchRuntime(churchId, {
+        billing_status: 'inactive',
+        billing_grace_ends_at: null,
+      });
+      console.log(`[Billing] Church ${churchId} deactivated: ${reason}`);
+      return;
+    }
+
+    return this._run(`UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?`, [churchId])
+      .then(() => {
+        this._syncChurchRuntime(churchId, {
+          billing_status: 'inactive',
+          billing_grace_ends_at: null,
+        });
+        console.log(`[Billing] Church ${churchId} deactivated: ${reason}`);
+      });
   }
 
   _getChurchTier(churchId) {
-    const billing = this.db.prepare('SELECT tier FROM billing_customers WHERE church_id = ?').get(churchId);
-    return billing?.tier || 'connect';
+    if (this.db) {
+      const billing = this.db.prepare('SELECT tier FROM billing_customers WHERE church_id = ?').get(churchId);
+      return billing?.tier || 'connect';
+    }
+    return this._getChurchTierAsync(churchId);
   }
 
   _getChurchBillingInterval(churchId) {
-    const billing = this.db.prepare('SELECT billing_interval, tier FROM billing_customers WHERE church_id = ?').get(churchId);
-    const church = this.db.prepare('SELECT billing_interval, billing_tier FROM churches WHERE churchId = ?').get(churchId);
+    if (this.db) {
+      const billing = this.db.prepare('SELECT billing_interval, tier FROM billing_customers WHERE church_id = ?').get(churchId);
+      const church = this.db.prepare('SELECT billing_interval, billing_tier FROM churches WHERE churchId = ?').get(churchId);
+      const tier = billing?.tier || church?.billing_tier || 'connect';
+      return this._normaliseBillingInterval(billing?.billing_interval || church?.billing_interval || null, tier);
+    }
+    return this._getChurchBillingIntervalAsync(churchId);
+  }
+
+  async _getChurchTierAsync(churchId) {
+    const billing = await this._one('SELECT tier FROM billing_customers WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1', [churchId]);
+    return billing?.tier || 'connect';
+  }
+
+  async _getChurchBillingIntervalAsync(churchId) {
+    const billing = await this._one('SELECT billing_interval, tier FROM billing_customers WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1', [churchId]);
+    const church = await this._one('SELECT billing_interval, billing_tier FROM churches WHERE churchId = ?', [churchId]);
     const tier = billing?.tier || church?.billing_tier || 'connect';
     return this._normaliseBillingInterval(billing?.billing_interval || church?.billing_interval || null, tier);
   }
@@ -857,7 +1203,36 @@ class BillingSystem {
   // ─── STATUS ───────────────────────────────────────────────────────────────
 
   getStatus(churchId) {
-    const billing = this.db.prepare('SELECT * FROM billing_customers WHERE church_id = ?').get(churchId);
+    if (this.db) {
+      const billing = this.db.prepare('SELECT * FROM billing_customers WHERE church_id = ?').get(churchId);
+      if (!billing) return { tier: null, status: 'no_billing', configured: this.isEnabled() };
+      return {
+        tier: billing.tier,
+        tierName: TIER_NAMES[billing.tier] || billing.tier,
+        billingInterval: this._normaliseBillingInterval(billing.billing_interval, billing.tier),
+        status: billing.status,
+        currentPeriodEnd: billing.current_period_end,
+        cancelAtPeriodEnd: !!billing.cancel_at_period_end,
+        configured: this.isEnabled(),
+      };
+    }
+    return this._getStatusAsync(churchId);
+  }
+
+  listAll() {
+    if (this.db) {
+      return this.db.prepare(`
+        SELECT bc.*, c.name as church_name
+        FROM billing_customers bc
+        LEFT JOIN churches c ON c.churchId = bc.church_id
+        ORDER BY bc.created_at DESC
+      `).all();
+    }
+    return this._listAllAsync();
+  }
+
+  async _getStatusAsync(churchId) {
+    const billing = await this._getBillingByChurchId(churchId);
     if (!billing) return { tier: null, status: 'no_billing', configured: this.isEnabled() };
     return {
       tier: billing.tier,
@@ -870,13 +1245,13 @@ class BillingSystem {
     };
   }
 
-  listAll() {
-    return this.db.prepare(`
+  async _listAllAsync() {
+    return this._all(`
       SELECT bc.*, c.name as church_name
       FROM billing_customers bc
       LEFT JOIN churches c ON c.churchId = bc.church_id
       ORDER BY bc.created_at DESC
-    `).all();
+    `);
   }
 
   // ─── REFERRAL CREDITS ──────────────────────────────────────────────────────
@@ -889,23 +1264,25 @@ class BillingSystem {
     // Look up the referral
     let referral;
     try {
-      referral = this.db.prepare(
-        "SELECT * FROM referrals WHERE referred_id = ? AND status = 'pending' LIMIT 1"
-      ).get(referredChurchId);
+      referral = await this._one(
+        "SELECT * FROM referrals WHERE referred_id = ? AND status = 'pending' LIMIT 1",
+        [referredChurchId]
+      );
     } catch { return; } // table may not exist yet
 
     if (!referral) return;
 
     // Only valid for new accounts — referred church must have been created within the last 60 days
     try {
-      const referred = this.db.prepare(
-        'SELECT registeredAt FROM churches WHERE churchId = ?'
-      ).get(referredChurchId);
+      const referred = await this._one(
+        'SELECT registeredAt AS "registeredAt" FROM churches WHERE churchId = ?',
+        [referredChurchId]
+      );
       if (referred) {
         const daysSinceCreated = (Date.now() - new Date(referred.registeredAt).getTime()) / 86400000;
         if (daysSinceCreated > 60) {
           const now = new Date().toISOString();
-          this.db.prepare("UPDATE referrals SET status = 'expired', converted_at = ? WHERE id = ?").run(now, referral.id);
+          await this._run("UPDATE referrals SET status = 'expired', converted_at = ? WHERE id = ?", [now, referral.id]);
           console.log(`[Referral] Referred church ${referredChurchId} is ${Math.round(daysSinceCreated)} days old — not a new account. Skipping credit.`);
           return;
         }
@@ -916,17 +1293,18 @@ class BillingSystem {
     const MAX_REFERRAL_CREDITS = 5;
     let creditedCount = 0;
     try {
-      const row = this.db.prepare(
-        "SELECT COUNT(*) as cnt FROM referrals WHERE referrer_id = ? AND status = 'credited'"
-      ).get(referral.referrer_id);
+      const row = await this._one(
+        "SELECT COUNT(*) as cnt FROM referrals WHERE referrer_id = ? AND status = 'credited'",
+        [referral.referrer_id]
+      );
       creditedCount = row?.cnt || 0;
     } catch { /* table may not exist */ }
 
     if (creditedCount >= MAX_REFERRAL_CREDITS) {
       const now = new Date().toISOString();
-      this.db.prepare(`
+      await this._run(`
         UPDATE referrals SET status = 'converted', converted_at = ? WHERE id = ?
-      `).run(now, referral.id);
+      `, [now, referral.id]);
       console.log(`[Referral] Referrer ${referral.referrer_id} has reached the ${MAX_REFERRAL_CREDITS}-credit cap. Marked as converted (no credit).`);
       return;
     }
@@ -941,9 +1319,10 @@ class BillingSystem {
     };
 
     // Get referrer's billing info
-    const referrerBilling = this.db.prepare(
-      'SELECT stripe_customer_id, tier FROM billing_customers WHERE church_id = ? LIMIT 1'
-    ).get(referral.referrer_id);
+    const referrerBilling = await this._one(
+      'SELECT stripe_customer_id, tier FROM billing_customers WHERE church_id = ? LIMIT 1',
+      [referral.referrer_id]
+    );
 
     if (!referrerBilling?.stripe_customer_id) {
       console.log(`[Referral] Referrer ${referral.referrer_id} has no Stripe customer — skipping credit`);
@@ -974,16 +1353,16 @@ class BillingSystem {
       }
 
       // Update referral record
-      this.db.prepare(`
+      await this._run(`
         UPDATE referrals SET status = 'credited', credit_amount = ?, converted_at = ?, credited_at = ? WHERE id = ?
-      `).run(referrerCreditCents, now, now, referral.id);
+      `, [referrerCreditCents, now, now, referral.id]);
 
       console.log(`[Referral] ✅ Credited $${referrerCreditCents / 100} to referrer ${referral.referrer_id} for ${referral.referred_name}`);
     } catch (e) {
       // Mark as converted but not credited (manual follow-up needed)
-      this.db.prepare(`
+      await this._run(`
         UPDATE referrals SET status = 'converted', credit_amount = ?, converted_at = ? WHERE id = ?
-      `).run(referrerCreditCents, now, referral.id);
+      `, [referrerCreditCents, now, referral.id]);
       console.error(`[Referral] Stripe credit failed: ${e.message}. Marked as converted for manual review.`);
     }
   }

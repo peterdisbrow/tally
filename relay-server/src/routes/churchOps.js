@@ -6,12 +6,19 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupChurchOpsRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireFeature, stmtGet, stmtFindByName,
+  const { db, queryClient, churches, requireAdmin, requireFeature,
           onCallRotation, guestTdMode, eventMode, safeErrorMessage,
           checkCommandRateLimit, checkBillingAccessForCommand,
           safeSend, queueMessage, messageQueues, uuidv4,
           totalMessagesRelayed, QUEUE_TTL_MS, log } = ctx;
   const WebSocket = require('ws').WebSocket;
+  const hasQueryClient = !!queryClient;
+  const qOne = (sql, params = []) =>
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null;
+  const qAll = (sql, params = []) =>
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params);
+  const qRun = (sql, params = []) =>
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params);
 
   // ─── COMMAND DISPATCH ────────────────────────────────────────────────────────
 
@@ -81,10 +88,10 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     });
   });
 
-  app.get('/api/churches/:churchId', requireAdmin, (req, res) => {
+  app.get('/api/churches/:churchId', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const row = stmtGet.get(req.params.churchId);
+    const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
     res.json({
       churchId: church.churchId, name: church.name,
       connected: !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)),
@@ -96,81 +103,119 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
 
   // ─── MAINTENANCE WINDOWS ─────────────────────────────────────────────────────
 
-  app.get('/api/churches/:churchId/maintenance', requireAdmin, (req, res) => {
-    const windows = db.prepare('SELECT * FROM maintenance_windows WHERE churchId = ? ORDER BY startTime ASC').all(req.params.churchId);
+  app.get('/api/churches/:churchId/maintenance', requireAdmin, async (req, res) => {
+    const windows = await qAll(
+      'SELECT * FROM maintenance_windows WHERE churchId = ? ORDER BY startTime ASC',
+      [req.params.churchId],
+    );
     res.json(windows);
   });
 
-  app.post('/api/churches/:churchId/maintenance', requireAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/maintenance', requireAdmin, async (req, res) => {
     const { startTime, endTime, reason } = req.body;
     if (!startTime || !endTime) return res.status(400).json({ error: 'startTime and endTime required' });
-    const result = db.prepare(
-      'INSERT INTO maintenance_windows (churchId, startTime, endTime, reason) VALUES (?, ?, ?, ?)'
-    ).run(req.params.churchId, startTime, endTime, reason || '');
+    const result = await qRun(
+      'INSERT INTO maintenance_windows (churchId, startTime, endTime, reason) VALUES (?, ?, ?, ?)',
+      [req.params.churchId, startTime, endTime, reason || ''],
+    );
     res.json({ id: result.lastInsertRowid, churchId: req.params.churchId, startTime, endTime, reason });
   });
 
-  app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
-    db.prepare('DELETE FROM maintenance_windows WHERE id = ?').run(req.params.id);
+  app.delete('/api/maintenance/:id', requireAdmin, async (req, res) => {
+    await qRun('DELETE FROM maintenance_windows WHERE id = ?', [req.params.id]);
     res.json({ deleted: true });
   });
 
   // ─── ON-CALL ROTATION ────────────────────────────────────────────────────────
 
-  app.get('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
-    const onCall = onCallRotation.getOnCallTD(req.params.churchId);
-    const all = db.prepare('SELECT * FROM td_oncall WHERE churchId = ? ORDER BY isPrimary DESC, id ASC').all(req.params.churchId);
-    res.json({ onCall, all });
+  app.get('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), async (req, res) => {
+    try {
+      const [onCall, all] = await Promise.all([
+        onCallRotation.getOnCallTD(req.params.churchId),
+        onCallRotation.listTDs(req.params.churchId),
+      ]);
+      res.json({ onCall, all });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.post('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
+  app.post('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), async (req, res) => {
     const { tdName } = req.body;
     if (!tdName) return res.status(400).json({ error: 'tdName required' });
-    const result = onCallRotation.setOnCall(req.params.churchId, tdName);
-    res.json(result);
+    try {
+      const result = await onCallRotation.setOnCall(req.params.churchId, tdName);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.post('/api/churches/:churchId/tds/add', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
+  app.post('/api/churches/:churchId/tds/add', requireAdmin, requireFeature('oncall_rotation'), async (req, res) => {
     const { name, telegramChatId, telegramUserId, phone, isPrimary } = req.body;
     if (!name || !telegramChatId) return res.status(400).json({ error: 'name and telegramChatId required' });
-    const id = onCallRotation.addOrUpdateTD({ churchId: req.params.churchId, name, telegramChatId, telegramUserId, phone, isPrimary });
-    res.json({ id, name });
+    try {
+      const id = await onCallRotation.addOrUpdateTD({
+        churchId: req.params.churchId,
+        name,
+        telegramChatId,
+        telegramUserId,
+        phone,
+        isPrimary,
+      });
+      res.json({ id, name });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   // ─── GUEST TOKENS ────────────────────────────────────────────────────────────
 
-  app.post('/api/churches/:churchId/guest-token', requireAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/guest-token', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const result = guestTdMode.generateToken(req.params.churchId, church.name);
-    res.json(result);
+    try {
+      const result = await guestTdMode.generateToken(req.params.churchId, church.name);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.delete('/api/guest-token/:token', requireAdmin, (req, res) => {
-    const result = guestTdMode.revokeToken(req.params.token);
-    res.json(result);
+  app.delete('/api/guest-token/:token', requireAdmin, async (req, res) => {
+    try {
+      const result = await guestTdMode.revokeToken(req.params.token);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.get('/api/guest-tokens', requireAdmin, (req, res) => {
-    res.json(guestTdMode.listActiveTokens());
+  app.get('/api/guest-tokens', requireAdmin, async (req, res) => {
+    try {
+      const tokens = await guestTdMode.listActiveTokens();
+      res.json(tokens);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   // ─── EVENTS ──────────────────────────────────────────────────────────────────
 
-  app.get('/api/events', requireAdmin, (req, res) => {
-    const events = db.prepare("SELECT * FROM churches WHERE church_type = 'event' ORDER BY registeredAt DESC").all();
+  app.get('/api/events', requireAdmin, async (req, res) => {
+    const events = await qAll("SELECT * FROM churches WHERE church_type = 'event' ORDER BY registeredAt DESC");
     res.json(events.map(e => ({ ...e, timeRemaining: eventMode.getTimeRemaining(e), expired: eventMode.isEventExpired(e) })));
   });
 
-  app.post('/api/events/create', requireAdmin, (req, res) => {
+  app.post('/api/events/create', requireAdmin, async (req, res) => {
     const { name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
 
-    const existing = stmtFindByName.get(name);
+    const existing = await qOne('SELECT churchId FROM churches WHERE name = ?', [name]);
     if (existing) return res.status(409).json({ error: `A church named "${name}" already exists` });
 
     try {
-      const result = eventMode.createEvent({ name, eventLabel, durationHours, tdName, tdTelegramChatId, contactEmail });
+      const result = await eventMode.createEvent({ name, eventLabel, durationHours, tdName, tdTelegramChatId, contactEmail });
       churches.set(result.churchId, {
         churchId: result.churchId, name, email: contactEmail || '', token: result.token,
         ws: null, status: {},

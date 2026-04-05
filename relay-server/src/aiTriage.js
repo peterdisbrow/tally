@@ -12,7 +12,15 @@
 
 const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./logger');
+const { createQueryClient } = require('./db');
 const log = createLogger('AITriage');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
 
 // ─── TIME CONTEXT ────────────────────────────────────────────────────────────
 
@@ -162,8 +170,9 @@ class AITriageEngine {
    * @param {function} options.broadcastToSSE - SSE broadcast function
    * @param {function} options.createTicket - function to create support tickets
    */
-  constructor(db, scheduleEngine, options = {}) {
-    this.db = db;
+  constructor(dbOrClient, scheduleEngine, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.scheduleEngine = scheduleEngine;
     this.churches = options.churches || new Map();
     this.autoRecovery = options.autoRecovery || null;
@@ -173,8 +182,17 @@ class AITriageEngine {
     // In-memory reconnection tracking: churchId → { timestamps: [], instanceCounts: Map }
     this._reconnectTracker = new Map();
     this._sessionRecap = null;
+    this._settingsCache = new Map();
+    this._eventCache = [];
+    this._resolutionCache = [];
+    this._churchCache = new Map();
+    this._sessionCache = [];
+    this._writeTail = Promise.resolve();
+    this.ready = this.db ? Promise.resolve() : this._init();
 
-    this._ensureTables();
+    if (this.db) {
+      this._ensureTablesSync();
+    }
   }
 
   /** Attach SessionRecap so getTimeContext can detect active streaming sessions. */
@@ -182,9 +200,31 @@ class AITriageEngine {
     this._sessionRecap = sessionRecap;
   }
 
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[AITriage] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTablesAsync();
+    await this._loadCache();
+  }
+
   // ─── DATABASE SETUP ──────────────────────────────────────────────────────
 
-  _ensureTables() {
+  _ensureTablesSync() {
     // AI triage events — every scored event
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ai_triage_events (
@@ -243,12 +283,216 @@ class AITriageEngine {
     `);
   }
 
+  async _ensureTablesAsync() {
+    const client = this._requireClient();
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS ai_triage_events (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        room_id TEXT,
+        alert_type TEXT NOT NULL,
+        original_severity TEXT NOT NULL,
+        triage_score INTEGER NOT NULL,
+        triage_severity TEXT NOT NULL,
+        time_context TEXT NOT NULL,
+        device_count INTEGER DEFAULT 1,
+        reconnect_pattern TEXT DEFAULT 'stable',
+        details TEXT DEFAULT '{}',
+        resolution_id TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.exec(`CREATE INDEX IF NOT EXISTS idx_ai_triage_church_time ON ai_triage_events (church_id, created_at)`);
+    await client.exec(`CREATE INDEX IF NOT EXISTS idx_ai_triage_severity ON ai_triage_events (triage_severity, created_at)`);
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS ai_resolutions (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        event_id TEXT,
+        symptom_fingerprint TEXT NOT NULL,
+        action_taken TEXT NOT NULL,
+        action_command TEXT,
+        success INTEGER NOT NULL,
+        duration_ms INTEGER,
+        notes TEXT DEFAULT '',
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.exec(`CREATE INDEX IF NOT EXISTS idx_ai_resolutions_church ON ai_resolutions (church_id, created_at)`);
+    await client.exec(`CREATE INDEX IF NOT EXISTS idx_ai_resolutions_fingerprint ON ai_resolutions (symptom_fingerprint)`);
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS church_ai_settings (
+        church_id TEXT PRIMARY KEY,
+        ai_mode TEXT NOT NULL DEFAULT 'recommend_only',
+        sensitivity_threshold INTEGER DEFAULT 50,
+        pre_service_window_minutes INTEGER DEFAULT 60,
+        post_service_buffer_minutes INTEGER DEFAULT 15,
+        custom_settings TEXT DEFAULT '{}',
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      )
+    `);
+  }
+
+  flushWrites() {
+    return this._writeTail;
+  }
+
+  _queueWrite(label, work) {
+    if (this.db) return Promise.resolve().then(work);
+    const next = this._writeTail.then(async () => {
+      await this.ready;
+      return work();
+    });
+    this._writeTail = next.then(() => undefined, () => undefined);
+    next.catch(err => {
+      console.error(`[AITriage] ${label} failed: ${err.message}`);
+    });
+    return next;
+  }
+
+  _clone(row) {
+    return row ? { ...row } : null;
+  }
+
+  _defaultChurchSettings(churchId) {
+    return {
+      church_id: churchId,
+      ai_mode: AI_MODES.RECOMMEND_ONLY,
+      sensitivity_threshold: 50,
+      pre_service_window_minutes: 60,
+      post_service_buffer_minutes: 15,
+      custom_settings: {},
+      updated_at: null,
+      updated_by: null,
+    };
+  }
+
+  _normalizeSettingsRow(row = {}) {
+    const settings = {
+      church_id: row.church_id || row.churchId || null,
+      ai_mode: row.ai_mode || AI_MODES.RECOMMEND_ONLY,
+      sensitivity_threshold: row.sensitivity_threshold ?? 50,
+      pre_service_window_minutes: row.pre_service_window_minutes ?? 60,
+      post_service_buffer_minutes: row.post_service_buffer_minutes ?? 15,
+      custom_settings: row.custom_settings || '{}',
+      updated_at: row.updated_at ?? null,
+      updated_by: row.updated_by ?? null,
+    };
+    try {
+      settings.custom_settings = typeof settings.custom_settings === 'string'
+        ? JSON.parse(settings.custom_settings)
+        : settings.custom_settings || {};
+    } catch {
+      settings.custom_settings = {};
+    }
+    return settings;
+  }
+
+  _normalizeChurchRow(row = {}) {
+    return {
+      churchId: row.churchId || row.church_id || null,
+      name: row.name || '',
+      timezone: row.timezone || '',
+      service_times: row.service_times || '[]',
+      church_type: row.church_type || 'recurring',
+      event_expires_at: row.event_expires_at || null,
+    };
+  }
+
+  _normalizeEventRow(row = {}) {
+    return {
+      ...row,
+      details: row.details || '{}',
+    };
+  }
+
+  _normalizeResolutionRow(row = {}) {
+    return { ...row };
+  }
+
+  _normalizeSessionRow(row = {}) {
+    return {
+      church_id: row.church_id || row.churchId || null,
+      started_at: row.started_at || null,
+      ended_at: row.ended_at || null,
+    };
+  }
+
+  _cacheChurch(row) {
+    const normalized = this._normalizeChurchRow(row);
+    if (!normalized.churchId) return null;
+    this._churchCache.set(normalized.churchId, normalized);
+    return normalized;
+  }
+
+  _cacheSettings(row) {
+    const normalized = this._normalizeSettingsRow(row);
+    if (!normalized.church_id) return null;
+    this._settingsCache.set(normalized.church_id, normalized);
+    return normalized;
+  }
+
+  _cacheEvent(row) {
+    const normalized = this._normalizeEventRow(row);
+    if (!normalized.id) return null;
+    const idx = this._eventCache.findIndex(ev => ev.id === normalized.id);
+    if (idx >= 0) {
+      this._eventCache[idx] = normalized;
+    } else {
+      this._eventCache.push(normalized);
+    }
+    return normalized;
+  }
+
+  _cacheResolution(row) {
+    const normalized = this._normalizeResolutionRow(row);
+    if (!normalized.id) return null;
+    const idx = this._resolutionCache.findIndex(ev => ev.id === normalized.id);
+    if (idx >= 0) {
+      this._resolutionCache[idx] = normalized;
+    } else {
+      this._resolutionCache.push(normalized);
+    }
+    return normalized;
+  }
+
+  _loadCache() {
+    if (this.db) return;
+    const client = this._requireClient();
+    return Promise.all([
+      client.query('SELECT * FROM church_ai_settings').catch(() => []),
+      client.query('SELECT * FROM ai_triage_events').catch(() => []),
+      client.query('SELECT * FROM ai_resolutions').catch(() => []),
+      client.query('SELECT * FROM churches').catch(() => []),
+      client.query('SELECT * FROM service_sessions').catch(() => []),
+    ]).then(([settingsRows, eventRows, resolutionRows, churchRows, sessionRows]) => {
+      this._settingsCache.clear();
+      this._eventCache = [];
+      this._resolutionCache = [];
+      this._churchCache.clear();
+      this._sessionCache = [];
+
+      for (const row of settingsRows) this._cacheSettings(row);
+      for (const row of eventRows) this._cacheEvent(row);
+      for (const row of resolutionRows) this._cacheResolution(row);
+      for (const row of churchRows) this._cacheChurch(row);
+      for (const row of sessionRows) this._sessionCache.push(this._normalizeSessionRow(row));
+    });
+  }
+
   // ─── SETTINGS ────────────────────────────────────────────────────────────
 
   /**
    * Get AI settings for a church, returning defaults if not configured.
    */
   getChurchSettings(churchId) {
+    if (!this.db) {
+      const cached = this._settingsCache.get(churchId);
+      return cached ? this._clone(cached) : this._defaultChurchSettings(churchId);
+    }
     const row = this.db.prepare('SELECT * FROM church_ai_settings WHERE church_id = ?').get(churchId);
     if (row) {
       try { row.custom_settings = JSON.parse(row.custom_settings); } catch { row.custom_settings = {}; }
@@ -280,6 +524,38 @@ class AITriageEngine {
     const preWindow = Math.max(10, Math.min(120, parseInt(settings.pre_service_window_minutes, 10) || 60));
     const postBuffer = Math.max(0, Math.min(60, parseInt(settings.post_service_buffer_minutes, 10) || 15));
     const customSettings = JSON.stringify(settings.custom_settings || {});
+
+    if (!this.db) {
+      this._cacheSettings({
+        church_id: churchId,
+        ai_mode: mode,
+        sensitivity_threshold: sensitivity,
+        pre_service_window_minutes: preWindow,
+        post_service_buffer_minutes: postBuffer,
+        custom_settings: customSettings,
+        updated_at: now,
+        updated_by: updatedBy,
+      });
+
+      this._queueWrite('updateChurchSettings', async () => {
+        await this._requireClient().run(`
+          INSERT INTO church_ai_settings (church_id, ai_mode, sensitivity_threshold, pre_service_window_minutes,
+            post_service_buffer_minutes, custom_settings, updated_at, updated_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(church_id) DO UPDATE SET
+            ai_mode = excluded.ai_mode,
+            sensitivity_threshold = excluded.sensitivity_threshold,
+            pre_service_window_minutes = excluded.pre_service_window_minutes,
+            post_service_buffer_minutes = excluded.post_service_buffer_minutes,
+            custom_settings = excluded.custom_settings,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by
+        `, [churchId, mode, sensitivity, preWindow, postBuffer, customSettings, now, updatedBy]);
+      });
+
+      log.info('AI settings updated', { event: 'ai_settings_updated', churchId, mode });
+      return this.getChurchSettings(churchId);
+    }
 
     this.db.prepare(`
       INSERT INTO church_ai_settings (church_id, ai_mode, sensitivity_threshold, pre_service_window_minutes,
@@ -314,6 +590,14 @@ class AITriageEngine {
 
     // Event churches — always treat as in-service
     try {
+      if (!this.db) {
+        const row = this._churchCache.get(churchId);
+        if (row && row.church_type === 'event') {
+          if (!row.event_expires_at || new Date(row.event_expires_at) > new Date()) {
+            return { context: TIME_CONTEXT.IN_SERVICE, details: { reason: 'event_mode' } };
+          }
+        }
+      }
       const row = this.db.prepare('SELECT church_type, event_expires_at FROM churches WHERE churchId = ?').get(churchId);
       if (row && row.church_type === 'event') {
         if (!row.event_expires_at || new Date(row.event_expires_at) > new Date()) {
@@ -419,11 +703,17 @@ class AITriageEngine {
    */
   _inferTimeContextFromHistory(churchId) {
     try {
-      const sessions = this.db.prepare(`
-        SELECT started_at, ended_at FROM service_sessions
-        WHERE church_id = ? AND started_at IS NOT NULL
-        ORDER BY started_at DESC LIMIT 20
-      `).all(churchId);
+      const sessions = this.db
+        ? this.db.prepare(`
+            SELECT started_at, ended_at FROM service_sessions
+            WHERE church_id = ? AND started_at IS NOT NULL
+            ORDER BY started_at DESC LIMIT 20
+          `).all(churchId)
+        : this._sessionCache
+          .filter(sess => String(sess.church_id || '') === String(churchId) && sess.started_at)
+          .slice()
+          .sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || '')))
+          .slice(0, 20);
 
       if (sessions.length < 3) return null; // not enough data
 
@@ -599,6 +889,18 @@ class AITriageEngine {
    * Churches with many recent issues get a small bonus to prioritize attention.
    */
   _getChurchHistoryFactor(churchId) {
+    if (!this.db) {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const count = this._eventCache.filter(row => {
+        if (String(row.church_id || '') !== String(churchId)) return false;
+        const ts = Date.parse(row.created_at || '');
+        if (Number.isNaN(ts) || ts <= cutoff) return false;
+        return ['critical', 'high'].includes(row.triage_severity);
+      }).length;
+      if (count >= 10) return 10;
+      if (count >= 5) return 5;
+      return 0;
+    }
     try {
       const row = this.db.prepare(`
         SELECT COUNT(*) as cnt FROM ai_triage_events
@@ -641,15 +943,45 @@ class AITriageEngine {
       original_context: safeContext,
     });
 
-    this.db.prepare(`
-      INSERT INTO ai_triage_events (id, church_id, room_id, alert_type, original_severity,
-        triage_score, triage_severity, time_context, device_count, reconnect_pattern, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      eventId, churchId, safeContext.roomId || null, alertType, originalSeverity,
-      scored.triage_score, scored.triage_severity, scored.time_context,
-      scored.device_count, scored.reconnect_pattern, details, now,
-    );
+    if (!this.db) {
+      this._cacheEvent({
+        id: eventId,
+        church_id: churchId,
+        room_id: safeContext.roomId || null,
+        alert_type: alertType,
+        original_severity: originalSeverity,
+        triage_score: scored.triage_score,
+        triage_severity: scored.triage_severity,
+        time_context: scored.time_context,
+        device_count: scored.device_count,
+        reconnect_pattern: scored.reconnect_pattern,
+        details,
+        created_at: now,
+        resolution_id: null,
+      });
+
+      this._queueWrite('processAlert', async () => {
+        await this._requireClient().run(`
+          INSERT INTO ai_triage_events (id, church_id, room_id, alert_type, original_severity,
+            triage_score, triage_severity, time_context, device_count, reconnect_pattern, details, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          eventId, churchId, safeContext.roomId || null, alertType, originalSeverity,
+          scored.triage_score, scored.triage_severity, scored.time_context,
+          scored.device_count, scored.reconnect_pattern, details, now,
+        ]);
+      });
+    } else {
+      this.db.prepare(`
+        INSERT INTO ai_triage_events (id, church_id, room_id, alert_type, original_severity,
+          triage_score, triage_severity, time_context, device_count, reconnect_pattern, details, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        eventId, churchId, safeContext.roomId || null, alertType, originalSeverity,
+        scored.triage_score, scored.triage_severity, scored.time_context,
+        scored.device_count, scored.reconnect_pattern, details, now,
+      );
+    }
 
     // Broadcast to SSE for real-time dashboard
     this.broadcastToSSE({
@@ -750,8 +1082,16 @@ class AITriageEngine {
         result.reason || '');
 
       // Link resolution to triage event
-      this.db.prepare('UPDATE ai_triage_events SET resolution_id = ? WHERE id = ?')
-        .run(resolutionId, eventId);
+      if (!this.db) {
+        const event = this._eventCache.find(row => row.id === eventId);
+        if (event) event.resolution_id = resolutionId;
+        this._queueWrite('linkResolution', async () => {
+          await this._requireClient().run('UPDATE ai_triage_events SET resolution_id = ? WHERE id = ?', [resolutionId, eventId]);
+        });
+      } else {
+        this.db.prepare('UPDATE ai_triage_events SET resolution_id = ? WHERE id = ?')
+          .run(resolutionId, eventId);
+      }
 
       if (success) {
         this.broadcastToSSE({
@@ -833,15 +1173,50 @@ class AITriageEngine {
   // ─── RESOLUTION LOGGING ──────────────────────────────────────────────────
 
   _logResolution(id, churchId, eventId, fingerprint, action, command, success, durationMs, notes = '') {
+    const createdAt = new Date().toISOString();
+    if (!this.db) {
+      this._cacheResolution({
+        id,
+        church_id: churchId,
+        event_id: eventId,
+        symptom_fingerprint: fingerprint,
+        action_taken: action,
+        action_command: command || null,
+        success: success ? 1 : 0,
+        duration_ms: durationMs,
+        notes,
+        created_at: createdAt,
+      });
+      this._queueWrite('logResolution', async () => {
+        await this._requireClient().run(`
+          INSERT INTO ai_resolutions (id, church_id, event_id, symptom_fingerprint, action_taken,
+            action_command, success, duration_ms, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [id, churchId, eventId, fingerprint, action, command || null,
+          success ? 1 : 0, durationMs, notes, createdAt]);
+      });
+      return;
+    }
+
     this.db.prepare(`
       INSERT INTO ai_resolutions (id, church_id, event_id, symptom_fingerprint, action_taken,
         action_command, success, duration_ms, notes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, churchId, eventId, fingerprint, action, command || null,
-      success ? 1 : 0, durationMs, notes, new Date().toISOString());
+      success ? 1 : 0, durationMs, notes, createdAt);
   }
 
   _getRecentResolutionFailures(churchId, fingerprint) {
+    if (!this.db) {
+      const cutoff = Date.now() - 60 * 60 * 1000;
+      return this._resolutionCache.filter(row => {
+        if (String(row.church_id || '') !== String(churchId)) return false;
+        if (String(row.symptom_fingerprint || '') !== String(fingerprint)) return false;
+        if (Number(row.success) !== 0) return false;
+        const ts = Date.parse(row.created_at || '');
+        return !Number.isNaN(ts) && ts > cutoff;
+      }).length;
+    }
     try {
       const row = this.db.prepare(`
         SELECT COUNT(*) as cnt FROM ai_resolutions
@@ -860,6 +1235,19 @@ class AITriageEngine {
    * Get recent triage events, optionally filtered by church.
    */
   getRecentEvents({ churchId, limit = 50, offset = 0, severity, timeContext } = {}) {
+    if (!this.db) {
+      const rows = this._eventCache.filter(row => {
+        if (churchId && String(row.church_id || '') !== String(churchId)) return false;
+        if (severity && String(row.triage_severity || '') !== String(severity)) return false;
+        if (timeContext && String(row.time_context || '') !== String(timeContext)) return false;
+        return true;
+      }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      return rows.slice(offset, offset + limit).map(row => {
+        const next = this._clone(row);
+        try { next.details = JSON.parse(next.details); } catch { next.details = {}; }
+        return next;
+      });
+    }
     let sql = 'SELECT * FROM ai_triage_events WHERE 1=1';
     const params = [];
 
@@ -886,6 +1274,70 @@ class AITriageEngine {
     const daysModifier = `-${safeDays} days`;
     const churchFilter = churchId ? 'AND church_id = ?' : '';
     const params = churchId ? [churchId] : [];
+
+    if (!this.db) {
+      const cutoff = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+      const events = this._eventCache.filter(row => {
+        if (churchId && String(row.church_id || '') !== String(churchId)) return false;
+        const ts = Date.parse(row.created_at || '');
+        return !Number.isNaN(ts) && ts > cutoff;
+      });
+      const resolutions = this._resolutionCache.filter(row => {
+        if (churchId && String(row.church_id || '') !== String(churchId)) return false;
+        const ts = Date.parse(row.created_at || '');
+        return !Number.isNaN(ts) && ts > cutoff;
+      });
+
+      const severityDistMap = new Map();
+      const timeCtxDistMap = new Map();
+      const alertMap = new Map();
+      const trendMap = new Map();
+      for (const row of events) {
+        severityDistMap.set(row.triage_severity, (severityDistMap.get(row.triage_severity) || 0) + 1);
+        timeCtxDistMap.set(row.time_context, (timeCtxDistMap.get(row.time_context) || 0) + 1);
+        const alert = alertMap.get(row.alert_type) || { alert_type: row.alert_type, count: 0, scoreTotal: 0 };
+        alert.count += 1;
+        alert.scoreTotal += Number(row.triage_score || 0);
+        alertMap.set(row.alert_type, alert);
+
+        const day = String(row.created_at || '').slice(0, 10);
+        const trend = trendMap.get(day) || { day, count: 0, critical: 0, high: 0, medium: 0, low: 0 };
+        trend.count += 1;
+        if (row.triage_severity === 'critical') trend.critical += 1;
+        if (row.triage_severity === 'high') trend.high += 1;
+        if (row.triage_severity === 'medium') trend.medium += 1;
+        if (row.triage_severity === 'low') trend.low += 1;
+        trendMap.set(day, trend);
+      }
+
+      const total_events = events.length;
+      const successes = resolutions.filter(row => Number(row.success) === 1).length;
+
+      return {
+        total_events,
+        severity_distribution: [...severityDistMap.entries()].map(([triage_severity, count]) => ({ triage_severity, count })),
+        time_context_distribution: [...timeCtxDistMap.entries()].map(([time_context, count]) => ({ time_context, count })),
+        resolution_rate: resolutions.length ? Math.round((successes / resolutions.length) * 100) : 0,
+        resolution_total: resolutions.length,
+        resolution_successes: successes,
+        top_alert_types: [...alertMap.values()]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10)
+          .map(row => ({ alert_type: row.alert_type, count: row.count, avg_score: Math.round((row.scoreTotal / row.count) * 10) / 10 })),
+        daily_trend: [...trendMap.values()].sort((a, b) => String(a.day).localeCompare(String(b.day))),
+        avg_score_by_context: [...events.reduce((acc, row) => {
+          const item = acc.get(row.time_context) || { time_context: row.time_context, total: 0, count: 0 };
+          item.total += Number(row.triage_score || 0);
+          item.count += 1;
+          acc.set(row.time_context, item);
+          return acc;
+        }, new Map()).values()].map(row => ({
+          time_context: row.time_context,
+          avg_score: row.count ? Math.round((row.total / row.count) * 10) / 10 : 0,
+          count: row.count,
+        })),
+      };
+    }
 
     // Total events
     const totalRow = this.db.prepare(`
@@ -963,6 +1415,15 @@ class AITriageEngine {
    * Get all church AI mode settings (for admin overview).
    */
   getAllChurchModes() {
+    if (!this.db) {
+      return [...this._settingsCache.values()].map(settings => ({
+        church_id: settings.church_id,
+        ai_mode: settings.ai_mode,
+        sensitivity_threshold: settings.sensitivity_threshold,
+        updated_at: settings.updated_at,
+        church_name: this._churchCache.get(settings.church_id)?.name || null,
+      }));
+    }
     const rows = this.db.prepare(`
       SELECT cas.church_id, cas.ai_mode, cas.sensitivity_threshold, cas.updated_at,
              c.name as church_name
@@ -1006,6 +1467,9 @@ class AITriageEngine {
   // ─── UTILITY ─────────────────────────────────────────────────────────────
 
   _getTimezone(churchId) {
+    if (!this.db) {
+      return this._churchCache.get(churchId)?.timezone || '';
+    }
     try {
       const row = this.db.prepare('SELECT timezone FROM churches WHERE churchId = ?').get(churchId);
       return row?.timezone || '';
@@ -1049,6 +1513,29 @@ class AITriageEngine {
   cleanup(retainDays = 90) {
     const safeRetain = Math.max(1, Math.min(365, Math.floor(Number(retainDays)) || 90));
     const modifier = `-${safeRetain} days`;
+    const cutoff = new Date(Date.now() - safeRetain * 24 * 60 * 60 * 1000).toISOString();
+    if (!this.db) {
+      const cutoffMs = Date.parse(cutoff);
+      this._eventCache = this._eventCache.filter(row => {
+        const ts = Date.parse(row.created_at || '');
+        return Number.isNaN(ts) || ts > cutoffMs;
+      });
+      this._resolutionCache = this._resolutionCache.filter(row => {
+        const ts = Date.parse(row.created_at || '');
+        return Number.isNaN(ts) || ts > cutoffMs;
+      });
+      this._queueWrite('cleanup', async () => {
+        const client = this._requireClient();
+        if (client.driver === 'postgres') {
+          await client.run('DELETE FROM ai_triage_events WHERE created_at < ?', [cutoff]);
+          await client.run('DELETE FROM ai_resolutions WHERE created_at < ?', [cutoff]);
+          return;
+        }
+        await client.run(`DELETE FROM ai_triage_events WHERE created_at < datetime('now', ?)`, [modifier]);
+        await client.run(`DELETE FROM ai_resolutions WHERE created_at < datetime('now', ?)`, [modifier]);
+      });
+      return;
+    }
     try {
       const result = this.db.prepare(
         `DELETE FROM ai_triage_events WHERE created_at < datetime('now', ?)`

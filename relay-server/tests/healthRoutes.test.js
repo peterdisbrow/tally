@@ -7,6 +7,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createRequire } from 'module';
+import Database from 'better-sqlite3';
+import { SqliteQueryClient } from '../src/db/queryClient.js';
 
 const require = createRequire(import.meta.url);
 const setupHealthRoutes = require('../src/routes/health.js');
@@ -41,6 +43,17 @@ function callRoute(routes, path, reqOverrides = {}) {
     status: (code) => { sentStatus = code; return { json: (body) => { sentJson = body; } }; },
   };
   routes[path]({ ...reqOverrides }, res);
+  return { body: sentJson, status: sentStatus };
+}
+
+async function callRouteAsync(routes, path, reqOverrides = {}) {
+  let sentJson = null;
+  let sentStatus = 200;
+  const res = {
+    json: (body) => { sentJson = body; },
+    status: (code) => { sentStatus = code; return { json: (body) => { sentJson = body; } }; },
+  };
+  await routes[path]({ ...reqOverrides }, res);
   return { body: sentJson, status: sentStatus };
 }
 
@@ -152,6 +165,22 @@ describe('GET /api/health — detailed health', () => {
     setupHealthRoutes(app, ctx);
     const { body } = callRoute(routes, '/api/health');
     expect(body.connectedChurches).toBe(1);
+  });
+
+  it('uses queryClient for DB checks when only async client access is available', async () => {
+    const sqlite = new Database(':memory:');
+    const queryClient = new SqliteQueryClient(sqlite);
+    const ctx = makeCtx({ queryClient });
+    const { app, routes } = makeApp();
+
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/api/health');
+
+    expect(body.database.status).toBe('ok');
+    expect(typeof body.database.latency_ms).toBe('number');
+
+    await queryClient.close();
+    sqlite.close();
   });
 });
 

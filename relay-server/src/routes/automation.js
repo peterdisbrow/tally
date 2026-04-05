@@ -58,39 +58,52 @@ module.exports = function setupAutomationRoutes(app, ctx) {
 
   // ─── PRESET LIBRARY ──────────────────────────────────────────────────────────
 
-  app.get('/api/churches/:churchId/presets', requireChurchOrAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/presets', requireChurchOrAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    res.json(presetLibrary.list(req.params.churchId));
+    try {
+      const presets = await presetLibrary.list(req.params.churchId);
+      res.json(presets);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.post('/api/churches/:churchId/presets', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/presets', requireChurchOrAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const { name, type, data } = req.body;
     if (!name || !type || !data) return res.status(400).json({ error: 'name, type, and data required' });
     try {
-      const id = presetLibrary.save(req.params.churchId, name, type, data);
+      const id = await presetLibrary.save(req.params.churchId, name, type, data);
       res.json({ id, name, type, saved: true });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
-  app.get('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const preset = presetLibrary.get(req.params.churchId, req.params.name);
-    if (!preset) return res.status(404).json({ error: 'Preset not found' });
-    res.json(preset);
+    try {
+      const preset = await presetLibrary.get(req.params.churchId, req.params.name);
+      if (!preset) return res.status(404).json({ error: 'Preset not found' });
+      res.json(preset);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
-  app.delete('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, (req, res) => {
+  app.delete('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const deleted = presetLibrary.delete(req.params.churchId, req.params.name);
-    if (!deleted) return res.status(404).json({ error: 'Preset not found' });
-    res.json({ deleted: true });
+    try {
+      const deleted = await presetLibrary.delete(req.params.churchId, req.params.name);
+      if (!deleted) return res.status(404).json({ error: 'Preset not found' });
+      res.json({ deleted: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, async (req, res) => {

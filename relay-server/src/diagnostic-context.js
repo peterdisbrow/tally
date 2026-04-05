@@ -17,14 +17,25 @@
  * Build a diagnostic context block for Sonnet.
  *
  * @param {string} churchId
- * @param {object} db - SQLite database instance (better-sqlite3)
+ * @param {object} db - SQLite database instance or query client
  * @param {Map} churches - runtime church map (churchId → { status, name, ... })
  * @param {object} [signalFailover] - SignalFailover instance (optional)
  * @returns {string} Formatted context text for system prompt injection (~500-1500 tokens)
  */
-function buildDiagnosticContext(churchId, db, churches, signalFailover) {
+async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
   const sections = [];
   const church = churches.get(churchId);
+  const useClient = db && typeof db.queryOne === 'function';
+  const qAll = async (sql, params = []) => {
+    if (useClient) return db.query(sql, params);
+    if (db && typeof db.prepare === 'function') return db.prepare(sql).all(...params);
+    return [];
+  };
+  const qOne = async (sql, params = []) => {
+    if (useClient) return db.queryOne(sql, params);
+    if (db && typeof db.prepare === 'function') return db.prepare(sql).get(...params) || null;
+    return null;
+  };
 
   // ── 1. Current device status snapshot ───────────────────────────────────
   if (church?.status) {
@@ -130,10 +141,10 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
 
   // ── 2. Recent alerts ────────────────────────────────────────────────────
   try {
-    const alerts = db.prepare(
+    const alerts = await qAll(
       `SELECT alert_type, severity, context, created_at, acknowledged_at, resolved
        FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 15`
-    ).all(churchId);
+    , [churchId]);
 
     if (alerts.length > 0) {
       const lines = ['RECENT ALERTS (last 15):'];
@@ -158,9 +169,9 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
 
   // ── 3. Current/recent service session ───────────────────────────────────
   try {
-    const session = db.prepare(
+    const session = await qOne(
       `SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1`
-    ).get(churchId);
+    , [churchId]);
 
     if (session) {
       const started = new Date(session.started_at);
@@ -175,9 +186,9 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
 
       // Session events (timeline)
       try {
-        const events = db.prepare(
+        const events = await qAll(
           'SELECT event_type, details, timestamp, auto_resolved, resolved FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT 20'
-        ).all(session.id);
+        , [session.id]);
 
         if (events.length > 0) {
           lines.push('  Timeline:');
@@ -224,11 +235,11 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
 
   // ── 5. Church memory (learned observations) ─────────────────────────────
   try {
-    const memories = db.prepare(
+    const memories = await qAll(
       `SELECT category, summary, confidence, observation_count, last_seen
        FROM church_memory WHERE church_id = ? AND active = 1
        ORDER BY confidence DESC LIMIT 10`
-    ).all(churchId);
+    , [churchId]);
 
     if (memories.length > 0) {
       const lines = ['LEARNED OBSERVATIONS:'];
@@ -242,7 +253,7 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
 
   // ── 6. Engineer profile ─────────────────────────────────────────────────
   try {
-    const churchRow = db.prepare('SELECT engineer_profile FROM churches WHERE churchId = ?').get(churchId);
+    const churchRow = await qOne('SELECT engineer_profile FROM churches WHERE churchId = ?', [churchId]);
     if (churchRow?.engineer_profile) {
       const profile = JSON.parse(churchRow.engineer_profile);
       if (Object.keys(profile).length > 0) {

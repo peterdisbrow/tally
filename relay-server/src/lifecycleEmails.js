@@ -17,11 +17,36 @@
 const DOWNLOAD_MAC_URL = 'https://github.com/peterdisbrow/tally/releases/download/v1.0.1/Tally-signed.dmg';
 
 class LifecycleEmails {
-  constructor(db, { resendApiKey, fromEmail, appUrl }) {
-    this.db = db;
+  constructor(db, { resendApiKey, fromEmail, appUrl, queryClient } = {}) {
+    const looksLikeQueryClient = !queryClient
+      && db
+      && typeof db.query === 'function'
+      && typeof db.run === 'function'
+      && typeof db.prepare !== 'function';
+
+    this.db = looksLikeQueryClient ? null : db;
+    this.queryClient = queryClient || (looksLikeQueryClient ? db : null);
     this.resendApiKey = resendApiKey || '';
     this.fromEmail = fromEmail || 'Tally <noreply@tallyconnect.app>';
     this.appUrl = appUrl || 'https://tallyconnect.app';
+    this._writeQueue = Promise.resolve();
+    this._cache = {
+      churchesById: new Map(),
+      preferencesByChurchId: new Map(),
+      overridesByEmailType: new Map(),
+      emailSends: [],
+      salesLeadsByEmail: new Map(),
+    };
+    this.ready = this._bootstrap();
+  }
+
+  async _bootstrap() {
+    if (this.queryClient) {
+      await this._ensureSchemaAsync();
+      await this.refreshCache();
+      return;
+    }
+
     this._ensureSchema();
   }
 
@@ -76,6 +101,192 @@ class LifecycleEmails {
     `);
   }
 
+  async _ensureSchemaAsync() {
+    const idColumn = this.queryClient?.driver === 'postgres'
+      ? 'BIGSERIAL PRIMARY KEY'
+      : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+    const statements = [
+      `
+      CREATE TABLE IF NOT EXISTS email_sends (
+        id ${idColumn},
+        church_id TEXT NOT NULL,
+        email_type TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        sent_at TEXT NOT NULL,
+        resend_id TEXT,
+        UNIQUE(church_id, email_type)
+      )`,
+      `
+      CREATE TABLE IF NOT EXISTS email_template_overrides (
+        email_type TEXT PRIMARY KEY,
+        subject TEXT,
+        html TEXT,
+        updated_at TEXT NOT NULL
+      )`,
+      `ALTER TABLE email_sends ADD COLUMN subject TEXT`,
+      `
+      CREATE TABLE IF NOT EXISTS email_preferences (
+        church_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (church_id, category)
+      )`,
+      `
+      CREATE TABLE IF NOT EXISTS sales_leads (
+        id ${idColumn},
+        email TEXT NOT NULL UNIQUE,
+        name TEXT,
+        church_name TEXT,
+        source TEXT DEFAULT 'website',
+        captured_at TEXT NOT NULL,
+        status TEXT DEFAULT 'active'
+      )`,
+    ];
+
+    for (const sql of statements) {
+      try {
+        await this._exec(sql);
+      } catch {
+        // Column migration and "already exists" paths are intentionally best-effort.
+      }
+    }
+  }
+
+  async refreshCache() {
+    if (!this.queryClient) return this._cache;
+
+    const [churches, preferences, overrides, emailSends, leads] = await Promise.all([
+      this._queryAll('SELECT churchId, name FROM churches'),
+      this._queryAll('SELECT church_id, category, enabled, updated_at FROM email_preferences'),
+      this._queryAll('SELECT email_type, subject, html, updated_at FROM email_template_overrides'),
+      this._queryAll('SELECT id, church_id, email_type, recipient, sent_at, resend_id, subject FROM email_sends'),
+      this._queryAll('SELECT id, email, name, church_name, source, captured_at, status FROM sales_leads'),
+    ].map(async (promise) => {
+      try { return await promise; } catch { return []; }
+    }));
+
+    this._cache.churchesById = new Map(
+      (churches || []).map((row) => [row.churchId || row.church_id || row.id, row])
+    );
+
+    const prefsByChurchId = new Map();
+    for (const row of preferences || []) {
+      const current = prefsByChurchId.get(row.church_id) || {};
+      current[row.category] = Number(row.enabled) === 1;
+      prefsByChurchId.set(row.church_id, current);
+    }
+    this._cache.preferencesByChurchId = prefsByChurchId;
+
+    this._cache.overridesByEmailType = new Map(
+      (overrides || []).map((row) => [row.email_type, row])
+    );
+
+    this._cache.emailSends = [...(emailSends || [])].sort(
+      (a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
+    );
+
+    this._cache.salesLeadsByEmail = new Map(
+      (leads || []).map((row) => [row.email, row])
+    );
+
+    return this._cache;
+  }
+
+  async _exec(sql) {
+    if (this.queryClient) return this.queryClient.exec(sql);
+    return this.db.exec(sql);
+  }
+
+  async _queryAll(sql, params = []) {
+    if (this.queryClient) return this.queryClient.query(sql, params);
+    return this.db.prepare(sql).all(...params);
+  }
+
+  async _queryOne(sql, params = []) {
+    if (this.queryClient) return this.queryClient.queryOne(sql, params);
+    return this.db.prepare(sql).get(...params) || null;
+  }
+
+  async _queryValue(sql, params = []) {
+    if (this.queryClient) return this.queryClient.queryValue(sql, params);
+    const row = this.db.prepare(sql).get(...params);
+    if (!row) return null;
+    const [firstValue] = Object.values(row);
+    return firstValue ?? null;
+  }
+
+  async _selectAll(sql, params = []) {
+    return this._queryAll(sql, params);
+  }
+
+  async _selectOne(sql, params = []) {
+    return this._queryOne(sql, params);
+  }
+
+  async _count(sql, params = []) {
+    const row = await this._queryOne(sql, params);
+    if (!row) return 0;
+    const values = Object.values(row);
+    return Number(values[0] || 0);
+  }
+
+  async _run(sql, params = []) {
+    if (this.queryClient) return this.queryClient.run(sql, params);
+    return this.db.prepare(sql).run(...params);
+  }
+
+  _queueWrite(task) {
+    if (!this.queryClient) {
+      return Promise.resolve().then(task);
+    }
+
+    const run = async () => {
+      try {
+        return await task();
+      } catch (e) {
+        console.error(`[LifecycleEmails] Queued write failed: ${e.message}`);
+        return null;
+      }
+    };
+
+    this._writeQueue = this._writeQueue.then(run, run);
+    return this._writeQueue;
+  }
+
+  _cacheChurch(church) {
+    if (!church?.churchId) return;
+    this._cache.churchesById.set(church.churchId, church);
+  }
+
+  _cachePreference(churchId, category, enabled) {
+    const current = { ...(this._cache.preferencesByChurchId.get(churchId) || {}) };
+    current[category] = !!enabled;
+    this._cache.preferencesByChurchId.set(churchId, current);
+  }
+
+  _cacheOverride(emailType, row) {
+    if (!row) {
+      this._cache.overridesByEmailType.delete(emailType);
+      return;
+    }
+    this._cache.overridesByEmailType.set(emailType, row);
+  }
+
+  _cacheSend(row) {
+    if (!row) return;
+    const key = `${row.church_id || row.churchId || 'admin'}::${row.email_type}`;
+    this._cache.emailSends = [
+      row,
+      ...this._cache.emailSends.filter((entry) => `${entry.church_id || entry.churchId || 'admin'}::${entry.email_type}` !== key),
+    ];
+  }
+
+  _cacheLead(row) {
+    if (!row?.email) return;
+    this._cache.salesLeadsByEmail.set(row.email, row);
+  }
+
   // ─── CORE SEND ──────────────────────────────────────────────────────────────
 
   /**
@@ -83,6 +294,8 @@ class LifecycleEmails {
    * Returns { sent, id?, reason? }
    */
   async sendEmail({ churchId, emailType, to, subject, html, text }) {
+    await this.ready;
+
     // Check if already sent
     if (this._hasSent(churchId, emailType)) {
       return { sent: false, reason: 'already-sent' };
@@ -174,6 +387,10 @@ class LifecycleEmails {
   _isOptedOut(churchId, emailType) {
     const category = this._getCategoryForType(emailType);
     if (!category) return false; // uncategorized always sends
+    if (this.queryClient) {
+      const prefs = this._cache.preferencesByChurchId.get(churchId);
+      return prefs ? prefs[category] === false : false;
+    }
     try {
       const row = this.db.prepare(
         'SELECT enabled FROM email_preferences WHERE church_id = ? AND category = ?'
@@ -187,6 +404,15 @@ class LifecycleEmails {
     const prefs = {};
     for (const cat of Object.keys(LifecycleEmails.EMAIL_CATEGORIES)) {
       prefs[cat] = true; // default enabled
+    }
+    if (this.queryClient) {
+      const cached = this._cache.preferencesByChurchId.get(churchId);
+      if (cached) {
+        for (const [cat, enabled] of Object.entries(cached)) {
+          if (cat in prefs) prefs[cat] = !!enabled;
+        }
+      }
+      return prefs;
     }
     try {
       const rows = this.db.prepare(
@@ -203,6 +429,14 @@ class LifecycleEmails {
   setPreference(churchId, category, enabled) {
     if (!(category in LifecycleEmails.EMAIL_CATEGORIES)) return false;
     const now = new Date().toISOString();
+    if (this.queryClient) {
+      this._cachePreference(churchId, category, enabled);
+      void this._queueWrite(() => this._run(
+        'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)',
+        [churchId, category, enabled ? 1 : 0, now],
+      ));
+      return true;
+    }
     try {
       this.db.prepare(
         'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)'
@@ -212,6 +446,11 @@ class LifecycleEmails {
   }
 
   _hasSent(churchId, emailType) {
+    if (this.queryClient) {
+      return this._cache.emailSends.some(
+        (row) => (row.church_id || row.churchId) === churchId && row.email_type === emailType
+      );
+    }
     const row = this.db.prepare(
       'SELECT 1 FROM email_sends WHERE church_id = ? AND email_type = ?'
     ).get(churchId, emailType);
@@ -219,6 +458,23 @@ class LifecycleEmails {
   }
 
   _recordSend(churchId, emailType, recipient, sentAt, resendId, subject) {
+    if (this.queryClient) {
+      const row = {
+        church_id: churchId,
+        email_type: emailType,
+        recipient,
+        sent_at: sentAt,
+        resend_id: resendId || null,
+        subject: subject || null,
+      };
+      this._cacheSend(row);
+      this._cacheChurch({ churchId, name: this._cache.churchesById.get(churchId)?.name || null });
+      void this._queueWrite(() => this._run(
+        'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)',
+        [churchId, emailType, recipient, sentAt, resendId || null, subject || null],
+      ));
+      return;
+    }
     try {
       this.db.prepare(
         'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)'
@@ -409,6 +665,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   async runCheck() {
     try {
+      await this.ready;
+
       // ── Onboarding sequence ──
       await this._checkSetupReminders();
       await this._checkFirstSundayPrep();
@@ -464,7 +722,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const maxAge = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(); // don't nudge after 7 days
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE onboarding_app_connected_at IS NULL
@@ -472,7 +730,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND registeredAt <= ?
         AND registeredAt >= ?
         AND billing_status IN ('trialing', 'active')
-    `).all(cutoff, maxAge);
+    `, [cutoff, maxAge]);
 
     for (const church of churches) {
       const { html, text } = this._buildSetupReminderEmail(church);
@@ -494,7 +752,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
     const maxAge = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE onboarding_app_connected_at IS NOT NULL
@@ -502,7 +760,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND registeredAt <= ?
         AND registeredAt >= ?
         AND billing_status IN ('trialing', 'active')
-    `).all(cutoff, maxAge);
+    `, [cutoff, maxAge]);
 
     for (const church of churches) {
       const { html, text } = this._buildFirstSundayEmail(church);
@@ -524,14 +782,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const cutoff = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
     const maxAge = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE portal_email IS NOT NULL
         AND registeredAt <= ?
         AND registeredAt >= ?
         AND billing_status IN ('trialing', 'active')
-    `).all(cutoff, maxAge);
+    `, [cutoff, maxAge]);
 
     for (const church of churches) {
       const { html, text } = this._buildCheckinEmail(church);
@@ -552,7 +810,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const now = Date.now();
     const sevenDaysFromNow = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email, billing_trial_ends
       FROM churches
       WHERE billing_status = 'trialing'
@@ -560,7 +818,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND billing_trial_ends <= ?
         AND billing_trial_ends > ?
         AND portal_email IS NOT NULL
-    `).all(sevenDaysFromNow, new Date(now).toISOString());
+    `, [sevenDaysFromNow, new Date(now).toISOString()]);
 
     for (const church of churches) {
       const daysLeft = Math.ceil(
@@ -584,7 +842,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const now = Date.now();
     const fiveDaysFromNow = new Date(now + 5 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email, billing_trial_ends
       FROM churches
       WHERE billing_status = 'trialing'
@@ -592,7 +850,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND billing_trial_ends <= ?
         AND billing_trial_ends > ?
         AND portal_email IS NOT NULL
-    `).all(fiveDaysFromNow, new Date(now).toISOString());
+    `, [fiveDaysFromNow, new Date(now).toISOString()]);
 
     for (const church of churches) {
       const daysLeft = Math.ceil(
@@ -618,7 +876,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const now = Date.now();
     const oneDayFromNow = new Date(now + 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email, billing_trial_ends
       FROM churches
       WHERE billing_status = 'trialing'
@@ -626,7 +884,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND billing_trial_ends <= ?
         AND billing_trial_ends > ?
         AND portal_email IS NOT NULL
-    `).all(oneDayFromNow, new Date(now).toISOString());
+    `, [oneDayFromNow, new Date(now).toISOString()]);
 
     for (const church of churches) {
       const { html, text } = this._buildTrialEndingTomorrowEmail(church);
@@ -687,18 +945,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     // Weekly digest is a Pro+ feature (connect/plus get monthly reports at most)
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email, billing_tier
       FROM churches
       WHERE billing_status IN ('active', 'trialing')
         AND portal_email IS NOT NULL
         AND onboarding_app_connected_at IS NOT NULL
         AND billing_tier IN ('pro', 'managed')
-    `).all();
+    `);
 
     for (const church of churches) {
       const emailType = `weekly-digest-${weekId}`;
-      const stats = this._gatherWeeklyStats(church.churchId, weekAgo);
+      const stats = await this._gatherWeeklyStats(church.churchId, weekAgo);
 
       // Only send if there was some activity (at least one session or event)
       if (stats.totalEvents === 0 && stats.totalSessions === 0) continue;
@@ -723,16 +981,16 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
   }
 
-  _gatherWeeklyStats(churchId, sinceIso) {
+  async _gatherWeeklyStats(churchId, sinceIso) {
     // Events from service_events table
     let totalEvents = 0;
     let criticalEvents = 0;
     let autoRecoveries = 0;
 
     try {
-      const events = this.db.prepare(
+      const events = await this._selectAll(
         "SELECT event_type, resolved, auto_resolved FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'"
-      ).all(churchId, sinceIso);
+      , [churchId, sinceIso]);
 
       totalEvents = events.length;
       const criticalTypes = ['stream_stopped', 'atem_disconnected', 'recording_failed', 'multiple_systems_down'];
@@ -745,10 +1003,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     // Alerts from alerts table
     let totalAlerts = 0;
     try {
-      const alertCount = this.db.prepare(
-        'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND created_at >= ?'
-      ).get(churchId, sinceIso);
-      totalAlerts = alertCount?.cnt || 0;
+      totalAlerts = await this._count(
+        'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND created_at >= ?',
+        [churchId, sinceIso],
+      );
     } catch {
       // alerts table might not exist
     }
@@ -756,10 +1014,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     // Session count from service_sessions table
     let totalSessions = 0;
     try {
-      const sessionCount = this.db.prepare(
-        'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?'
-      ).get(churchId, sinceIso);
-      totalSessions = sessionCount?.cnt || 0;
+      totalSessions = await this._count(
+        'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?',
+        [churchId, sinceIso],
+      );
     } catch {
       // service_sessions table might not exist
     }
@@ -767,10 +1025,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     // Fallback: if no formal sessions but events exist, estimate from distinct event dates
     if (totalSessions === 0 && totalEvents > 0) {
       try {
-        const distinctDays = this.db.prepare(
-          "SELECT COUNT(DISTINCT date(timestamp)) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'"
-        ).get(churchId, sinceIso);
-        totalSessions = distinctDays?.cnt || 0;
+        totalSessions = await this._count(
+          "SELECT COUNT(DISTINCT date(timestamp)) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'",
+          [churchId, sinceIso],
+        );
       } catch {
         // ignore — best-effort estimate
       }
@@ -1497,7 +1755,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     // Find churches cancelled 14-30 days ago that haven't resubscribed
     let cancelledChurches = [];
     try {
-      cancelledChurches = this.db.prepare(`
+      cancelledChurches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email
         FROM churches c
         WHERE c.billing_status IN ('canceled', 'inactive')
@@ -1509,7 +1767,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
               AND bc.updated_at <= ?
               AND bc.updated_at >= ?
           )
-      `).all(fourteenDaysAgo, thirtyDaysAgo);
+      `, [fourteenDaysAgo, thirtyDaysAgo]);
     } catch { return; }
 
     for (const church of cancelledChurches) {
@@ -1562,36 +1820,37 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const minAge = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const maxAge = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND registeredAt <= ?
         AND registeredAt >= ?
-    `).all(minAge, maxAge);
+    `, [minAge, maxAge]);
 
     for (const church of churches) {
       // Check session quality
       let sessionCount = 0, cleanCount = 0;
       try {
-        const sc = this.db.prepare(
-          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?'
-        ).get(church.churchId);
-        sessionCount = sc?.cnt || 0;
-        const cc = this.db.prepare(
-          "SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'"
-        ).get(church.churchId);
-        cleanCount = cc?.cnt || 0;
+        sessionCount = await this._count(
+          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?',
+          [church.churchId],
+        );
+        cleanCount = await this._count(
+          "SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'",
+          [church.churchId],
+        );
       } catch { continue; }
 
       if (sessionCount < 4 || cleanCount < 2) continue;
 
       // Skip if review already submitted
       try {
-        const existing = this.db.prepare(
-          'SELECT 1 FROM church_reviews WHERE church_id = ?'
-        ).get(church.churchId);
+        const existing = await this._selectOne(
+          'SELECT 1 FROM church_reviews WHERE church_id = ?',
+          [church.churchId],
+        );
         if (existing) continue;
       } catch { /* table may not exist yet */ }
 
@@ -1754,7 +2013,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email, bc.grace_period_ends_at
         FROM churches c
         JOIN billing_customers bc ON bc.church_id = c.churchId
@@ -1763,7 +2022,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND bc.grace_period_ends_at IS NOT NULL
           AND bc.grace_period_ends_at <= ?
           AND bc.grace_period_ends_at > ?
-      `).all(twoDaysFromNow, new Date(now).toISOString());
+      `, [twoDaysFromNow, new Date(now).toISOString()]);
     } catch { return; }
 
     for (const church of churches) {
@@ -1877,6 +2136,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // Sent when portal email is changed. Bypasses dedup (like password-reset).
 
   async sendEmailChangeConfirmation(church, { oldEmail, newEmail }) {
+    await this.ready;
     const to = newEmail || church.portal_email;
     if (!to) return { sent: false, reason: 'no-recipient' };
     const { html, text } = this._buildEmailChangeEmail(church, { oldEmail, newEmail });
@@ -1901,7 +2161,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       });
       if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Email change send failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
       const data = await res.json();
-      try { this.db.prepare('INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)').run(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), data.id, 'Your Tally email has been updated'); } catch { }
+      this._recordSend(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), data.id, 'Your Tally email has been updated');
       return { sent: true, id: data.id };
     } catch (e) { return { sent: false, reason: 'network-error' }; }
   }
@@ -2046,6 +2306,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // Bypasses dedup — each escalation gets its own email.
 
   async sendUrgentAlertEscalation(church, { alertType, context, alertId }) {
+    await this.ready;
     const to = church.portal_email;
     if (!to) return { sent: false, reason: 'no-recipient' };
     const { html, text } = this._buildUrgentAlertEmail(church, { alertType, context });
@@ -2069,7 +2330,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       });
       if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Urgent alert email failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
       const data = await res.json();
-      try { this.db.prepare('INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)').run(church.churchId, `urgent-alert-${alertId || Date.now()}`, to, new Date().toISOString(), data.id, `URGENT: ${alertType} at ${church.name}`); } catch { }
+      this._recordSend(church.churchId, `urgent-alert-${alertId || Date.now()}`, to, new Date().toISOString(), data.id, `URGENT: ${alertType} at ${church.name}`);
       return { sent: true, id: data.id };
     } catch (e) { return { sent: false, reason: 'network-error' }; }
   }
@@ -2126,7 +2387,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email
         FROM churches c
         WHERE c.billing_status IN ('canceled', 'inactive')
@@ -2138,7 +2399,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
               AND bc.updated_at <= ?
               AND bc.updated_at >= ?
           )
-      `).all(threeDaysAgo, tenDaysAgo);
+      `, [threeDaysAgo, tenDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
@@ -2198,6 +2459,23 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   captureLead({ email, name, source, churchName }) {
     if (!email) return null;
     const now = new Date().toISOString();
+    if (this.queryClient) {
+      const lead = {
+        id: this._cache.salesLeadsByEmail.get(email)?.id || null,
+        email,
+        name: name || null,
+        church_name: churchName || null,
+        source: source || 'website',
+        captured_at: now,
+        status: 'active',
+      };
+      this._cacheLead(lead);
+      void this._queueWrite(() => this._run(
+        'INSERT OR IGNORE INTO sales_leads (email, name, church_name, source, captured_at) VALUES (?, ?, ?, ?, ?)',
+        [email, name || null, churchName || null, source || 'website', now],
+      ));
+      return lead;
+    }
     try {
       this.db.prepare(
         'INSERT OR IGNORE INTO sales_leads (email, name, church_name, source, captured_at) VALUES (?, ?, ?, ?, ?)'
@@ -2237,9 +2515,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       let leads = [];
       try {
-        leads = this.db.prepare(
-          'SELECT * FROM sales_leads WHERE status = ? AND captured_at <= ? AND captured_at >= ?'
-        ).all('active', maxCapturedAt, minCapturedAt);
+        leads = await this._selectAll(
+          'SELECT * FROM sales_leads WHERE status = ? AND captured_at <= ? AND captured_at >= ?',
+          ['active', maxCapturedAt, minCapturedAt],
+        );
       } catch { continue; }
 
       for (const lead of leads) {
@@ -2509,6 +2788,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ─── SEQUENCE 17: PASSWORD RESET ──────────────────────────────────────────
 
   async sendPasswordReset(church, { resetUrl }) {
+    await this.ready;
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
     const html = this._wrap(`
@@ -2558,6 +2838,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       const data = await res.json();
       console.log(`[LifecycleEmails] Password reset sent to ${church.portal_email}, id: ${data.id}`);
+      this._recordSend(church.churchId, 'password-reset', church.portal_email, new Date().toISOString(), data.id, 'Reset your Tally password');
       return { sent: true, id: data.id };
     } catch (e) {
       console.error(`[LifecycleEmails] Password reset send failed: ${e.message}`);
@@ -2577,7 +2858,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email
         FROM churches c
         WHERE c.billing_status IN ('canceled', 'inactive')
@@ -2589,7 +2870,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
               AND bc.updated_at <= ?
               AND bc.updated_at >= ?
           )
-      `).all(sevenDaysAgo, fourteenDaysAgo);
+      `, [sevenDaysAgo, fourteenDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
@@ -2641,7 +2922,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
     const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE onboarding_app_connected_at IS NULL
@@ -2649,7 +2930,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         AND registeredAt <= ?
         AND registeredAt >= ?
         AND billing_status IN ('trialing', 'active')
-    `).all(tenDaysAgo, fourteenDaysAgo);
+    `, [tenDaysAgo, fourteenDaysAgo]);
 
     for (const church of churches) {
       const { html, text } = this._buildActivationEscalationEmail(church);
@@ -2709,7 +2990,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let upcomingServices = [];
     try {
-      upcomingServices = this.db.prepare(`
+      upcomingServices = await this._selectAll(`
         SELECT ss.church_id, ss.service_time, c.name, c.portal_email, c.churchId
         FROM service_schedules ss
         JOIN churches c ON c.churchId = ss.church_id
@@ -2718,7 +2999,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND c.portal_email IS NOT NULL
           AND c.billing_status IN ('trialing', 'active')
           AND c.onboarding_app_connected_at IS NOT NULL
-      `).all(in24h, in48h);
+      `, [in24h, in48h]);
     } catch { return; } // service_schedules may not exist
 
     for (const svc of upcomingServices) {
@@ -2780,7 +3061,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email, c.billing_tier, bc.subscribed_at
         FROM churches c
         JOIN billing_customers bc ON bc.church_id = c.churchId
@@ -2789,7 +3070,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND bc.subscribed_at IS NOT NULL
           AND bc.subscribed_at <= ?
           AND bc.subscribed_at >= ?
-      `).all(oneDayAgo, twoDaysAgo);
+      `, [oneDayAgo, twoDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
@@ -2934,7 +3215,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email, c.billing_tier, bc.current_period_end
         FROM churches c
         JOIN billing_customers bc ON bc.church_id = c.churchId
@@ -2944,11 +3225,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND bc.current_period_end IS NOT NULL
           AND bc.current_period_end <= ?
           AND bc.current_period_end >= ?
-      `).all(thirtyDaysFromNow, twentyEightDaysFromNow);
+      `, [thirtyDaysFromNow, twentyEightDaysFromNow]);
     } catch { return; }
 
     for (const church of churches) {
-      const { html, text } = this._buildAnnualRenewalReminderEmail(church);
+      const { html, text } = await this._buildAnnualRenewalReminderEmail(church);
       await this.sendEmail({
         churchId: church.churchId,
         emailType: `annual-renewal-reminder-${church.current_period_end?.slice(0, 10) || 'unknown'}`,
@@ -2959,21 +3240,12 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     }
   }
 
-  _buildAnnualRenewalReminderEmail(church) {
+  _renderAnnualRenewalReminderEmail(church, yearStats = null) {
     const portalUrl = `${this.appUrl}/portal`;
     const tierName = this._tierName(church.billing_tier);
     const renewalDate = church.current_period_end
       ? new Date(church.current_period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : '30 days from now';
-
-    // Get year stats if available
-    let yearStats = null;
-    try {
-      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
-      const sessions = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?').get(church.churchId, yearAgo);
-      const autoFixed = this.db.prepare("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?").get(church.churchId, yearAgo);
-      yearStats = { sessions: sessions?.cnt || 0, autoFixed: autoFixed?.cnt || 0 };
-    } catch { /* tables may not exist */ }
 
     const statsHtml = yearStats && (yearStats.sessions > 0 || yearStats.autoFixed > 0) ? `
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
@@ -3008,6 +3280,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
+  async _buildAnnualRenewalReminderEmail(church) {
+    let yearStats = null;
+    try {
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?', [church.churchId, yearAgo]);
+      const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
+      yearStats = { sessions, autoFixed };
+    } catch { /* tables may not exist */ }
+
+    return this._renderAnnualRenewalReminderEmail(church, yearStats);
+  }
+
   // ─── GAP 7: TELEGRAM NOT SET UP NUDGE (Day 5 if no Telegram) ────────────────
 
   async _checkTelegramSetupNudge() {
@@ -3016,7 +3300,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT churchId, name, portal_email
         FROM churches
         WHERE portal_email IS NOT NULL
@@ -3025,7 +3309,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND registeredAt <= ?
           AND registeredAt >= ?
           AND billing_status IN ('trialing', 'active')
-      `).all(fiveDaysAgo, tenDaysAgo);
+      `, [fiveDaysAgo, tenDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
@@ -3077,14 +3361,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     const sixtyFiveDaysAgo = new Date(Date.now() - 65 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND registeredAt <= ?
         AND registeredAt >= ?
-    `).all(sixtyDaysAgo, sixtyFiveDaysAgo);
+    `, [sixtyDaysAgo, sixtyFiveDaysAgo]);
 
     for (const church of churches) {
       const { html, text } = this._buildNPSSurveyEmail(church);
@@ -3140,17 +3424,17 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const threeSixtyFiveDaysAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
     const threeSixtyEightDaysAgo = new Date(Date.now() - 368 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email, billing_tier
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND registeredAt <= ?
         AND registeredAt >= ?
-    `).all(threeSixtyFiveDaysAgo, threeSixtyEightDaysAgo);
+    `, [threeSixtyFiveDaysAgo, threeSixtyEightDaysAgo]);
 
     for (const church of churches) {
-      const { html, text } = this._buildFirstYearAnniversaryEmail(church);
+      const { html, text } = await this._buildFirstYearAnniversaryEmail(church);
       await this.sendEmail({
         churchId: church.churchId,
         emailType: 'first-year-anniversary',
@@ -3161,18 +3445,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     }
   }
 
-  _buildFirstYearAnniversaryEmail(church) {
+  _renderFirstYearAnniversaryEmail(church, yearStats = { sessions: 0, autoFixed: 0 }) {
     const portalUrl = `${this.appUrl}/portal`;
     const tierName = this._tierName(church.billing_tier);
-
-    // Get year stats if available
-    let yearStats = { sessions: 0, autoFixed: 0 };
-    try {
-      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
-      const s = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?').get(church.churchId, yearAgo);
-      const a = this.db.prepare("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?").get(church.churchId, yearAgo);
-      yearStats = { sessions: s?.cnt || 0, autoFixed: a?.cnt || 0 };
-    } catch { /* tables may not exist */ }
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">One year with Tally</h1>
@@ -3206,27 +3481,38 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
+  async _buildFirstYearAnniversaryEmail(church) {
+    let yearStats = { sessions: 0, autoFixed: 0 };
+    try {
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?', [church.churchId, yearAgo]);
+      const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
+      yearStats = { sessions, autoFixed };
+    } catch { /* tables may not exist */ }
+
+    return this._renderFirstYearAnniversaryEmail(church, yearStats);
+  }
+
   // ─── GAP 10: REFERRAL PROGRAM INVITE (Day 90, 4+ sessions) ────────────────
 
   async _checkReferralInvite() {
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const ninetyFiveDaysAgo = new Date(Date.now() - 95 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND registeredAt <= ?
         AND registeredAt >= ?
-    `).all(ninetyDaysAgo, ninetyFiveDaysAgo);
+    `, [ninetyDaysAgo, ninetyFiveDaysAgo]);
 
     for (const church of churches) {
       // Need 4+ sessions
       let sessionCount = 0;
       try {
-        const sc = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?').get(church.churchId);
-        sessionCount = sc?.cnt || 0;
+        sessionCount = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?', [church.churchId]);
       } catch { continue; }
       if (sessionCount < 4) continue;
 
@@ -3286,22 +3572,23 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async _checkInactivityAlert() {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND onboarding_app_connected_at IS NOT NULL
         AND registeredAt <= ?
-    `).all(thirtyDaysAgo);
+    `, [thirtyDaysAgo]);
 
     for (const church of churches) {
       // Check last session date
       let lastSessionAt = null;
       try {
-        const row = this.db.prepare(
-          'SELECT MAX(started_at) as last_at FROM service_sessions WHERE church_id = ?'
-        ).get(church.churchId);
+        const row = await this._selectOne(
+          'SELECT MAX(started_at) as last_at FROM service_sessions WHERE church_id = ?',
+          [church.churchId],
+        );
         lastSessionAt = row?.last_at;
       } catch { continue; }
 
@@ -3363,7 +3650,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT churchId, name, portal_email
         FROM churches
         WHERE portal_email IS NOT NULL
@@ -3371,14 +3658,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND registeredAt <= ?
           AND registeredAt >= ?
           AND billing_status IN ('trialing', 'active')
-      `).all(sevenDaysAgo, fourteenDaysAgo);
+      `, [sevenDaysAgo, fourteenDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
       // Skip if schedule already has entries
       let hasSchedule = false;
       try {
-        const row = this.db.prepare('SELECT 1 FROM service_schedules WHERE church_id = ? LIMIT 1').get(church.churchId);
+        const row = await this._selectOne('SELECT 1 FROM service_schedules WHERE church_id = ? LIMIT 1', [church.churchId]);
         hasSchedule = !!row;
       } catch { /* table may not exist */ }
       if (hasSchedule) continue;
@@ -3429,7 +3716,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT churchId, name, portal_email, billing_tier
         FROM churches
         WHERE portal_email IS NOT NULL
@@ -3438,15 +3725,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND registeredAt >= ?
           AND billing_status IN ('trialing', 'active')
           AND billing_tier IN ('plus', 'pro', 'managed')
-      `).all(twentyOneDaysAgo, twentyEightDaysAgo);
+      `, [twentyOneDaysAgo, twentyEightDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
       // Skip if they already have multiple rooms or cameras
       let roomCount = 0;
       try {
-        const row = this.db.prepare('SELECT COUNT(*) as cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(church.churchId);
-        roomCount = row?.cnt || 0;
+        roomCount = await this._count('SELECT COUNT(*) as cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL', [church.churchId]);
       } catch { /* table may not exist */ }
       if (roomCount > 1) continue;
 
@@ -3496,7 +3782,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT churchId, name, portal_email
         FROM churches
         WHERE portal_email IS NOT NULL
@@ -3504,16 +3790,17 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND registeredAt <= ?
           AND registeredAt >= ?
           AND billing_status IN ('active')
-      `).all(thirtyDaysAgo, fortyDaysAgo);
+      `, [thirtyDaysAgo, fortyDaysAgo]);
     } catch { return; }
 
     for (const church of churches) {
       // Skip if they have any stream platform configured
       let hasPlatform = false;
       try {
-        const row = this.db.prepare(
-          "SELECT 1 FROM stream_platforms WHERE church_id = ? AND status = 'active' LIMIT 1"
-        ).get(church.churchId);
+        const row = await this._selectOne(
+          "SELECT 1 FROM stream_platforms WHERE church_id = ? AND status = 'active' LIMIT 1",
+          [church.churchId],
+        );
         hasPlatform = !!row;
       } catch { /* table may not exist */ }
       if (hasPlatform) continue;
@@ -3562,12 +3849,12 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async sendFeatureAnnouncement({ featureKey, subject, headline, body, ctaText, ctaUrl }) {
     if (!featureKey) return { sent: 0, skipped: 0 };
 
-    const churches = this.db.prepare(`
+    const churches = await this._selectAll(`
       SELECT churchId, name, portal_email
       FROM churches
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
-    `).all();
+    `);
 
     let sent = 0, skipped = 0;
     for (const church of churches) {
@@ -3620,7 +3907,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     let churches = [];
     try {
-      churches = this.db.prepare(`
+      churches = await this._selectAll(`
         SELECT c.churchId, c.name, c.portal_email, bc.grace_period_ends_at
         FROM churches c
         JOIN billing_customers bc ON bc.church_id = c.churchId
@@ -3629,7 +3916,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           AND bc.grace_period_ends_at IS NOT NULL
           AND bc.grace_period_ends_at <= ?
           AND bc.grace_period_ends_at > ?
-      `).all(fiveDaysFromNow, threeDaysFromNow);
+      `, [fiveDaysFromNow, threeDaysFromNow]);
     } catch { return; }
 
     for (const church of churches) {
@@ -3705,6 +3992,25 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   /** Get email send history with optional filters */
   getEmailHistory({ limit = 50, offset = 0, emailType, churchId } = {}) {
+    if (this.queryClient) {
+      const filtered = this._cache.emailSends.filter((row) => {
+        if (emailType && !String(row.email_type || '').includes(emailType)) return false;
+        if (churchId && (row.church_id || row.churchId) !== churchId) return false;
+        return true;
+      });
+
+      const rows = filtered
+        .slice()
+        .sort((a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime())
+        .slice(offset, offset + limit)
+        .map((row) => ({
+          ...row,
+          church_name: this._cache.churchesById.get(row.church_id || row.churchId)?.name || null,
+        }));
+
+      return { rows, total: filtered.length };
+    }
+
     const where = [];
     const params = [];
 
@@ -3737,6 +4043,32 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   /** Get stats for email dashboard */
   getEmailStats() {
+    if (this.queryClient) {
+      const total = this._cache.emailSends.length;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const byType = new Map();
+
+      let today = 0;
+      let thisWeek = 0;
+      for (const row of this._cache.emailSends) {
+        const sentAt = new Date(row.sent_at);
+        if (sentAt >= todayStart) today += 1;
+        if (sentAt >= weekAgo) thisWeek += 1;
+        byType.set(row.email_type, (byType.get(row.email_type) || 0) + 1);
+      }
+
+      return {
+        total,
+        today,
+        thisWeek,
+        byType: [...byType.entries()]
+          .map(([email_type, cnt]) => ({ email_type, cnt }))
+          .sort((a, b) => b.cnt - a.cnt),
+      };
+    }
+
     const total = this.db.prepare('SELECT COUNT(*) as cnt FROM email_sends').get()?.cnt || 0;
 
     const todayStart = new Date();
@@ -3759,10 +4091,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   /** Get all template types with override status */
   getTemplateList() {
     const overrides = new Set();
-    try {
-      const rows = this.db.prepare('SELECT email_type FROM email_template_overrides').all();
-      rows.forEach(r => overrides.add(r.email_type));
-    } catch { /* table might not exist yet */ }
+    if (this.queryClient) {
+      this._cache.overridesByEmailType.forEach((_, emailType) => overrides.add(emailType));
+    } else {
+      try {
+        const rows = this.db.prepare('SELECT email_type FROM email_template_overrides').all();
+        rows.forEach(r => overrides.add(r.email_type));
+      } catch { /* table might not exist yet */ }
+    }
 
     return LifecycleEmails.EMAIL_REGISTRY.map(entry => ({
       ...entry,
@@ -3772,6 +4108,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   /** Get a template override from DB */
   _getOverride(emailType) {
+    if (this.queryClient) {
+      const baseType = emailType.startsWith('weekly-digest-') ? 'weekly-digest' :
+        emailType.startsWith('upgrade-') ? 'upgrade' : emailType;
+      return this._cache.overridesByEmailType.get(baseType) || null;
+    }
     try {
       // Also check partial matches for dynamic types (weekly-digest-*, upgrade-*-to-*)
       const baseType = emailType.startsWith('weekly-digest-') ? 'weekly-digest' :
@@ -3896,10 +4237,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'pre-service-friday':      () => ({ ...this._buildPreServiceFridayEmail(sampleChurch, new Date(Date.now() + 48 * 60 * 60 * 1000)), subject: 'Two days to Sunday — Tally is watching' }),
       'trial-to-paid-onboarding': () => ({ ...this._buildTrialToPaidOnboardingEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: '3 things to configure now that you\'re on Pro' }),
       'monthly-roi-summary':     () => ({ ...this._buildMonthlyROISummaryEmail(sampleChurch, { month: '2026-03', monthLabel: 'March 2026', servicesMonitored: 8, alertsTriggered: 5, autoRecovered: 4, prevServicesMonitored: 6 }), subject: 'March 2026 at Sample Church — here\'s what Tally prevented' }),
-      'annual-renewal-reminder': () => ({ ...this._buildAnnualRenewalReminderEmail({ ...sampleChurch, billing_tier: 'pro', current_period_end: new Date(Date.now() + 30 * 86400000).toISOString() }), subject: 'Your annual Tally subscription renews in 30 days' }),
+      'annual-renewal-reminder': () => ({ ...this._renderAnnualRenewalReminderEmail({ ...sampleChurch, billing_tier: 'pro', current_period_end: new Date(Date.now() + 30 * 86400000).toISOString() }, { sessions: 48, autoFixed: 6 }), subject: 'Your annual Tally subscription renews in 30 days' }),
       'telegram-setup-nudge':    () => ({ ...this._buildTelegramSetupNudgeEmail(sampleChurch), subject: "You're missing the best part of Tally" }),
       'nps-survey':              () => ({ ...this._buildNPSSurveyEmail(sampleChurch), subject: 'Quick question — how likely are you to recommend Tally?' }),
-      'first-year-anniversary':  () => ({ ...this._buildFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: 'Sample Church just completed one year with Tally' }),
+      'first-year-anniversary':  () => ({ ...this._renderFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }, { sessions: 52, autoFixed: 8 }), subject: 'Sample Church just completed one year with Tally' }),
       'referral-invite':         () => ({ ...this._buildReferralInviteEmail(sampleChurch, { sessionCount: 24 }), subject: 'Know another church production team struggling with the same problems?' }),
       'inactivity-alert':        () => ({ ...this._buildInactivityAlertEmail(sampleChurch), subject: "We haven't seen any services lately — everything okay?" }),
       'feature-announcement':    () => ({ ...this._buildFeatureAnnouncementEmail(sampleChurch, { headline: 'New: AutoPilot scene recall', body: 'AutoPilot now supports ProPresenter scene recall during service transitions.', ctaText: 'See What\'s New', ctaUrl: this.appUrl + '/portal' }), subject: 'New: AutoPilot scene recall' }),
@@ -3923,6 +4264,19 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   /** Save an admin override for a template */
   applyOverride(emailType, { subject, html }) {
     const now = new Date().toISOString();
+    if (this.queryClient) {
+      this._cacheOverride(emailType, { email_type: emailType, subject: subject || null, html: html || null, updated_at: now });
+      void this._queueWrite(() => this._run(`
+      INSERT INTO email_template_overrides (email_type, subject, html, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(email_type) DO UPDATE SET
+        subject = excluded.subject,
+        html = excluded.html,
+        updated_at = excluded.updated_at
+    `, [emailType, subject || null, html || null, now]));
+      console.log(`[LifecycleEmails] Template override saved for "${emailType}"`);
+      return { emailType, subject, updated_at: now };
+    }
     this.db.prepare(`
       INSERT INTO email_template_overrides (email_type, subject, html, updated_at)
       VALUES (?, ?, ?, ?)
@@ -3937,12 +4291,19 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   /** Remove an admin override — reverts to default template */
   removeOverride(emailType) {
+    if (this.queryClient) {
+      this._cacheOverride(emailType, null);
+      void this._queueWrite(() => this._run('DELETE FROM email_template_overrides WHERE email_type = ?', [emailType]));
+      console.log(`[LifecycleEmails] Template override removed for "${emailType}"`);
+      return;
+    }
     this.db.prepare('DELETE FROM email_template_overrides WHERE email_type = ?').run(emailType);
     console.log(`[LifecycleEmails] Template override removed for "${emailType}"`);
   }
 
   /** Send a manual/custom email — bypasses dedup */
   async sendManual({ churchId, emailType, to, subject, html, text }) {
+    await this.ready;
     if (!to) return { sent: false, reason: 'no-recipient' };
 
     const actualType = emailType ? `manual:${emailType}` : 'custom';
@@ -3978,11 +4339,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       const data = await res.json();
       // Record in email_sends (use INSERT without UNIQUE conflict by using the manual: prefix)
-      try {
-        this.db.prepare(
-          'INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(churchId || 'admin', actualType, to, new Date().toISOString(), data.id, subject);
-      } catch { /* ignore duplicate key for manual sends */ }
+      this._recordSend(churchId || 'admin', actualType, to, new Date().toISOString(), data.id, subject);
 
       console.log(`[LifecycleEmails] Manual send "${subject}" to ${to}, id: ${data.id}`);
       return { sent: true, id: data.id };

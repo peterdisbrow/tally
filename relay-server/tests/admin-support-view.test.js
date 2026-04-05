@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { WebSocket } from 'ws';
+import { SqliteQueryClient } from '../src/db/queryClient.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────────────────────
 
@@ -201,6 +202,17 @@ function createMockApp() {
   };
 }
 
+function poisonDb(realDb) {
+  return new Proxy(realDb, {
+    get(target, prop, receiver) {
+      if (prop === 'prepare') {
+        throw new Error('adminPanel queryClient path should not touch db.prepare');
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 function buildReq(overrides = {}) {
   return {
     params: {},
@@ -269,13 +281,13 @@ describe('Admin Support View (Quick Actions)', () => {
   });
 
   // Helper to call a route handler, bypassing auth middleware (first arg is requireAdminSession)
-  function callRoute(method, path, req) {
+  async function callRoute(method, path, req) {
     const args = app.routes[method]?.[path];
     if (!args) throw new Error(`Route not found: ${method} ${path}`);
     // The last arg is the handler, preceding args are middlewares
     const handler = args[args.length - 1];
     const res = buildRes();
-    handler(req, res);
+    await Promise.resolve(handler(req, res));
     return res;
   }
 
@@ -284,7 +296,7 @@ describe('Admin Support View (Quick Actions)', () => {
   describe('GET /api/admin/church/:churchId/support-view', () => {
     const routePath = '/api/admin/church/:churchId/support-view';
 
-    it('returns all expected sections for a valid church', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       seedAlerts(db, 'c1', 3);
       seedSessions(db, 'c1', 2);
@@ -292,7 +304,7 @@ describe('Admin Support View (Quick Actions)', () => {
       seedChatMessages(db, 'c1', 3);
 
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._status).toBe(200);
       const data = res._json;
@@ -307,10 +319,10 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(data).toHaveProperty('config');
     });
 
-    it('returns church info fields correctly', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.church.id).toBe('c1');
       expect(res._json.church.name).toBe('Grace Church');
@@ -319,10 +331,10 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(res._json.church.setup_complete).toBe(true);
     });
 
-    it('includes health score in the response', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.healthScore).toHaveProperty('score');
       // Score can be null (new church with no data) or a number 0-100
@@ -335,33 +347,33 @@ describe('Admin Support View (Quick Actions)', () => {
       }
     });
 
-    it('limits recent alerts to 20', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       seedAlerts(db, 'c1', 30);
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.recentAlerts.length).toBeLessThanOrEqual(20);
     });
 
-    it('limits chat history to 20', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       seedChatMessages(db, 'c1', 30);
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.chatHistory.length).toBeLessThanOrEqual(20);
     });
 
-    it('handles missing church gracefully', () => {
+    it('async test', async () => {
       const req = buildReq({ params: { churchId: 'nonexistent' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._status).toBe(404);
       expect(res._json.error).toMatch(/not found/i);
     });
 
-    it('shows online status when church client is connected', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       churches.set('c1', mockChurchEntry(true, {
         status: { atem: { connected: true }, obs: { connected: true } },
@@ -370,20 +382,54 @@ describe('Admin Support View (Quick Actions)', () => {
       }));
 
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.status.online).toBe(true);
       expect(res._json.status.connectedDevices.atem).toBe(true);
       expect(res._json.status.connectedDevices.obs).toBe(true);
     });
 
-    it('shows offline status when church client is disconnected', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       // No runtime entry means offline
       const req = buildReq({ params: { churchId: 'c1' } });
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._json.status.online).toBe(false);
+    });
+  });
+
+  describe('GET /api/admin/church/:churchId/support-view with queryClient', () => {
+    it('serves the view without touching db.prepare', async () => {
+      const realDb = createTestDb();
+      const queryClient = new SqliteQueryClient(realDb);
+      const localApp = createMockApp();
+      const localChurches = new Map();
+
+      setupAdminPanel(localApp, poisonDb(realDb), localChurches, resellerSystem, {
+        queryClient,
+        jwt: { verify: () => ({ type: 'admin', userId: 'u1', email: 'a@b.com', name: 'Admin', role: 'super_admin' }) },
+        JWT_SECRET: 'test-secret',
+        lifecycleEmails: null,
+        logAudit: () => {},
+        chatEngine: null,
+      });
+
+      seedChurch(realDb, 'c1', 'Grace Church');
+      seedAlerts(realDb, 'c1', 2);
+      seedSessions(realDb, 'c1', 1);
+
+      const req = buildReq({ params: { churchId: 'c1' } });
+      const args = localApp.routes.get['/api/admin/church/:churchId/support-view'];
+      const handler = args[args.length - 1];
+      const res = buildRes();
+      await Promise.resolve(handler(req, res));
+
+      expect(res._status).toBe(200);
+      expect(res._json.healthScore.score).toBeNull();
+      expect(res._json.church.name).toBe('Grace Church');
+
+      realDb.close();
     });
   });
 
@@ -392,13 +438,13 @@ describe('Admin Support View (Quick Actions)', () => {
   describe('POST /api/admin/church/:churchId/send-command', () => {
     const routePath = '/api/admin/church/:churchId/send-command';
 
-    it('validates allowed commands and sends via WebSocket', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       const ws = createMockWs(true);
       churches.set('c1', { ws, sockets: new Map([['_default', ws]]), status: {}, lastSeen: null, lastHeartbeat: null });
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { command: 'restart_stream' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(200);
       expect(res._json.sent).toBe(true);
@@ -410,46 +456,46 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(sentPayload.command).toBe('restart_stream');
     });
 
-    it('rejects unknown commands', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { command: 'delete_everything' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(400);
       expect(res._json.error).toMatch(/Unknown command/i);
     });
 
-    it('rejects when no command provided', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: {} });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(400);
       expect(res._json.error).toMatch(/command required/i);
     });
 
-    it('returns 409 when church client is not connected', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       // Church exists but no runtime / offline WebSocket
       const req = buildReq({ params: { churchId: 'c1' }, body: { command: 'restart_stream' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(409);
       expect(res._json.error).toMatch(/not connected/i);
     });
 
-    it('returns 404 for nonexistent church', () => {
+    it('async test', async () => {
       const req = buildReq({ params: { churchId: 'fake' }, body: { command: 'restart_stream' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(404);
     });
 
-    it('accepts all allowed command types', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       const ws = createMockWs(true);
       churches.set('c1', { ws, sockets: new Map([['_default', ws]]), status: {} });
@@ -463,7 +509,7 @@ describe('Admin Support View (Quick Actions)', () => {
       for (const cmd of allowed) {
         ws.send.mockClear();
         const req = buildReq({ params: { churchId: 'c1' }, body: { command: cmd } });
-        const res = callRoute('post', routePath, req);
+        const res = await callRoute('post', routePath, req);
         expect(res._status).toBe(200);
         expect(res._json.sent).toBe(true);
       }
@@ -475,45 +521,45 @@ describe('Admin Support View (Quick Actions)', () => {
   describe('POST /api/admin/church/:churchId/send-message', () => {
     const routePath = '/api/admin/church/:churchId/send-message';
 
-    it('sends a message and returns success', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { message: 'Try restarting OBS', targets: ['app'] } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(200);
       expect(res._json.sent).toBe(true);
       expect(res._json.targets).toContain('app');
     });
 
-    it('rejects empty message', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { message: '' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(400);
       expect(res._json.error).toMatch(/message required/i);
     });
 
-    it('rejects missing message', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
 
       const req = buildReq({ params: { churchId: 'c1' }, body: {} });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(400);
     });
 
-    it('returns 404 for nonexistent church', () => {
+    it('async test', async () => {
       const req = buildReq({ params: { churchId: 'fake' }, body: { message: 'hello' } });
-      const res = callRoute('post', routePath, req);
+      const res = await callRoute('post', routePath, req);
 
       expect(res._status).toBe(404);
     });
 
-    it('dispatches to chat engine when available', () => {
+    it('dispatches to chat engine when available', async () => {
       const mockChatEngine = {
         saveMessage: vi.fn().mockReturnValue({ id: 'msg-1', church_id: 'c1', source: 'dashboard', message: 'hello' }),
         broadcastChat: vi.fn(),
@@ -535,7 +581,7 @@ describe('Admin Support View (Quick Actions)', () => {
       const handler = args[args.length - 1];
       const req = buildReq({ params: { churchId: 'c2' }, body: { message: 'Check your OBS', targets: ['app', 'telegram'] } });
       const res = buildRes();
-      handler(req, res);
+      await Promise.resolve(handler(req, res));
 
       expect(res._status).toBe(200);
       expect(mockChatEngine.saveMessage).toHaveBeenCalledOnce();
@@ -554,19 +600,19 @@ describe('Admin Support View (Quick Actions)', () => {
   describe('GET /api/admin/churches/support-overview', () => {
     const routePath = '/api/admin/churches/support-overview';
 
-    it('returns churches array', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       seedChurch(db, 'c2', 'Hope Church');
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       expect(res._status).toBe(200);
       expect(res._json.churches).toBeInstanceOf(Array);
       expect(res._json.churches).toHaveLength(2);
     });
 
-    it('sorts by attention needed: offline first, then lowest health, then most alerts', () => {
+    it('sorts by attention needed: offline first, then lowest health, then most alerts', async () => {
       seedChurch(db, 'c1', 'Online Church');
       seedChurch(db, 'c2', 'Offline Church');
 
@@ -575,57 +621,57 @@ describe('Admin Support View (Quick Actions)', () => {
       // c2 has no runtime (offline)
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       const names = res._json.churches.map(c => c.name);
       expect(names[0]).toBe('Offline Church');
       expect(names[1]).toBe('Online Church');
     });
 
-    it('marks needsAttention for offline churches', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Offline Church');
       // No runtime entry at all -> offline, no lastSeen -> offlineTooLong = true
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       const c = res._json.churches.find(ch => ch.name === 'Offline Church');
       expect(c.needsAttention).toBe(true);
       expect(c.attentionReason).toMatch(/offline/i);
     });
 
-    it('marks needsAttention for churches with critical alerts', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Alerting Church');
       seedAlerts(db, 'c1', 2, { severity: 'critical', resolved: false });
       churches.set('c1', mockChurchEntry(true, { lastSeen: new Date().toISOString() }));
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       const c = res._json.churches.find(ch => ch.name === 'Alerting Church');
       expect(c.needsAttention).toBe(true);
       expect(c.attentionReason).toMatch(/critical/i);
     });
 
-    it('marks needsAttention for churches with open tickets', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Ticket Church');
       seedTickets(db, 'c1', 1);
       churches.set('c1', mockChurchEntry(true, { lastSeen: new Date().toISOString() }));
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       const c = res._json.churches.find(ch => ch.name === 'Ticket Church');
       expect(c.needsAttention).toBe(true);
       expect(c.attentionReason).toMatch(/ticket/i);
     });
 
-    it('includes healthScore and activeAlerts per church', () => {
+    it('async test', async () => {
       seedChurch(db, 'c1', 'Grace Church');
       seedAlerts(db, 'c1', 3, { resolved: false });
 
       const req = buildReq();
-      const res = callRoute('get', routePath, req);
+      const res = await callRoute('get', routePath, req);
 
       const c = res._json.churches[0];
       // healthScore can be null (new church) or a number
@@ -638,32 +684,32 @@ describe('Admin Support View (Quick Actions)', () => {
   // ── Auth Tests ──────────────────────────────────────────────────────────────
 
   describe('Auth required on all endpoints', () => {
-    it('registers support-view route with requireAdminSession', () => {
+    it('async test', async () => {
       const args = app.routes.get['/api/admin/church/:churchId/support-view'];
       expect(args).toBeDefined();
       // First arg should be the middleware (requireAdminSession), second is the handler
       expect(args.length).toBe(2);
     });
 
-    it('registers send-command route with requireAdminSession', () => {
+    it('async test', async () => {
       const args = app.routes.post['/api/admin/church/:churchId/send-command'];
       expect(args).toBeDefined();
       expect(args.length).toBe(2);
     });
 
-    it('registers send-message route with requireAdminSession', () => {
+    it('async test', async () => {
       const args = app.routes.post['/api/admin/church/:churchId/send-message'];
       expect(args).toBeDefined();
       expect(args.length).toBe(2);
     });
 
-    it('registers support-overview route with requireAdminSession', () => {
+    it('async test', async () => {
       const args = app.routes.get['/api/admin/churches/support-overview'];
       expect(args).toBeDefined();
       expect(args.length).toBe(2);
     });
 
-    it('requireAdminSession rejects unauthorized requests', () => {
+    it('async test', async () => {
       // Call the middleware directly (first arg in route registration)
       const args = app.routes.get['/api/admin/church/:churchId/support-view'];
       const middleware = args[0];

@@ -7,7 +7,7 @@
 'use strict';
 
 module.exports = function registerAiTriageRoutes(app, ctx) {
-  const { requireAdminJwt, requireAdmin, aiTriageEngine, db, rateLimit } = ctx;
+  const { requireAdminJwt, requireAdmin, aiTriageEngine, db, queryClient, rateLimit } = ctx;
 
   if (!aiTriageEngine) {
     console.warn('[AITriage] Engine not initialized — skipping route registration');
@@ -21,15 +21,15 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * Real-time event feed with optional filters.
    * Query params: churchId, severity, timeContext, limit, offset
    */
-  app.get('/api/admin/ai-triage/events', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/events', requireAdmin, async (req, res) => {
     try {
-      const events = aiTriageEngine.getRecentEvents({
+      const events = await Promise.resolve(aiTriageEngine.getRecentEvents({
         churchId: req.query.churchId || null,
         severity: req.query.severity || null,
         timeContext: req.query.timeContext || null,
         limit: Math.min(parseInt(req.query.limit, 10) || 50, 200),
         offset: parseInt(req.query.offset, 10) || 0,
-      });
+      }));
       res.json({ events });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch triage events' });
@@ -43,12 +43,12 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * Aggregated statistics for the triage dashboard.
    * Query params: churchId, days
    */
-  app.get('/api/admin/ai-triage/stats', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/stats', requireAdmin, async (req, res) => {
     try {
-      const stats = aiTriageEngine.getStats({
+      const stats = await Promise.resolve(aiTriageEngine.getStats({
         churchId: req.query.churchId || null,
         days: Math.min(parseInt(req.query.days, 10) || 7, 90),
-      });
+      }));
       res.json(stats);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch triage stats' });
@@ -61,9 +61,9 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * GET /api/admin/ai-triage/settings/:churchId
    * Get AI settings for a specific church.
    */
-  app.get('/api/admin/ai-triage/settings/:churchId', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/settings/:churchId', requireAdmin, async (req, res) => {
     try {
-      const settings = aiTriageEngine.getChurchSettings(req.params.churchId);
+      const settings = await Promise.resolve(aiTriageEngine.getChurchSettings(req.params.churchId));
       res.json(settings);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch AI settings' });
@@ -75,14 +75,14 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * Update AI settings for a church.
    * Body: { ai_mode, sensitivity_threshold, pre_service_window_minutes, post_service_buffer_minutes, custom_settings }
    */
-  app.put('/api/admin/ai-triage/settings/:churchId', requireAdmin, rateLimit(20, 60_000), (req, res) => {
+  app.put('/api/admin/ai-triage/settings/:churchId', requireAdmin, rateLimit(20, 60_000), async (req, res) => {
     try {
       const updatedBy = req.adminUser?.email || 'admin';
-      const settings = aiTriageEngine.updateChurchSettings(
+      const settings = await Promise.resolve(aiTriageEngine.updateChurchSettings(
         req.params.churchId,
         req.body,
         updatedBy,
-      );
+      ));
       res.json(settings);
     } catch (err) {
       if (err.message.includes('Invalid AI mode')) {
@@ -98,9 +98,9 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * GET /api/admin/ai-triage/modes
    * Get all church AI mode settings at once (for admin overview table).
    */
-  app.get('/api/admin/ai-triage/modes', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/modes', requireAdmin, async (req, res) => {
     try {
-      const modes = aiTriageEngine.getAllChurchModes();
+      const modes = await Promise.resolve(aiTriageEngine.getAllChurchModes());
       res.json({ modes });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch church modes' });
@@ -113,9 +113,9 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * GET /api/admin/ai-triage/windows/:churchId
    * Get service window visualization data for a church.
    */
-  app.get('/api/admin/ai-triage/windows/:churchId', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/windows/:churchId', requireAdmin, async (req, res) => {
     try {
-      const windows = aiTriageEngine.getServiceWindows(req.params.churchId);
+      const windows = await Promise.resolve(aiTriageEngine.getServiceWindows(req.params.churchId));
       res.json(windows);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch service windows' });
@@ -129,7 +129,7 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * Get resolution history.
    * Query params: churchId, limit, offset, success (0|1)
    */
-  app.get('/api/admin/ai-triage/resolutions', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/resolutions', requireAdmin, async (req, res) => {
     try {
       let sql = 'SELECT * FROM ai_resolutions WHERE 1=1';
       const params = [];
@@ -141,7 +141,9 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
       params.push(Math.min(parseInt(req.query.limit, 10) || 50, 200));
       params.push(parseInt(req.query.offset, 10) || 0);
 
-      const resolutions = db.prepare(sql).all(...params);
+      const resolutions = queryClient
+        ? await queryClient.query(sql, params)
+        : db.prepare(sql).all(...params);
       res.json({ resolutions });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch resolutions' });
@@ -154,9 +156,9 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
    * GET /api/admin/ai-triage/context/:churchId
    * Get the current time context for a church (useful for debugging).
    */
-  app.get('/api/admin/ai-triage/context/:churchId', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/context/:churchId', requireAdmin, async (req, res) => {
     try {
-      const context = aiTriageEngine.getTimeContext(req.params.churchId);
+      const context = await Promise.resolve(aiTriageEngine.getTimeContext(req.params.churchId));
       res.json(context);
     } catch (err) {
       res.status(500).json({ error: 'Failed to determine time context' });
@@ -168,7 +170,7 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
   const triageSseClients = new Set();
   const MAX_TRIAGE_SSE = 20;
 
-  app.get('/api/admin/ai-triage/stream', requireAdmin, (req, res) => {
+  app.get('/api/admin/ai-triage/stream', requireAdmin, async (req, res) => {
     if (triageSseClients.size >= MAX_TRIAGE_SSE) {
       return res.status(503).json({ error: 'Maximum triage SSE connections reached' });
     }
@@ -181,7 +183,7 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
 
     // Send initial stats snapshot
     try {
-      const stats = aiTriageEngine.getStats({ days: 1 });
+      const stats = await Promise.resolve(aiTriageEngine.getStats({ days: 1 }));
       res.write(`event: stats\ndata: ${JSON.stringify(stats)}\n\n`);
     } catch { /* ignore */ }
 

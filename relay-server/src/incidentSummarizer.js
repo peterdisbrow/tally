@@ -19,6 +19,15 @@ const TIERS = {
   RECOVERY: 'recovery',
 };
 
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
 const SONNET_MODEL = 'claude-sonnet-4-6';
 const AI_TIMEOUT_MS = 8000;  // Strict: 8s max (not the 25s diagnostic timeout)
 const MAX_SUMMARY_TOKENS = 200;
@@ -63,7 +72,8 @@ class IncidentSummarizer {
    * @param {object} opts.signalFailover — SignalFailover instance
    */
   constructor({ db, churches, chatEngine, alertEngine, weeklyDigest, sessionRecap, signalFailover }) {
-    this.db = db;
+    this.db = db && typeof db.prepare === 'function' ? db : null;
+    this.client = this._resolveClient(db);
     this.churches = churches;
     this.chatEngine = chatEngine;
     this.alertEngine = alertEngine;
@@ -72,7 +82,12 @@ class IncidentSummarizer {
     this.signalFailover = signalFailover;
     this._logAiUsage = null;
 
-    this._ensureTables();
+    if (this.db) {
+      this._ensureTablesSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
   }
 
   /** Wire in the AI usage logger from server.js */
@@ -80,8 +95,47 @@ class IncidentSummarizer {
 
   // ─── Schema ──────────────────────────────────────────────────────────────────
 
-  _ensureTables() {
-    this.db.exec(`
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[IncidentSummarizer] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTables();
+  }
+
+  _incidentSummariesTableSql() {
+    if (this.client?.driver === 'postgres') {
+      return `
+        CREATE TABLE IF NOT EXISTS incident_summaries (
+          id BIGSERIAL PRIMARY KEY,
+          church_id TEXT NOT NULL,
+          session_id TEXT,
+          created_at TEXT NOT NULL,
+          tier TEXT NOT NULL,
+          trigger_transition TEXT,
+          trigger_reason TEXT,
+          summary TEXT NOT NULL,
+          model_used TEXT,
+          latency_ms INTEGER,
+          delivered_to TEXT
+        )
+      `;
+    }
+
+    return `
       CREATE TABLE IF NOT EXISTS incident_summaries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         church_id TEXT NOT NULL,
@@ -95,13 +149,30 @@ class IncidentSummarizer {
         latency_ms INTEGER,
         delivered_to TEXT
       )
-    `);
+    `;
+  }
+
+  _ensureTablesSync() {
+    this.db.exec(this._incidentSummariesTableSql());
 
     // Add summary_tiers column to churches if missing
     try {
       this.db.prepare('SELECT summary_tiers FROM churches LIMIT 1').get();
     } catch {
       try { this.db.exec("ALTER TABLE churches ADD COLUMN summary_tiers TEXT DEFAULT '{}'"); } catch { /* already exists */ }
+    }
+  }
+
+  async _ensureTables() {
+    const client = this._requireClient();
+    await client.exec(this._incidentSummariesTableSql());
+
+    try {
+      await client.queryOne('SELECT summary_tiers FROM churches LIMIT 1');
+    } catch {
+      try {
+        await client.exec("ALTER TABLE churches ADD COLUMN summary_tiers TEXT DEFAULT '{}'");
+      } catch { /* already exists */ }
     }
   }
 
@@ -150,11 +221,31 @@ class IncidentSummarizer {
   };
 
   _getChurchTierConfig(churchId) {
+    if (!this.db) {
+      return this._getChurchTierConfigAsync(churchId);
+    }
+
     try {
       const row = this.db.prepare('SELECT summary_tiers FROM churches WHERE churchId = ?').get(churchId);
       if (!row?.summary_tiers || row.summary_tiers === '{}') return { ...IncidentSummarizer.TIER_DEFAULTS };
       const parsed = JSON.parse(row.summary_tiers);
       // Merge with defaults so missing tiers get defaults
+      return {
+        ...IncidentSummarizer.TIER_DEFAULTS,
+        ...Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [k, { ...IncidentSummarizer.TIER_DEFAULTS[k], ...v }])
+        ),
+      };
+    } catch {
+      return { ...IncidentSummarizer.TIER_DEFAULTS };
+    }
+  }
+
+  async _getChurchTierConfigAsync(churchId) {
+    try {
+      const row = await this._requireClient().queryOne('SELECT summary_tiers FROM churches WHERE churchId = ?', [churchId]);
+      if (!row?.summary_tiers || row.summary_tiers === '{}') return { ...IncidentSummarizer.TIER_DEFAULTS };
+      const parsed = JSON.parse(row.summary_tiers);
       return {
         ...IncidentSummarizer.TIER_DEFAULTS,
         ...Object.fromEntries(
@@ -175,7 +266,7 @@ class IncidentSummarizer {
   async handleTransition(churchId, from, to, trigger, stateSnapshot) {
     try {
       const tier = this._classifyTransition(from, to);
-      const tierConfig = this._getChurchTierConfig(churchId);
+      const tierConfig = await Promise.resolve(this._getChurchTierConfig(churchId));
       const destinations = tierConfig[tier] || { timeline: true };
 
       const church = this.churches.get(churchId);
@@ -227,7 +318,7 @@ class IncidentSummarizer {
       }
 
       // Persist the summary
-      this._persistSummary(churchId, sessionId, tier, `${from}→${to}`, trigger, summary, modelUsed, latencyMs, deliveredTo);
+      await this._persistSummary(churchId, sessionId, tier, `${from}→${to}`, trigger, summary, modelUsed, latencyMs, deliveredTo);
 
     } catch (err) {
       // Absolute outer catch — this function must NEVER throw
@@ -354,12 +445,14 @@ Write the summary now:`;
 
   _writeToTimeline(churchId, tier, from, to, summary, sessionId) {
     try {
-      this.weeklyDigest.addEvent(
+      Promise.resolve(this.weeklyDigest.addEvent(
         churchId,
         `incident_summary_${tier}`,
         `[${from}→${to}] ${summary}`,
         sessionId
-      );
+      )).catch((e) => {
+        console.error(`[IncidentSummarizer] Timeline write error:`, e.message);
+      });
     } catch (e) {
       console.error(`[IncidentSummarizer] Timeline write error:`, e.message);
     }
@@ -367,14 +460,17 @@ Write the summary now:`;
 
   _postToChat(churchId, summary) {
     try {
-      const saved = this.chatEngine.saveMessage({
+      Promise.resolve(this.chatEngine.saveMessage({
         churchId,
         senderName: 'Tally',
         senderRole: 'system',
         source: 'system',
         message: summary,
+      })).then((saved) => {
+        this.chatEngine.broadcastChat(saved);
+      }).catch((e) => {
+        console.error(`[IncidentSummarizer] Chat post error:`, e.message);
       });
-      this.chatEngine.broadcastChat(saved);
     } catch (e) {
       console.error(`[IncidentSummarizer] Chat post error:`, e.message);
     }
@@ -382,7 +478,7 @@ Write the summary now:`;
 
   async _sendTelegramPush(churchId, summary, tier) {
     try {
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._getChurchRow(churchId);
       if (!church) return;
 
       const botToken = church.alert_bot_token || process.env.ALERT_BOT_TOKEN;
@@ -399,16 +495,41 @@ Write the summary now:`;
 
   // ─── Persistence ─────────────────────────────────────────────────────────────
 
-  _persistSummary(churchId, sessionId, tier, transition, trigger, summary, modelUsed, latencyMs, deliveredTo) {
+  async _getChurchRow(churchId) {
+    if (this.db) {
+      return this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    }
+    return this._requireClient().queryOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
+  }
+
+  async _persistSummary(churchId, sessionId, tier, transition, trigger, summary, modelUsed, latencyMs, deliveredTo) {
     try {
-      this.db.prepare(`
+      if (this.db) {
+        this.db.prepare(`
         INSERT INTO incident_summaries (church_id, session_id, created_at, tier, trigger_transition, trigger_reason, summary, model_used, latency_ms, delivered_to)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        churchId, sessionId, new Date().toISOString(),
-        tier, transition, trigger, summary,
-        modelUsed, latencyMs, JSON.stringify(deliveredTo)
-      );
+          churchId, sessionId, new Date().toISOString(),
+          tier, transition, trigger, summary,
+          modelUsed, latencyMs, JSON.stringify(deliveredTo)
+        );
+      } else {
+        await this._requireClient().run(`
+          INSERT INTO incident_summaries (church_id, session_id, created_at, tier, trigger_transition, trigger_reason, summary, model_used, latency_ms, delivered_to)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          churchId,
+          sessionId,
+          new Date().toISOString(),
+          tier,
+          transition,
+          trigger,
+          summary,
+          modelUsed,
+          latencyMs,
+          JSON.stringify(deliveredTo),
+        ]);
+      }
     } catch (e) {
       console.error(`[IncidentSummarizer] Persist error:`, e.message);
     }
@@ -432,12 +553,12 @@ Write the summary now:`;
       const alertCount = (sessionData.alertCount || 0) + (sessionData.autoRecovered || 0);
       if (alertCount === 0) return null;
 
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._getChurchRow(churchId);
       const churchName = church?.name || churchId;
       const sessionId = sessionData.sessionId || sessionData.id;
 
       // Get all incident summaries for this session
-      const summaries = this._getSessionSummaries(churchId, sessionId);
+      const summaries = await this._getSessionSummaries(churchId, sessionId);
 
       // Try AI narrative
       const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -502,7 +623,7 @@ Write the post-service narrative:`;
       }
 
       // Persist
-      this._persistSummary(churchId, sessionId, 'post_service', 'session_end', 'session_ended',
+      await this._persistSummary(churchId, sessionId, 'post_service', 'session_end', 'session_ended',
         narrative, 'sonnet', latencyMs, ['timeline', 'chat']);
 
       return narrative;
@@ -512,12 +633,18 @@ Write the post-service narrative:`;
     }
   }
 
-  _getSessionSummaries(churchId, sessionId) {
+  async _getSessionSummaries(churchId, sessionId) {
     try {
       if (!sessionId) return [];
-      return this.db.prepare(
-        'SELECT tier, summary, model_used, created_at FROM incident_summaries WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC'
-      ).all(churchId, sessionId);
+      if (this.db) {
+        return this.db.prepare(
+          'SELECT tier, summary, model_used, created_at FROM incident_summaries WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC'
+        ).all(churchId, sessionId);
+      }
+      return this._requireClient().query(
+        'SELECT tier, summary, model_used, created_at FROM incident_summaries WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC',
+        [churchId, sessionId]
+      );
     } catch {
       return [];
     }

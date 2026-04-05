@@ -4,7 +4,7 @@
  * Allows an admin to issue 24-hour guest tokens for visiting or temporary TDs.
  * Guest TDs get the same alert access as regular TDs, scoped to their church only.
  *
- * SQLite table: guest_tokens
+ * Table: guest_tokens
  *   token TEXT PRIMARY KEY        -- e.g. "GUEST-ABC123"
  *   churchId TEXT
  *   name TEXT                     -- display name of the guest
@@ -14,26 +14,55 @@
  */
 
 const crypto = require('crypto');
+const { createQueryClient } = require('./db');
+
+const GUEST_TOKEN_SELECT = `
+  token,
+  churchId AS "churchId",
+  name,
+  createdAt AS "createdAt",
+  expiresAt AS "expiresAt",
+  usedByChat AS "usedByChat"
+`;
 
 class GuestTdMode {
   /**
-   * @param {object} db - better-sqlite3 database instance
+   * @param {object} dbOrClient - better-sqlite3 database instance or shared query client
    * @param {object} [options]
-   * @param {string} [options.adminName] - Name shown to guests when their token expires or is revoked.
-   *   Defaults to 'the administrator'. Set to the church admin's name (e.g. 'Pastor Mike').
-   * @param {string} [options.botToken] - Telegram bot token for sending notifications.
-   *   Can also be set later via `guestTdMode.botToken = token`.
+   * @param {string} [options.adminName]
+   * @param {string} [options.botToken]
+   * @param {object} [options.config]
    */
-  constructor(db, { adminName = 'the administrator', botToken = null } = {}) {
-    this.db = db;
+  constructor(dbOrClient, { adminName = 'the administrator', botToken = null, config } = {}) {
+    this.client = this._resolveClient(dbOrClient, config);
     this.adminName = adminName;
     this.botToken = botToken;
-    this._ensureTable();
-    this._cleanupExpired();
+    this.ready = this._init();
   }
 
-  _ensureTable() {
-    this.db.exec(`
+  _resolveClient(dbOrClient, config) {
+    if (dbOrClient && typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: config || {
+        driver: 'sqlite',
+        isSqlite: true,
+        isPostgres: false,
+        databaseUrl: '',
+      },
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  async _init() {
+    await this._ensureTable();
+    await this._cleanupExpired({ skipReady: true });
+  }
+
+  async _ensureTable() {
+    await this.client.exec(`
       CREATE TABLE IF NOT EXISTS guest_tokens (
         token TEXT PRIMARY KEY,
         churchId TEXT NOT NULL,
@@ -43,51 +72,71 @@ class GuestTdMode {
         usedByChat TEXT DEFAULT ''
       )
     `);
+
     // Migration: clean up orphaned portal tokens (gtd_ prefix) that used an incompatible schema.
-    // These tokens were non-functional — they couldn't be registered via Telegram.
     try {
-      const legacy = this.db.prepare("SELECT token FROM guest_tokens WHERE token LIKE 'gtd_%'").all();
+      const legacy = await this.client.query("SELECT token FROM guest_tokens WHERE token LIKE 'gtd_%'");
       if (legacy.length) {
-        this.db.prepare("DELETE FROM guest_tokens WHERE token LIKE 'gtd_%'").run();
-        console.log(`[GuestTdMode] Cleaned up ${legacy.length} legacy portal token(s)`);
+        const result = await this.client.run("DELETE FROM guest_tokens WHERE token LIKE 'gtd_%'");
+        console.log(`[GuestTdMode] Cleaned up ${result.changes} legacy portal token(s)`);
       }
     } catch {}
   }
 
-  /** Remove expired tokens (called on startup and daily) */
-  _cleanupExpired() {
+  async _cleanupExpired(options = {}) {
+    const { skipReady = false } = options;
     try {
-      const deleted = this.db.prepare(
-        `DELETE FROM guest_tokens WHERE expiresAt < ?`
-      ).run(new Date().toISOString());
+      if (!skipReady) await this.ready;
+      const deleted = await this.client.run(
+        'DELETE FROM guest_tokens WHERE expiresAt < ?',
+        [new Date().toISOString()]
+      );
       if (deleted.changes > 0) {
         console.log(`[GuestTdMode] Cleaned up ${deleted.changes} expired guest token(s)`);
       }
+      return { deleted: deleted.changes };
     } catch (e) {
       console.error('[GuestTdMode] Cleanup error:', e.message);
+      return { deleted: 0 };
     }
   }
 
   /** Start daily cleanup */
   startCleanupTimer() {
-    setInterval(() => this._cleanupExpired(), 24 * 60 * 60 * 1000);
+    setInterval(() => {
+      this._cleanupExpired().catch((error) => {
+        console.error('[GuestTdMode] Cleanup timer error:', error.message);
+      });
+    }, 24 * 60 * 60 * 1000);
+  }
+
+  async getToken(token) {
+    await this.ready;
+    return this.client.queryOne(
+      `SELECT ${GUEST_TOKEN_SELECT}
+       FROM guest_tokens
+       WHERE token = ?`,
+      [token]
+    );
   }
 
   /**
    * Generate a 24-hour guest token for a church.
    * @param {string} churchId
-   * @param {string} churchName - for display
-   * @returns {{ token, expiresAt, expiresFormatted }}
+   * @param {string} churchName
+   * @returns {Promise<{ token, expiresAt, expiresFormatted }>}
    */
-  generateToken(churchId, churchName) {
+  async generateToken(churchId, churchName) {
+    await this.ready;
     const token = 'GUEST-' + crypto.randomBytes(12).toString('hex').toUpperCase();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    this.db.prepare(`
-      INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat)
-      VALUES (?, ?, ?, ?, ?, '')
-    `).run(token, churchId, churchName + ' Guest', now.toISOString(), expiresAt.toISOString());
+    await this.client.run(
+      `INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat)
+       VALUES (?, ?, ?, ?, ?, '')`,
+      [token, churchId, `${churchName} Guest`, now.toISOString(), expiresAt.toISOString()]
+    );
 
     const expiresFormatted = expiresAt.toLocaleString('en-US', {
       weekday: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -100,10 +149,10 @@ class GuestTdMode {
   /**
    * Validate and look up a guest token.
    * @param {string} token
-   * @returns {{ valid: boolean, guestRow?: object, expired?: boolean }}
+   * @returns {Promise<{ valid: boolean, guestRow?: object, expired?: boolean }>}
    */
-  validateToken(token) {
-    const row = this.db.prepare(`SELECT * FROM guest_tokens WHERE token = ?`).get(token);
+  async validateToken(token) {
+    const row = await this.getToken(token);
     if (!row) return { valid: false };
 
     if (new Date(row.expiresAt) < new Date()) {
@@ -115,13 +164,10 @@ class GuestTdMode {
 
   /**
    * Register a guest TD against a token.
-   * @param {string} token
-   * @param {string} chatId - Telegram chat ID
-   * @param {string} name   - Display name
-   * @returns {{ success: boolean, churchId?: string, message: string }}
+   * @returns {Promise<{ success: boolean, churchId?: string, token?: string, message: string }>}
    */
-  registerGuest(token, chatId, name) {
-    const { valid, expired, guestRow } = this.validateToken(token);
+  async registerGuest(token, chatId, name) {
+    const { valid, expired, guestRow } = await this.validateToken(token);
     if (!valid) {
       if (expired) return { success: false, message: `This guest token has expired. Contact ${this.adminName} to get a new one.` };
       return { success: false, message: 'Invalid guest token. Check the token and try again.' };
@@ -131,9 +177,10 @@ class GuestTdMode {
       return { success: false, message: 'This token has already been used by someone else.' };
     }
 
-    // Update name and claim the token
-    this.db.prepare(`UPDATE guest_tokens SET name = ?, usedByChat = ? WHERE token = ?`)
-      .run(name, String(chatId), token);
+    await this.client.run(
+      'UPDATE guest_tokens SET name = ?, usedByChat = ? WHERE token = ?',
+      [name, String(chatId), token]
+    );
 
     const expiresAt = new Date(guestRow.expiresAt);
     const expiresFormatted = expiresAt.toLocaleString('en-US', {
@@ -152,20 +199,23 @@ class GuestTdMode {
    * Find a guest entry by Telegram chat ID.
    * Returns null if not found or expired.
    */
-  findActiveGuestByChatId(chatId) {
-    const row = this.db.prepare(`
-      SELECT * FROM guest_tokens
-      WHERE usedByChat = ? AND expiresAt > ?
-    `).get(String(chatId), new Date().toISOString());
-    return row || null;
+  async findActiveGuestByChatId(chatId) {
+    await this.ready;
+    return this.client.queryOne(
+      `SELECT ${GUEST_TOKEN_SELECT}
+       FROM guest_tokens
+       WHERE usedByChat = ? AND expiresAt > ?`,
+      [String(chatId), new Date().toISOString()]
+    );
   }
 
   /**
    * Immediately revoke a guest token.
-   * @returns {{ revoked: boolean, token: string }}
+   * @returns {Promise<{ revoked: boolean, token: string }>}
    */
-  revokeToken(token) {
-    const result = this.db.prepare(`DELETE FROM guest_tokens WHERE token = ?`).run(token);
+  async revokeToken(token) {
+    await this.ready;
+    const result = await this.client.run('DELETE FROM guest_tokens WHERE token = ?', [token]);
     const revoked = result.changes > 0;
     if (revoked) console.log(`[GuestTdMode] Revoked token ${token.slice(0, 4)}****`);
     return { revoked, token };
@@ -173,13 +223,11 @@ class GuestTdMode {
 
   /**
    * Revoke a guest token and notify the guest via Telegram if they claimed it.
-   * Uses this.botToken if set, or falls back to TALLY_BOT_TOKEN env var.
-   * @param {string} token
-   * @returns {{ revoked: boolean, token: string }}
+   * @returns {Promise<{ revoked: boolean, token: string }>}
    */
   async revokeAndNotify(token) {
-    const row = this.db.prepare('SELECT * FROM guest_tokens WHERE token = ?').get(token);
-    const result = this.revokeToken(token);
+    const row = await this.getToken(token);
+    const result = await this.revokeToken(token);
     if (result.revoked && row?.usedByChat) {
       const botToken = this.botToken || process.env.TALLY_BOT_TOKEN;
       if (botToken) {
@@ -189,7 +237,6 @@ class GuestTdMode {
     return result;
   }
 
-  /** Send a Telegram message to a guest whose token was revoked. */
   async _notifyRevokedGuest(guestRow, botToken) {
     if (!guestRow.usedByChat || !botToken) return;
     try {
@@ -208,11 +255,6 @@ class GuestTdMode {
     }
   }
 
-  /**
-   * Format the time remaining until a token expires as a human-readable string.
-   * @param {string} expiresAt - ISO 8601 timestamp
-   * @returns {string} e.g. "5h 30m remaining", "2d remaining", "Expired"
-   */
   static formatRemainingTime(expiresAt) {
     const msLeft = new Date(expiresAt) - Date.now();
     if (msLeft <= 0) return 'Expired';
@@ -227,51 +269,48 @@ class GuestTdMode {
     return `${minutes}m remaining`;
   }
 
-  /**
-   * List all active guest tokens (for admin review).
-   */
-  listActiveTokens() {
-    return this.db.prepare(`
-      SELECT * FROM guest_tokens WHERE expiresAt > ? ORDER BY createdAt DESC
-    `).all(new Date().toISOString());
+  async listActiveTokens() {
+    await this.ready;
+    return this.client.query(
+      `SELECT ${GUEST_TOKEN_SELECT}
+       FROM guest_tokens
+       WHERE expiresAt > ?
+       ORDER BY createdAt DESC`,
+      [new Date().toISOString()]
+    );
   }
 
-  /**
-   * List active tokens for a specific church (portal use).
-   * @param {string} churchId
-   * @returns {object[]}
-   */
-  listTokensForChurch(churchId) {
-    return this.db.prepare(
-      'SELECT * FROM guest_tokens WHERE churchId = ? AND expiresAt > ? ORDER BY createdAt DESC'
-    ).all(churchId, new Date().toISOString());
+  async listTokensForChurch(churchId) {
+    await this.ready;
+    return this.client.query(
+      `SELECT ${GUEST_TOKEN_SELECT}
+       FROM guest_tokens
+       WHERE churchId = ? AND expiresAt > ?
+       ORDER BY createdAt DESC`,
+      [churchId, new Date().toISOString()]
+    );
   }
 
   /**
    * Generate a token with custom expiry. Used by the church portal.
-   * @param {string} churchId
-   * @param {string} churchName
-   * @param {{ label?: string, expiresInHours?: number }} options
-   * @returns {{ token: string, name: string, expiresAt: string }}
+   * @returns {Promise<{ token: string, name: string, expiresAt: string }>}
    */
-  generateTokenWithOptions(churchId, churchName, { label, expiresInHours = 24 } = {}) {
+  async generateTokenWithOptions(churchId, churchName, { label, expiresInHours = 24 } = {}) {
+    await this.ready;
     const token = 'GUEST-' + crypto.randomBytes(12).toString('hex').toUpperCase();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + expiresInHours * 60 * 60 * 1000);
-    const name = label || (churchName + ' Guest');
+    const name = label || `${churchName} Guest`;
 
-    this.db.prepare(
-      'INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(token, churchId, name, now.toISOString(), expiresAt.toISOString(), '');
+    await this.client.run(
+      'INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?)',
+      [token, churchId, name, now.toISOString(), expiresAt.toISOString(), '']
+    );
 
     console.log(`[GuestTdMode] Generated token ${token.slice(0, 4)}**** for ${churchName} (${expiresInHours}h)`);
     return { token, name, expiresAt: expiresAt.toISOString() };
   }
 
-  /**
-   * Notify a guest that their access has expired.
-   * Call this from a cleanup pass or expiry check.
-   */
   async notifyExpiredGuest(guestRow, botToken) {
     if (!guestRow.usedByChat || !botToken) return;
     try {

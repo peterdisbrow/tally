@@ -624,10 +624,11 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler, signalFailover }) {
+  constructor({ botToken, adminChatId, db, queryClient = null, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler, signalFailover }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
+    this.queryClient = queryClient || null;
     this.relay = relay;
     this.onCallRotation  = onCallRotation  || null;
     this.guestTdMode     = guestTdMode     || null;
@@ -640,48 +641,73 @@ class TallyBot {
     this.scheduler       = scheduler       || null;
     this.signalFailover  = signalFailover  || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
+    this._churchesById = new Map();
+    this._churchesByCode = new Map();
+    this._tdsByUserId = new Map();
+    this._tdsByChatId = new Map();
+    this._roomsById = new Map();
+    this._roomsByChurchId = new Map();
 
-    // Ensure church_tds table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS church_tds (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        church_id TEXT NOT NULL,
-        telegram_user_id TEXT NOT NULL,
-        telegram_chat_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        registered_at TEXT NOT NULL,
-        active INTEGER DEFAULT 1,
-        UNIQUE(telegram_user_id)
-      )
-    `);
+    if (this.queryClient) {
+      this._stmtFindTD = null;
+      this._stmtFindChurchByCode = null;
+      this._stmtRegisterTD = null;
+      this._stmtListTDs = null;
+      this._stmtDeactivateTD = null;
+      this.ready = this._initQueryClient();
+    } else {
+      // Ensure church_tds table
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS church_tds (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          church_id TEXT NOT NULL,
+          telegram_user_id TEXT NOT NULL,
+          telegram_chat_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          registered_at TEXT NOT NULL,
+          active INTEGER DEFAULT 1,
+          access_level TEXT DEFAULT 'operator',
+          default_room_id TEXT DEFAULT NULL,
+          UNIQUE(telegram_user_id)
+        )
+      `);
 
-    // Ensure registration_code column on churches
-    try {
-      this.db.exec(`ALTER TABLE churches ADD COLUMN registration_code TEXT`);
-    } catch { /* column already exists */ }
+      // Ensure registration_code column on churches
+      try {
+        this.db.exec(`ALTER TABLE churches ADD COLUMN registration_code TEXT`);
+      } catch { /* column already exists */ }
 
-    // Generate codes for churches that don't have one
-    const churchesWithoutCode = this.db.prepare('SELECT churchId FROM churches WHERE registration_code IS NULL').all();
-    for (const c of churchesWithoutCode) {
-      const code = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
-      this.db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?').run(code, c.churchId);
+      // Generate codes for churches that don't have one
+      const churchesWithoutCode = this.db.prepare('SELECT churchId FROM churches WHERE registration_code IS NULL').all();
+      for (const c of churchesWithoutCode) {
+        const code = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
+        this.db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?').run(code, c.churchId);
+      }
+
+      this._churchesById.clear();
+      this._churchesByCode.clear();
+      this._tdsByUserId.clear();
+      this._tdsByChatId.clear();
+      this._roomsById.clear();
+      this._roomsByChurchId.clear();
+
+      // Add access_level column if it doesn't exist (viewer / operator / admin)
+      try {
+        this.db.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
+      } catch { /* column already exists */ }
+
+      // Add default_room_id column for multi-room targeting
+      try {
+        this.db.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
+      } catch { /* column already exists */ }
+
+      this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
+      this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
+      this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
+      this._stmtListTDs = this.db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1');
+      this._stmtDeactivateTD = this.db.prepare('UPDATE church_tds SET active = 0 WHERE church_id = ? AND telegram_user_id = ?');
+      this.ready = Promise.resolve();
     }
-
-    // Add access_level column if it doesn't exist (viewer / operator / admin)
-    try {
-      this.db.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
-    } catch { /* column already exists */ }
-
-    // Add default_room_id column for multi-room targeting
-    try {
-      this.db.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
-
-    this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
-    this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
-    this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
-    this._stmtListTDs = this.db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1');
-    this._stmtDeactivateTD = this.db.prepare('UPDATE church_tds SET active = 0 WHERE church_id = ? AND telegram_user_id = ?');
 
     // ─── Stream Guard: pending confirmations for dangerous commands ──────
     // chatId → { command?, params?, steps?, church, expiresAt }
@@ -722,9 +748,228 @@ class TallyBot {
     this._messageQueue = [];
   }
 
+  async _initQueryClient() {
+    const isPostgres = this.queryClient?.driver === 'postgres';
+
+    if (isPostgres) {
+      await this.queryClient.exec(`
+        CREATE TABLE IF NOT EXISTS church_tds (
+          id TEXT PRIMARY KEY,
+          church_id TEXT NOT NULL,
+          telegram_user_id TEXT NOT NULL UNIQUE,
+          telegram_chat_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          registered_at TEXT NOT NULL,
+          active BOOLEAN DEFAULT TRUE,
+          access_level TEXT DEFAULT 'operator',
+          default_room_id TEXT DEFAULT NULL
+        )
+      `);
+      await this.queryClient.exec(`ALTER TABLE churches ADD COLUMN IF NOT EXISTS registration_code TEXT`);
+      await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'operator'`);
+      await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN IF NOT EXISTS default_room_id TEXT DEFAULT NULL`);
+    } else {
+      await this.queryClient.exec(`
+        CREATE TABLE IF NOT EXISTS church_tds (
+          id TEXT PRIMARY KEY,
+          church_id TEXT NOT NULL,
+          telegram_user_id TEXT NOT NULL UNIQUE,
+          telegram_chat_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          registered_at TEXT NOT NULL,
+          active INTEGER DEFAULT 1,
+          access_level TEXT DEFAULT 'operator',
+          default_room_id TEXT DEFAULT NULL
+        )
+      `);
+      try {
+        await this.queryClient.exec(`ALTER TABLE churches ADD COLUMN registration_code TEXT`);
+      } catch { /* column already exists */ }
+      try {
+        await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
+      } catch { /* column already exists */ }
+      try {
+        await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
+      } catch { /* column already exists */ }
+    }
+
+    const churchesWithoutCode = await this._queryAll('SELECT churchId FROM churches WHERE registration_code IS NULL OR registration_code = ?', ['']);
+    for (const c of churchesWithoutCode) {
+      const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+      await this._run('UPDATE churches SET registration_code = ? WHERE churchId = ?', [code, c.churchId]);
+    }
+
+    await this._refreshCaches();
+  }
+
+  async _refreshCaches() {
+    this._churchesById.clear();
+    this._churchesByCode.clear();
+    this._tdsByUserId.clear();
+    this._tdsByChatId.clear();
+    this._roomsById.clear();
+    this._roomsByChurchId.clear();
+
+    const churches = await this._queryAll('SELECT * FROM churches');
+    for (const church of churches) this._cacheChurchRow(church);
+
+    const tds = await this._queryAll(`SELECT * FROM church_tds WHERE ${this._activePredicate()}`);
+    for (const td of tds) this._cacheTdRow(td);
+
+    const rooms = await this._queryAll('SELECT id, name, campus_id FROM rooms');
+    for (const room of rooms) this._cacheRoomRow(room);
+  }
+
+  _cacheChurchRow(row) {
+    if (!row) return null;
+    this._churchesById.set(row.churchId, row);
+    if (row.registration_code) {
+      this._churchesByCode.set(String(row.registration_code).toUpperCase(), row);
+    }
+    return row;
+  }
+
+  _cacheTdRow(row) {
+    if (!row) return null;
+    const userId = String(row.telegram_user_id);
+    const chatId = String(row.telegram_chat_id);
+    if (row.active === 0 || row.active === '0' || row.active === false) {
+      this._tdsByUserId.delete(userId);
+      this._tdsByChatId.delete(chatId);
+      return row;
+    }
+    this._tdsByUserId.set(userId, row);
+    this._tdsByChatId.set(chatId, row);
+    return row;
+  }
+
+  _cacheRoomRow(row) {
+    if (!row) return null;
+    this._roomsById.set(String(row.id), row);
+    const churchId = String(row.campus_id || '');
+    if (!this._roomsByChurchId.has(churchId)) {
+      this._roomsByChurchId.set(churchId, []);
+    }
+    const list = this._roomsByChurchId.get(churchId);
+    if (!list.some(existing => String(existing.id) === String(row.id))) {
+      list.push(row);
+    }
+    return row;
+  }
+
+  async _queryAll(sql, params = []) {
+    if (this.queryClient) return this.queryClient.query(sql, params);
+    return this.db.prepare(sql).all(...params);
+  }
+
+  async _queryOne(sql, params = []) {
+    if (this.queryClient) return this.queryClient.queryOne(sql, params);
+    return this.db.prepare(sql).get(...params) || null;
+  }
+
+  async _run(sql, params = []) {
+    if (this.queryClient) return this.queryClient.run(sql, params);
+    const info = this.db.prepare(sql).run(...params);
+    return {
+      changes: Number(info?.changes || 0),
+      lastInsertRowid: info?.lastInsertRowid ?? null,
+      rows: [],
+    };
+  }
+
+  async _exec(sql) {
+    if (this.queryClient) return this.queryClient.exec(sql);
+    return this.db.exec(sql);
+  }
+
+  _getChurchById(churchId) {
+    if (!churchId) return null;
+    return this._churchesById.get(String(churchId)) || null;
+  }
+
+  _getChurchByCode(code) {
+    if (!code) return null;
+    return this._churchesByCode.get(String(code).toUpperCase()) || null;
+  }
+
+  _getTdByUserId(userId) {
+    if (userId == null) return null;
+    return this._tdsByUserId.get(String(userId)) || null;
+  }
+
+  _getTdByChatId(chatId) {
+    if (chatId == null) return null;
+    return this._tdsByChatId.get(String(chatId)) || null;
+  }
+
+  _getRoomById(roomId) {
+    if (roomId == null) return null;
+    return this._roomsById.get(String(roomId)) || null;
+  }
+
+  _getRoomsByChurchId(churchId) {
+    return this._roomsByChurchId.get(String(churchId)) || [];
+  }
+
+  _activePredicate(column = 'active') {
+    return this.queryClient?.driver === 'postgres'
+      ? `${column} = TRUE`
+      : `${column} = 1`;
+  }
+
+  _activeValueLiteral() {
+    return this.queryClient?.driver === 'postgres' ? 'TRUE' : '1';
+  }
+
+  async _upsertTd({ churchId, userId, chatId, name, registeredAt, accessLevel = 'operator', defaultRoomId = null }) {
+    if (this.queryClient) {
+      const id = crypto.randomUUID();
+      await this._run(`
+        INSERT INTO church_tds (id, church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, access_level, default_room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ${this._activeValueLiteral()}, ?, ?)
+        ON CONFLICT (telegram_user_id) DO UPDATE SET
+          church_id = excluded.church_id,
+          telegram_chat_id = excluded.telegram_chat_id,
+          name = excluded.name,
+          registered_at = excluded.registered_at,
+          active = excluded.active,
+          access_level = excluded.access_level,
+          default_room_id = excluded.default_room_id
+      `, [id, churchId, userId, chatId, name, registeredAt, accessLevel, defaultRoomId]);
+      this._cacheTdRow({ id, church_id: churchId, telegram_user_id: String(userId), telegram_chat_id: String(chatId), name, registered_at: registeredAt, active: 1, access_level: accessLevel, default_room_id: defaultRoomId });
+      return id;
+    }
+    this._stmtRegisterTD.run(churchId, userId, chatId, name, registeredAt);
+    return null;
+  }
+
+  async _setTdDefaultRoom(chatId, roomId) {
+    if (this.queryClient) {
+      await this._run(`UPDATE church_tds SET default_room_id = ? WHERE telegram_chat_id = ? AND ${this._activePredicate()}`, [roomId, String(chatId)]);
+      const td = this._getTdByChatId(chatId);
+      if (td) td.default_room_id = roomId;
+      return;
+    }
+    this._stmtDeactivateTD; // noop for lint friendliness
+    this.db.prepare('UPDATE church_tds SET default_room_id = ? WHERE telegram_chat_id = ? AND active = 1').run(roomId, String(chatId));
+  }
+
+  async _setChurchFields(churchId, fields) {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (!entries.length) return;
+    const setClause = entries.map(([key]) => `${key} = ?`).join(', ');
+    const params = entries.map(([, value]) => value).concat(churchId);
+    await this._run(`UPDATE churches SET ${setClause} WHERE churchId = ?`, params);
+    const cached = this._getChurchById(churchId);
+    if (cached) {
+      for (const [key, value] of entries) cached[key] = value;
+    }
+  }
+
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────────────
 
   async handleUpdate(update) {
+    await this.ready;
     // ── Handle inline keyboard callback queries (risky action confirm/cancel) ──
     if (update.callback_query) {
       return this._handleCallbackQuery(update.callback_query).catch(err => {
@@ -756,7 +1001,7 @@ class TallyBot {
   _getBrandName(churchId) {
     if (!this.resellerSystem || !churchId) return 'Tally';
     try {
-      const church = this.db.prepare('SELECT reseller_id FROM churches WHERE churchId = ?').get(churchId);
+      const church = this._getChurchById(churchId);
       if (!church?.reseller_id) return 'Tally';
       const branding = this.resellerSystem.getBranding(church.reseller_id);
       return branding?.brandName || 'Tally';
@@ -770,7 +1015,7 @@ class TallyBot {
    */
   _getBrandNameForUser(userId) {
     try {
-      const td = this.db.prepare('SELECT church_id FROM church_tds WHERE telegram_user_id = ? AND active = 1').get(userId);
+      const td = this._getTdByUserId(userId);
       return this._getBrandName(td?.church_id || null);
     } catch { return 'Tally'; }
   }
@@ -789,9 +1034,9 @@ class TallyBot {
       // Detect locale from already-registered church (if user is re-starting)
       let locale = 'en';
       try {
-        const td = this.db.prepare('SELECT church_id FROM church_tds WHERE telegram_user_id = ? AND active = 1').get(userId);
+        const td = this._getTdByUserId(userId);
         if (td) {
-          const ch = this.db.prepare('SELECT locale FROM churches WHERE churchId = ?').get(td.church_id);
+          const ch = this._getChurchById(td.church_id);
           locale = churchLocale(ch);
         }
       } catch {}
@@ -818,14 +1063,14 @@ class TallyBot {
       }
 
       // Registered TD sees full command reference
-      const tdRow = this._stmtFindTD.get(userId);
+      const tdRow = this._getTdByUserId(userId);
       if (tdRow) {
         return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
       }
 
       // Guest TD sees limited command reference
       if (this.guestTdMode) {
-        const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+        const guest = await this.guestTdMode.findActiveGuestByChatId(chatId);
         if (guest) {
           return this.sendMessage(chatId, getGuestHelpText(brandName), { parse_mode: 'Markdown' });
         }
@@ -857,16 +1102,16 @@ class TallyBot {
 
     // 3e. /status — quick system health overview for the registered church
     if (text === '/status') {
-      const tdRow = this._stmtFindTD.get(userId);
+      const tdRow = this._getTdByUserId(userId);
       if (tdRow) {
-        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(tdRow.church_id);
+        const church = this._getChurchById(tdRow.church_id);
         if (church) return this._sendStatus(church, chatId);
       }
       // Guest TD path
       if (this.guestTdMode) {
-        const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+        const guest = await this.guestTdMode.findActiveGuestByChatId(chatId);
         if (guest) {
-          const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(guest.churchId);
+          const church = this._getChurchById(guest.churchId);
           if (church) return this._sendStatus(church, chatId);
         }
       }
@@ -927,9 +1172,9 @@ class TallyBot {
     }
 
     // 6. Check if registered TD
-    const td = this._stmtFindTD.get(userId);
+    const td = this._getTdByUserId(userId);
     if (td) {
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(td.church_id);
+      const church = this._getChurchById(td.church_id);
       if (church) {
         const accessLevel = td.access_level || 'operator';
         return this.handleTDCommand(church, chatId, text, { accessLevel });
@@ -938,9 +1183,9 @@ class TallyBot {
 
     // 7. Check if guest TD
     if (this.guestTdMode) {
-      const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+      const guest = await this.guestTdMode.findActiveGuestByChatId(chatId);
       if (guest) {
-        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(guest.churchId);
+        const church = this._getChurchById(guest.churchId);
         if (church) {
           return this.handleTDCommand(church, chatId, text, { accessLevel: 'operator', guestRow: guest });
         }
@@ -967,13 +1212,13 @@ class TallyBot {
     // Check if this is a guest token (starts with "GUEST-")
     if (code.startsWith('GUEST-') && this.guestTdMode) {
       const name = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Guest';
-      const result = this.guestTdMode.registerGuest(code, chatId, name);
+      const result = await this.guestTdMode.registerGuest(code, chatId, name);
 
       if (!result.success) {
         return this.sendMessage(chatId, `❌ ${result.message}`);
       }
 
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(result.churchId);
+      const church = this._getChurchById(result.churchId);
       if (!church) {
         return this.sendMessage(chatId, '❌ Church not found for this token.');
       }
@@ -986,18 +1231,26 @@ class TallyBot {
     }
 
     // Regular church registration code (6-char hex)
-    const church = this._stmtFindChurchByCode.get(code);
+    const church = this._getChurchByCode(code);
     if (!church) {
       // Try to detect locale from the code pattern (not possible without church) — use 'en'
       return this.sendMessage(chatId, bt('register.invalid_code', 'en'));
     }
 
     const name = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Unknown';
-    this._stmtRegisterTD.run(church.churchId, userId, chatId, name, new Date().toISOString());
+    await this._upsertTd({
+      churchId: church.churchId,
+      userId,
+      chatId,
+      name,
+      registeredAt: new Date().toISOString(),
+      accessLevel: 'operator',
+      defaultRoomId: null,
+    });
 
     // Also add to td_contacts for on-call rotation if available
     if (this.onCallRotation) {
-      this.onCallRotation.addOrUpdateTD({
+      await this.onCallRotation.addOrUpdateTD({
         churchId: church.churchId,
         name,
         telegramChatId: chatId,
@@ -1010,15 +1263,15 @@ class TallyBot {
 
     // Onboarding milestone: Telegram TD registration covers steps 2 (notifications) and 4 (invite team)
     try {
-      const onbRow = this.db.prepare('SELECT onboarding_telegram_registered_at, onboarding_team_invited_at FROM churches WHERE churchId = ?').get(church.churchId);
+      const onbRow = this._getChurchById(church.churchId);
       const now = new Date().toISOString();
       if (onbRow && !onbRow.onboarding_telegram_registered_at) {
-        this.db.prepare('UPDATE churches SET onboarding_telegram_registered_at = ? WHERE churchId = ?').run(now, church.churchId);
+        await this._setChurchFields(church.churchId, { onboarding_telegram_registered_at: now });
         console.log(`[onboarding] First Telegram TD registered for "${church.name}"`);
       }
       // "Invite your team" step: mark done when any TD registers (they've shared the code and someone joined)
       if (onbRow && !onbRow.onboarding_team_invited_at) {
-        this.db.prepare('UPDATE churches SET onboarding_team_invited_at = ? WHERE churchId = ?').run(now, church.churchId);
+        await this._setChurchFields(church.churchId, { onboarding_team_invited_at: now });
         console.log(`[onboarding] Team invite milestone reached for "${church.name}"`);
       }
     } catch (e) {
@@ -1046,7 +1299,7 @@ class TallyBot {
       return this.sendMessage(chatId, '❌ No pending swap request found for you.');
     }
 
-    const result = this.onCallRotation.confirmSwap(swap.swapKey);
+    const result = await this.onCallRotation.confirmSwap(swap.swapKey);
     if (!result.success) {
       return this.sendMessage(chatId, `❌ ${result.message}`);
     }
@@ -1152,10 +1405,8 @@ class TallyBot {
     // ── Chat message ─────────────────────────────────────────────────────
     const chatMsgMatch = text.match(/^(?:\/chat|msg)\s+(.+)$/is);
     if (chatMsgMatch && this.chatEngine) {
-      const td = this.db.prepare(
-        'SELECT name FROM church_tds WHERE church_id = ? AND telegram_chat_id = ? AND active = 1'
-      ).get(church.churchId, String(chatId));
-      const saved = this.chatEngine.saveMessage({
+      const td = this._getTdByChatId(chatId);
+      const saved = await this.chatEngine.saveMessage({
         churchId: church.churchId,
         senderName: td?.name || 'TD',
         senderRole: 'td',
@@ -1168,7 +1419,7 @@ class TallyBot {
 
     // event status — show time remaining for event churches
     if (ltext === 'event status' || ltext === '/eventstatus') {
-      const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+      const dbChurch = this._getChurchById(church.churchId);
       if (!dbChurch || dbChurch.church_type !== 'event') {
         return this.sendMessage(chatId, '❌ This church is not registered as an event.');
       }
@@ -1240,8 +1491,7 @@ class TallyBot {
       if (!this.onCallRotation) {
         return this.sendMessage(chatId, '❌ On-call rotation is not configured.');
       }
-      const status = this.onCallRotation.formatOnCallStatus(church.churchId, this.db);
-      const onCallTd = this.onCallRotation.getOnCallTD(church.churchId);
+      const status = await this.onCallRotation.formatOnCallStatus(church.churchId);
       return this.sendMessage(chatId,
         `📋 *On-Call TDs — ${church.name}*\n\n${status}`,
         { parse_mode: 'Markdown' }
@@ -1254,7 +1504,7 @@ class TallyBot {
       if (!targetName) {
         return this.sendMessage(chatId, 'Usage: `/swap [TD name]`\nExample: `/swap John`', { parse_mode: 'Markdown' });
       }
-      const result = this.onCallRotation.initiateSwap(church.churchId, chatId, targetName);
+      const result = await this.onCallRotation.initiateSwap(church.churchId, chatId, targetName);
       if (!result.success) {
         return this.sendMessage(chatId, `❌ ${result.message}`);
       }
@@ -1638,7 +1888,7 @@ class TallyBot {
       if (!targetChurch) {
         return this.sendMessage(chatId, `❌ Church not found: "${churchName}"`);
       }
-      const saved = this.chatEngine.saveMessage({
+      const saved = await this.chatEngine.saveMessage({
         churchId: targetChurch.churchId,
         senderName: 'Tally Support',
         senderRole: 'admin',
@@ -1670,7 +1920,7 @@ class TallyBot {
 
       // list guests
       if (ltext === 'list guests') {
-        const tokens = this.guestTdMode.listActiveTokens();
+        const tokens = await this.guestTdMode.listActiveTokens();
         if (!tokens.length) return this.sendMessage(chatId, 'No active guest tokens.');
         const lines = tokens.map(t => {
           const expires = new Date(t.expiresAt).toLocaleString();
@@ -1872,7 +2122,7 @@ class TallyBot {
       return this.sendMessage(chatId, `❌ Church "${churchName}" not found.\n\nRegistered churches:\n${names}`);
     }
 
-    const { token, expiresAt, expiresFormatted } = this.guestTdMode.generateToken(church.churchId, church.name);
+    const { token, expiresAt, expiresFormatted } = await this.guestTdMode.generateToken(church.churchId, church.name);
     return this.sendMessage(chatId,
       `🎟️ *Guest token for ${church.name}* (24h)\n\nShare this with the guest TD:\n\`/register ${token}\`\n\nExpires: ${expiresFormatted}`,
       { parse_mode: 'Markdown' }
@@ -1886,7 +2136,7 @@ class TallyBot {
       return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
     }
 
-    const result = this.onCallRotation.setOnCall(church.churchId, tdName);
+    const result = await this.onCallRotation.setOnCall(church.churchId, tdName);
     return this.sendMessage(chatId,
       result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
       { parse_mode: 'Markdown' }
@@ -1900,7 +2150,7 @@ class TallyBot {
       return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
     }
 
-    const status = this.onCallRotation.formatOnCallStatus(church.churchId, this.db);
+    const status = await this.onCallRotation.formatOnCallStatus(church.churchId);
     return this.sendMessage(chatId,
       `📋 *TDs for ${church.name}*\n\n${status || 'No TDs registered.'}`,
       { parse_mode: 'Markdown' }
@@ -2046,21 +2296,14 @@ class TallyBot {
       );
 
       // Set scheduler-specific columns (service_day, auto_activate)
-      const sets = [];
-      const vals = [];
-      if (parsed.service_day !== undefined) {
-        sets.push('service_day = ?');
-        vals.push(parsed.service_day);
-      }
-      if (parsed.auto_activate) {
-        sets.push('auto_activate = ?');
-        vals.push(1);
-      }
-      if (sets.length) {
-        vals.push(rundown.id);
-        this.scheduler.rundownEngine.db.prepare(
-          `UPDATE rundowns SET ${sets.join(', ')} WHERE id = ?`
-        ).run(...vals);
+      if (parsed.service_day !== undefined || parsed.auto_activate) {
+        this.scheduler.rundownEngine.setSchedulerConfig(rundown.id, {
+          serviceDay: parsed.service_day,
+          autoActivate: parsed.auto_activate,
+        });
+        if (this.scheduler.rundownEngine.flushWrites) {
+          await this.scheduler.rundownEngine.flushWrites();
+        }
       }
 
       this._pendingRundowns.delete(chatId);
@@ -2107,7 +2350,7 @@ class TallyBot {
   }
 
   async _handleListPresets(church, chatId) {
-    const presets = this.presetLibrary.list(church.churchId);
+    const presets = await this.presetLibrary.list(church.churchId);
     if (!presets.length) {
       return this.sendMessage(chatId, `📋 No saved presets for *${church.name}*.\n\nUse \`save preset [name]\` to create one.`, { parse_mode: 'Markdown' });
     }
@@ -2137,7 +2380,7 @@ class TallyBot {
 
     const type = presetType || (steps.length === 1 ? steps[0].type : 'named_bundle');
     const data = type === 'named_bundle' ? { steps } : steps[0];
-    this.presetLibrary.save(church.churchId, presetName, type, data);
+    await this.presetLibrary.save(church.churchId, presetName, type, data);
 
     const deviceList = steps.map(s => s.type.replace(/_/g, ' ')).join(', ');
     return this.sendMessage(chatId,
@@ -2152,9 +2395,9 @@ class TallyBot {
       return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
     }
 
-    const preset = this.presetLibrary.get(church.churchId, presetName);
+    const preset = await this.presetLibrary.get(church.churchId, presetName);
     if (!preset) {
-      const presets = this.presetLibrary.list(church.churchId);
+      const presets = await this.presetLibrary.list(church.churchId);
       const names = presets.map(p => `• ${p.name}`).join('\n') || '  (none)';
       return this.sendMessage(chatId,
         `❌ Preset *${presetName}* not found.\n\nAvailable presets:\n${names}`,
@@ -2174,7 +2417,7 @@ class TallyBot {
   }
 
   async _handleDeletePreset(church, chatId, presetName) {
-    const deleted = this.presetLibrary.delete(church.churchId, presetName);
+    const deleted = await this.presetLibrary.delete(church.churchId, presetName);
     if (!deleted) {
       return this.sendMessage(chatId, `❌ Preset *${presetName}* not found.`, { parse_mode: 'Markdown' });
     }

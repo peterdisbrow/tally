@@ -22,24 +22,27 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(rundownEngine.getRundowns(req.params.churchId));
   });
 
-  app.post('/api/churches/:churchId/rundowns', requireChurchOrAdmin, (req, res) => {
-    if (!getChurch(req, res)) return;
-    const { name, steps, service_day, auto_activate } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+  app.post('/api/churches/:churchId/rundowns', requireChurchOrAdmin, async (req, res) => {
+    try {
+      if (!getChurch(req, res)) return;
+      const { name, steps, service_day, auto_activate } = req.body;
+      if (!name) return res.status(400).json({ error: 'Name is required' });
 
-    const rundown = rundownEngine.createRundown(req.params.churchId, name, steps || []);
+      const rundown = rundownEngine.createRundown(req.params.churchId, name, steps || []);
 
-    // Set scheduler-specific columns if provided
-    if (service_day !== undefined || auto_activate !== undefined) {
-      const sets = [];
-      const vals = [];
-      if (service_day !== undefined) { sets.push('service_day = ?'); vals.push(service_day); }
-      if (auto_activate !== undefined) { sets.push('auto_activate = ?'); vals.push(auto_activate ? 1 : 0); }
-      vals.push(rundown.id);
-      rundownEngine.db.prepare(`UPDATE rundowns SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+      // Set scheduler-specific columns if provided
+      if (service_day !== undefined || auto_activate !== undefined) {
+        rundownEngine.setSchedulerConfig(rundown.id, {
+          serviceDay: service_day,
+          autoActivate: auto_activate,
+        });
+      }
+
+      if (rundownEngine.flushWrites) await rundownEngine.flushWrites();
+      res.status(201).json(rundownEngine.getRundown(rundown.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message || 'Could not create rundown' });
     }
-
-    res.status(201).json(rundownEngine.getRundown(rundown.id));
   });
 
   app.get('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, (req, res) => {
@@ -51,26 +54,29 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(rundown);
   });
 
-  app.put('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, (req, res) => {
-    if (!getChurch(req, res)) return;
-    const existing = rundownEngine.getRundown(req.params.id);
-    if (!existing || existing.church_id !== req.params.churchId) {
-      return res.status(404).json({ error: 'Rundown not found' });
+  app.put('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, async (req, res) => {
+    try {
+      if (!getChurch(req, res)) return;
+      const existing = rundownEngine.getRundown(req.params.id);
+      if (!existing || existing.church_id !== req.params.churchId) {
+        return res.status(404).json({ error: 'Rundown not found' });
+      }
+
+      const { name, steps, service_day, auto_activate } = req.body;
+      rundownEngine.updateRundown(req.params.id, { name, steps });
+
+      if (service_day !== undefined || auto_activate !== undefined) {
+        rundownEngine.setSchedulerConfig(req.params.id, {
+          serviceDay: service_day,
+          autoActivate: auto_activate,
+        });
+      }
+
+      if (rundownEngine.flushWrites) await rundownEngine.flushWrites();
+      res.json(rundownEngine.getRundown(req.params.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message || 'Could not update rundown' });
     }
-
-    const { name, steps, service_day, auto_activate } = req.body;
-    const updated = rundownEngine.updateRundown(req.params.id, { name, steps });
-
-    if (service_day !== undefined || auto_activate !== undefined) {
-      const sets = [];
-      const vals = [];
-      if (service_day !== undefined) { sets.push('service_day = ?'); vals.push(service_day); }
-      if (auto_activate !== undefined) { sets.push('auto_activate = ?'); vals.push(auto_activate ? 1 : 0); }
-      vals.push(req.params.id);
-      rundownEngine.db.prepare(`UPDATE rundowns SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-    }
-
-    res.json(rundownEngine.getRundown(req.params.id));
   });
 
   app.delete('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, (req, res) => {

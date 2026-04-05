@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { PreServiceCheck } from '../src/preServiceCheck.js';
+import { createQueryClient } from '../src/db/queryClient.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -214,6 +215,26 @@ describe('B. getLatestResult', () => {
     expect(result.pass).toBe(1);
     expect(result.checks).toEqual(checks);
     expect(result.trigger_type).toBe('manual');
+  });
+
+  it('works when constructed with a query client', async () => {
+    addChurch(db, 'ch1');
+    const queryClient = createQueryClient({
+      config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+      sqliteDb: db,
+    });
+    const queryBackedPsc = makePreServiceCheck(queryClient);
+    await queryBackedPsc.ready;
+
+    await queryBackedPsc._persistResult('ch1', {
+      pass: true,
+      checks: [{ name: 'OBS Connected', pass: true }],
+    }, 'manual');
+
+    const result = await queryBackedPsc.getLatestResult('ch1');
+    expect(result).not.toBeNull();
+    expect(result.pass).toBe(1);
+    expect(result.checks).toEqual([{ name: 'OBS Connected', pass: true }]);
   });
 
   it('returns the most recent result when multiple exist', () => {

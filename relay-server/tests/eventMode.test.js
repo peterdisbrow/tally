@@ -11,6 +11,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
 const { EventMode } = require('../src/eventMode.js');
+const { createQueryClient } = require('../src/db/queryClient.js');
 
 // ─── DB factory ───────────────────────────────────────────────────────────────
 
@@ -26,37 +27,62 @@ function makeDb() {
   return db;
 }
 
+async function createEventMode(db = makeDb()) {
+  const eventMode = new EventMode(db);
+  await eventMode.ready;
+  return eventMode;
+}
+
 // ─── _ensureColumns() ─────────────────────────────────────────────────────────
 
 describe('EventMode._ensureColumns()', () => {
-  it('constructs without error on a fresh database', () => {
+  it('constructs without error on a fresh database', async () => {
     const db = makeDb();
     expect(() => new EventMode(db)).not.toThrow();
+    const eventMode = new EventMode(db);
+    await expect(eventMode.ready).resolves.toBeUndefined();
   });
 
-  it('adds church_type column to churches table', () => {
+  it('adds church_type column to churches table', async () => {
     const db = makeDb();
-    new EventMode(db);
-    // If column was added, a SELECT on it should work
+    const eventMode = new EventMode(db);
+    await eventMode.ready;
     expect(() => db.prepare('SELECT church_type FROM churches LIMIT 1').get()).not.toThrow();
   });
 
-  it('adds event_expires_at column to churches table', () => {
+  it('adds event_expires_at column to churches table', async () => {
     const db = makeDb();
-    new EventMode(db);
+    const eventMode = new EventMode(db);
+    await eventMode.ready;
     expect(() => db.prepare('SELECT event_expires_at FROM churches LIMIT 1').get()).not.toThrow();
   });
 
-  it('adds event_label column to churches table', () => {
+  it('adds event_label column to churches table', async () => {
     const db = makeDb();
-    new EventMode(db);
+    const eventMode = new EventMode(db);
+    await eventMode.ready;
     expect(() => db.prepare('SELECT event_label FROM churches LIMIT 1').get()).not.toThrow();
   });
 
-  it('is idempotent — constructing twice does not throw', () => {
+  it('is idempotent — constructing twice does not throw', async () => {
     const db = makeDb();
-    new EventMode(db);      // adds columns
+    const first = new EventMode(db);
+    await first.ready;
     expect(() => new EventMode(db)).not.toThrow(); // columns already exist — try/catch swallows
+  });
+
+  it('works when constructed with a query client', async () => {
+    const db = makeDb();
+    const queryClient = createQueryClient({
+      config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+      sqliteDb: db,
+    });
+    const eventMode = new EventMode(queryClient);
+    await eventMode.ready;
+
+    await eventMode.createEvent({ name: 'Client Event' });
+    const row = db.prepare('SELECT name FROM churches WHERE name = ?').get('Client Event');
+    expect(row?.name).toBe('Client Event');
   });
 });
 
@@ -66,13 +92,13 @@ describe('EventMode.createEvent()', () => {
   let db;
   let em;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = makeDb();
-    em = new EventMode(db);
+    em = await createEventMode(db);
   });
 
-  it('returns an object with churchId, token, expiresAt, name', () => {
-    const result = em.createEvent({ name: 'Test Event' });
+  it('returns an object with churchId, token, expiresAt, name', async () => {
+    const result = await em.createEvent({ name: 'Test Event' });
     expect(result).toHaveProperty('churchId');
     expect(result).toHaveProperty('token');
     expect(result).toHaveProperty('expiresAt');
@@ -80,28 +106,28 @@ describe('EventMode.createEvent()', () => {
     expect(result.name).toBe('Test Event');
   });
 
-  it('churchId is a UUID v4 (matches UUID format)', () => {
-    const { churchId } = em.createEvent({ name: 'UUID Test' });
+  it('churchId is a UUID v4 (matches UUID format)', async () => {
+    const { churchId } = await em.createEvent({ name: 'UUID Test' });
     expect(churchId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     );
   });
 
-  it('expiresAt is an ISO string in the future', () => {
-    const { expiresAt } = em.createEvent({ name: 'Future Test' });
+  it('expiresAt is an ISO string in the future', async () => {
+    const { expiresAt } = await em.createEvent({ name: 'Future Test' });
     expect(new Date(expiresAt).getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('stores record in DB — can be queried by churchId', () => {
-    const { churchId } = em.createEvent({ name: 'DB Store Test' });
+  it('stores record in DB — can be queried by churchId', async () => {
+    const { churchId } = await em.createEvent({ name: 'DB Store Test' });
     const row = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
     expect(row).toBeDefined();
     expect(row.name).toBe('DB Store Test');
   });
 
-  it('default durationHours=72 makes expiresAt approximately 72 hours from now', () => {
+  it('default durationHours=72 makes expiresAt approximately 72 hours from now', async () => {
     const before = Date.now();
-    const { expiresAt } = em.createEvent({ name: 'Default Duration' });
+    const { expiresAt } = await em.createEvent({ name: 'Default Duration' });
     const after = Date.now();
     const expiresMs = new Date(expiresAt).getTime();
     const expectedMin = before + 72 * 60 * 60 * 1000;
@@ -110,41 +136,41 @@ describe('EventMode.createEvent()', () => {
     expect(expiresMs).toBeLessThanOrEqual(expectedMax);
   });
 
-  it('custom durationHours=1 makes expiresAt approximately 1 hour from now', () => {
+  it('custom durationHours=1 makes expiresAt approximately 1 hour from now', async () => {
     const before = Date.now();
-    const { expiresAt } = em.createEvent({ name: '1h Event', durationHours: 1 });
+    const { expiresAt } = await em.createEvent({ name: '1h Event', durationHours: 1 });
     const after = Date.now();
     const expiresMs = new Date(expiresAt).getTime();
     expect(expiresMs).toBeGreaterThanOrEqual(before + 60 * 60 * 1000);
     expect(expiresMs).toBeLessThanOrEqual(after  + 60 * 60 * 1000);
   });
 
-  it('contactEmail is stored in DB when provided', () => {
-    const { churchId } = em.createEvent({ name: 'Email Test', contactEmail: 'td@example.com' });
+  it('contactEmail is stored in DB when provided', async () => {
+    const { churchId } = await em.createEvent({ name: 'Email Test', contactEmail: 'td@example.com' });
     const row = db.prepare('SELECT email FROM churches WHERE churchId = ?').get(churchId);
     expect(row.email).toBe('td@example.com');
   });
 
-  it('email defaults to empty string when not provided', () => {
-    const { churchId } = em.createEvent({ name: 'No Email' });
+  it('email defaults to empty string when not provided', async () => {
+    const { churchId } = await em.createEvent({ name: 'No Email' });
     const row = db.prepare('SELECT email FROM churches WHERE churchId = ?').get(churchId);
     expect(row.email).toBe('');
   });
 
-  it('event_label is set to eventLabel when provided', () => {
-    const { churchId } = em.createEvent({ name: 'Easter Sunday 2026', eventLabel: 'Easter 2026' });
+  it('event_label is set to eventLabel when provided', async () => {
+    const { churchId } = await em.createEvent({ name: 'Easter Sunday 2026', eventLabel: 'Easter 2026' });
     const row = db.prepare('SELECT event_label FROM churches WHERE churchId = ?').get(churchId);
     expect(row.event_label).toBe('Easter 2026');
   });
 
-  it('event_label defaults to name when eventLabel not provided', () => {
-    const { churchId } = em.createEvent({ name: 'Wedding Day' });
+  it('event_label defaults to name when eventLabel not provided', async () => {
+    const { churchId } = await em.createEvent({ name: 'Wedding Day' });
     const row = db.prepare('SELECT event_label FROM churches WHERE churchId = ?').get(churchId);
     expect(row.event_label).toBe('Wedding Day');
   });
 
-  it('token is a valid JWT (three dot-separated parts)', () => {
-    const { token } = em.createEvent({ name: 'JWT Test' });
+  it('token is a valid JWT (three dot-separated parts)', async () => {
+    const { token } = await em.createEvent({ name: 'JWT Test' });
     const parts = token.split('.');
     expect(parts).toHaveLength(3);
     // Each part is non-empty base64url
@@ -153,15 +179,15 @@ describe('EventMode.createEvent()', () => {
     expect(parts[2].length).toBeGreaterThan(0);
   });
 
-  it('sets church_type to event in DB', () => {
-    const { churchId } = em.createEvent({ name: 'Type Test' });
+  it('sets church_type to event in DB', async () => {
+    const { churchId } = await em.createEvent({ name: 'Type Test' });
     const row = db.prepare('SELECT church_type FROM churches WHERE churchId = ?').get(churchId);
     expect(row.church_type).toBe('event');
   });
 
-  it('each call generates a unique churchId', () => {
-    const r1 = em.createEvent({ name: 'Event A' });
-    const r2 = em.createEvent({ name: 'Event B' });
+  it('each call generates a unique churchId', async () => {
+    const r1 = await em.createEvent({ name: 'Event A' });
+    const r2 = await em.createEvent({ name: 'Event B' });
     expect(r1.churchId).not.toBe(r2.churchId);
   });
 });
@@ -171,8 +197,8 @@ describe('EventMode.createEvent()', () => {
 describe('EventMode.isEventExpired()', () => {
   let em;
 
-  beforeEach(() => {
-    em = new EventMode(makeDb());
+  beforeEach(async () => {
+    em = await createEventMode();
   });
 
   it('returns false when event_expires_at is null', () => {
@@ -205,8 +231,8 @@ describe('EventMode.isEventExpired()', () => {
 describe('EventMode.getTimeRemaining()', () => {
   let em;
 
-  beforeEach(() => {
-    em = new EventMode(makeDb());
+  beforeEach(async () => {
+    em = await createEventMode();
   });
 
   it('returns "unknown" when event_expires_at is missing', () => {
@@ -252,14 +278,14 @@ describe('EventMode.checkExpiry()', () => {
   let db;
   let em;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = makeDb();
-    em = new EventMode(db);
+    em = await createEventMode(db);
   });
 
   it('does not call expireEvent when no events are expired', async () => {
     const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    em.createEvent({ name: 'Future Event' });
+    await em.createEvent({ name: 'Future Event' });
     // Set event_expires_at manually to the future
     db.prepare("UPDATE churches SET church_type = 'event', event_expires_at = ?").run(future);
 
@@ -325,9 +351,9 @@ describe('EventMode.expireEvent()', () => {
   let db;
   let em;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = makeDb();
-    em = new EventMode(db);
+    em = await createEventMode(db);
   });
 
   afterEach(() => {

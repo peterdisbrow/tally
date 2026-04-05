@@ -5,9 +5,9 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupResellerRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireReseller, resellerSystem,
-          hashPassword, safeErrorMessage, stmtInsert, stmtFindByName,
-          lifecycleEmails, jwt, JWT_SECRET, log } = ctx;
+  const { churches, requireAdmin, requireReseller, resellerSystem,
+          hashPassword, safeErrorMessage,
+          lifecycleEmails, log } = ctx;
   const WebSocket = require('ws').WebSocket;
   const { hasOpenSocket } = require('../runtimeSockets');
 
@@ -60,7 +60,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
   app.delete('/api/resellers/:resellerId', requireAdmin, (req, res) => {
     const row = resellerSystem.getResellerById(req.params.resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
-    db.prepare('UPDATE resellers SET active = 0 WHERE id = ?').run(req.params.resellerId);
+    resellerSystem.deactivateReseller(req.params.resellerId);
     res.json({ deactivated: true });
   });
 
@@ -70,14 +70,16 @@ module.exports = function setupResellerRoutes(app, ctx) {
     const { password, email } = req.body;
     if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const hashed = hashPassword(password);
-    try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT'); } catch { /* exists */ }
-    try { db.exec('ALTER TABLE resellers ADD COLUMN portal_email TEXT'); } catch { /* exists */ }
+    const patch = { portal_password_hash: hashed };
     if (email) {
       const cleanEmail = email.trim().toLowerCase();
-      db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_email = ? WHERE id = ?').run(hashed, cleanEmail, req.params.resellerId);
-    } else {
-      db.prepare('UPDATE resellers SET portal_password_hash = ? WHERE id = ?').run(hashed, req.params.resellerId);
+      const existing = resellerSystem.getResellerByPortalEmail(cleanEmail);
+      if (existing && existing.id !== req.params.resellerId) {
+        return res.status(409).json({ error: 'Email already used by another reseller' });
+      }
+      patch.portal_email = cleanEmail;
     }
+    resellerSystem.updateReseller(req.params.resellerId, patch);
     res.json({ updated: true });
   });
 
@@ -92,37 +94,31 @@ module.exports = function setupResellerRoutes(app, ctx) {
       return res.status(403).json({ error: `Church limit reached (max ${reseller.church_limit})` });
     }
 
-    const existing = stmtFindByName.get(name);
-    if (existing) return res.status(409).json({ error: `A church named "${name}" already exists` });
-
     try {
-      const { v4: uuid } = require('uuid');
-      const churchId = uuid();
-      const token = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
-      const registeredAt = new Date().toISOString();
+      const result = resellerSystem.generateChurchToken(reseller.id, name);
+      if (email) {
+        resellerSystem.updateChurch(result.churchId, { email: email || '' });
+      }
 
-      stmtInsert.run(churchId, name, email || '', token, registeredAt);
-      resellerSystem.registerChurch(reseller.id, churchId, name);
-
-      churches.set(churchId, {
-        churchId, name, email: email || '', token, ws: null,
+      churches.set(result.churchId, {
+        churchId: result.churchId, name, email: email || '', token: result.token, ws: null,
         status: {},
-        lastSeen: null, lastHeartbeat: null, registeredAt,
+        lastSeen: null, lastHeartbeat: null, registeredAt: new Date().toISOString(),
         disconnectedAt: null, _offlineAlertSent: false,
         church_type: 'recurring', event_expires_at: null, event_label: null,
         reseller_id: reseller.id,
       });
 
-      log(`Reseller "${reseller.name}" registered church: ${name} (${churchId})`);
+      log(`Reseller "${reseller.name}" registered church: ${name} (${result.churchId})`);
 
       // Send registration confirmation lifecycle email if the church has a contact email
       if (lifecycleEmails && email) {
-        const regChurch = { churchId, name, portal_email: email };
+        const regChurch = { churchId: result.churchId, name, portal_email: email };
         lifecycleEmails.sendRegistrationConfirmation(regChurch)
           .catch(e => log(`[Reseller] Registration email failed for ${email}: ${e.message}`));
       }
 
-      res.json({ churchId, name, token, resellerId: reseller.id, message: 'Church registered. Share this token with the church client app.' });
+      res.json({ churchId: result.churchId, name, token: result.token, resellerId: reseller.id, message: 'Church registered. Share this token with the church client app.' });
     } catch (e) {
       console.error('[/api/reseller/churches/register]', e.message);
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -145,8 +141,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
   });
 
   app.get('/api/reseller/churches/:churchId', requireReseller, (req, res) => {
-    const row = db.prepare('SELECT * FROM churches WHERE churchId = ? AND reseller_id = ?')
-      .get(req.params.churchId, req.reseller.id);
+    const row = resellerSystem.getChurchForReseller(req.reseller.id, req.params.churchId);
     if (!row) return res.status(404).json({ error: 'Church not found or does not belong to your account' });
     const runtime = churches.get(row.churchId);
     res.json({
@@ -205,22 +200,20 @@ module.exports = function setupResellerRoutes(app, ctx) {
       const cleanPortalEmail = String(portalEmail || '').trim().toLowerCase();
 
       if (cleanPortalEmail) {
-        const existingEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanPortalEmail);
+        const existingEmail = resellerSystem.getChurchByPortalEmail(cleanPortalEmail);
         if (existingEmail) return res.status(409).json({ error: 'portalEmail already exists' });
       }
 
-      const createChurch = db.transaction(() => {
-        const result = resellerSystem.generateChurchToken(req.reseller.id, churchName);
-        if (cleanContactEmail) {
-          db.prepare('UPDATE churches SET email = ? WHERE churchId = ?').run(cleanContactEmail, result.churchId);
-        }
+      const result = resellerSystem.generateChurchToken(req.reseller.id, churchName);
+      if (cleanContactEmail || cleanPortalEmail) {
+        const churchPatch = {};
+        if (cleanContactEmail) churchPatch.email = cleanContactEmail;
         if (cleanPortalEmail) {
-          db.prepare('UPDATE churches SET portal_email = ?, portal_password_hash = ? WHERE churchId = ?')
-            .run(cleanPortalEmail, hashPassword(password), result.churchId);
+          churchPatch.portal_email = cleanPortalEmail;
+          churchPatch.portal_password_hash = hashPassword(password);
         }
-        return result;
-      });
-      const result = createChurch();
+        resellerSystem.updateChurch(result.churchId, churchPatch);
+      }
 
       churches.set(result.churchId, {
         churchId: result.churchId, name: result.churchName,

@@ -5,11 +5,16 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupSlackRoutes(app, ctx) {
-  const { db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log, isValidSlackWebhookUrl } = ctx;
+  const { db, queryClient, churches, requireAdmin, alertEngine, safeErrorMessage, log, isValidSlackWebhookUrl } = ctx;
+  const hasQueryClient = !!queryClient;
+  const qOne = (sql, params = []) =>
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null;
+  const qRun = (sql, params = []) =>
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params);
 
   // Get Slack config for a church (masked webhook for security)
-  app.get('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-    const row = stmtGet.get(req.params.churchId);
+  app.get('/api/churches/:churchId/slack', requireAdmin, async (req, res) => {
+    const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     const url = row.slack_webhook_url || '';
     res.json({
@@ -21,7 +26,7 @@ module.exports = function setupSlackRoutes(app, ctx) {
   });
 
   // Set Slack config for a church
-  app.put('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
+  app.put('/api/churches/:churchId/slack', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const { webhookUrl, channel } = req.body;
@@ -29,18 +34,22 @@ module.exports = function setupSlackRoutes(app, ctx) {
     if (isValidSlackWebhookUrl && !isValidSlackWebhookUrl(webhookUrl)) {
       return res.status(400).json({ error: 'Invalid Slack webhook URL. Must be an https:// URL on hooks.slack.com.' });
     }
-    db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
-      .run(webhookUrl, channel || null, req.params.churchId);
+    await qRun(
+      'UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?',
+      [webhookUrl, channel || null, req.params.churchId],
+    );
     log(`Slack configured for church ${church.name}`);
     res.json({ saved: true, channel: channel || null });
   });
 
   // Remove Slack config
-  app.delete('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
+  app.delete('/api/churches/:churchId/slack', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
-      .run(req.params.churchId);
+    await qRun(
+      'UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?',
+      [req.params.churchId],
+    );
     res.json({ removed: true });
   });
 
@@ -48,7 +57,7 @@ module.exports = function setupSlackRoutes(app, ctx) {
   app.post('/api/churches/:churchId/slack/test', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const row = stmtGet.get(req.params.churchId);
+    const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
     if (!row?.slack_webhook_url) return res.status(400).json({ error: 'Slack not configured for this church' });
 
     try {

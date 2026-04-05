@@ -148,14 +148,19 @@ module.exports = function setupPlanningCenterRoutes(app, ctx) {
    */
   app.put('/api/churches/:churchId/planning-center',
     requireAdmin, requireFeature('planning_center'),
-    (req, res) => {
+    async (req, res) => {
       const church = churches.get(req.params.churchId);
       if (!church) return res.status(404).json({ error: 'Church not found' });
       const { appId, secret, serviceTypeId, syncEnabled, writebackEnabled, serviceTypeIds } = req.body;
-      planningCenter.setCredentials(req.params.churchId, {
-        appId, secret, serviceTypeId, syncEnabled, writebackEnabled, serviceTypeIds,
-      });
-      res.json({ saved: true });
+      try {
+        planningCenter.setCredentials(req.params.churchId, {
+          appId, secret, serviceTypeId, syncEnabled, writebackEnabled, serviceTypeIds,
+        });
+        await planningCenter.flushWrites();
+        res.json({ saved: true });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
     }
   );
 

@@ -5,6 +5,8 @@
  * Defaults are hardcoded; per-deployment overrides live in a DB table.
  */
 
+const { createQueryClient } = require('./db');
+
 const DEFAULT_MIN_VERSIONS = {
   obs:              '30.0',
   proPresenter:     '7.14',
@@ -39,13 +41,35 @@ function compareVersions(a, b) {
 }
 
 class VersionConfig {
-  constructor(db) {
-    this.db = db;
-    this._ensureTable();
+  constructor(dbOrClient, options = {}) {
+    this.client = this._resolveClient(dbOrClient, options);
+    this.requirements = { ...DEFAULT_MIN_VERSIONS };
+    this.ready = this._init();
   }
 
-  _ensureTable() {
-    this.db.exec(`
+  _resolveClient(dbOrClient, options) {
+    if (dbOrClient && typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || {
+        driver: 'sqlite',
+        isSqlite: true,
+        isPostgres: false,
+        databaseUrl: '',
+      },
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  async _init() {
+    await this._ensureTable();
+    await this.refresh();
+  }
+
+  async _ensureTable() {
+    await this.client.exec(`
       CREATE TABLE IF NOT EXISTS version_requirements (
         device_type TEXT PRIMARY KEY,
         min_version TEXT NOT NULL,
@@ -54,30 +78,37 @@ class VersionConfig {
     `);
   }
 
+  async refresh() {
+    const rows = await this.client.query('SELECT * FROM version_requirements');
+    const result = { ...DEFAULT_MIN_VERSIONS };
+    for (const row of rows) result[row.device_type] = row.min_version;
+    this.requirements = result;
+    return this.getAllRequirements();
+  }
+
   /** Return the minimum version for a device type (DB override → hardcoded default). */
   getMinVersion(deviceType) {
-    const row = this.db.prepare(
-      'SELECT min_version FROM version_requirements WHERE device_type = ?',
-    ).get(deviceType);
-    return row?.min_version || DEFAULT_MIN_VERSIONS[deviceType] || null;
+    return this.requirements[deviceType] || null;
   }
 
   /** Override the minimum version for a device type. */
-  setMinVersion(deviceType, version) {
+  async setMinVersion(deviceType, version) {
+    await this.ready;
     const now = new Date().toISOString();
-    this.db.prepare(`
+    await this.client.run(`
       INSERT INTO version_requirements (device_type, min_version, updated_at)
       VALUES (?, ?, ?)
       ON CONFLICT(device_type) DO UPDATE SET min_version = ?, updated_at = ?
-    `).run(deviceType, version, now, version, now);
+    `, [deviceType, version, now, version, now]);
+    this.requirements = {
+      ...this.requirements,
+      [deviceType]: version,
+    };
   }
 
   /** Return all minimums (DB overrides merged over defaults). */
   getAllRequirements() {
-    const rows = this.db.prepare('SELECT * FROM version_requirements').all();
-    const result = { ...DEFAULT_MIN_VERSIONS };
-    for (const row of rows) result[row.device_type] = row.min_version;
-    return result;
+    return { ...this.requirements };
   }
 
   /**

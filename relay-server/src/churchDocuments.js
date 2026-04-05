@@ -11,24 +11,57 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 const MAX_CHUNKS_PER_DOC = 20;
 const CHUNK_SIZE = 500; // chars per chunk (paragraph boundary)
 const MAX_SUMMARY_CHARS = 200;
 const DOC_CONTEXT_BUDGET = 400; // max chars injected into AI context
 
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
 class ChurchDocuments {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {object} dbOrClient
+   * @param {object} [options]
+   * @param {object} [options.config]
    */
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
     this._logAiUsage = null;
-    this._ensureSchema();
+    this.ready = this.client ? this._init() : Promise.resolve();
   }
 
-  _ensureSchema() {
-    this.db.exec(`
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[ChurchDocuments] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureSchema();
+  }
+
+  async _ensureSchema() {
+    const client = this._requireClient();
+    await client.exec(`
       CREATE TABLE IF NOT EXISTS church_documents (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -42,7 +75,7 @@ class ChurchDocuments {
       )
     `);
     try {
-      this.db.exec('CREATE INDEX IF NOT EXISTS idx_docs_church ON church_documents(church_id, active)');
+      await client.exec('CREATE INDEX IF NOT EXISTS idx_docs_church ON church_documents(church_id, active)');
     } catch { /* already exists */ }
   }
 
@@ -63,6 +96,7 @@ class ChurchDocuments {
    * @returns {Promise<{ id: string, summary: string, chunkCount: number }>}
    */
   async uploadDocument(churchId, base64Data, fileName, mimeType, uploaderName = 'TD') {
+    await this.ready;
     // 1. Extract text based on MIME type
     let text;
     if (mimeType === 'text/plain' || mimeType === 'text/csv') {
@@ -87,10 +121,11 @@ class ChurchDocuments {
     const id = uuidv4();
     const docType = this._inferDocType(fileName, text);
 
-    this.db.prepare(`
-      INSERT INTO church_documents (id, church_id, filename, doc_type, summary, chunks, uploaded_by, uploaded_at, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `).run(id, churchId, fileName, docType, summary, JSON.stringify(chunks), uploaderName, new Date().toISOString());
+    await this._requireClient().run(
+      `INSERT INTO church_documents (id, church_id, filename, doc_type, summary, chunks, uploaded_by, uploaded_at, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [id, churchId, fileName, docType, summary, JSON.stringify(chunks), uploaderName, new Date().toISOString()]
+    );
 
     return { id, summary, chunkCount: chunks.length };
   }
@@ -266,11 +301,13 @@ class ChurchDocuments {
    * @param {string} query  The user's message
    * @returns {string}  Best matching chunk text (max DOC_CONTEXT_BUDGET chars), or empty
    */
-  getDocumentContext(churchId, query) {
+  async getDocumentContext(churchId, query) {
+    await this.ready;
     try {
-      const docs = this.db.prepare(
-        'SELECT chunks FROM church_documents WHERE church_id = ? AND active = 1'
-      ).all(churchId);
+      const docs = await this._requireClient().query(
+        'SELECT chunks FROM church_documents WHERE church_id = ? AND active = 1',
+        [churchId]
+      );
 
       if (!docs.length) return '';
 
@@ -307,19 +344,23 @@ class ChurchDocuments {
   /**
    * List all active documents for a church.
    */
-  listDocuments(churchId) {
-    return this.db.prepare(
-      'SELECT id, filename, doc_type, summary, uploaded_by, uploaded_at FROM church_documents WHERE church_id = ? AND active = 1 ORDER BY uploaded_at DESC'
-    ).all(churchId);
+  async listDocuments(churchId) {
+    await this.ready;
+    return this._requireClient().query(
+      'SELECT id, filename, doc_type, summary, uploaded_by, uploaded_at FROM church_documents WHERE church_id = ? AND active = 1 ORDER BY uploaded_at DESC',
+      [churchId]
+    );
   }
 
   /**
    * Soft-delete a document.
    */
-  deleteDocument(churchId, docId) {
-    return this.db.prepare(
-      'UPDATE church_documents SET active = 0 WHERE id = ? AND church_id = ?'
-    ).run(docId, churchId);
+  async deleteDocument(churchId, docId) {
+    await this.ready;
+    return this._requireClient().run(
+      'UPDATE church_documents SET active = 0 WHERE id = ? AND church_id = ?',
+      [docId, churchId]
+    );
   }
 }
 

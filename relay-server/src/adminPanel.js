@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const { WebSocket } = require('ws');
 const { hasOpenSocket } = require('./runtimeSockets');
+const { SqliteQueryClient } = require('./db/queryClient');
 
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
@@ -563,9 +564,63 @@ loadFleet();
 // ─── MAIN SETUP ───────────────────────────────────────────────────────────────
 
 function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
+  const adminQuery = opts.queryClient || (
+    db && typeof db.query === 'function'
+      && typeof db.run === 'function'
+      && typeof db.prepare !== 'function'
+        ? db
+        : new SqliteQueryClient(db)
+  );
+  const canComputeHealthScore = (() => {
+    try {
+      return !!(db && typeof db.prepare === 'function');
+    } catch {
+      return false;
+    }
+  })();
+
+  async function qOne(sql, params = []) {
+    return adminQuery.queryOne(sql, params);
+  }
+
+  async function qAll(sql, params = []) {
+    return adminQuery.query(sql, params);
+  }
+
+  async function qRun(sql, params = []) {
+    return adminQuery.run(sql, params);
+  }
+
+  async function qMaybeOne(sql, params = [], fallback = null) {
+    try {
+      return await qOne(sql, params);
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function qMaybeAll(sql, params = [], fallback = []) {
+    try {
+      return await qAll(sql, params);
+    } catch {
+      return fallback;
+    }
+  }
+
+  function getHealthScore(churchId, healthOpts = {}) {
+    if (!canComputeHealthScore || !db || typeof db.prepare !== 'function') {
+      return { score: null, breakdown: {}, trend: 'stable', recommendations: [] };
+    }
+    try {
+      return computeHealthScore(db, churchId, 7, healthOpts);
+    } catch {
+      return { score: null, breakdown: {}, trend: 'stable', recommendations: [] };
+    }
+  }
+
   // ── Session middleware ────────────────────────────────────────────────────
 
-  function requireAdminSession(req, res, next) {
+  async function requireAdminSession(req, res, next) {
     // Allow programmatic access via x-api-key header (timing-safe comparison to prevent brute-force timing attacks)
     const apiKey = req.headers['x-api-key'];
     if (apiKey) {
@@ -585,7 +640,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         if (isApi) return res.status(401).json({ error: 'Session missing user identity — re-authenticate' });
         return res.redirect('/admin/login');
       }
-      const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1').get(payload.userId);
+      const user = await qOne(
+        'SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1',
+        [payload.userId],
+      );
       if (!user) {
         const isApi = req.path.startsWith('/api/');
         if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
@@ -602,7 +660,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         const jwtPayload = opts.jwt.verify(authHeader.slice(7), opts.JWT_SECRET);
         if (jwtPayload.type === 'admin') {
           // Verify still active in DB
-          const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1').get(jwtPayload.userId);
+          const user = await qOne(
+            'SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1',
+            [jwtPayload.userId],
+          );
           if (!user) {
             const isApi = req.path.startsWith('/api/');
             if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
@@ -655,64 +716,60 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Admin API ─────────────────────────────────────────────────────────────
 
-  app.get('/api/admin/overview', requireAdminSession, (req, res) => {
-    const totalChurches = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt;
-    const totalResellers = db.prepare('SELECT COUNT(*) AS cnt FROM resellers WHERE active=1').get().cnt;
+  app.get('/api/admin/overview', requireAdminSession, async (req, res) => {
+    const totalChurches = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM churches'))?.cnt || 0;
+    const totalResellers = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM resellers WHERE active=1'))?.cnt || 0;
     const onlineNow = Array.from(churches.values()).filter(c => c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)).length;
     let activeAlerts = 0;
     try {
-      activeAlerts = db.prepare(
+      activeAlerts = (await qOne(
         "SELECT COUNT(*) AS cnt FROM alerts WHERE datetime(created_at) > datetime('now','-24 hours')"
-      ).get()?.cnt || 0;
+      ))?.cnt || 0;
     } catch { /* alerts table may not exist */ }
     let openTickets = 0;
     try {
-      openTickets = db.prepare(
+      openTickets = (await qOne(
         "SELECT COUNT(*) AS cnt FROM support_tickets WHERE status IN ('open','in_progress')"
-      ).get()?.cnt || 0;
+      ))?.cnt || 0;
     } catch { /* support_tickets table may not exist */ }
     let mrr = 0;
     try {
-      mrr = db.prepare(
+      mrr = (await qOne(
         "SELECT COALESCE(SUM(amount),0) AS total FROM billing WHERE status='active'"
-      ).get()?.total || 0;
+      ))?.total || 0;
     } catch { /* billing table may not exist */ }
     // Trend: previous 24h alerts (24-48h ago)
     let prevAlerts = 0;
     try {
-      prevAlerts = db.prepare(
+      prevAlerts = (await qOne(
         "SELECT COUNT(*) AS cnt FROM alerts WHERE datetime(created_at) > datetime('now','-48 hours') AND datetime(created_at) <= datetime('now','-24 hours')"
-      ).get()?.cnt || 0;
+      ))?.cnt || 0;
     } catch { /* alerts table may not exist */ }
 
     // Trend: online count 24h ago approximation (use 7-day avg of churches connected at any point)
     let prevOnline = null;
     try {
       // Use the average of churches that had heartbeats in the 24-48h window
-      const prevOnlineCount = db.prepare(
+      const prevOnlineCount = (await qOne(
         "SELECT COUNT(DISTINCT church_id) AS cnt FROM service_sessions WHERE datetime(started_at) > datetime('now','-48 hours') AND datetime(started_at) <= datetime('now','-24 hours')"
-      ).get()?.cnt;
+      ))?.cnt;
       if (prevOnlineCount !== undefined) prevOnline = prevOnlineCount;
     } catch { /* table may not exist */ }
 
     res.json({ totalChurches, onlineNow, totalResellers, activeAlerts, openTickets, mrr, prevAlerts, prevOnline });
   });
 
-  app.get('/api/admin/churches', requireAdminSession, (req, res) => {
+  app.get('/api/admin/churches', requireAdminSession, async (req, res) => {
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
     const offset = (page - 1) * limit;
 
-    const total = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt;
-    const rows  = db.prepare('SELECT * FROM churches ORDER BY registeredAt DESC LIMIT ? OFFSET ?').all(limit, offset);
+    const total = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM churches'))?.cnt || 0;
+    const rows  = await qAll('SELECT * FROM churches ORDER BY registeredAt DESC LIMIT ? OFFSET ?', [limit, offset]);
 
     // Pre-fetch room counts for all churches in this page
-    const roomCountStmt = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL');
-
     const list = rows.map(row => {
       const runtime = churches.get(row.churchId);
-      let roomCount = 0;
-      try { roomCount = roomCountStmt.get(row.churchId)?.cnt || 0; } catch { /* rooms table may not exist */ }
       return {
         churchId:         row.churchId,
         name:             row.name,
@@ -726,25 +783,33 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         status:           runtime?.status || { connected: false },
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,
-        roomCount,
+        roomCount:        row.roomCount || 0,
       };
     });
+    try {
+      const counts = await qAll(
+        'SELECT campus_id, COUNT(*) AS cnt FROM rooms WHERE deleted_at IS NULL GROUP BY campus_id'
+      );
+      const roomCounts = new Map(counts.map(r => [r.campus_id, r.cnt]));
+      for (const item of list) item.roomCount = roomCounts.get(item.churchId) || 0;
+    } catch { /* rooms table may not exist */ }
     res.json({ churches: list, total, page, limit, pages: Math.ceil(total / limit) });
   });
 
-  app.post('/api/admin/churches', requireAdminSession, (req, res) => {
+  app.post('/api/admin/churches', requireAdminSession, async (req, res) => {
     const { name, email, type, resellerId } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    const existing = db.prepare('SELECT churchId FROM churches WHERE name = ?').get(name);
+    const existing = await qOne('SELECT churchId FROM churches WHERE name = ?', [name]);
     if (existing) return res.status(409).json({ error: `Church "${name}" already exists` });
     try {
       const churchId = uuidv4();
       const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret';
       const token = jwt.sign({ churchId, name }, jwtSecret, { expiresIn: '365d' });
       const registeredAt = new Date().toISOString();
-      db.prepare(
-        'INSERT INTO churches (churchId, name, email, token, registeredAt, church_type, reseller_id) VALUES (?,?,?,?,?,?,?)'
-      ).run(churchId, name, email || '', token, registeredAt, type || 'recurring', resellerId || null);
+      await qRun(
+        'INSERT INTO churches (churchId, name, email, token, registeredAt, church_type, reseller_id) VALUES (?,?,?,?,?,?,?)',
+        [churchId, name, email || '', token, registeredAt, type || 'recurring', resellerId || null],
+      );
       // Add to in-memory map
       churches.set(churchId, {
         churchId, name, email: email || '', token, ws: null,
@@ -758,10 +823,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.put('/api/admin/churches/:id', requireAdminSession, (req, res) => {
+  app.put('/api/admin/churches/:id', requireAdminSession, async (req, res) => {
     const { id } = req.params;
     const church = churches.get(id);
-    if (!church && !db.prepare('SELECT churchId FROM churches WHERE churchId=?').get(id)) {
+    if (!church && !(await qOne('SELECT churchId FROM churches WHERE churchId=?', [id]))) {
       return res.status(404).json({ error: 'Church not found' });
     }
     const allowedColumns = ['name', 'email', 'church_type', 'reseller_id', 'audio_via_atem'];
@@ -775,7 +840,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (audioViaAtem !== undefined && allowedColumns.includes('audio_via_atem')) { updates.push('audio_via_atem=?'); vals.push(audioViaAtem ? 1 : 0); }
     if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(id);
-    db.prepare(`UPDATE churches SET ${updates.join(',')} WHERE churchId=?`).run(...vals);
+    await qRun(`UPDATE churches SET ${updates.join(',')} WHERE churchId=?`, vals);
     if (church) {
       if (name !== undefined) church.name = name;
       if (email !== undefined) church.email = email;
@@ -787,14 +852,14 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ updated: true });
   });
 
-  app.post('/api/admin/churches/:id/token', requireAdminSession, (req, res) => {
+  app.post('/api/admin/churches/:id/token', requireAdminSession, async (req, res) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT * FROM churches WHERE churchId=?').get(id);
+    const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     try {
       const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret';
       const token = jwt.sign({ churchId: id, name: row.name }, jwtSecret, { expiresIn: '365d' });
-      db.prepare('UPDATE churches SET token=? WHERE churchId=?').run(token, id);
+      await qRun('UPDATE churches SET token=? WHERE churchId=?', [token, id]);
       const church = churches.get(id);
       if (church) church.token = token;
       auditFromReq(req, 'token_regenerated', 'church', id, { name: row.name });
@@ -802,9 +867,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.delete('/api/admin/churches/:id', requireAdminSession, (req, res) => {
+  app.delete('/api/admin/churches/:id', requireAdminSession, async (req, res) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT * FROM churches WHERE churchId=?').get(id);
+    const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     const church = churches.get(id);
     if (church?.sockets?.size) {
@@ -844,15 +909,12 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       { table: 'rundown_items', column: 'church_id' },
     ];
     try {
-      const tx = db.transaction((churchId) => {
-        for (const { table, column } of ALLOWED_CASCADE_DELETES) {
-          try {
-            db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(churchId);
-          } catch { /* table may not exist */ }
-        }
-        db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
-      });
-      tx(id);
+      for (const { table, column } of ALLOWED_CASCADE_DELETES) {
+        try {
+          await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [id]);
+        } catch { /* table may not exist */ }
+      }
+      await qRun('DELETE FROM churches WHERE churchId = ?', [id]);
     } catch (e) {
       return res.status(500).json({ error: safeErrorMessage(e, 'Failed to delete church') });
     }
@@ -862,7 +924,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ deleted: true, name: row.name });
   });
 
-  app.put('/api/admin/resellers/:id', requireAdminSession, (req, res) => {
+  app.put('/api/admin/resellers/:id', requireAdminSession, async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
@@ -879,36 +941,34 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const fields = Object.keys(patch);
       const setClauses = fields.map(f => `${f}=?`).join(',');
       const vals = [...fields.map(f => patch[f]), id];
-      db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
+      await qRun(`UPDATE resellers SET ${setClauses} WHERE id=?`, vals);
       auditFromReq(req, 'reseller_updated', 'reseller', id, { fields: Object.keys(patch) });
       res.json({ updated: true });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/admin/resellers/:id/password', requireAdminSession, (req, res) => {
+  app.post('/api/admin/resellers/:id/password', requireAdminSession, async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     const { password } = req.body;
     if (!password) return res.status(400).json({ error: 'password required' });
-    // Ensure column exists
-    try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password TEXT'); } catch {}
     const hashed = hashPortalPassword(password);
-    db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(hashed, id);
+    await qRun('UPDATE resellers SET portal_password=? WHERE id=?', [hashed, id]);
     auditFromReq(req, 'reseller_password_reset', 'reseller', id, {});
     res.json({ updated: true });
   });
 
-  app.delete('/api/admin/resellers/:id', requireAdminSession, (req, res) => {
+  app.delete('/api/admin/resellers/:id', requireAdminSession, async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
-    db.prepare('UPDATE resellers SET active=0 WHERE id=?').run(id);
+    await qRun('UPDATE resellers SET active=0 WHERE id=?', [id]);
     auditFromReq(req, 'reseller_deactivated', 'reseller', id, { name: row.name });
     res.json({ deactivated: true });
   });
 
-  app.post('/api/admin/change-password', requireAdminSession, (req, res) => {
+  app.post('/api/admin/change-password', requireAdminSession, async (req, res) => {
     const { currentPassword, newPassword, password } = req.body;
     const newPw = newPassword || password;
     if (!newPw || newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -917,7 +977,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const userId = req.adminUser?.id;
     if (!userId) return res.status(400).json({ error: 'Cannot identify admin user. Authenticate with a JWT Bearer token.' });
 
-    const user = db.prepare('SELECT password_hash FROM admin_users WHERE id = ?').get(userId);
+    const user = await qOne('SELECT password_hash FROM admin_users WHERE id = ?', [userId]);
     if (!user) return res.status(404).json({ error: 'Admin user not found' });
 
     // Verify current password before allowing a change
@@ -927,8 +987,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
 
     const newHash = hashPortalPassword(newPw);
-    db.prepare('UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?')
-      .run(newHash, new Date().toISOString(), userId);
+    await qRun(
+      'UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?',
+      [newHash, new Date().toISOString(), userId],
+    );
 
     auditFromReq(req, 'admin_password_changed', 'admin_user', userId, {});
     res.json({ updated: true });
@@ -936,7 +998,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Alerts API ─────────────────────────────────────────────────────────────
 
-  app.get('/api/admin/alerts', requireAdminSession, (req, res) => {
+  app.get('/api/admin/alerts', requireAdminSession, async (req, res) => {
     try {
       const page  = Math.max(1, parseInt(req.query.page)  || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
@@ -954,8 +1016,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (acknowledged === 'false') { conditions.push('a.acknowledged_at IS NULL'); }
       if (conditions.length) whereSql = ' WHERE ' + conditions.join(' AND ');
 
-      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql}`).get(...params).cnt;
-      const rows = db.prepare(`SELECT a.*, c.name as church_name FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+      const total = (await qOne(`SELECT COUNT(*) AS cnt FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql}`, params))?.cnt || 0;
+      const rows = await qAll(`SELECT a.*, c.name as church_name FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
       res.json({ alerts: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // alerts table may not exist yet
@@ -963,12 +1025,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
-  app.post('/api/admin/alerts/:id/acknowledge', requireAdminSession, (req, res) => {
+  app.post('/api/admin/alerts/:id/acknowledge', requireAdminSession, async (req, res) => {
     try {
       const { id } = req.params;
       const ackBy = req.adminUser?.name || req.adminUser?.email || 'admin';
-      db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
-        .run(new Date().toISOString(), ackBy, id);
+      await qRun('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?', [new Date().toISOString(), ackBy, id]);
       auditFromReq(req, 'alert_acknowledged', 'alert', id, {});
       res.json({ acknowledged: true });
     } catch(e) {
@@ -978,22 +1039,22 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Tickets API (proxy for admin) ──────────────────────────────────────────
 
-  app.get('/api/admin/tickets', requireAdminSession, (req, res) => {
+  app.get('/api/admin/tickets', requireAdminSession, async (req, res) => {
     try {
       const page  = Math.max(1, parseInt(req.query.page)  || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
       const offset = (page - 1) * limit;
 
-      const total = db.prepare('SELECT COUNT(*) AS cnt FROM support_tickets').get().cnt;
-      const rows = db.prepare(
+      const total = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM support_tickets'))?.cnt || 0;
+      const rows = await qAll(
         `SELECT t.*, c.name as church_name FROM support_tickets t LEFT JOIN churches c ON t.church_id = c.churchId ORDER BY t.created_at DESC LIMIT ? OFFSET ?`
-      ).all(limit, offset);
+      , [limit, offset]);
       // Try to load updates for each ticket
-      rows.forEach(t => {
+      for (const t of rows) {
         try {
-          t.updates = db.prepare('SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
+          t.updates = await qAll('SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC', [t.id]);
         } catch { t.updates = []; }
-      });
+      }
       res.json({ tickets: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // support_tickets table may not exist
@@ -1003,16 +1064,16 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Billing API (proxy for admin) ──────────────────────────────────────────
 
-  app.get('/api/admin/billing', requireAdminSession, (req, res) => {
+  app.get('/api/admin/billing', requireAdminSession, async (req, res) => {
     try {
       const page  = Math.max(1, parseInt(req.query.page)  || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
       const offset = (page - 1) * limit;
 
-      const total = db.prepare('SELECT COUNT(*) AS cnt FROM billing').get().cnt;
-      const rows = db.prepare(
+      const total = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM billing'))?.cnt || 0;
+      const rows = await qAll(
         `SELECT b.*, c.name as church_name FROM billing b LEFT JOIN churches c ON b.church_id = c.churchId ORDER BY b.created_at DESC LIMIT ? OFFSET ?`
-      ).all(limit, offset);
+      , [limit, offset]);
       res.json({ subscriptions: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // billing table may not exist
@@ -1022,20 +1083,20 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Billing Analytics API ─────────────────────────────────────────────────
 
-  app.get('/api/admin/billing/analytics', requireAdminSession, (req, res) => {
+  app.get('/api/admin/billing/analytics', requireAdminSession, async (req, res) => {
     // Monthly prices by tier (cents → dollars happens client-side)
     const TIER_MRR = { connect: 0, plus: 49, pro: 99, managed: 199, event: 0 };
     const ANNUAL_DISCOUNT = 1; // annual prices are already monthly-equivalent
 
     try {
       // 1. All billing customers with church + reseller info
-      const rows = db.prepare(`
+      const rows = await qMaybeAll(`
         SELECT bc.*, c.name as church_name, r.name as reseller_name
         FROM billing_customers bc
         LEFT JOIN churches c ON bc.church_id = c.churchId
         LEFT JOIN resellers r ON bc.reseller_id = r.id
         ORDER BY bc.created_at DESC
-      `).all();
+      `);
 
       const now = new Date();
       const nowISO = now.toISOString();
@@ -1166,7 +1227,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Audit Log API ──────────────────────────────────────────────────────────
 
-  app.get('/api/admin/audit-log', requireAdminSession, (req, res) => {
+  app.get('/api/admin/audit-log', requireAdminSession, async (req, res) => {
     try {
       const page       = Math.max(1, parseInt(req.query.page)  || 1);
       const limit      = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
@@ -1184,9 +1245,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (to)         { where.push('created_at <= ?');      params.push(to); }
 
       const whereClause = where.length ? ' WHERE ' + where.join(' AND ') : '';
-      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM audit_log${whereClause}`).get(...params).cnt;
-      const logs  = db.prepare(`SELECT * FROM audit_log${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-                      .all(...params, limit, offset);
+      const total = (await qOne(`SELECT COUNT(*) AS cnt FROM audit_log${whereClause}`, params))?.cnt || 0;
+      const logs  = await qAll(`SELECT * FROM audit_log${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
 
       res.json({ logs, total, page, limit, pages: Math.ceil(total / limit) });
     } catch (e) {
@@ -1198,22 +1258,22 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Onboarding Funnel ────────────────────────────────────────────────────
 
-  app.get('/api/admin/onboarding/funnel', requireAdminSession, (req, res) => {
-    const total = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt || 0;
+  app.get('/api/admin/onboarding/funnel', requireAdminSession, async (req, res) => {
+    const total = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM churches'))?.cnt || 0;
     let funnel = { total, app_connected: 0, atem_connected: 0, first_session: 0, telegram: 0, failover_tested: 0, team_invited: 0 };
     try {
-      funnel.app_connected = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_app_connected_at IS NOT NULL").get()?.cnt || 0;
-      funnel.atem_connected = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_atem_connected_at IS NOT NULL").get()?.cnt || 0;
-      funnel.first_session = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_first_session_at IS NOT NULL").get()?.cnt || 0;
-      funnel.telegram = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_telegram_registered_at IS NOT NULL").get()?.cnt || 0;
-      funnel.failover_tested = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_failover_tested_at IS NOT NULL").get()?.cnt || 0;
-      funnel.team_invited = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_team_invited_at IS NOT NULL").get()?.cnt || 0;
+      funnel.app_connected = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_app_connected_at IS NOT NULL"))?.cnt || 0;
+      funnel.atem_connected = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_atem_connected_at IS NOT NULL"))?.cnt || 0;
+      funnel.first_session = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_first_session_at IS NOT NULL"))?.cnt || 0;
+      funnel.telegram = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_telegram_registered_at IS NOT NULL"))?.cnt || 0;
+      funnel.failover_tested = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_failover_tested_at IS NOT NULL"))?.cnt || 0;
+      funnel.team_invited = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_team_invited_at IS NOT NULL"))?.cnt || 0;
     } catch { /* onboarding columns may not exist */ }
 
     // Stuck churches: connected app but no ATEM in 7+ days
     let stuck = [];
     try {
-      stuck = db.prepare(`
+      stuck = await qAll(`
         SELECT churchId, name, portal_email,
                onboarding_app_connected_at, onboarding_atem_connected_at,
                onboarding_first_session_at, onboarding_telegram_registered_at,
@@ -1221,7 +1281,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         FROM churches
         WHERE onboarding_app_connected_at IS NOT NULL
         ORDER BY registeredAt DESC
-      `).all().filter(c => {
+      `);
+      stuck = stuck.filter(c => {
         // Find the last completed step
         const steps = [
           { key: 'app_connected', at: c.onboarding_app_connected_at },
@@ -1268,7 +1329,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   app.post('/api/admin/onboarding/nudge', requireAdminSession, async (req, res) => {
     const { churchId, lastStep } = req.body || {};
     if (!churchId) return res.status(400).json({ error: 'churchId required' });
-    const church = db.prepare('SELECT name, portal_email, email FROM churches WHERE churchId = ?').get(churchId);
+    const church = await qOne('SELECT name, portal_email, email FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const recipient = church.portal_email || church.email;
     if (!recipient) return res.status(400).json({ error: 'No email on file for this church' });
@@ -1294,13 +1355,14 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Church Rooms List (for admin command targeting) ───────────────────────
 
-  app.get('/api/admin/church/:churchId/rooms', requireAdminSession, (req, res) => {
+  app.get('/api/admin/church/:churchId/rooms', requireAdminSession, async (req, res) => {
     const { churchId } = req.params;
     let rooms = [];
     try {
-      rooms = db.prepare(
-        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
-      ).all(churchId);
+      rooms = await qAll(
+        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name',
+        [churchId],
+      );
     } catch { /* rooms table may not exist */ }
     const runtime = churches.get(churchId);
     const roomInstanceMap = runtime?.roomInstanceMap || {};
@@ -1309,7 +1371,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Admin Room CRUD ──────────────────────────────────────────────────────
 
-  app.get('/api/admin/rooms', requireAdminSession, (req, res) => {
+  app.get('/api/admin/rooms', requireAdminSession, async (req, res) => {
     try {
       const churchId = req.query.churchId || null;
       const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -1323,8 +1385,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         params.push(churchId);
       }
 
-      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM rooms r ${where}`).get(...params).cnt;
-      const rows = db.prepare(
+      const total = (await qOne(`SELECT COUNT(*) AS cnt FROM rooms r ${where}`, params))?.cnt || 0;
+      const rows = await qAll(
         `SELECT r.id, r.campus_id, r.name, r.description, r.created_at,
                 c.name AS church_name
          FROM rooms r
@@ -1332,7 +1394,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
          ${where}
          ORDER BY r.created_at DESC
          LIMIT ? OFFSET ?`
-      ).all(...params, limit, offset);
+      , [...params, limit, offset]);
 
       res.json({ rooms: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch (e) {
@@ -1340,12 +1402,12 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
-  app.post('/api/admin/rooms', requireAdminSession, (req, res) => {
+  app.post('/api/admin/rooms', requireAdminSession, async (req, res) => {
     const { churchId, name, description } = req.body || {};
     if (!churchId) return res.status(400).json({ error: 'churchId is required' });
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
 
-    const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+    const church = await qOne('SELECT churchId, name FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
     try {
@@ -1353,8 +1415,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const cleanName = String(name).trim();
       const cleanDesc = String(description || '').trim();
       const created_at = new Date().toISOString();
-      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id, churchId, cleanName, cleanDesc, created_at);
+      await qRun('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)', [id, churchId, cleanName, cleanDesc, created_at]);
       auditFromReq(req, 'room_created', 'room', id, { churchId, name: cleanName });
       res.status(201).json({ id, campus_id: churchId, name: cleanName, description: cleanDesc, created_at, church_name: church.name });
     } catch (e) {
@@ -1362,9 +1423,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
-  app.patch('/api/admin/rooms/:roomId', requireAdminSession, (req, res) => {
+  app.patch('/api/admin/rooms/:roomId', requireAdminSession, async (req, res) => {
     const { roomId } = req.params;
-    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    const room = await qOne('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL', [roomId]);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     const updates = [];
@@ -1384,7 +1445,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     try {
       params.push(roomId);
-      db.prepare(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      await qRun(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`, params);
       auditFromReq(req, 'room_updated', 'room', roomId, { name, description });
       res.json({ ok: true });
     } catch (e) {
@@ -1392,20 +1453,17 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
-  app.delete('/api/admin/rooms/:roomId', requireAdminSession, (req, res) => {
+  app.delete('/api/admin/rooms/:roomId', requireAdminSession, async (req, res) => {
     const { roomId } = req.params;
-    const room = db.prepare('SELECT id, name, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    const room = await qOne('SELECT id, name, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL', [roomId]);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     try {
-      const deleteRelated = db.transaction(() => {
-        db.prepare('UPDATE rooms SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), roomId);
-        try { db.prepare('DELETE FROM room_equipment WHERE room_id = ?').run(roomId); } catch {}
-        try { db.prepare('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?').run(room.campus_id, roomId); } catch {}
-        try { db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?').run(roomId); } catch {}
-        try { db.prepare('DELETE FROM td_room_assignments WHERE room_id = ?').run(roomId); } catch {}
-      });
-      deleteRelated();
+      await qRun('UPDATE rooms SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), roomId]);
+      try { await qRun('DELETE FROM room_equipment WHERE room_id = ?', [roomId]); } catch {}
+      try { await qRun('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?', [room.campus_id, roomId]); } catch {}
+      try { await qRun('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?', [roomId]); } catch {}
+      try { await qRun('DELETE FROM td_room_assignments WHERE room_id = ?', [roomId]); } catch {}
 
       // Clean up runtime state
       const runtime = churches.get(room.campus_id);
@@ -1427,13 +1485,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   const { ROLE_DEFINITIONS, autoDetectRoles } = require('./routes/roomEquipment');
 
   // GET /api/admin/rooms/:roomId/roles — role assignments for a room
-  app.get('/api/admin/rooms/:roomId/roles', requireAdminSession, (req, res) => {
+  app.get('/api/admin/rooms/:roomId/roles', requireAdminSession, async (req, res) => {
     const { roomId } = req.params;
-    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    const room = await qOne('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL', [roomId]);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     try {
-      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
       try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
 
@@ -1453,9 +1511,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // PUT /api/admin/rooms/:roomId/roles — save role assignments
-  app.put('/api/admin/rooms/:roomId/roles', requireAdminSession, (req, res) => {
+  app.put('/api/admin/rooms/:roomId/roles', requireAdminSession, async (req, res) => {
     const { roomId } = req.params;
-    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    const room = await qOne('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL', [roomId]);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     const roles = req.body?.roles;
@@ -1469,21 +1527,21 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
 
     try {
-      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
       try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
 
       equipment._roles = roles;
       const now = new Date().toISOString();
 
-      db.prepare(`
+      await qRun(`
         INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(room_id) DO UPDATE SET
           equipment = excluded.equipment,
           updated_at = excluded.updated_at,
           updated_by = excluded.updated_by
-      `).run(roomId, room.campus_id, JSON.stringify(equipment), now, 'admin');
+      `, [roomId, room.campus_id, JSON.stringify(equipment), now, 'admin']);
 
       auditFromReq(req, 'equipment_roles_updated', 'room', roomId, { roles });
       res.json({ ok: true, roles, updatedAt: now });
@@ -1493,13 +1551,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // GET /api/admin/rooms/:roomId/equipment — equipment config for a room (admin view)
-  app.get('/api/admin/rooms/:roomId/equipment', requireAdminSession, (req, res) => {
+  app.get('/api/admin/rooms/:roomId/equipment', requireAdminSession, async (req, res) => {
     const { roomId } = req.params;
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    const room = await qOne('SELECT id FROM rooms WHERE id = ? AND deleted_at IS NULL', [roomId]);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     try {
-      const row = db.prepare('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?', [roomId]);
       if (!row) return res.json({ equipment: {}, updatedAt: null });
       let equipment = {};
       try { equipment = JSON.parse(row.equipment); } catch { }
@@ -1512,9 +1570,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   // ── TD Room Assignments (Admin) ──────────────────────────────────────────
 
   // GET /api/admin/church/:churchId/td-room-assignments — all assignments for a church
-  app.get('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, (req, res) => {
+  app.get('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, async (req, res) => {
     try {
-      const assignments = db.prepare(
+      const assignments = await qAll(
         `SELECT tra.id, tra.td_id, tra.room_id, tra.created_at,
                 t.name AS td_name, t.email AS td_email,
                 r.name AS room_name
@@ -1523,7 +1581,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
          JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
          WHERE tra.church_id = ?
          ORDER BY t.name ASC, r.name ASC`
-      ).all(req.params.churchId);
+      , [req.params.churchId]);
       res.json(assignments);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -1531,14 +1589,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // POST /api/admin/church/:churchId/td-room-assignments — assign TD to room
-  app.post('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, (req, res) => {
+  app.post('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, async (req, res) => {
     try {
       const { tdId, roomId } = req.body;
       if (!tdId || !roomId) return res.status(400).json({ error: 'tdId and roomId required' });
       const churchId = req.params.churchId;
       try {
-        db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
-          .run(tdId, roomId, churchId, new Date().toISOString());
+        await qRun('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)', [tdId, roomId, churchId, new Date().toISOString()]);
       } catch (e) {
         if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Already assigned' });
         throw e;
@@ -1550,11 +1607,12 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // DELETE /api/admin/church/:churchId/td-room-assignments/:id — remove assignment
-  app.delete('/api/admin/church/:churchId/td-room-assignments/:id', requireAdminSession, (req, res) => {
+  app.delete('/api/admin/church/:churchId/td-room-assignments/:id', requireAdminSession, async (req, res) => {
     try {
-      const result = db.prepare(
-        'DELETE FROM td_room_assignments WHERE id = ? AND church_id = ?'
-      ).run(req.params.id, req.params.churchId);
+      const result = await qRun(
+        'DELETE FROM td_room_assignments WHERE id = ? AND church_id = ?',
+        [req.params.id, req.params.churchId],
+      );
       if (!result.changes) return res.status(404).json({ error: 'Assignment not found' });
       res.json({ ok: true });
     } catch (e) {
@@ -1564,9 +1622,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Church Delete Summary ────────────────────────────────────────────────
 
-  app.get('/api/admin/churches/:id/delete-summary', requireAdminSession, (req, res) => {
+  app.get('/api/admin/churches/:id/delete-summary', requireAdminSession, async (req, res) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT churchId FROM churches WHERE churchId=?').get(id);
+    const row = await qOne('SELECT churchId FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     const summary = {};
     const counts = [
@@ -1577,7 +1635,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       { key: 'rooms', sql: 'SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?' },
     ];
     for (const { key, sql } of counts) {
-      try { summary[key] = db.prepare(sql).get(id)?.cnt || 0; } catch { summary[key] = 0; }
+      try { summary[key] = (await qOne(sql, [id]))?.cnt || 0; } catch { summary[key] = 0; }
     }
     res.json(summary);
   });
@@ -1595,9 +1653,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // GET /api/admin/church/:churchId/support-view
   // Returns a comprehensive support view for a single church.
-  app.get('/api/admin/church/:churchId/support-view', requireAdminSession, (req, res) => {
+  app.get('/api/admin/church/:churchId/support-view', requireAdminSession, async (req, res) => {
     const { churchId } = req.params;
-    const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const churchRow = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
     const runtime = churches.get(churchId);
@@ -1629,11 +1687,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Billing ──
     let billing = null;
     try {
-      billing = db.prepare(
+      billing = await qOne(
         `SELECT tier, status, billing_interval, trial_ends_at, current_period_end,
                 cancel_at_period_end, stripe_customer_id, stripe_subscription_id, created_at
          FROM billing_customers WHERE church_id = ? LIMIT 1`
-      ).get(churchId) || null;
+      , [churchId]) || null;
     } catch { /* table may not exist */ }
 
     // ── Onboarding milestones ──
@@ -1690,9 +1748,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     let currentSession = null;
     try {
-      const activeSession = db.prepare(
-        "SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
-      ).get(churchId);
+      const activeSession = await qOne(
+        "SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+        [churchId],
+      );
       if (activeSession) {
         const startTime = new Date(activeSession.started_at).getTime();
         currentSession = {
@@ -1717,17 +1776,18 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Health Score ──
     let healthScore = { score: 100, breakdown: {}, trend: 'stable' };
     try {
-      healthScore = computeHealthScore(db, churchId);
+      healthScore = getHealthScore(churchId);
     } catch { /* tables may not exist */ }
 
     // ── Recent Alerts (last 20) ──
     let recentAlerts = [];
     try {
-      recentAlerts = db.prepare(
+      recentAlerts = await qAll(
         `SELECT id, alert_type, severity, created_at, acknowledged_at, resolved
          FROM alerts WHERE church_id = ?
          ORDER BY created_at DESC LIMIT 20`
-      ).all(churchId).map(row => ({
+      , [churchId]);
+      recentAlerts = recentAlerts.map(row => ({
         id: row.id,
         type: row.alert_type,
         severity: row.severity,
@@ -1739,11 +1799,12 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Recent Sessions (last 5) ──
     let recentSessions = [];
     try {
-      recentSessions = db.prepare(
+      recentSessions = await qAll(
         `SELECT id, started_at, ended_at, duration_minutes, alert_count, grade
          FROM service_sessions WHERE church_id = ?
          ORDER BY started_at DESC LIMIT 5`
-      ).all(churchId).map(row => ({
+      , [churchId]);
+      recentSessions = recentSessions.map(row => ({
         id: row.id,
         startedAt: row.started_at,
         endedAt: row.ended_at,
@@ -1756,33 +1817,34 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Recent Tickets (last 5) ──
     let recentTickets = [];
     try {
-      recentTickets = db.prepare(
+      recentTickets = await qAll(
         `SELECT id, title, status, severity, issue_category, created_at
          FROM support_tickets WHERE church_id = ?
          ORDER BY created_at DESC LIMIT 5`
-      ).all(churchId);
+      , [churchId]);
     } catch { /* table may not exist */ }
 
     // ── Last Diagnostic Bundle ──
     let lastDiagnosticBundle = null;
     try {
-      const bundle = db.prepare(
+      const bundle = await qOne(
         `SELECT created_at, summary FROM diagnostic_bundles WHERE church_id = ? ORDER BY created_at DESC LIMIT 1`
-      ).get(churchId);
+      , [churchId]);
       if (bundle) {
         lastDiagnosticBundle = { timestamp: bundle.created_at, summary: bundle.summary || null };
       }
     } catch { /* table may not exist */ }
 
-    // ── Chat History (last 20 messages) ──
-    let chatHistory = [];
-    try {
-      if (chatEngine) {
-        chatHistory = chatEngine.getMessages(churchId, { limit: 20 });
-      } else {
-        chatHistory = db.prepare(
-          `SELECT * FROM chat_messages WHERE church_id = ? ORDER BY timestamp DESC LIMIT 20`
-        ).all(churchId).reverse();
+      // ── Chat History (last 20 messages) ──
+      let chatHistory = [];
+      try {
+        if (chatEngine) {
+          chatHistory = await chatEngine.getMessages(churchId, { limit: 20 });
+        } else {
+          chatHistory = await qAll(
+            `SELECT * FROM chat_messages WHERE church_id = ? ORDER BY timestamp DESC LIMIT 20`
+          , [churchId]);
+          chatHistory = chatHistory.reverse();
       }
     } catch { /* table may not exist */ }
 
@@ -1794,22 +1856,22 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       config.failoverAction = churchRow.failover_action || null;
     } catch { /* column may not exist */ }
     try {
-      const apCount = db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId);
+      const apCount = await qOne('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?', [churchId]);
       config.autoPilotRulesCount = apCount?.cnt || 0;
     } catch { /* table may not exist */ }
 
     // ── TDs ──
     let tds = [];
     try {
-      tds = db.prepare('SELECT id, name, email, access_level, created_at FROM church_tds WHERE church_id = ?').all(churchId);
+      tds = await qAll('SELECT id, name, email, access_level, created_at FROM church_tds WHERE church_id = ?', [churchId]);
     } catch { /* table may not exist */ }
 
     // ── Rooms + per-instance status ──
     let rooms = [];
     try {
-      rooms = db.prepare(
+      rooms = await qAll(
         'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
-      ).all(churchId);
+      , [churchId]);
     } catch { /* rooms table may not exist */ }
 
     // Build per-instance status map for multi-room support
@@ -1857,7 +1919,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Room Equipment ──
     const roomEquipment = {};
     try {
-      const eqRows = db.prepare('SELECT room_id, equipment FROM room_equipment WHERE church_id = ?').all(churchId);
+      const eqRows = await qAll('SELECT room_id, equipment FROM room_equipment WHERE church_id = ?', [churchId]);
       for (const row of eqRows) {
         try { roomEquipment[row.room_id] = JSON.parse(row.equipment); } catch { roomEquipment[row.room_id] = {}; }
       }
@@ -1887,7 +1949,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // POST /api/admin/church/:churchId/send-command
   // Sends an allowed command to the church client via WebSocket.
-  app.post('/api/admin/church/:churchId/send-command', requireAdminSession, (req, res) => {
+  app.post('/api/admin/church/:churchId/send-command', requireAdminSession, async (req, res) => {
     const { churchId } = req.params;
     const { command, params, roomId } = req.body || {};
 
@@ -1896,7 +1958,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       return res.status(400).json({ error: `Unknown command: ${command}. Allowed: ${[...ALLOWED_ADMIN_COMMANDS].join(', ')}` });
     }
 
-    const churchRow = db.prepare('SELECT churchId FROM churches WHERE churchId = ?').get(churchId);
+    const churchRow = await qOne('SELECT churchId FROM churches WHERE churchId = ?', [churchId]);
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
     const runtime = churches.get(churchId);
@@ -1947,13 +2009,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // POST /api/admin/church/:churchId/send-message
   // Pushes a support message to the church's app and/or Telegram.
-  app.post('/api/admin/church/:churchId/send-message', requireAdminSession, (req, res) => {
+  app.post('/api/admin/church/:churchId/send-message', requireAdminSession, async (req, res) => {
     const { churchId } = req.params;
     const { message, targets } = req.body || {};
 
     if (!message || !message.trim()) return res.status(400).json({ error: 'message required' });
 
-    const churchRow = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+    const churchRow = await qOne('SELECT churchId, name FROM churches WHERE churchId = ?', [churchId]);
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
     const targetList = Array.isArray(targets) ? targets : ['app'];
@@ -1963,7 +2025,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     let savedMessage = null;
     try {
       if (chatEngine) {
-        savedMessage = chatEngine.saveMessage({
+        savedMessage = await chatEngine.saveMessage({
           churchId,
           senderName: adminName,
           senderRole: 'admin',
@@ -1997,54 +2059,54 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // GET /api/admin/churches/support-overview
   // Quick dashboard of all churches sorted by "needs attention".
-  app.get('/api/admin/churches/support-overview', requireAdminSession, (req, res) => {
-    const rows = db.prepare('SELECT * FROM churches').all();
+  app.get('/api/admin/churches/support-overview', requireAdminSession, async (req, res) => {
+    const rows = await qAll('SELECT * FROM churches');
     const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
     const now = Date.now();
-
-    const churchList = rows.map(row => {
+    const churchList = [];
+    for (const row of rows) {
       const runtime = churches.get(row.churchId);
       const online = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
 
       // Health score
       let score = null;
       try {
-        const hs = computeHealthScore(db, row.churchId);
+        const hs = getHealthScore(row.churchId);
         score = hs.score;
       } catch { /* tables may not exist */ }
 
       // Active alerts count
       let activeAlerts = 0;
       try {
-        activeAlerts = db.prepare(
+        activeAlerts = (await qOne(
           "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0"
-        ).get(row.churchId)?.cnt || 0;
+        , [row.churchId]))?.cnt || 0;
       } catch { /* table may not exist */ }
 
       // Has unresolved critical alerts
       let hasCriticalAlerts = false;
       try {
-        const crit = db.prepare(
+        const crit = await qOne(
           "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0 AND severity = 'critical'"
-        ).get(row.churchId);
+        , [row.churchId]);
         hasCriticalAlerts = (crit?.cnt || 0) > 0;
       } catch { /* table may not exist */ }
 
       // Open support tickets
       let hasOpenTickets = false;
       try {
-        const ot = db.prepare(
+        const ot = await qOne(
           "SELECT COUNT(*) as cnt FROM support_tickets WHERE church_id = ? AND status IN ('open','in_progress')"
-        ).get(row.churchId);
+        , [row.churchId]);
         hasOpenTickets = (ot?.cnt || 0) > 0;
       } catch { /* table may not exist */ }
 
       // Last session
       let lastSession = null;
       try {
-        const ls = db.prepare(
+        const ls = await qOne(
           'SELECT started_at FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1'
-        ).get(row.churchId);
+        , [row.churchId]);
         lastSession = ls?.started_at || null;
       } catch { /* table may not exist */ }
 
@@ -2070,7 +2132,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         attentionReason = 'Open support tickets';
       }
 
-      return {
+      churchList.push({
         id: row.churchId,
         name: row.name,
         online,
@@ -2079,15 +2141,17 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         lastSession,
         needsAttention,
         attentionReason,
-      };
-    });
+      });
+    }
 
     // Sort: offline first, then lowest health score, then most active alerts
     churchList.sort((a, b) => {
       // Offline first
       if (a.online !== b.online) return a.online ? 1 : -1;
       // Lowest health score first
-      if (a.healthScore !== b.healthScore) return a.healthScore - b.healthScore;
+      const aScore = typeof a.healthScore === 'number' ? a.healthScore : Number.POSITIVE_INFINITY;
+      const bScore = typeof b.healthScore === 'number' ? b.healthScore : Number.POSITIVE_INFINITY;
+      if (aScore !== bScore) return aScore - bScore;
       // Most active alerts first
       return b.activeAlerts - a.activeAlerts;
     });
@@ -2157,11 +2221,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // If emailType provided, get the template preview for that type
     if (emailType && !html) {
       const preview = lifecycleEmails.getPreview(emailType.replace(/^manual:/, ''));
-      const recipient = to || (() => {
-        if (!churchId) return null;
-        const c = db.prepare('SELECT portal_email FROM churches WHERE churchId = ?').get(churchId);
-        return c?.portal_email;
-      })();
+      let recipient = to || null;
+      if (!recipient && churchId) {
+        const c = await qOne('SELECT portal_email FROM churches WHERE churchId = ?', [churchId]);
+        recipient = c?.portal_email || null;
+      }
 
       if (!recipient) return res.json({ sent: false, reason: 'no-recipient' });
 
@@ -2207,14 +2271,14 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.send(buildPortalLoginHtml(error, brand));
   });
 
-  app.post('/portal/login', express_urlencoded_middleware, (req, res) => {
+  app.post('/portal/login', express_urlencoded_middleware, async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) return res.redirect('/portal/login?error=1');
-    // Find reseller by support_email
-    const reseller = db.prepare('SELECT * FROM resellers WHERE support_email=? AND active=1').get(email);
+    const reseller = await qOne(
+      'SELECT * FROM resellers WHERE support_email=? AND active=1',
+      [email],
+    );
     if (!reseller) return res.redirect('/portal/login?error=1');
-    // Ensure portal_password column
-    try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password TEXT'); } catch {}
     if (!reseller.portal_password) {
       return res.redirect('/portal/login?error=nopw');
     }
@@ -2222,7 +2286,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // Transparently upgrade legacy SHA-256 hash to scrypt on successful login
     if (!reseller.portal_password.includes(':')) {
       const upgraded = hashPortalPassword(password);
-      db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(upgraded, reseller.id);
+      await qRun('UPDATE resellers SET portal_password=? WHERE id=?', [upgraded, reseller.id]);
     }
     const payload = { role: 'reseller', resellerId: reseller.id, exp: Date.now() + COOKIE_MAX_AGE * 1000 };
     setCookieHeader(res, payload);
@@ -2239,21 +2303,21 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.redirect('/portal/login');
   });
 
-  app.post('/portal/change-password', requireResellerSession, (req, res) => {
+  app.post('/portal/change-password', requireResellerSession, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both fields required' });
     if (newPassword.length < 6) return res.status(400).json({ error: 'New password too short (min 6 chars)' });
     const reseller = req.reseller;
     if (!verifyPortalPassword(currentPassword, reseller.portal_password)) return res.status(403).json({ error: 'Current password incorrect' });
     const newHashed = hashPortalPassword(newPassword);
-    db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(newHashed, reseller.id);
+    await qRun('UPDATE resellers SET portal_password=? WHERE id=?', [newHashed, reseller.id]);
     res.json({ updated: true });
   });
 
   // ── Reseller Portal API ───────────────────────────────────────────────────
 
-  app.get('/api/portal/churches', requireResellerSession, (req, res) => {
-    const rows = db.prepare('SELECT * FROM churches WHERE reseller_id=?').all(req.reseller.id);
+  app.get('/api/portal/churches', requireResellerSession, async (req, res) => {
+    const rows = await qAll('SELECT * FROM churches WHERE reseller_id=?', [req.reseller.id]);
     const list = rows.map(row => {
       const runtime = churches.get(row.churchId);
       return {
@@ -2277,7 +2341,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // Portal account update — uses cookie auth, no API key needed in client-side JS
-  app.put('/api/portal/account', requireResellerSession, (req, res) => {
+  app.put('/api/portal/account', requireResellerSession, async (req, res) => {
     try {
       const { brand_name, support_email, logo_url, primary_color } = req.body;
       const patch = {};
@@ -2289,7 +2353,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const fields = Object.keys(patch);
       const setClauses = fields.map(f => `${f}=?`).join(',');
       const vals = [...fields.map(f => patch[f]), req.reseller.id];
-      db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
+      await qRun(`UPDATE resellers SET ${setClauses} WHERE id=?`, vals);
       res.json({ updated: true });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });

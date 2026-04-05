@@ -48,6 +48,22 @@ const RECOMMENDATIONS = {
  * @returns {{ score: number, breakdown: object, trend: string, recommendations: string[] }}
  */
 function computeHealthScore(db, churchId, days = 7, { instanceName } = {}) {
+  if (!db || typeof db.prepare !== 'function') {
+    return {
+      score: null,
+      status: 'new',
+      message: 'Not enough data yet',
+      breakdown: {
+        uptime: null,
+        alertRate: null,
+        recoveryRate: null,
+        preServicePassRate: null,
+        streamStability: null,
+      },
+      trend: 'stable',
+      recommendations: [],
+    };
+  }
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const breakdown = {
@@ -94,6 +110,25 @@ function computeHealthScore(db, churchId, days = 7, { instanceName } = {}) {
  * @returns {{ weeks: Array<{ weekStart: string, score: number, breakdown: object }>, trend: string }}
  */
 function getHealthTrend(db, churchId, weeks = 4, { instanceName } = {}) {
+  if (!db || typeof db.prepare !== 'function') {
+    const weeksOut = [];
+    for (let i = weeks - 1; i >= 0; i--) {
+      const weekEnd = new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000);
+      const weekStart = new Date(weekEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+      weeksOut.push({
+        weekStart: weekStart.toISOString().slice(0, 10),
+        score: null,
+        breakdown: {
+          uptime: null,
+          alertRate: null,
+          recoveryRate: null,
+          preServicePassRate: null,
+          streamStability: null,
+        },
+      });
+    }
+    return { weeks: weeksOut, trend: 'stable' };
+  }
   const weeklyScores = [];
 
   for (let i = weeks - 1; i >= 0; i--) {

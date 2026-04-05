@@ -1,22 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GuestTdMode } from '../src/guestTdMode.js';
+import { createQueryClient } from '../src/db/queryClient.js';
 import Database from 'better-sqlite3';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function createTestDb() {
-  const db = new Database(':memory:');
-  return db;
+  return new Database(':memory:');
 }
 
-// ─── A. GuestTdMode Core ─────────────────────────────────────────────────────
+async function createGuestTdMode(db = createTestDb()) {
+  const guest = new GuestTdMode(db);
+  await guest.ready;
+  return guest;
+}
 
 describe('GuestTdMode Core', () => {
-  let db, guest;
+  let db;
+  let guest;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createTestDb();
-    guest = new GuestTdMode(db);
+    guest = await createGuestTdMode(db);
   });
 
   afterEach(() => {
@@ -28,155 +31,161 @@ describe('GuestTdMode Core', () => {
     expect(tables).toHaveLength(1);
   });
 
-  it('generateToken produces GUEST- prefixed token with 24h expiry', () => {
-    const result = guest.generateToken('church-1', 'Test Church');
+  it('works when constructed with a query client', async () => {
+    const db2 = createTestDb();
+    const queryClient = createQueryClient({
+      config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+      sqliteDb: db2,
+    });
+    const queryGuest = new GuestTdMode(queryClient);
+    await queryGuest.ready;
+
+    const result = await queryGuest.generateToken('church-1', 'Test Church');
+    const row = db2.prepare('SELECT churchId FROM guest_tokens WHERE token = ?').get(result.token);
+    expect(row?.churchId).toBe('church-1');
+
+    await queryClient.close();
+    db2.close();
+  });
+
+  it('generateToken produces GUEST- prefixed token with 24h expiry', async () => {
+    const result = await guest.generateToken('church-1', 'Test Church');
     expect(result.token).toMatch(/^GUEST-[A-F0-9]{24}$/);
     expect(result.expiresAt).toBeTruthy();
-    // Verify ~24h from now
     const diff = new Date(result.expiresAt) - Date.now();
     expect(diff).toBeGreaterThan(23 * 60 * 60 * 1000);
     expect(diff).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000);
   });
 
-  it('validateToken returns valid for fresh token', () => {
-    const { token } = guest.generateToken('church-1', 'Test Church');
-    const result = guest.validateToken(token);
+  it('validateToken returns valid for fresh token', async () => {
+    const { token } = await guest.generateToken('church-1', 'Test Church');
+    const result = await guest.validateToken(token);
     expect(result.valid).toBe(true);
     expect(result.guestRow.churchId).toBe('church-1');
   });
 
-  it('validateToken returns invalid for unknown token', () => {
-    const result = guest.validateToken('GUEST-NONEXISTENT');
+  it('validateToken returns invalid for unknown token', async () => {
+    const result = await guest.validateToken('GUEST-NONEXISTENT');
     expect(result.valid).toBe(false);
   });
 
-  it('registerGuest binds token to Telegram chat ID', () => {
-    const { token } = guest.generateToken('church-1', 'Test Church');
-    const result = guest.registerGuest(token, '12345', 'John');
+  it('registerGuest binds token to Telegram chat ID', async () => {
+    const { token } = await guest.generateToken('church-1', 'Test Church');
+    const result = await guest.registerGuest(token, '12345', 'John');
     expect(result.success).toBe(true);
     expect(result.churchId).toBe('church-1');
-    // Verify DB updated
     const row = db.prepare('SELECT * FROM guest_tokens WHERE token = ?').get(token);
     expect(row.usedByChat).toBe('12345');
     expect(row.name).toBe('John');
   });
 
-  it('registerGuest rejects already-claimed token by different user', () => {
-    const { token } = guest.generateToken('church-1', 'Test Church');
-    guest.registerGuest(token, '12345', 'John');
-    const result = guest.registerGuest(token, '99999', 'Jane');
+  it('registerGuest rejects already-claimed token by different user', async () => {
+    const { token } = await guest.generateToken('church-1', 'Test Church');
+    await guest.registerGuest(token, '12345', 'John');
+    const result = await guest.registerGuest(token, '99999', 'Jane');
     expect(result.success).toBe(false);
     expect(result.message).toContain('already been used');
   });
 
-  it('revokeToken removes token from DB', () => {
-    const { token } = guest.generateToken('church-1', 'Test Church');
-    const result = guest.revokeToken(token);
+  it('revokeToken removes token from DB', async () => {
+    const { token } = await guest.generateToken('church-1', 'Test Church');
+    const result = await guest.revokeToken(token);
     expect(result.revoked).toBe(true);
-    expect(guest.validateToken(token).valid).toBe(false);
+    expect((await guest.validateToken(token)).valid).toBe(false);
   });
 
-  it('findActiveGuestByChatId returns registered guest', () => {
-    const { token } = guest.generateToken('church-1', 'Test Church');
-    guest.registerGuest(token, '12345', 'John');
-    const found = guest.findActiveGuestByChatId('12345');
+  it('findActiveGuestByChatId returns registered guest', async () => {
+    const { token } = await guest.generateToken('church-1', 'Test Church');
+    await guest.registerGuest(token, '12345', 'John');
+    const found = await guest.findActiveGuestByChatId('12345');
     expect(found).toBeTruthy();
     expect(found.churchId).toBe('church-1');
   });
 
-  it('findActiveGuestByChatId returns null for unregistered chat', () => {
-    const found = guest.findActiveGuestByChatId('99999');
+  it('findActiveGuestByChatId returns null for unregistered chat', async () => {
+    const found = await guest.findActiveGuestByChatId('99999');
     expect(found).toBeNull();
   });
 });
 
-// ─── B. New Methods (Portal Integration) ─────────────────────────────────────
-
 describe('Portal Integration Methods', () => {
-  let db, guest;
+  let db;
+  let guest;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createTestDb();
-    guest = new GuestTdMode(db);
+    guest = await createGuestTdMode(db);
   });
 
   afterEach(() => {
     db?.close();
   });
 
-  it('listTokensForChurch returns only tokens for that church', () => {
-    guest.generateToken('church-1', 'Church A');
-    guest.generateToken('church-1', 'Church A');
-    guest.generateToken('church-2', 'Church B');
+  it('listTokensForChurch returns only tokens for that church', async () => {
+    await guest.generateToken('church-1', 'Church A');
+    await guest.generateToken('church-1', 'Church A');
+    await guest.generateToken('church-2', 'Church B');
 
-    const tokens1 = guest.listTokensForChurch('church-1');
-    const tokens2 = guest.listTokensForChurch('church-2');
+    const tokens1 = await guest.listTokensForChurch('church-1');
+    const tokens2 = await guest.listTokensForChurch('church-2');
     expect(tokens1).toHaveLength(2);
     expect(tokens2).toHaveLength(1);
     expect(tokens2[0].churchId).toBe('church-2');
   });
 
-  it('listTokensForChurch excludes expired tokens', () => {
-    // Insert an expired token manually
+  it('listTokensForChurch excludes expired tokens', async () => {
     db.prepare('INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?)')
       .run('GUEST-EXPIRED', 'church-1', 'Old', '2020-01-01T00:00:00Z', '2020-01-02T00:00:00Z', '');
-    guest.generateToken('church-1', 'Church A');
+    await guest.generateToken('church-1', 'Church A');
 
-    const tokens = guest.listTokensForChurch('church-1');
+    const tokens = await guest.listTokensForChurch('church-1');
     expect(tokens).toHaveLength(1);
     expect(tokens[0].token).not.toBe('GUEST-EXPIRED');
   });
 
-  it('generateTokenWithOptions uses custom label', () => {
-    const result = guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Visiting TD — March 9' });
-    expect(result.name).toBe('Visiting TD — March 9');
+  it('generateTokenWithOptions uses custom label', async () => {
+    const result = await guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Visiting TD - March 9' });
+    expect(result.name).toBe('Visiting TD - March 9');
     expect(result.token).toMatch(/^GUEST-/);
 
     const row = db.prepare('SELECT * FROM guest_tokens WHERE token = ?').get(result.token);
-    expect(row.name).toBe('Visiting TD — March 9');
+    expect(row.name).toBe('Visiting TD - March 9');
   });
 
-  it('generateTokenWithOptions defaults label to churchName + Guest', () => {
-    const result = guest.generateTokenWithOptions('church-1', 'Grace Chapel');
+  it('generateTokenWithOptions defaults label to churchName + Guest', async () => {
+    const result = await guest.generateTokenWithOptions('church-1', 'Grace Chapel');
     expect(result.name).toBe('Grace Chapel Guest');
   });
 
-  it('generateTokenWithOptions uses custom expiry hours', () => {
-    const result = guest.generateTokenWithOptions('church-1', 'Church A', { expiresInHours: 48 });
+  it('generateTokenWithOptions uses custom expiry hours', async () => {
+    const result = await guest.generateTokenWithOptions('church-1', 'Church A', { expiresInHours: 48 });
     const diff = new Date(result.expiresAt) - Date.now();
     expect(diff).toBeGreaterThan(47 * 60 * 60 * 1000);
     expect(diff).toBeLessThanOrEqual(48 * 60 * 60 * 1000 + 1000);
   });
 
-  it('generateTokenWithOptions defaults to 24h expiry', () => {
-    const result = guest.generateTokenWithOptions('church-1', 'Church A');
+  it('generateTokenWithOptions defaults to 24h expiry', async () => {
+    const result = await guest.generateTokenWithOptions('church-1', 'Church A');
     const diff = new Date(result.expiresAt) - Date.now();
     expect(diff).toBeGreaterThan(23 * 60 * 60 * 1000);
     expect(diff).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000);
   });
 
-  it('portal-generated tokens work with Telegram /register', () => {
-    const { token } = guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Sunday Guest' });
-    expect(token).toMatch(/^GUEST-/);
-
-    // Simulate Telegram registration
-    const result = guest.registerGuest(token, '12345', 'Guest User');
+  it('portal-generated tokens work with Telegram /register', async () => {
+    const { token } = await guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Sunday Guest' });
+    const result = await guest.registerGuest(token, '12345', 'Guest User');
     expect(result.success).toBe(true);
     expect(result.churchId).toBe('church-1');
 
-    // Verify findActiveGuestByChatId works
-    const found = guest.findActiveGuestByChatId('12345');
+    const found = await guest.findActiveGuestByChatId('12345');
     expect(found).toBeTruthy();
     expect(found.churchId).toBe('church-1');
   });
 });
 
-// ─── C. Legacy Token Migration ───────────────────────────────────────────────
-
 describe('Legacy Token Migration', () => {
-  it('cleans up gtd_ prefixed tokens on construction', () => {
+  it('cleans up gtd_ prefixed tokens on construction', async () => {
     const db = createTestDb();
-    // Create table manually with a gtd_ token
     db.exec(`
       CREATE TABLE IF NOT EXISTS guest_tokens (
         token TEXT PRIMARY KEY,
@@ -192,8 +201,7 @@ describe('Legacy Token Migration', () => {
     db.prepare('INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)')
       .run('GUEST-VALID123', 'church-1', 'Real Token', new Date().toISOString(), new Date(Date.now() + 86400000).toISOString());
 
-    // Constructing GuestTdMode triggers migration
-    const guest = new GuestTdMode(db);
+    const guest = await createGuestTdMode(db);
 
     const all = db.prepare('SELECT token FROM guest_tokens').all();
     expect(all).toHaveLength(1);
@@ -201,48 +209,47 @@ describe('Legacy Token Migration', () => {
     db.close();
   });
 
-  it('no-op when no legacy tokens exist', () => {
+  it('no-op when no legacy tokens exist', async () => {
     const db = createTestDb();
-    const guest = new GuestTdMode(db);
+    await createGuestTdMode(db);
     const all = db.prepare('SELECT * FROM guest_tokens').all();
     expect(all).toHaveLength(0);
     db.close();
   });
 });
 
-// ─── D. Schema Consistency ───────────────────────────────────────────────────
-
 describe('Schema Consistency', () => {
-  let db, guest;
+  let db;
+  let guest;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createTestDb();
-    guest = new GuestTdMode(db);
+    guest = await createGuestTdMode(db);
   });
 
   afterEach(() => {
     db?.close();
   });
 
-  it('all tokens have required columns: token, churchId, name, createdAt, expiresAt, usedByChat', () => {
-    guest.generateToken('church-1', 'Church A');
-    guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Test' });
+  it('all tokens have required columns: token, churchId, name, createdAt, expiresAt, usedByChat', async () => {
+    await guest.generateToken('church-1', 'Church A');
+    await guest.generateTokenWithOptions('church-1', 'Church A', { label: 'Test' });
 
     const rows = db.prepare('SELECT * FROM guest_tokens').all();
     expect(rows).toHaveLength(2);
-    rows.forEach(row => {
+    rows.forEach((row) => {
       expect(row.token).toBeTruthy();
       expect(row.churchId).toBe('church-1');
       expect(row.name).toBeTruthy();
       expect(row.createdAt).toBeTruthy();
       expect(row.expiresAt).toBeTruthy();
-      expect(row.usedByChat).toBeDefined(); // '' for unclaimed
+      expect(row.usedByChat).toBeDefined();
     });
   });
 
-  it('both token generation methods use same GUEST- prefix', () => {
-    const t1 = guest.generateToken('church-1', 'Church A');
-    const t2 = guest.generateTokenWithOptions('church-1', 'Church A');
+  it('both token generation methods use same GUEST- prefix', async () => {
+    const t1 = await guest.generateToken('church-1', 'Church A');
+    const t2 = await guest.generateTokenWithOptions('church-1', 'Church A');
     expect(t1.token).toMatch(/^GUEST-/);
     expect(t2.token).toMatch(/^GUEST-/);
   });

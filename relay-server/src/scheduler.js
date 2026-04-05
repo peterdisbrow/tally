@@ -16,12 +16,28 @@
  */
 
 const { checkStreamSafety } = require('./stream-guard');
+const { createQueryClient } = require('./db');
 
 const MAX_FIRES_PER_SESSION = 50;
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const CHURCH_ACCESS_SELECT_SQL = `
+  SELECT
+    churchId AS "churchId",
+    billing_tier AS "billing_tier",
+    billing_status AS "billing_status"
+  FROM churches
+  WHERE churchId = ?
+`;
 
 class RundownScheduler {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {import('better-sqlite3').Database|import('./db/queryClient').SqliteQueryClient|import('./db/queryClient').PostgresQueryClient} dbOrClient
    * @param {object} opts
    * @param {import('./rundownEngine').RundownEngine} opts.rundownEngine
    * @param {import('./scheduleEngine').ScheduleEngine} opts.scheduleEngine
@@ -29,8 +45,9 @@ class RundownScheduler {
    * @param {import('./presetLibrary').PresetLibrary} [opts.presetLibrary]
    * @param {import('./autoPilot').AutoPilot} [opts.autoPilot] - for command logging
    */
-  constructor(db, opts = {}) {
-    this.db = db;
+  constructor(dbOrClient, opts = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.rundownEngine = opts.rundownEngine;
     this.scheduleEngine = opts.scheduleEngine;
     this.billing = opts.billing || null;
@@ -48,6 +65,24 @@ class RundownScheduler {
 
     // Tick interval handle
     this._tickTimer = null;
+    this.ready = Promise.resolve();
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[Scheduler] Database client is not configured.');
+    return this.client;
   }
 
   setCommandExecutor(fn) { this._executeCommand = fn; }
@@ -59,7 +94,11 @@ class RundownScheduler {
    * Start the 15-second tick loop for evaluating time-based triggers.
    */
   start() {
-    this._tickTimer = setInterval(() => this._tick(), 15 * 1000);
+    this._tickTimer = setInterval(() => {
+      Promise.resolve(this._tick()).catch((error) => {
+        console.error('[Scheduler] Tick loop error:', error.message);
+      });
+    }, 15 * 1000);
     console.log('[Scheduler] Started (15s tick interval)');
   }
 
@@ -76,6 +115,10 @@ class RundownScheduler {
    * Called when service window opens — auto-activate if configured.
    */
   onServiceWindowOpen(churchId) {
+    if (!this.db) {
+      return this._onServiceWindowOpenAsync(churchId);
+    }
+
     try {
       const dayOfWeek = new Date().getDay();
       const rundown = this.rundownEngine.getAutoActivateRundown(churchId, dayOfWeek);
@@ -83,6 +126,28 @@ class RundownScheduler {
 
       // Check billing: auto-triggers require pro+
       if (!this._checkAutoTriggerAccess(churchId)) return;
+
+      const active = this.rundownEngine.activateRundownForScheduler(
+        churchId, rundown.id, new Date().toISOString()
+      );
+      if (active) {
+        console.log(`[Scheduler] Auto-activated rundown "${rundown.name}" for church ${churchId}`);
+        if (this._notifyTD) {
+          this._notifyTD(churchId, `📋 Rundown "${rundown.name}" auto-started (${rundown.steps.length} cues)`);
+        }
+      }
+    } catch (e) {
+      console.error(`[Scheduler] onServiceWindowOpen error for ${churchId}:`, e.message);
+    }
+  }
+
+  async _onServiceWindowOpenAsync(churchId) {
+    try {
+      const dayOfWeek = new Date().getDay();
+      const rundown = this.rundownEngine.getAutoActivateRundown(churchId, dayOfWeek);
+      if (!rundown) return;
+
+      if (!(await this._checkAutoTriggerAccessAsync(churchId))) return;
 
       const active = this.rundownEngine.activateRundownForScheduler(
         churchId, rundown.id, new Date().toISOString()
@@ -117,12 +182,11 @@ class RundownScheduler {
   // ─── TICK — TIME-BASED TRIGGER EVALUATION ──────────────────────────────────
 
   _tick() {
-    let churches;
-    try {
-      churches = this.db.prepare('SELECT churchId FROM churches').all();
-    } catch { return; }
+    const churchIds = typeof this.rundownEngine?.listActiveChurchIds === 'function'
+      ? this.rundownEngine.listActiveChurchIds()
+      : [];
 
-    for (const { churchId } of churches) {
+    for (const churchId of churchIds) {
       try {
         this._evaluateTimeTriggers(churchId);
       } catch (e) {
@@ -287,7 +351,7 @@ class RundownScheduler {
     // Execute preset if referenced
     if (cue.presetName && this.presetLibrary) {
       try {
-        const preset = this.presetLibrary.getByName(churchId, cue.presetName);
+        const preset = await this.presetLibrary.getByName(churchId, cue.presetName);
         if (preset) {
           const presetData = typeof preset.data === 'string' ? JSON.parse(preset.data) : preset.data;
           if (presetData.commands) {
@@ -546,6 +610,14 @@ class RundownScheduler {
   _checkAutoTriggerAccess(churchId) {
     if (!this.billing) return true;
     const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return false;
+    return this.billing.checkAccess(church, 'scheduler_auto').allowed;
+  }
+
+  async _checkAutoTriggerAccessAsync(churchId) {
+    if (!this.billing) return true;
+
+    const church = await this._requireClient().queryOne(CHURCH_ACCESS_SELECT_SQL, [churchId]);
     if (!church) return false;
     return this.billing.checkAccess(church, 'scheduler_auto').allowed;
   }

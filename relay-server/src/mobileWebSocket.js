@@ -28,6 +28,7 @@ const jwt = require('jsonwebtoken');
 function createMobileWebSocketHandler({
   churches,
   db,
+  queryClient = null,
   jwtSecret,
   pushNotifications = null,
   log = console.log,
@@ -35,6 +36,25 @@ function createMobileWebSocketHandler({
 }) {
   // Track mobile clients: Map<churchId, Set<ws>>
   const mobileClients = new Map();
+  const hasQueryClient = queryClient
+    && typeof queryClient.queryOne === 'function';
+
+  async function resolveChurch(churchId) {
+    const runtimeChurch = churches?.get(churchId);
+    if (runtimeChurch?.name) {
+      return { churchId, name: runtimeChurch.name };
+    }
+
+    if (hasQueryClient) {
+      return queryClient.queryOne('SELECT churchId, name FROM churches WHERE churchId = ?', [churchId]);
+    }
+
+    if (db && typeof db.prepare === 'function') {
+      return db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+    }
+
+    return runtimeChurch || null;
+  }
 
 
   /**
@@ -82,190 +102,197 @@ function createMobileWebSocketHandler({
    * @param {URL} url - Parsed request URL
    * @param {object} req - Raw HTTP upgrade request
    */
-  function handleMobileConnection(ws, url, req) {
-    const token = _extractToken(url, req);
-    if (!token) {
-      ws.close(4001, 'Token required');
-      return;
-    }
-
-    let payload;
+  async function handleMobileConnection(ws, url, req) {
     try {
-      payload = jwt.verify(token, jwtSecret);
-      if (payload.type !== 'church_app') throw new Error('wrong token type');
-    } catch (e) {
-      ws.close(4003, 'Invalid token');
-      return;
-    }
-
-    const churchId = payload.churchId;
-    const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
-    if (!church) {
-      ws.close(4004, 'Church not found');
-      return;
-    }
-
-    // Register this mobile client
-    if (!mobileClients.has(churchId)) {
-      mobileClients.set(churchId, new Set());
-    }
-    mobileClients.get(churchId).add(ws);
-
-    ws._churchId = churchId;
-    ws._churchName = church.name;
-    ws._connectedAt = Date.now();
-
-    log(`[MobileWS] Client connected for ${church.name} (${churchId})`);
-
-    // Touch device token if provided
-    const deviceToken = url.searchParams.get('deviceToken');
-    if (deviceToken && pushNotifications) {
-      Promise.resolve(pushNotifications.touchDevice(deviceToken)).catch((e) => {
-        log(`[MobileWS] Failed to touch device token: ${e.message}`);
-      });
-    }
-
-    // Send initial state
-    const runtime = churches.get(churchId);
-    _safeSend(ws, {
-      type: 'connected',
-      churchId,
-      churchName: church.name,
-      status: runtime?.status || {},
-      timestamp: Date.now(),
-    });
-
-    // Heartbeat — configurable via query param (default 30s, min 15s, max 120s)
-    const heartbeatMs = Math.max(15000, Math.min(120000,
-      parseInt(url.searchParams.get('heartbeat') || '30000', 10) || 30000
-    ));
-    const heartbeatTimer = setInterval(() => {
-      if (ws.readyState === 1) {
-        _safeSend(ws, { type: 'heartbeat', ts: Date.now() });
-      }
-    }, heartbeatMs);
-
-    // Handle incoming messages from mobile client
-    ws.on('message', async (raw) => {
-      let msg;
-      try {
-        msg = JSON.parse(raw);
-      } catch {
+      const token = _extractToken(url, req);
+      if (!token) {
+        ws.close(4001, 'Token required');
         return;
       }
 
-      switch (msg.type) {
-        case 'ping':
-          _safeSend(ws, { type: 'pong', ts: Date.now() });
-          break;
+      let payload;
+      try {
+        payload = jwt.verify(token, jwtSecret);
+        if (payload.type !== 'church_app') throw new Error('wrong token type');
+      } catch (e) {
+        ws.close(4003, 'Invalid token');
+        return;
+      }
 
-        case 'subscribe_room':
-          // Client wants updates for a specific room only
-          ws._subscribedRooms = ws._subscribedRooms || new Set();
-          if (msg.roomId) ws._subscribedRooms.add(msg.roomId);
-          break;
+      const churchId = payload.churchId;
+      const church = await resolveChurch(churchId);
+      if (!church) {
+        ws.close(4004, 'Church not found');
+        return;
+      }
 
-        case 'unsubscribe_room':
-          if (ws._subscribedRooms) ws._subscribedRooms.delete(msg.roomId);
-          break;
+      // Register this mobile client
+      if (!mobileClients.has(churchId)) {
+        mobileClients.set(churchId, new Set());
+      }
+      mobileClients.get(churchId).add(ws);
 
-        case 'ack_alert':
-          // Acknowledge an alert from mobile
-          if (msg.alertId) {
-            _safeSend(ws, { type: 'ack_received', alertId: msg.alertId });
-          }
-          break;
+      ws._churchId = churchId;
+      ws._churchName = church.name;
+      ws._connectedAt = Date.now();
 
-        case 'command': {
-          // Route command from mobile client to the correct church instance
-          if (!msg.command) break;
+      log(`[MobileWS] Client connected for ${church.name} (${churchId})`);
 
-          const runtime = churches.get(churchId);
-          if (!runtime) {
-            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
+      // Touch device token if provided
+      const deviceToken = url.searchParams.get('deviceToken');
+      if (deviceToken && pushNotifications) {
+        Promise.resolve(pushNotifications.touchDevice(deviceToken)).catch((e) => {
+          log(`[MobileWS] Failed to touch device token: ${e.message}`);
+        });
+      }
+
+      // Send initial state
+      const runtime = churches.get(churchId);
+      _safeSend(ws, {
+        type: 'connected',
+        churchId,
+        churchName: church.name,
+        status: runtime?.status || {},
+        timestamp: Date.now(),
+      });
+
+      // Heartbeat — configurable via query param (default 30s, min 15s, max 120s)
+      const heartbeatMs = Math.max(15000, Math.min(120000,
+        parseInt(url.searchParams.get('heartbeat') || '30000', 10) || 30000
+      ));
+      const heartbeatTimer = setInterval(() => {
+        if (ws.readyState === 1) {
+          _safeSend(ws, { type: 'heartbeat', ts: Date.now() });
+        }
+      }, heartbeatMs);
+
+      // Handle incoming messages from mobile client
+      ws.on('message', async (raw) => {
+        let msg;
+        try {
+          msg = JSON.parse(raw);
+        } catch {
+          return;
+        }
+
+        switch (msg.type) {
+          case 'ping':
+            _safeSend(ws, { type: 'pong', ts: Date.now() });
             break;
-          }
 
-          // Rate limit
-          const rateCheck = await checkCommandRateLimit(churchId);
-          if (!rateCheck.ok) {
-            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Rate limit exceeded' });
+          case 'subscribe_room':
+            // Client wants updates for a specific room only
+            ws._subscribedRooms = ws._subscribedRooms || new Set();
+            if (msg.roomId) ws._subscribedRooms.add(msg.roomId);
             break;
-          }
 
-          // Build the command payload matching what controllers send.
-          // The church-client extracts `id` (not `messageId`) from the message,
-          // so we must send both fields so the result round-trip works.
-          const cmdPayload = {
-            type: 'command',
-            command: msg.command,
-            params: msg.params || {},
-            id: msg.messageId,        // church-client uses msg.id in executeCommand
-            messageId: msg.messageId, // keep for any listener that uses messageId
-          };
+          case 'unsubscribe_room':
+            if (ws._subscribedRooms) ws._subscribedRooms.delete(msg.roomId);
+            break;
 
-          // If roomId is specified, find the instance serving that room
-          const roomId = msg.roomId;
-          let sent = false;
-          if (roomId && runtime.roomInstanceMap) {
-            const targetInstance = runtime.roomInstanceMap[roomId];
-            const targetSocket = targetInstance && runtime.sockets?.get(targetInstance);
-            if (targetSocket?.readyState === 1) {
-              _safeSend(targetSocket, cmdPayload);
-              sent = true;
+          case 'ack_alert':
+            // Acknowledge an alert from mobile
+            if (msg.alertId) {
+              _safeSend(ws, { type: 'ack_received', alertId: msg.alertId });
             }
-          }
+            break;
 
-          // Fallback: broadcast to all instances (same as controller behavior)
-          if (!sent) {
-            if (runtime.sockets?.size) {
-              for (const sock of runtime.sockets.values()) {
-                if (sock.readyState === 1) {
-                  _safeSend(sock, cmdPayload);
-                  sent = true;
+          case 'command': {
+            // Route command from mobile client to the correct church instance
+            if (!msg.command) break;
+
+            const runtime = churches.get(churchId);
+            if (!runtime) {
+              _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
+              break;
+            }
+
+            // Rate limit
+            const rateCheck = await checkCommandRateLimit(churchId);
+            if (!rateCheck.ok) {
+              _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Rate limit exceeded' });
+              break;
+            }
+
+            // Build the command payload matching what controllers send.
+            // The church-client extracts `id` (not `messageId`) from the message,
+            // so we must send both fields so the result round-trip works.
+            const cmdPayload = {
+              type: 'command',
+              command: msg.command,
+              params: msg.params || {},
+              id: msg.messageId,        // church-client uses msg.id in executeCommand
+              messageId: msg.messageId, // keep for any listener that uses messageId
+            };
+
+            // If roomId is specified, find the instance serving that room
+            const roomId = msg.roomId;
+            let sent = false;
+            if (roomId && runtime.roomInstanceMap) {
+              const targetInstance = runtime.roomInstanceMap[roomId];
+              const targetSocket = targetInstance && runtime.sockets?.get(targetInstance);
+              if (targetSocket?.readyState === 1) {
+                _safeSend(targetSocket, cmdPayload);
+                sent = true;
+              }
+            }
+
+            // Fallback: broadcast to all instances (same as controller behavior)
+            if (!sent) {
+              if (runtime.sockets?.size) {
+                for (const sock of runtime.sockets.values()) {
+                  if (sock.readyState === 1) {
+                    _safeSend(sock, cmdPayload);
+                    sent = true;
+                  }
                 }
               }
             }
-          }
 
-          if (!sent) {
-            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
-          }
-
-          log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (sent=${sent})`);
-          break;
-        }
-
-        case 'stream_protection_command': {
-          // Route stream protection commands from mobile to church agent
-          const spChurch = churches.get(churchId);
-          if (spChurch && spChurch.sockets?.size) {
-            const fwd = { type: 'stream_protection_command', action: msg.action };
-            for (const sock of spChurch.sockets.values()) {
-              if (sock.readyState === 1) _safeSend(sock, fwd);
+            if (!sent) {
+              _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
             }
+
+            log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (sent=${sent})`);
+            break;
           }
-          break;
+
+          case 'stream_protection_command': {
+            // Route stream protection commands from mobile to church agent
+            const spChurch = churches.get(churchId);
+            if (spChurch && spChurch.sockets?.size) {
+              const fwd = { type: 'stream_protection_command', action: msg.action };
+              for (const sock of spChurch.sockets.values()) {
+                if (sock.readyState === 1) _safeSend(sock, fwd);
+              }
+            }
+            break;
+          }
+
+          default:
+            break;
         }
+      });
 
-        default:
-          break;
-      }
-    });
+      ws.on('close', () => {
+        clearInterval(heartbeatTimer);
+        const clients = mobileClients.get(churchId);
+        if (clients) {
+          clients.delete(ws);
+          if (clients.size === 0) mobileClients.delete(churchId);
+        }
+        log(`[MobileWS] Client disconnected for ${church.name} (${churchId})`);
+      });
 
-    ws.on('close', () => {
-      clearInterval(heartbeatTimer);
-      const clients = mobileClients.get(churchId);
-      if (clients) {
-        clients.delete(ws);
-        if (clients.size === 0) mobileClients.delete(churchId);
-      }
-      log(`[MobileWS] Client disconnected for ${church.name}`);
-    });
-
-    ws.on('error', (err) => {
-      log(`[MobileWS] Error for ${church.name}: ${err.message}`);
-    });
+      ws.on('error', (err) => {
+        log(`[MobileWS] Error for ${church.name}: ${err.message}`);
+      });
+    } catch (err) {
+      log(`[MobileWS] Connection error: ${err.message}`);
+      try {
+        ws.close(1011, 'Internal error');
+      } catch {}
+    }
   }
 
   /**

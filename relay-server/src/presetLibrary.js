@@ -1,19 +1,40 @@
 /**
- * Preset Library — Equipment recall presets stored in SQLite
+ * Preset Library — Equipment recall presets stored in the shared DB runtime
  * Supports mixer scenes, ATEM macros, OBS scenes, vMix presets,
  * Resolume columns, and named bundles (multi-step).
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 class PresetLibrary {
-  constructor(db) {
-    this.db = db;
-    this._ensureTable();
+  constructor(dbOrClient, options = {}) {
+    this.client = this._resolveClient(dbOrClient, options);
+    this.ready = this._init();
   }
 
-  _ensureTable() {
-    this.db.exec(`
+  _resolveClient(dbOrClient, options) {
+    if (dbOrClient && typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || {
+        driver: 'sqlite',
+        isSqlite: true,
+        isPostgres: false,
+        databaseUrl: '',
+      },
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  async _init() {
+    await this._ensureTable();
+  }
+
+  async _ensureTable() {
+    await this.client.exec(`
       CREATE TABLE IF NOT EXISTS presets (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -27,68 +48,88 @@ class PresetLibrary {
     `);
   }
 
+  _parsePresetRow(row) {
+    if (!row) return null;
+    try {
+      return { ...row, data: JSON.parse(row.data) };
+    } catch {
+      return row;
+    }
+  }
+
   /**
    * Upsert a preset.
    * @param {string} churchId
    * @param {string} name
    * @param {string} type  mixer_scene | atem_macro | obs_scene | vmix_preset | resolume_column | named_bundle
    * @param {object} data  Type-specific data object
-   * @returns {string} preset id
+   * @returns {Promise<string>} preset id
    */
-  save(churchId, name, type, data) {
+  async save(churchId, name, type, data) {
+    await this.ready;
     const now = new Date().toISOString();
     const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
-    const existing = this.db.prepare(
-      'SELECT id FROM presets WHERE church_id = ? AND name = ?'
-    ).get(churchId, name);
+    const existing = await this.client.queryOne(
+      'SELECT id FROM presets WHERE church_id = ? AND name = ?',
+      [churchId, name]
+    );
 
     if (existing) {
-      this.db.prepare(
-        'UPDATE presets SET type = ?, data = ?, updated_at = ? WHERE church_id = ? AND name = ?'
-      ).run(type, dataStr, now, churchId, name);
+      await this.client.run(
+        'UPDATE presets SET type = ?, data = ?, updated_at = ? WHERE church_id = ? AND name = ?',
+        [type, dataStr, now, churchId, name]
+      );
       return existing.id;
-    } else {
-      const id = uuidv4();
-      this.db.prepare(
-        'INSERT INTO presets (id, church_id, name, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(id, churchId, name, type, dataStr, now, now);
-      return id;
     }
+
+    const id = uuidv4();
+    await this.client.run(
+      'INSERT INTO presets (id, church_id, name, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, churchId, name, type, dataStr, now, now]
+    );
+    return id;
   }
 
   /**
    * Get a preset by name.
-   * @returns {object|null}
+   * @returns {Promise<object|null>}
    */
-  get(churchId, name) {
-    const row = this.db.prepare(
-      'SELECT * FROM presets WHERE church_id = ? AND name = ?'
-    ).get(churchId, name);
-    if (!row) return null;
-    try { return { ...row, data: JSON.parse(row.data) }; } catch { return row; }
+  async get(churchId, name) {
+    await this.ready;
+    const row = await this.client.queryOne(
+      'SELECT * FROM presets WHERE church_id = ? AND name = ?',
+      [churchId, name]
+    );
+    return this._parsePresetRow(row);
+  }
+
+  async getByName(churchId, name) {
+    return this.get(churchId, name);
   }
 
   /**
    * List all presets for a church, sorted by name.
-   * @returns {object[]}
+   * @returns {Promise<object[]>}
    */
-  list(churchId) {
-    const rows = this.db.prepare(
-      'SELECT * FROM presets WHERE church_id = ? ORDER BY name ASC'
-    ).all(churchId);
-    return rows.map(r => {
-      try { return { ...r, data: JSON.parse(r.data) }; } catch { return r; }
-    });
+  async list(churchId) {
+    await this.ready;
+    const rows = await this.client.query(
+      'SELECT * FROM presets WHERE church_id = ? ORDER BY name ASC',
+      [churchId]
+    );
+    return rows.map((row) => this._parsePresetRow(row));
   }
 
   /**
    * Delete a preset by name.
-   * @returns {boolean} true if deleted
+   * @returns {Promise<boolean>} true if deleted
    */
-  delete(churchId, name) {
-    const result = this.db.prepare(
-      'DELETE FROM presets WHERE church_id = ? AND name = ?'
-    ).run(churchId, name);
+  async delete(churchId, name) {
+    await this.ready;
+    const result = await this.client.run(
+      'DELETE FROM presets WHERE church_id = ? AND name = ?',
+      [churchId, name]
+    );
     return result.changes > 0;
   }
 
@@ -97,10 +138,10 @@ class PresetLibrary {
    * @param {string} churchId
    * @param {string} name
    * @param {Function} sendCommand  async (command, params) => result
-   * @returns {object} the preset that was recalled
+   * @returns {Promise<object>} the preset that was recalled
    */
   async recall(churchId, name, sendCommand) {
-    const preset = this.get(churchId, name);
+    const preset = await this.get(churchId, name);
     if (!preset) throw new Error(`Preset "${name}" not found`);
     await this._executePresetStep({ type: preset.type, data: preset.data }, sendCommand);
     return preset;

@@ -5,9 +5,19 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupAdminChurchRoutes(app, ctx) {
-  const { db, churches, requireAdmin, stmtGet, stmtDelete,
+  const { db, queryClient, churches, requireAdmin,
           billing, normalizeBillingInterval, messageQueues,
           BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log, logAudit } = ctx;
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qAll = (sql, params = []) => (
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
+  );
+  const qRun = (sql, params = []) => (
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
+  );
 
   function auditBilling(req, churchId, details) {
     if (!logAudit) return;
@@ -48,7 +58,28 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     { table: 'rooms', column: 'campus_id' }, // campus_id stores owning churchId
   ];
 
-  function deleteChurchCascade(churchId) {
+  async function deleteChurchCascade(churchId) {
+    if (hasQueryClient) {
+      try {
+        const children = await qAll('SELECT churchId FROM churches WHERE parent_church_id = ?', [churchId]);
+        for (const child of children) {
+          for (const { table, column } of ALLOWED_CASCADE_DELETES) {
+            try { await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [child.churchId]); } catch { /* table may not exist */ }
+          }
+          try { await qRun('DELETE FROM churches WHERE churchId = ?', [child.churchId]); } catch {}
+          churches.delete(child.churchId);
+        }
+      } catch { /* parent_church_id column may not exist */ }
+
+      for (const { table, column } of ALLOWED_CASCADE_DELETES) {
+        try {
+          await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [churchId]);
+        } catch { /* table may not exist */ }
+      }
+      await qRun('DELETE FROM churches WHERE churchId = ?', [churchId]);
+      return;
+    }
+
     const tx = db.transaction((id) => {
       // Delete any child churches first
       try {
@@ -67,15 +98,15 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
           db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(id);
         } catch { /* table may not exist */ }
       }
-      stmtDelete.run(id);
+      db.prepare('DELETE FROM churches WHERE churchId = ?').run(id);
     });
 
     tx(churchId);
   }
 
   // List all churches
-  app.get('/api/churches', requireAdmin, (req, res) => {
-    const allRows = db.prepare('SELECT * FROM churches').all();
+  app.get('/api/churches', requireAdmin, async (req, res) => {
+    const allRows = await qAll('SELECT * FROM churches');
     const rowMap = new Map(allRows.map(r => [r.churchId, r]));
 
     const list = Array.from(churches.values()).map(c => {
@@ -104,12 +135,12 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   });
 
   // Update billing plan/status manually
-  app.put('/api/churches/:churchId/billing', requireAdmin, (req, res) => {
+  app.put('/api/churches/:churchId/billing', requireAdmin, async (req, res) => {
     const { churchId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
-    const row = stmtGet.get(churchId);
+    const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
 
     const inTier = req.body?.tier;
@@ -131,20 +162,18 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     if (!BILLING_STATUSES.has(nextStatus)) return res.status(400).json({ error: 'invalid status' });
     if (!nextInterval) return res.status(400).json({ error: 'invalid billingInterval' });
 
-    db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ?, billing_interval = ? WHERE churchId = ?')
-      .run(nextTier, nextStatus, nextInterval, churchId);
+    await qRun('UPDATE churches SET billing_tier = ?, billing_status = ?, billing_interval = ? WHERE churchId = ?', [nextTier, nextStatus, nextInterval, churchId]);
 
     const now = new Date().toISOString();
-    const billingRecord = db.prepare('SELECT id FROM billing_customers WHERE church_id = ?').get(churchId);
+    const billingRecord = await qOne('SELECT id FROM billing_customers WHERE church_id = ?', [churchId]);
     if (billingRecord?.id) {
-      db.prepare('UPDATE billing_customers SET tier = ?, billing_interval = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(nextTier, nextInterval, nextStatus, now, billingRecord.id);
+      await qRun('UPDATE billing_customers SET tier = ?, billing_interval = ?, status = ?, updated_at = ? WHERE id = ?', [nextTier, nextInterval, nextStatus, now, billingRecord.id]);
     } else {
-      db.prepare(`
+      await qRun(`
         INSERT INTO billing_customers
           (id, church_id, tier, billing_interval, status, email, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(`manual_${churchId}`, churchId, nextTier, nextInterval, nextStatus, row.portal_email || row.email || '', now, now);
+      `, [`manual_${churchId}`, churchId, nextTier, nextInterval, nextStatus, row.portal_email || row.email || '', now, now]);
     }
 
     auditBilling(req, churchId, { tier: nextTier, status: nextStatus, interval: nextInterval });
@@ -156,7 +185,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   });
 
   // Delete a church
-  app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
+  app.delete('/api/churches/:churchId', requireAdmin, async (req, res) => {
     const { churchId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
@@ -168,7 +197,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     }
 
     try {
-      deleteChurchCascade(churchId);
+      await deleteChurchCascade(churchId);
     } catch (e) {
       console.error(`[DeleteChurch] Failed for ${churchId}:`, e.message);
       return res.status(500).json({ error: safeErrorMessage(e, 'Failed to delete church') });

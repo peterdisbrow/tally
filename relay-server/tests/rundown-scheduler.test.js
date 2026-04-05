@@ -724,15 +724,12 @@ describe('ScheduleEngine — timezone and edge cases', () => {
 
   it('isServiceWindow accounts for 30-minute buffer', () => {
     const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    // Set service to start 25 minutes from now (within 30-min buffer)
-    const futureMinutes = currentMinutes + 25;
-    const startHour = Math.floor(futureMinutes / 60) % 24;
-    const startMin = futureMinutes % 60;
+    const future = new Date(now.getTime() + 25 * 60 * 1000);
+    const startHour = future.getHours();
+    const startMin = future.getMinutes();
 
     scheduleEngine.setSchedule(churchId, [
-      { day: now.getDay(), startHour, startMin, durationHours: 1 },
+      { day: future.getDay(), startHour, startMin, durationHours: 1 },
     ]);
 
     // Should be in service window (within the 30-min pre-buffer)
@@ -763,11 +760,11 @@ describe('PreServiceCheck — timing and persistence', () => {
 
   it('detects a service starting in 25-35 minutes', () => {
     const now = new Date();
-    const futureMinutes = now.getHours() * 60 + now.getMinutes() + 30;
-    const startHour = Math.floor(futureMinutes / 60) % 24;
-    const startMin = futureMinutes % 60;
+    const future = new Date(now.getTime() + 30 * 60 * 1000);
+    const startHour = future.getHours();
+    const startMin = future.getMinutes();
 
-    const schedule = [{ day: now.getDay(), startHour, startMin, durationHours: 2 }];
+    const schedule = [{ day: future.getDay(), startHour, startMin, durationHours: 2 }];
     const result = preServiceCheck._serviceStartingIn25to35(schedule);
     expect(result).not.toBeNull();
     expect(result.startHour).toBe(startHour);
@@ -776,12 +773,11 @@ describe('PreServiceCheck — timing and persistence', () => {
 
   it('returns null when service is not in 25-35 minute window', () => {
     const now = new Date();
-    // Service starts in 60 minutes (outside window)
-    const futureMinutes = now.getHours() * 60 + now.getMinutes() + 60;
-    const startHour = Math.floor(futureMinutes / 60) % 24;
-    const startMin = futureMinutes % 60;
+    const future = new Date(now.getTime() + 60 * 60 * 1000);
+    const startHour = future.getHours();
+    const startMin = future.getMinutes();
 
-    const schedule = [{ day: now.getDay(), startHour, startMin, durationHours: 2 }];
+    const schedule = [{ day: future.getDay(), startHour, startMin, durationHours: 2 }];
     const result = preServiceCheck._serviceStartingIn25to35(schedule);
     expect(result).toBeNull();
   });
@@ -838,11 +834,11 @@ describe('PreServiceCheck — timing and persistence', () => {
     preServiceCheck.lastPreServiceCheckAt.set(churchId, Date.now());
 
     const now = new Date();
-    const futureMinutes = now.getHours() * 60 + now.getMinutes() + 30;
-    const startHour = Math.floor(futureMinutes / 60) % 24;
-    const startMin = futureMinutes % 60;
+    const future = new Date(now.getTime() + 30 * 60 * 1000);
+    const startHour = future.getHours();
+    const startMin = future.getMinutes();
     scheduleEngine.setSchedule(churchId, [
-      { day: now.getDay(), startHour, startMin, durationHours: 2 },
+      { day: future.getDay(), startHour, startMin, durationHours: 2 },
     ]);
 
     // _checkChurch should skip because of dedup

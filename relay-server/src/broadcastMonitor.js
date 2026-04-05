@@ -14,6 +14,7 @@ const YT_BROADCASTS_URL = 'https://www.googleapis.com/youtube/v3/liveBroadcasts'
 const YT_STREAMS_URL    = 'https://www.googleapis.com/youtube/v3/liveStreams';
 const YT_TOKEN_URL      = 'https://oauth2.googleapis.com/token';
 const FB_GRAPH_URL      = 'https://graph.facebook.com/v19.0';
+const { SqliteQueryClient } = require('./db/queryClient');
 
 const POLL_INTERVAL_MS  = 60_000;  // poll every 60s (API quota friendly)
 const ALERT_THROTTLE_MS = 5 * 60 * 1000; // 5 min between repeated alerts
@@ -48,15 +49,25 @@ function deriveFacebookHealth(fbStatus) {
 }
 
 /**
- * @param {import('better-sqlite3').Database} db
+ * @param {import('better-sqlite3').Database|{ query: Function, queryOne: Function, run: Function }} dbOrClient
  * @param {{ churches: Map<string, object> }} relay
  * @param {object} alertEngine - AlertEngine instance
  * @param {function} notifyUpdate - (churchId?) => void — push SSE update
  */
-function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
+function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
+  const queryClient = dbOrClient && typeof dbOrClient.query === 'function' && typeof dbOrClient.queryOne === 'function' && typeof dbOrClient.run === 'function'
+    ? dbOrClient
+    : (dbOrClient && typeof dbOrClient.prepare === 'function'
+      ? new SqliteQueryClient(dbOrClient)
+      : null);
+  const sqliteDb = queryClient?.db && typeof queryClient.db.prepare === 'function'
+    ? queryClient.db
+    : (dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null);
+
   // Per-room state keyed by compositeKey = `${churchId}::${instanceName}`
   // (same pattern as signalFailover Phase 1)
   const state = new Map();
+  let schemaNotReadyLogged = false;
 
   function _compositeKey(churchId, instanceName) {
     return instanceName ? `${churchId}::${instanceName}` : churchId;
@@ -74,6 +85,24 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
       });
     }
     return state.get(key);
+  }
+
+  async function qAll(sql, params = []) {
+    if (queryClient) return queryClient.query(sql, params);
+    if (sqliteDb) return sqliteDb.prepare(sql).all(...params);
+    return [];
+  }
+
+  async function qOne(sql, params = []) {
+    if (queryClient) return queryClient.queryOne(sql, params);
+    if (sqliteDb) return sqliteDb.prepare(sql).get(...params) || null;
+    return null;
+  }
+
+  async function qRun(sql, params = []) {
+    if (queryClient) return queryClient.run(sql, params);
+    if (sqliteDb) return sqliteDb.prepare(sql).run(...params);
+    return { changes: 0, lastInsertRowid: null, rows: [] };
   }
 
   // ── YouTube broadcast health polling ──────────────────────────────────────
@@ -98,8 +127,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
       if (!resp.ok) return null;
       const tokens = await resp.json();
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
-      db.prepare('UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?')
-        .run(tokens.access_token, expiresAt, churchId);
+      await qRun('UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?', [tokens.access_token, expiresAt, churchId]);
       return tokens.access_token;
     } catch {
       return null;
@@ -107,9 +135,10 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
   }
 
   async function pollYouTube(churchId, church, instanceName, roomId) {
-    const row = db.prepare(
-      'SELECT yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name FROM churches WHERE churchId = ?'
-    ).get(churchId);
+    const row = await qOne(
+      'SELECT yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name FROM churches WHERE churchId = ?',
+      [churchId]
+    );
     if (!row?.yt_access_token) return;
 
     let accessToken = row.yt_access_token;
@@ -140,7 +169,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
 
       if (!broadcast) {
         cs.youtube = { status: 'no_broadcast', live: false, checkedAt: new Date().toISOString() };
-        handleYouTubeTransition(churchId, church, cs, 'noData', instanceName, roomId);
+        await handleYouTubeTransition(churchId, church, cs, 'noData', instanceName, roomId);
         return;
       }
 
@@ -187,21 +216,21 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         checkedAt: new Date().toISOString(),
       };
 
-      handleYouTubeTransition(churchId, church, cs, healthStatus, instanceName, roomId);
+      await handleYouTubeTransition(churchId, church, cs, healthStatus, instanceName, roomId);
     } catch (e) {
       cs.youtube = { status: 'error', error: e.message, checkedAt: new Date().toISOString() };
     }
   }
 
-  function handleYouTubeTransition(churchId, church, cs, newHealth, instanceName, roomId) {
+  async function handleYouTubeTransition(churchId, church, cs, newHealth, instanceName, roomId) {
     const prev = cs.prevYtHealth;
     cs.prevYtHealth = newHealth;
     const now = Date.now();
+    const dbChurch = church || await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
 
     // Alert on transition to error
     if (newHealth === 'error' && prev !== 'error' && now - cs.lastAlerts.yt > ALERT_THROTTLE_MS) {
       cs.lastAlerts.yt = now;
-      const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
       if (dbChurch) {
         alertEngine.sendAlert(dbChurch, 'yt_broadcast_unhealthy', {
           platform: 'YouTube',
@@ -215,7 +244,6 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
     // Alert on stream going offline (was live, now no broadcast)
     if (newHealth === 'noData' && prev === 'good' && now - cs.lastAlerts.yt > ALERT_THROTTLE_MS) {
       cs.lastAlerts.yt = now;
-      const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
       if (dbChurch) {
         alertEngine.sendAlert(dbChurch, 'yt_broadcast_offline', {
           platform: 'YouTube',
@@ -234,9 +262,10 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
   // ── Facebook broadcast health polling ─────────────────────────────────────
 
   async function pollFacebook(churchId, church, instanceName, roomId) {
-    const row = db.prepare(
-      'SELECT fb_access_token, fb_page_id, fb_page_name FROM churches WHERE churchId = ?'
-    ).get(churchId);
+    const row = await qOne(
+      'SELECT fb_access_token, fb_page_id, fb_page_name FROM churches WHERE churchId = ?',
+      [churchId]
+    );
     if (!row?.fb_access_token) return;
 
     const cs = getState(churchId, instanceName);
@@ -259,7 +288,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
 
       if (!video) {
         cs.facebook = { status: 'no_broadcast', live: false, checkedAt: new Date().toISOString() };
-        handleFacebookTransition(churchId, church, cs, 'noData', instanceName, roomId);
+        await handleFacebookTransition(churchId, church, cs, 'noData', instanceName, roomId);
         return;
       }
 
@@ -294,20 +323,20 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         checkedAt: new Date().toISOString(),
       };
 
-      handleFacebookTransition(churchId, church, cs, healthStatus, instanceName, roomId);
+      await handleFacebookTransition(churchId, church, cs, healthStatus, instanceName, roomId);
     } catch (e) {
       cs.facebook = { status: 'error', error: e.message, checkedAt: new Date().toISOString() };
     }
   }
 
-  function handleFacebookTransition(churchId, church, cs, newHealth, instanceName, roomId) {
+  async function handleFacebookTransition(churchId, church, cs, newHealth, instanceName, roomId) {
     const prev = cs.prevFbHealth;
     cs.prevFbHealth = newHealth;
     const now = Date.now();
+    const dbChurch = church || await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
 
     if (newHealth === 'error' && prev !== 'error' && now - cs.lastAlerts.fb > ALERT_THROTTLE_MS) {
       cs.lastAlerts.fb = now;
-      const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
       if (dbChurch) {
         alertEngine.sendAlert(dbChurch, 'fb_broadcast_unhealthy', {
           platform: 'Facebook',
@@ -319,7 +348,6 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
     }
     if (newHealth === 'noData' && prev === 'good' && now - cs.lastAlerts.fb > ALERT_THROTTLE_MS) {
       cs.lastAlerts.fb = now;
-      const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
       if (dbChurch) {
         alertEngine.sendAlert(dbChurch, 'fb_broadcast_offline', {
           platform: 'Facebook',
@@ -340,9 +368,23 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
     const { churches } = relay;
 
     // Find churches with YouTube or Facebook tokens
-    const connectedChurches = db.prepare(
-      'SELECT churchId, room_id, room_name FROM churches WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL'
-    ).all();
+    let connectedChurches = [];
+    try {
+      connectedChurches = await qAll(
+        'SELECT churchId, room_id, room_name FROM churches WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL'
+      );
+      schemaNotReadyLogged = false;
+    } catch (error) {
+      const message = String(error?.message || '');
+      if (/column .* does not exist/i.test(message)) {
+        if (!schemaNotReadyLogged) {
+          console.warn(`[BroadcastMonitor] Skipping poll until stream token columns are available: ${message}`);
+          schemaNotReadyLogged = true;
+        }
+        return;
+      }
+      throw error;
+    }
 
     for (const row of connectedChurches) {
       const { churchId } = row;

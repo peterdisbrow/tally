@@ -20,8 +20,24 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match', 'alert_condition'];
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const CHURCH_SELECT_SQL = `
+  SELECT
+    churchId AS "churchId",
+    name,
+    billing_tier AS "billing_tier",
+    billing_status AS "billing_status"
+  FROM churches
+`;
 
 // Max rules per billing tier
 const MAX_RULES_PER_TIER = { connect: 0, plus: 5, pro: 10, managed: 25, enterprise: 25, event: 0 };
@@ -170,17 +186,17 @@ const MAX_FIRES_PER_SESSION = 50;
 
 class AutoPilot {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {import('better-sqlite3').Database|import('./db/queryClient').SqliteQueryClient|import('./db/queryClient').PostgresQueryClient} dbOrClient
    * @param {object} opts
    * @param {object} opts.scheduleEngine - ScheduleEngine instance (for service window checks)
    * @param {object} opts.sessionRecap   - SessionRecap instance (for session IDs)
    */
-  constructor(db, opts = {}) {
-    this.db = db;
+  constructor(dbOrClient, opts = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.scheduleEngine = opts.scheduleEngine || null;
     this.sessionRecap = opts.sessionRecap || null;
     this.billing = opts.billing || null;
-    this._ensureSchema();
 
     // Per-church/room pause state (churchId or churchId::instanceName → boolean)
     this._paused = new Map();
@@ -188,8 +204,20 @@ class AutoPilot {
     // Dedup: Track which rules have fired this session (sessionId → Set<ruleId>)
     this._firedThisSession = new Map();
 
+    this._ruleCache = new Map();
+    this._churchCache = new Map();
+    this._commandLogCache = new Map();
+    this._pendingWrites = new Set();
+
     // Command executor — set by server.js after construction
     this._executeCommand = null;
+
+    if (this.db) {
+      this._ensureSchemaSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
   }
 
   /**
@@ -200,7 +228,154 @@ class AutoPilot {
     this._executeCommand = fn;
   }
 
-  _ensureSchema() {
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[AutoPilot] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureSchema();
+    await this._loadCache();
+  }
+
+  async flushWrites() {
+    await this.ready;
+    const pending = [...this._pendingWrites];
+    if (!pending.length) return;
+    const results = await Promise.all(pending);
+    const failure = results.find((result) => !result?.ok);
+    if (failure) throw failure.error;
+  }
+
+  _queueWrite(promise) {
+    const tracked = Promise.resolve(promise)
+      .then(() => ({ ok: true }))
+      .catch((error) => {
+        console.error('[AutoPilot] Persist write failed:', error.message);
+        return { ok: false, error };
+      })
+      .finally(() => {
+        this._pendingWrites.delete(tracked);
+      });
+
+    this._pendingWrites.add(tracked);
+    return tracked;
+  }
+
+  _normalizeRuleRow(row = {}) {
+    return {
+      id: row.id,
+      church_id: row.church_id || row.churchId || null,
+      name: row.name || '',
+      trigger_type: row.trigger_type || row.triggerType || '',
+      trigger_config: row.trigger_config || row.triggerConfig || '{}',
+      actions: row.actions || '[]',
+      enabled: Number(row.enabled ?? 0),
+      created_at: row.created_at || row.createdAt || null,
+      updated_at: row.updated_at || row.updatedAt || null,
+      last_fired_at: row.last_fired_at || row.lastFiredAt || null,
+      fire_count: Number(row.fire_count ?? row.fireCount ?? 0),
+      template_id: row.template_id || row.templateId || null,
+      instance_name: row.instance_name || row.instanceName || null,
+      room_id: row.room_id || row.roomId || null,
+    };
+  }
+
+  _normalizeCommandLogRow(row = {}) {
+    return {
+      id: row.id,
+      church_id: row.church_id || row.churchId || null,
+      session_id: row.session_id || row.sessionId || null,
+      timestamp: row.timestamp || null,
+      command: row.command || '',
+      params: row.params || '{}',
+      source: row.source || 'manual',
+      result: row.result ?? null,
+      equipment_state: row.equipment_state || row.equipmentState || null,
+      instance_name: row.instance_name || row.instanceName || null,
+      room_id: row.room_id || row.roomId || null,
+    };
+  }
+
+  _normalizeChurchRow(row = {}) {
+    return {
+      ...row,
+      churchId: row.churchId || row.churchid || row.church_id || null,
+      billing_tier: row.billing_tier || 'connect',
+      billing_status: row.billing_status || 'inactive',
+    };
+  }
+
+  _toPublicRule(row) {
+    if (!row) return null;
+    return {
+      ...row,
+      trigger_config: JSON.parse(row.trigger_config || '{}'),
+      actions: JSON.parse(row.actions || '[]'),
+      enabled: !!row.enabled,
+    };
+  }
+
+  _cacheRule(row) {
+    const normalized = this._normalizeRuleRow(row);
+    if (normalized.id) this._ruleCache.set(normalized.id, normalized);
+    return normalized;
+  }
+
+  _cacheCommandLog(row) {
+    const normalized = this._normalizeCommandLogRow(row);
+    if (!normalized.church_id) return normalized;
+    const rows = this._commandLogCache.get(normalized.church_id) || [];
+    rows.unshift(normalized);
+    this._commandLogCache.set(normalized.church_id, rows);
+    return normalized;
+  }
+
+  _cacheChurch(row) {
+    const normalized = this._normalizeChurchRow(row);
+    if (normalized.churchId) this._churchCache.set(normalized.churchId, normalized);
+    return normalized;
+  }
+
+  _getCachedChurch(churchId) {
+    return this._churchCache.get(churchId) || null;
+  }
+
+  _getCachedRules(churchId, { instanceName, roomId, triggerType, enabledOnly } = {}) {
+    return [...this._ruleCache.values()]
+      .filter((row) => row.church_id === churchId)
+      .filter((row) => {
+        if (triggerType && row.trigger_type !== triggerType) return false;
+        if (enabledOnly && !row.enabled) return false;
+        if (instanceName) return row.instance_name === instanceName || row.instance_name == null;
+        if (roomId) return row.room_id === roomId || row.room_id == null;
+        return true;
+      })
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }
+
+  _getCachedCommandLog(churchId, { instanceName, roomId } = {}) {
+    const rows = this._commandLogCache.get(churchId) || [];
+    return rows.filter((row) => {
+      if (instanceName) return row.instance_name === instanceName;
+      if (roomId) return row.room_id === roomId;
+      return true;
+    });
+  }
+
+  _ensureSchemaSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS command_log (
         id TEXT PRIMARY KEY,
@@ -260,6 +435,100 @@ class AutoPilot {
     `);
   }
 
+  async _ensureSchema() {
+    const client = this._requireClient();
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS command_log (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        session_id TEXT,
+        timestamp TEXT NOT NULL,
+        command TEXT NOT NULL,
+        params TEXT DEFAULT '{}',
+        source TEXT NOT NULL DEFAULT 'manual',
+        result TEXT,
+        equipment_state TEXT,
+        instance_name TEXT,
+        room_id TEXT
+      )
+    `);
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS automation_rules (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        trigger_config TEXT NOT NULL DEFAULT '{}',
+        actions TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_fired_at TEXT,
+        fire_count INTEGER DEFAULT 0,
+        template_id TEXT,
+        instance_name TEXT,
+        room_id TEXT
+      )
+    `);
+
+    const ruleCols = { instance_name: 'TEXT', room_id: 'TEXT' };
+    for (const [col, def] of Object.entries(ruleCols)) {
+      try { await client.queryOne(`SELECT ${col} FROM automation_rules LIMIT 1`); }
+      catch { try { await client.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+    }
+
+    const cmdLogCols = { instance_name: 'TEXT', room_id: 'TEXT' };
+    for (const [col, def] of Object.entries(cmdLogCols)) {
+      try { await client.queryOne(`SELECT ${col} FROM command_log LIMIT 1`); }
+      catch { try { await client.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+    }
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS autopilot_session_fires (
+        session_id TEXT NOT NULL,
+        rule_id    TEXT NOT NULL,
+        church_id  TEXT NOT NULL,
+        fired_at   TEXT NOT NULL,
+        PRIMARY KEY (session_id, rule_id)
+      )
+    `);
+  }
+
+  async _loadCache() {
+    const client = this._requireClient();
+    const [churches, rules, commandLog, sessionFires] = await Promise.all([
+      client.query(CHURCH_SELECT_SQL, []),
+      client.query('SELECT * FROM automation_rules', []),
+      client.query('SELECT * FROM command_log ORDER BY timestamp DESC', []),
+      client.query('SELECT session_id, rule_id FROM autopilot_session_fires', []),
+    ]);
+
+    this._churchCache.clear();
+    this._ruleCache.clear();
+    this._commandLogCache.clear();
+    this._firedThisSession.clear();
+
+    for (const row of churches) this._cacheChurch(row);
+    for (const row of rules) this._cacheRule(row);
+    for (const row of commandLog) {
+      const normalized = this._normalizeCommandLogRow(row);
+      if (!normalized.church_id) continue;
+      const rows = this._commandLogCache.get(normalized.church_id) || [];
+      rows.push(normalized);
+      this._commandLogCache.set(normalized.church_id, rows);
+    }
+    for (const row of sessionFires) {
+      const sessionId = row.session_id || row.sessionId;
+      const ruleId = row.rule_id || row.ruleId;
+      if (!sessionId || !ruleId) continue;
+      if (!this._firedThisSession.has(sessionId)) {
+        this._firedThisSession.set(sessionId, new Set());
+      }
+      this._firedThisSession.get(sessionId).add(ruleId);
+    }
+  }
+
   // ─── COMMAND LOGGING ──────────────────────────────────────────────────────
 
   /**
@@ -268,17 +537,49 @@ class AutoPilot {
   logCommand(churchId, command, params = {}, source = 'manual', result = null, equipmentState = null, { instanceName, roomId } = {}) {
     const id = uuidv4();
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId, instanceName) || null;
-    this.db.prepare(`
-      INSERT INTO command_log (id, church_id, session_id, timestamp, command, params, source, result, equipment_state, instance_name, room_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id, churchId, sessionId,
-      new Date().toISOString(), command,
-      JSON.stringify(params), source,
-      result ? String(result).substring(0, 500) : null,
-      equipmentState ? JSON.stringify(equipmentState) : null,
-      instanceName || null, roomId || null
-    );
+    const row = this._normalizeCommandLogRow({
+      id,
+      church_id: churchId,
+      session_id: sessionId,
+      timestamp: new Date().toISOString(),
+      command,
+      params: JSON.stringify(params),
+      source,
+      result: result ? String(result).substring(0, 500) : null,
+      equipment_state: equipmentState ? JSON.stringify(equipmentState) : null,
+      instance_name: instanceName || null,
+      room_id: roomId || null,
+    });
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT INTO command_log (id, church_id, session_id, timestamp, command, params, source, result, equipment_state, instance_name, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        row.id, row.church_id, row.session_id,
+        row.timestamp, row.command, row.params,
+        row.source, row.result, row.equipment_state,
+        row.instance_name, row.room_id
+      );
+    } else {
+      this._cacheCommandLog(row);
+      this._queueWrite(this._requireClient().run(`
+        INSERT INTO command_log (id, church_id, session_id, timestamp, command, params, source, result, equipment_state, instance_name, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        row.id,
+        row.church_id,
+        row.session_id,
+        row.timestamp,
+        row.command,
+        row.params,
+        row.source,
+        row.result,
+        row.equipment_state,
+        row.instance_name,
+        row.room_id,
+      ]));
+    }
     return id;
   }
 
@@ -286,6 +587,10 @@ class AutoPilot {
    * Get command log for a church (paginated), optionally filtered by room.
    */
   getCommandLog(churchId, limit = 50, offset = 0, { instanceName, roomId } = {}) {
+    if (!this.db) {
+      return this._getCachedCommandLog(churchId, { instanceName, roomId }).slice(offset, offset + limit);
+    }
+
     if (instanceName) {
       return this.db.prepare(
         'SELECT * FROM command_log WHERE church_id = ? AND instance_name = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
@@ -310,10 +615,14 @@ class AutoPilot {
 
     // Enforce per-tier rule limits
     if (this.billing) {
-      const church = this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId);
+      const church = this.db
+        ? this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId)
+        : this._getCachedChurch(churchId);
       const tier = church?.billing_tier || 'connect';
       const maxRules = MAX_RULES_PER_TIER[tier] ?? 0;
-      const currentCount = this.db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId).cnt;
+      const currentCount = this.db
+        ? this.db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId).cnt
+        : this._getCachedRules(churchId).length;
       if (currentCount >= maxRules) {
         const err = new Error(`Rule limit reached (${maxRules} rules for ${tier} plan). Upgrade to add more rules.`);
         err.code = 'RULE_LIMIT_REACHED';
@@ -324,15 +633,39 @@ class AutoPilot {
     }
     const id = uuidv4();
     const now = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, instance_name, room_id)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-    `).run(id, churchId, name, triggerType, JSON.stringify(triggerConfig || {}), JSON.stringify(actions || []), now, now, instanceName || null, roomId || null);
+    const row = this._normalizeRuleRow({
+      id,
+      church_id: churchId,
+      name,
+      trigger_type: triggerType,
+      trigger_config: JSON.stringify(triggerConfig || {}),
+      actions: JSON.stringify(actions || []),
+      enabled: 0,
+      created_at: now,
+      updated_at: now,
+      instance_name: instanceName || null,
+      room_id: roomId || null,
+    });
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, instance_name, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      `).run(id, churchId, name, triggerType, row.trigger_config, row.actions, now, now, instanceName || null, roomId || null);
+    } else {
+      this._cacheRule(row);
+      this._queueWrite(this._requireClient().run(`
+        INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, instance_name, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      `, [id, churchId, name, triggerType, row.trigger_config, row.actions, now, now, instanceName || null, roomId || null]));
+    }
     return { id, name, triggerType, enabled: false, instanceName: instanceName || null, roomId: roomId || null };
   }
 
   updateRule(ruleId, updates) {
-    const rule = this.db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId);
+    const rule = this.db
+      ? this.db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId)
+      : this._ruleCache.get(ruleId);
     if (!rule) throw new Error('Rule not found');
 
     const fields = [];
@@ -347,21 +680,48 @@ class AutoPilot {
     if (updates.actions !== undefined) { fields.push('actions = ?'); values.push(JSON.stringify(updates.actions)); }
     if (updates.enabled !== undefined) { fields.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
 
-    if (fields.length === 0) return rule;
+    if (fields.length === 0) return this.db ? rule : this._toPublicRule(rule);
 
-    fields.push('updated_at = ?'); values.push(new Date().toISOString());
+    const updatedAt = new Date().toISOString();
+    fields.push('updated_at = ?'); values.push(updatedAt);
     values.push(ruleId);
 
-    this.db.prepare(`UPDATE automation_rules SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    return this.db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId);
+    if (this.db) {
+      this.db.prepare(`UPDATE automation_rules SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+      return this.db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId);
+    }
+
+    const next = this._cacheRule({
+      ...rule,
+      name: updates.name !== undefined ? updates.name : rule.name,
+      trigger_type: updates.triggerType !== undefined ? updates.triggerType : rule.trigger_type,
+      trigger_config: updates.triggerConfig !== undefined ? JSON.stringify(updates.triggerConfig) : rule.trigger_config,
+      actions: updates.actions !== undefined ? JSON.stringify(updates.actions) : rule.actions,
+      enabled: updates.enabled !== undefined ? (updates.enabled ? 1 : 0) : rule.enabled,
+      updated_at: updatedAt,
+    });
+    this._queueWrite(this._requireClient().run(`UPDATE automation_rules SET ${fields.join(', ')} WHERE id = ?`, values));
+    return next;
   }
 
   deleteRule(ruleId) {
-    const result = this.db.prepare('DELETE FROM automation_rules WHERE id = ?').run(ruleId);
-    return result.changes > 0;
+    if (this.db) {
+      const result = this.db.prepare('DELETE FROM automation_rules WHERE id = ?').run(ruleId);
+      return result.changes > 0;
+    }
+
+    const existed = this._ruleCache.delete(ruleId);
+    if (existed) {
+      this._queueWrite(this._requireClient().run('DELETE FROM automation_rules WHERE id = ?', [ruleId]));
+    }
+    return existed;
   }
 
   getRules(churchId, { instanceName, roomId } = {}) {
+    if (!this.db) {
+      return this._getCachedRules(churchId, { instanceName, roomId }).map((row) => this._toPublicRule(row));
+    }
+
     let rules;
     if (instanceName) {
       rules = this.db.prepare(
@@ -385,6 +745,10 @@ class AutoPilot {
   }
 
   getRule(ruleId) {
+    if (!this.db) {
+      return this._toPublicRule(this._ruleCache.get(ruleId) || null);
+    }
+
     const r = this.db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId);
     if (!r) return null;
     return {
@@ -422,16 +786,18 @@ class AutoPilot {
     }
 
     // Check if already activated
-    const existing = this.db.prepare(
-      'SELECT id FROM automation_rules WHERE church_id = ? AND template_id = ?'
-    ).get(churchId, templateId);
+    const existing = this.db
+      ? this.db.prepare('SELECT id FROM automation_rules WHERE church_id = ? AND template_id = ?').get(churchId, templateId)
+      : this._getCachedRules(churchId).find((rule) => rule.template_id === templateId);
     if (existing) {
       throw new Error(`Template "${templateId}" is already active for this church`);
     }
 
     // Tier gating: check church has access
     if (this.billing) {
-      const church = this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId);
+      const church = this.db
+        ? this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId)
+        : this._getCachedChurch(churchId);
       const churchTier = church?.billing_tier || 'connect';
       const churchLevel = TIER_HIERARCHY[churchTier] || 0;
       const requiredLevel = TIER_HIERARCHY[template.tier] || 0;
@@ -454,14 +820,35 @@ class AutoPilot {
 
     const id = uuidv4();
     const now = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, template_id)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-    `).run(
-      id, churchId, template.name, template.trigger.type,
-      JSON.stringify(triggerConfig), JSON.stringify(actions),
-      now, now, templateId
-    );
+    const row = this._normalizeRuleRow({
+      id,
+      church_id: churchId,
+      name: template.name,
+      trigger_type: template.trigger.type,
+      trigger_config: JSON.stringify(triggerConfig),
+      actions: JSON.stringify(actions),
+      enabled: 1,
+      created_at: now,
+      updated_at: now,
+      template_id: templateId,
+    });
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, template_id)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      `).run(
+        id, churchId, template.name, template.trigger.type,
+        row.trigger_config, row.actions,
+        now, now, templateId
+      );
+    } else {
+      this._cacheRule(row);
+      this._queueWrite(this._requireClient().run(`
+        INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, template_id)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      `, [id, churchId, template.name, template.trigger.type, row.trigger_config, row.actions, now, now, templateId]));
+    }
 
     return {
       id,
@@ -479,10 +866,21 @@ class AutoPilot {
    * @returns {boolean} true if a rule was removed
    */
   deactivateTemplate(churchId, templateId) {
-    const result = this.db.prepare(
-      'DELETE FROM automation_rules WHERE church_id = ? AND template_id = ?'
-    ).run(churchId, templateId);
-    return result.changes > 0;
+    if (this.db) {
+      const result = this.db.prepare(
+        'DELETE FROM automation_rules WHERE church_id = ? AND template_id = ?'
+      ).run(churchId, templateId);
+      return result.changes > 0;
+    }
+
+    const row = this._getCachedRules(churchId).find((rule) => rule.template_id === templateId);
+    if (!row) return false;
+    this._ruleCache.delete(row.id);
+    this._queueWrite(this._requireClient().run(
+      'DELETE FROM automation_rules WHERE church_id = ? AND template_id = ?',
+      [churchId, templateId]
+    ));
+    return true;
   }
 
   /**
@@ -491,9 +889,11 @@ class AutoPilot {
    * @returns {Array} active template records with template metadata
    */
   getActiveTemplates(churchId) {
-    const rows = this.db.prepare(
-      'SELECT * FROM automation_rules WHERE church_id = ? AND template_id IS NOT NULL ORDER BY created_at ASC'
-    ).all(churchId);
+    const rows = this.db
+      ? this.db.prepare(
+          'SELECT * FROM automation_rules WHERE church_id = ? AND template_id IS NOT NULL ORDER BY created_at ASC'
+        ).all(churchId)
+      : this._getCachedRules(churchId).filter((row) => row.template_id);
     return rows.map(r => {
       const template = RULE_TEMPLATES.find(t => t.id === r.template_id);
       return {
@@ -682,11 +1082,16 @@ class AutoPilot {
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
     if (sessionId) {
       this._firedThisSession.delete(sessionId);
-      // Also clear the persisted dedup rows so that rules can fire again
-      // in the new session (e.g. next week's service).
-      try {
-        this.db.prepare('DELETE FROM autopilot_session_fires WHERE session_id = ?').run(sessionId);
-      } catch { /* non-fatal */ }
+      if (this.db) {
+        try {
+          this.db.prepare('DELETE FROM autopilot_session_fires WHERE session_id = ?').run(sessionId);
+        } catch { /* non-fatal */ }
+      } else {
+        this._queueWrite(this._requireClient().run(
+          'DELETE FROM autopilot_session_fires WHERE session_id = ?',
+          [sessionId]
+        ));
+      }
     }
   }
 
@@ -695,7 +1100,9 @@ class AutoPilot {
   /** Check if church's billing tier allows autopilot. */
   _checkBilling(churchId) {
     if (!this.billing) return true; // no billing system = allow all
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = this.db
+      ? this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId)
+      : this._getCachedChurch(churchId);
     if (!church) return false;
     return this.billing.checkAccess(church, 'autopilot').allowed;
   }
@@ -706,6 +1113,11 @@ class AutoPilot {
   }
 
   _getActiveRules(churchId, triggerType, instanceName) {
+    if (!this.db) {
+      return this._getCachedRules(churchId, { triggerType, instanceName, enabledOnly: true })
+        .map((row) => this._toPublicRule(row));
+    }
+
     let rules;
     if (instanceName) {
       // Return rules for this specific room OR rules with no room (global rules)
@@ -728,18 +1140,18 @@ class AutoPilot {
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
     if (!sessionId) return false;
 
-    // Fast path: in-memory cache (avoids DB hit on every evaluation)
     const fired = this._firedThisSession.get(sessionId);
     if (fired?.has(ruleId)) return true;
 
-    // Slow path: check persisted table so relay restarts don't re-fire rules
-    // in an already-running service session.
+    if (!this.db) {
+      return false;
+    }
+
     try {
       const row = this.db.prepare(
         'SELECT 1 FROM autopilot_session_fires WHERE session_id = ? AND rule_id = ? LIMIT 1'
       ).get(sessionId, ruleId);
       if (row) {
-        // Warm the in-memory cache so subsequent checks stay fast
         if (!this._firedThisSession.has(sessionId)) {
           this._firedThisSession.set(sessionId, new Set());
         }
@@ -762,13 +1174,19 @@ class AutoPilot {
     }
     this._firedThisSession.get(sessionId).add(ruleId);
 
-    // Persist to DB so the dedup survives relay restarts mid-service
-    try {
-      this.db.prepare(
-        'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
-      ).run(sessionId, ruleId, churchId, new Date().toISOString());
-    } catch {
-      // Non-fatal — in-memory cache still prevents double-fires within the same process
+    if (this.db) {
+      try {
+        this.db.prepare(
+          'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
+        ).run(sessionId, ruleId, churchId, new Date().toISOString());
+      } catch {
+        // Non-fatal — in-memory cache still prevents double-fires within the same process
+      }
+    } else {
+      this._queueWrite(this._requireClient().run(
+        'INSERT INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, rule_id) DO NOTHING',
+        [sessionId, ruleId, churchId, new Date().toISOString()]
+      ));
     }
   }
 
@@ -792,10 +1210,25 @@ class AutoPilot {
     // Mark as fired this session (dedup)
     this._markFiredThisSession(churchId, rule.id);
 
-    // Update rule stats
-    this.db.prepare(
-      'UPDATE automation_rules SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
-    ).run(new Date().toISOString(), rule.id);
+    const firedAt = new Date().toISOString();
+    if (this.db) {
+      this.db.prepare(
+        'UPDATE automation_rules SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
+      ).run(firedAt, rule.id);
+    } else {
+      const cachedRule = this._ruleCache.get(rule.id);
+      if (cachedRule) {
+        this._cacheRule({
+          ...cachedRule,
+          last_fired_at: firedAt,
+          fire_count: Number(cachedRule.fire_count || 0) + 1,
+        });
+      }
+      this._queueWrite(this._requireClient().run(
+        'UPDATE automation_rules SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?',
+        [firedAt, rule.id]
+      ));
+    }
 
     // Execute each action in the rule
     for (const action of rule.actions) {

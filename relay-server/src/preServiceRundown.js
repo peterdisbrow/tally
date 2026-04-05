@@ -21,6 +21,7 @@
 const crypto = require('crypto');
 const { buildBackgroundPrompt } = require('./tally-engineer');
 const { hasOpenSocket } = require('./runtimeSockets');
+const { SqliteQueryClient } = require('./db/queryClient');
 
 // ─── ESCALATION LEVELS ──────────────────────────────────────────────────────
 
@@ -55,7 +56,10 @@ class PreServiceRundown {
    * @param {string} [opts.alertBotToken] - Telegram bot token
    */
   constructor(opts = {}) {
-    this.db = opts.db;
+    this.db = opts.db && typeof opts.db.prepare === 'function'
+      ? opts.db
+      : (opts.queryClient?.db && typeof opts.queryClient.db.prepare === 'function' ? opts.queryClient.db : null);
+    this.queryClient = opts.queryClient || (this.db ? new SqliteQueryClient(this.db) : null);
     this.scheduleEngine = opts.scheduleEngine;
     this.preServiceCheck = opts.preServiceCheck;
     this.churchMemory = opts.churchMemory;
@@ -73,8 +77,10 @@ class PreServiceRundown {
     this._timers = new Map();
     // Escalation timers
     this._escalationTimers = new Map();
+    this._latestRundowns = new Map();
+    this._escalationContacts = new Map();
 
-    this._ensureTables();
+    this.ready = this.db ? Promise.resolve() : this._ensureTables();
   }
 
   _compositeKey(churchId, instanceName = null, roomId = null) {
@@ -90,8 +96,18 @@ class PreServiceRundown {
   }
 
   _setRundown(rundown) {
+    rundown.church_id ??= rundown.churchId || null;
+    rundown.instance_name ??= rundown.instanceName || null;
+    rundown.room_id ??= rundown.roomId || null;
+    rundown.service_time ??= rundown.serviceTime || null;
+    rundown.overall_status ??= rundown.overallStatus || null;
+    rundown.ai_summary ??= rundown.aiSummary || null;
+    rundown.confirmed_by ??= rundown.confirmation?.confirmedBy || null;
+    rundown.confirmed_at ??= rundown.confirmation?.confirmedAt || null;
+    rundown.escalation_level ??= rundown.confirmation?.escalationLevel ?? 0;
     const key = this._compositeKey(rundown.churchId, rundown.instanceName, rundown.roomId);
     this._active.set(key, rundown);
+    this._latestRundowns.set(key, rundown);
     return key;
   }
 
@@ -110,9 +126,8 @@ class PreServiceRundown {
   }
 
   _ensureTables() {
-    if (!this.db) return;
-
-    this.db.exec(`
+    if (this.db) {
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS preservice_rundowns (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -128,9 +143,9 @@ class PreServiceRundown {
         escalation_level INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now'))
       )
-    `);
+      `);
 
-    this.db.exec(`
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS preservice_confirmations (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -142,9 +157,9 @@ class PreServiceRundown {
         room_id TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       )
-    `);
+      `);
 
-    this.db.exec(`
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS escalation_contacts (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -156,10 +171,162 @@ class PreServiceRundown {
         active INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now'))
       )
+      `);
+
+      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch {}
+      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
+      return;
+    }
+
+    const client = this._requireClient();
+    const nowDefault = client.driver === 'postgres' ? 'CURRENT_TIMESTAMP' : "(datetime('now'))";
+    return (async () => {
+      await client.exec(`
+      CREATE TABLE IF NOT EXISTS preservice_rundowns (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        instance_name TEXT,
+        room_id TEXT,
+        service_time TEXT NOT NULL,
+        overall_status TEXT NOT NULL,
+        checks_json TEXT NOT NULL,
+        historical_json TEXT,
+        ai_summary TEXT,
+        confirmed_by TEXT,
+        confirmed_at TEXT,
+        escalation_level INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT ${nowDefault}
+      )
     `);
 
-    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch {}
-    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
+      await client.exec(`
+      CREATE TABLE IF NOT EXISTS preservice_confirmations (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        rundown_id TEXT NOT NULL,
+        confirmed_by TEXT NOT NULL,
+        confirmed_via TEXT NOT NULL,
+        check_snapshot_json TEXT NOT NULL,
+        instance_name TEXT,
+        room_id TEXT,
+        created_at TEXT DEFAULT ${nowDefault}
+      )
+    `);
+
+      await client.exec(`
+      CREATE TABLE IF NOT EXISTS escalation_contacts (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        name TEXT NOT NULL,
+        contact_type TEXT NOT NULL,
+        contact_value TEXT NOT NULL,
+        notify_on TEXT DEFAULT 'critical',
+        active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT ${nowDefault}
+      )
+    `);
+
+      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch {}
+      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
+
+      try {
+        const rundownRows = await client.query(`
+          SELECT r.*, c.name AS church_name
+          FROM preservice_rundowns r
+          LEFT JOIN churches c ON c.churchId = r.church_id
+          ORDER BY r.created_at DESC
+        `);
+        for (const row of rundownRows || []) {
+          const key = this._compositeKey(row.church_id, row.instance_name || null, row.room_id || null);
+          if (this._latestRundowns.has(key)) continue;
+          this._setRundown(this._hydrateRundownRow(row));
+        }
+      } catch {}
+
+      try {
+        const contacts = await client.query(
+          'SELECT * FROM escalation_contacts WHERE active = 1 ORDER BY role, name',
+        );
+        this._replaceEscalationContactsCache(contacts);
+      } catch {}
+    })();
+  }
+
+  async _all(sql, params = []) {
+    await this.ready;
+    if (this.queryClient) return this.queryClient.query(sql, params);
+    return this.db.prepare(sql).all(...params);
+  }
+
+  async _one(sql, params = []) {
+    await this.ready;
+    if (this.queryClient) return this.queryClient.queryOne(sql, params);
+    return this.db.prepare(sql).get(...params) || null;
+  }
+
+  async _run(sql, params = []) {
+    await this.ready;
+    if (this.queryClient) return this.queryClient.run(sql, params);
+    return this.db.prepare(sql).run(...params);
+  }
+
+  _requireClient() {
+    if (!this.queryClient) {
+      throw new Error('[PreServiceRundown] queryClient is required for async persistence.');
+    }
+    return this.queryClient;
+  }
+
+  _hydrateRundownRow(row) {
+    let checks = {};
+    let historical = {};
+    try { checks = JSON.parse(row.checks_json || '{}'); } catch {}
+    try { historical = JSON.parse(row.historical_json || '{}'); } catch {}
+
+    return {
+      ...row,
+      churchId: row.church_id,
+      churchName: row.church_name || row.church_id,
+      instanceName: row.instance_name || null,
+      roomId: row.room_id || null,
+      serviceTime: row.service_time || null,
+      overallStatus: row.overall_status || 'clear',
+      checks,
+      historical,
+      aiSummary: row.ai_summary || null,
+      confirmation: {
+        confirmed: !!(row.confirmed_by || row.confirmed_at),
+        confirmedBy: row.confirmed_by || null,
+        confirmedAt: row.confirmed_at || null,
+        escalationLevel: Number(row.escalation_level || 0),
+      },
+      generatedAt: row.created_at || null,
+    };
+  }
+
+  _replaceEscalationContactsCache(rows) {
+    this._escalationContacts.clear();
+    for (const row of rows || []) {
+      this._cacheEscalationContact(row);
+    }
+  }
+
+  _cacheEscalationContact(row) {
+    if (!row?.church_id) return;
+    const contacts = (this._escalationContacts.get(row.church_id) || []).filter(contact => contact.id !== row.id);
+    contacts.push({ ...row });
+    contacts.sort((a, b) => String(a.role || '').localeCompare(String(b.role || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+    this._escalationContacts.set(row.church_id, contacts);
+  }
+
+  _removeEscalationContactFromCache(id) {
+    for (const [churchId, contacts] of this._escalationContacts.entries()) {
+      const next = contacts.filter(contact => contact.id !== id);
+      if (next.length === contacts.length) continue;
+      if (next.length) this._escalationContacts.set(churchId, next);
+      else this._escalationContacts.delete(churchId);
+    }
   }
 
   _resolveRoomId(churchId, instanceName) {
@@ -184,7 +351,7 @@ class PreServiceRundown {
    * @returns {object} The complete rundown object
    */
   async generate(churchId, instanceName, roomIdOverride = null) {
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return null;
 
     const churchRuntime = this.churches?.get(churchId);
@@ -215,10 +382,10 @@ class PreServiceRundown {
     }
 
     // ── Device checks ───────────────────────────────────────────────────────
-    const deviceChecks = this._assembleDeviceChecks(churchId, churchRuntime, instanceName);
+    const deviceChecks = await this._assembleDeviceChecks(churchId, churchRuntime, instanceName);
 
     // ── Stream readiness ────────────────────────────────────────────────────
-    const streamChecks = this._assembleStreamChecks(churchId, churchRuntime, instanceName);
+    const streamChecks = await this._assembleStreamChecks(churchId, churchRuntime, instanceName);
 
     // ── ProPresenter readiness ──────────────────────────────────────────────
     const propresenterChecks = this._assembleProPresenterChecks(churchRuntime);
@@ -245,7 +412,7 @@ class PreServiceRundown {
     const overallStatus = this._overallStatus(checks);
 
     // ── Historical context ──────────────────────────────────────────────────
-    const historical = this._assembleHistorical(churchId, serviceDay);
+    const historical = await this._assembleHistorical(churchId, serviceDay);
 
     // ── Active cue rundown (from rundownEngine) ────────────────────────────
     let activeRundown = null;
@@ -332,7 +499,7 @@ class PreServiceRundown {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) return null;
 
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
       const operatorLevel = church?.operator_level || 'intermediate';
 
       const systemPrompt = buildBackgroundPrompt('pre_service_rundown') ||
@@ -397,8 +564,7 @@ class PreServiceRundown {
 
         // Update DB
         try {
-          this.db.prepare('UPDATE preservice_rundowns SET ai_summary = ? WHERE id = ?')
-            .run(summary, rundown.id);
+          await this._run('UPDATE preservice_rundowns SET ai_summary = ? WHERE id = ?', [summary, rundown.id]);
         } catch {}
       }
 
@@ -411,7 +577,7 @@ class PreServiceRundown {
 
   // ─── CHECK ASSEMBLY ──────────────────────────────────────────────────────────
 
-  _assembleDeviceChecks(churchId, churchRuntime, instanceName) {
+  async _assembleDeviceChecks(churchId, churchRuntime, instanceName) {
     const items = [];
     const status = churchRuntime?.status || {};
 
@@ -483,7 +649,7 @@ class PreServiceRundown {
 
     // Use latest preServiceCheck result for additional checks
     if (this.preServiceCheck) {
-      const latest = this.preServiceCheck.getLatestResult(churchId, instanceName);
+      const latest = await this.preServiceCheck.getLatestResult(churchId, instanceName);
       if (latest?.checks) {
         for (const check of latest.checks) {
           // Skip if we already have this check
@@ -500,7 +666,7 @@ class PreServiceRundown {
     return items;
   }
 
-  _assembleStreamChecks(churchId, churchRuntime, instanceName) {
+  async _assembleStreamChecks(churchId, churchRuntime, instanceName) {
     const items = [];
     const broadcast = churchRuntime?.broadcastHealth || {};
 
@@ -530,9 +696,7 @@ class PreServiceRundown {
 
     // OAuth token validity
     try {
-      const row = this.db.prepare(
-        'SELECT yt_access_token, yt_token_expires_at, fb_access_token FROM churches WHERE churchId = ?'
-      ).get(churchId);
+      const row = await this._one('SELECT yt_access_token, yt_token_expires_at, fb_access_token FROM churches WHERE churchId = ?', [churchId]);
 
       if (row?.yt_access_token) {
         const expiresAt = row.yt_token_expires_at ? new Date(row.yt_token_expires_at) : null;
@@ -708,16 +872,17 @@ class PreServiceRundown {
 
   // ─── HISTORICAL CONTEXT ──────────────────────────────────────────────────────
 
-  _assembleHistorical(churchId, serviceDay) {
+  async _assembleHistorical(churchId, serviceDay) {
     // Last week's session
     let lastWeekGrade = null;
     let lastWeekAlerts = 0;
     let streak = 0;
 
     try {
-      const recentSessions = this.db.prepare(
-        'SELECT grade, alert_count, auto_recovered_count FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 8'
-      ).all(churchId);
+      const recentSessions = await this._all(
+        'SELECT grade, alert_count, auto_recovered_count FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 8',
+        [churchId],
+      );
 
       if (recentSessions.length > 0) {
         lastWeekGrade = recentSessions[0].grade || null;
@@ -734,7 +899,7 @@ class PreServiceRundown {
     // Recurring issues from church memory
     const recurringIssues = [];
     try {
-      const briefing = this.churchMemory?.getPreServiceBriefing(churchId);
+      const briefing = this.churchMemory ? await this.churchMemory.getPreServiceBriefing(churchId) : null;
       if (briefing?.recurringIssues) {
         for (const issue of briefing.recurringIssues) {
           recurringIssues.push(issue.summary || issue);
@@ -746,7 +911,7 @@ class PreServiceRundown {
     let viewerBaseline = { expectedPeak: 0, expectedAtMinute10: 0, platformSplit: {}, trendPct: 0, sampleCount: 0 };
     try {
       if (this.viewerBaseline) {
-        viewerBaseline = this.viewerBaseline.getBaseline(churchId, serviceDay);
+        viewerBaseline = await this.viewerBaseline.getBaseline(churchId, serviceDay);
       }
     } catch {}
 
@@ -783,8 +948,9 @@ class PreServiceRundown {
     this._setRundown(rundown);
 
     // Persist confirmation audit trail
-    try {
-      this.db.prepare(`
+    if (this.db) {
+      try {
+        this.db.prepare(`
         INSERT INTO preservice_confirmations (id, church_id, rundown_id, confirmed_by, confirmed_via, check_snapshot_json, instance_name, room_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -793,10 +959,22 @@ class PreServiceRundown {
       );
 
       // Update rundown record
-      this.db.prepare('UPDATE preservice_rundowns SET confirmed_by = ?, confirmed_at = ? WHERE id = ?')
-        .run(confirmedBy, now, rundown.id);
-    } catch (e) {
-      console.error(`[PreServiceRundown] Confirmation persist error:`, e.message);
+        this.db.prepare('UPDATE preservice_rundowns SET confirmed_by = ?, confirmed_at = ? WHERE id = ?')
+          .run(confirmedBy, now, rundown.id);
+      } catch (e) {
+        console.error(`[PreServiceRundown] Confirmation persist error:`, e.message);
+      }
+    } else if (this.queryClient) {
+      this._run(`
+        INSERT INTO preservice_confirmations (id, church_id, rundown_id, confirmed_by, confirmed_via, check_snapshot_json, instance_name, room_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        crypto.randomUUID(), churchId, rundown.id, confirmedBy, confirmedVia,
+        JSON.stringify(rundown.checks), rundown.instanceName, rundown.roomId, now,
+      ]).catch((e) => console.error(`[PreServiceRundown] Confirmation persist error:`, e.message));
+
+      this._run('UPDATE preservice_rundowns SET confirmed_by = ?, confirmed_at = ? WHERE id = ?', [confirmedBy, now, rundown.id])
+        .catch((e) => console.error(`[PreServiceRundown] Confirmation persist error:`, e.message));
     }
 
     // Cancel escalation timer
@@ -836,6 +1014,11 @@ class PreServiceRundown {
    */
   getLatestRundown(churchId, instanceName = null, roomId = null) {
     try {
+      const cached = this._getRundown(churchId, instanceName, roomId);
+      if (cached) return cached;
+      const key = this._compositeKey(churchId, instanceName, roomId);
+      if (this._latestRundowns.has(key)) return this._latestRundowns.get(key);
+      if (!this.db) return null;
       let row;
       if (roomId) {
         row = this.db.prepare(
@@ -851,11 +1034,9 @@ class PreServiceRundown {
         ).get(churchId);
       }
       if (!row) return null;
-      return {
-        ...row,
-        checks: JSON.parse(row.checks_json || '{}'),
-        historical: JSON.parse(row.historical_json || '{}'),
-      };
+      const rundown = this._hydrateRundownRow(row);
+      this._setRundown(rundown);
+      return rundown;
     } catch { return null; }
   }
 
@@ -868,7 +1049,7 @@ class PreServiceRundown {
   async onServiceWindowOpen(churchId) {
     console.log(`[PreServiceRundown] Service window open for ${churchId} — starting rundown`);
 
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return;
 
     for (const context of this._getConnectedContexts(churchId)) {
@@ -916,7 +1097,9 @@ class PreServiceRundown {
       }, 5 * 60 * 1000);
       this._timers.set(this._compositeKey(churchId, instanceName, roomId), timer);
 
-      this._startEscalation(churchId, instanceName, roomId);
+      this._startEscalation(churchId, instanceName, roomId).catch(e => {
+        console.error(`[PreServiceRundown] Escalation init error:`, e.message);
+      });
     }
   }
 
@@ -952,7 +1135,7 @@ class PreServiceRundown {
 
   // ─── ESCALATION PATH ────────────────────────────────────────────────────────
 
-  _startEscalation(churchId, instanceName = null, roomId = null) {
+  async _startEscalation(churchId, instanceName = null, roomId = null) {
     this._clearEscalationTimer(churchId, instanceName, roomId);
 
     const rundown = this._getRundown(churchId, instanceName, roomId);
@@ -961,7 +1144,7 @@ class PreServiceRundown {
     // Load escalation timing config
     let timing = DEFAULT_ESCALATION_TIMING;
     try {
-      const row = this.db.prepare('SELECT escalation_timing_json, escalation_enabled FROM churches WHERE churchId = ?').get(churchId);
+      const row = await this._one('SELECT escalation_timing_json, escalation_enabled FROM churches WHERE churchId = ?', [churchId]);
       if (row?.escalation_enabled && row?.escalation_timing_json) {
         timing = { ...DEFAULT_ESCALATION_TIMING, ...JSON.parse(row.escalation_timing_json) };
       } else if (!row?.escalation_enabled) {
@@ -1020,9 +1203,10 @@ class PreServiceRundown {
     if (!botToken) return;
 
     try {
-      const tds = this.db.prepare(
-        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
-      ).all(churchId);
+      const tds = await this._all(
+        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+        [churchId],
+      );
 
       const msg = `⏰ Reminder — ${rundown.churchName}\nPre-service rundown has not been confirmed.\nStatus: ${rundown.overallStatus.toUpperCase()}\nPlease review and tap "All Clear" in the portal.`;
 
@@ -1042,9 +1226,10 @@ class PreServiceRundown {
 
   async _notifyEscalationContact(churchId, role, rundown) {
     try {
-      const contacts = this.db.prepare(
-        'SELECT * FROM escalation_contacts WHERE church_id = ? AND role = ? AND active = 1'
-      ).all(churchId, role);
+      const contacts = await this._all(
+        'SELECT * FROM escalation_contacts WHERE church_id = ? AND role = ? AND active = 1',
+        [churchId, role],
+      );
 
       if (contacts.length === 0) return;
 
@@ -1096,9 +1281,10 @@ class PreServiceRundown {
     if (!botToken) return;
 
     try {
-      const tds = this.db.prepare(
-        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
-      ).all(churchId);
+      const tds = await this._all(
+        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+        [churchId],
+      );
 
       if (tds.length === 0) return;
 
@@ -1158,7 +1344,8 @@ class PreServiceRundown {
 
   _persistRundown(rundown) {
     try {
-      this.db.prepare(`
+      if (this.db) {
+        this.db.prepare(`
         INSERT OR REPLACE INTO preservice_rundowns
           (id, church_id, instance_name, room_id, service_time, overall_status,
            checks_json, historical_json, ai_summary, confirmed_by, confirmed_at,
@@ -1173,6 +1360,25 @@ class PreServiceRundown {
         rundown.confirmation?.escalationLevel || 0,
         rundown.generatedAt
       );
+      } else if (this.queryClient) {
+        this._run(`
+        INSERT OR REPLACE INTO preservice_rundowns
+          (id, church_id, instance_name, room_id, service_time, overall_status,
+           checks_json, historical_json, ai_summary, confirmed_by, confirmed_at,
+           escalation_level, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+          rundown.id, rundown.churchId, rundown.instanceName, rundown.roomId,
+          rundown.serviceTime || '', rundown.overallStatus,
+          JSON.stringify(rundown.checks), JSON.stringify(rundown.historical),
+          rundown.aiSummary, rundown.confirmation?.confirmedBy || null,
+          rundown.confirmation?.confirmedAt || null,
+          rundown.confirmation?.escalationLevel || 0,
+          rundown.generatedAt,
+        ]).catch((e) => {
+          console.error(`[PreServiceRundown] DB persist error:`, e.message);
+        });
+      }
     } catch (e) {
       console.error(`[PreServiceRundown] DB persist error:`, e.message);
     }
@@ -1211,22 +1417,61 @@ class PreServiceRundown {
   // ─── ESCALATION CONTACTS CRUD ────────────────────────────────────────────────
 
   getEscalationContacts(churchId) {
-    return this.db.prepare(
-      'SELECT * FROM escalation_contacts WHERE church_id = ? AND active = 1 ORDER BY role'
-    ).all(churchId);
+    try {
+      if (this.db) {
+        return this.db.prepare(
+          'SELECT * FROM escalation_contacts WHERE church_id = ? AND active = 1 ORDER BY role'
+        ).all(churchId);
+      }
+      return (this._escalationContacts.get(churchId) || []).map(contact => ({ ...contact }));
+    } catch {
+      return [];
+    }
   }
 
   addEscalationContact(churchId, { role, name, contactType, contactValue, notifyOn }) {
     const id = crypto.randomUUID();
-    this.db.prepare(`
-      INSERT INTO escalation_contacts (id, church_id, role, name, contact_type, contact_value, notify_on, active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-    `).run(id, churchId, role, name, contactType, contactValue, notifyOn || 'critical', new Date().toISOString());
-    return { id, church_id: churchId, role, name, contact_type: contactType, contact_value: contactValue, notify_on: notifyOn || 'critical', active: 1 };
+    const createdAt = new Date().toISOString();
+    const row = {
+      id,
+      church_id: churchId,
+      role,
+      name,
+      contact_type: contactType,
+      contact_value: contactValue,
+      notify_on: notifyOn || 'critical',
+      active: 1,
+      created_at: createdAt,
+    };
+
+    this._cacheEscalationContact(row);
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT INTO escalation_contacts (id, church_id, role, name, contact_type, contact_value, notify_on, active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+      `).run(id, churchId, role, name, contactType, contactValue, notifyOn || 'critical', createdAt);
+    } else if (this.queryClient) {
+      this._run(`
+        INSERT INTO escalation_contacts (id, church_id, role, name, contact_type, contact_value, notify_on, active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+      `, [id, churchId, role, name, contactType, contactValue, notifyOn || 'critical', createdAt]).catch((e) => {
+        console.error(`[PreServiceRundown] Escalation contact persist error:`, e.message);
+      });
+    }
+
+    return row;
   }
 
   removeEscalationContact(id) {
-    this.db.prepare('UPDATE escalation_contacts SET active = 0 WHERE id = ?').run(id);
+    this._removeEscalationContactFromCache(id);
+    if (this.db) {
+      this.db.prepare('UPDATE escalation_contacts SET active = 0 WHERE id = ?').run(id);
+    } else if (this.queryClient) {
+      this._run('UPDATE escalation_contacts SET active = 0 WHERE id = ?', [id]).catch((e) => {
+        console.error(`[PreServiceRundown] Escalation contact persist error:`, e.message);
+      });
+    }
   }
 }
 

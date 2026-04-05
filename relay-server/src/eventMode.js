@@ -9,14 +9,47 @@
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { createQueryClient } = require('./db');
+
+const EXPIRED_EVENT_SELECT = `
+  churchId AS "churchId",
+  name,
+  event_label,
+  event_expires_at
+`;
+
+function isDuplicateColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate column name') || message.includes('already exists');
+}
 
 class EventMode {
-  constructor(db) {
-    this.db = db;
-    this._ensureColumns();
+  constructor(dbOrClient, options = {}) {
+    this.client = this._resolveClient(dbOrClient, options);
+    this.ready = this._init();
   }
 
-  _ensureColumns() {
+  _resolveClient(dbOrClient, options) {
+    if (dbOrClient && typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || {
+        driver: 'sqlite',
+        isSqlite: true,
+        isPostgres: false,
+        databaseUrl: '',
+      },
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  async _init() {
+    await this._ensureColumns();
+  }
+
+  async _ensureColumns() {
     const columns = [
       ['church_type',      "TEXT DEFAULT 'recurring'"],
       ['event_expires_at', 'TEXT'],
@@ -24,9 +57,13 @@ class EventMode {
     ];
     for (const [col, def] of columns) {
       try {
-        this.db.prepare(`SELECT ${col} FROM churches LIMIT 1`).get();
+        await this.client.queryOne(`SELECT ${col} FROM churches LIMIT 1`);
       } catch {
-        this.db.exec(`ALTER TABLE churches ADD COLUMN ${col} ${def}`);
+        try {
+          await this.client.exec(`ALTER TABLE churches ADD COLUMN ${col} ${def}`);
+        } catch (error) {
+          if (!isDuplicateColumnError(error)) throw error;
+        }
       }
     }
   }
@@ -42,9 +79,10 @@ class EventMode {
    * @param {string}  [opts.tdName]         - Technical Director name
    * @param {number|string} [opts.tdTelegramChatId] - TD's Telegram chat ID
    * @param {string}  [opts.contactEmail]   - Contact email
-   * @returns {{ churchId, token, expiresAt, name }}
+   * @returns {Promise<{ churchId, token, expiresAt, name }>}
    */
-  createEvent({ name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail }) {
+  async createEvent({ name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail }) {
+    await this.ready;
     const JWT_SECRET  = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
     const churchId    = uuidv4();
     const now         = new Date();
@@ -56,25 +94,33 @@ class EventMode {
     const registrationCode = crypto.randomBytes(3).toString('hex').toUpperCase();
 
     // Base church insert (matches stmtInsert columns already in server.js)
-    this.db.prepare(
-      'INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)'
-    ).run(churchId, name, contactEmail || '', token, registeredAt);
+    await this.client.run(
+      'INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)',
+      [churchId, name, contactEmail || '', token, registeredAt]
+    );
 
     // Event-specific fields
-    this.db.prepare(
-      'UPDATE churches SET church_type = ?, event_expires_at = ?, event_label = ? WHERE churchId = ?'
-    ).run('event', expiresAt, eventLabel || name, churchId);
+    await this.client.run(
+      'UPDATE churches SET church_type = ?, event_expires_at = ?, event_label = ? WHERE churchId = ?',
+      ['event', expiresAt, eventLabel || name, churchId]
+    );
 
     // TD contact fields (columns added by alertEngine — safe try/catch)
     if (tdName) {
-      try { this.db.prepare('UPDATE churches SET td_name = ? WHERE churchId = ?').run(tdName, churchId); } catch {}
+      try {
+        await this.client.run('UPDATE churches SET td_name = ? WHERE churchId = ?', [tdName, churchId]);
+      } catch {}
     }
     if (tdTelegramChatId) {
-      try { this.db.prepare('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?').run(String(tdTelegramChatId), churchId); } catch {}
+      try {
+        await this.client.run('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?', [String(tdTelegramChatId), churchId]);
+      } catch {}
     }
 
     // Registration code for Telegram self-registration (column added by TallyBot)
-    try { this.db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?').run(registrationCode, churchId); } catch {}
+    try {
+      await this.client.run('UPDATE churches SET registration_code = ? WHERE churchId = ?', [registrationCode, churchId]);
+    } catch {}
 
     console.log(`[EventMode] Created event: "${name}" (${churchId}) expires ${expiresAt}`);
     return { churchId, token, expiresAt, name };
@@ -117,6 +163,7 @@ class EventMode {
    */
   async expireEvent(church, tallyBot, churchesMap) {
     try {
+      await this.ready;
       console.log(`[EventMode] Expiring: "${church.name}" (${church.churchId})`);
 
       // Close any active WebSocket
@@ -150,8 +197,7 @@ class EventMode {
       }
 
       // Null out event_expires_at — prevents re-expiry on next cycle
-      this.db.prepare('UPDATE churches SET event_expires_at = NULL WHERE churchId = ?')
-        .run(church.churchId);
+      await this.client.run('UPDATE churches SET event_expires_at = NULL WHERE churchId = ?', [church.churchId]);
 
     } catch (e) {
       console.error(`[EventMode] expireEvent error for ${church.churchId}:`, e.message);
@@ -166,12 +212,15 @@ class EventMode {
    */
   async checkExpiry(tallyBot, churchesMap) {
     try {
-      const expired = this.db.prepare(
-        `SELECT * FROM churches
+      await this.ready;
+      const expired = await this.client.query(
+        `SELECT ${EXPIRED_EVENT_SELECT}
+         FROM churches
          WHERE church_type = 'event'
            AND event_expires_at IS NOT NULL
-           AND event_expires_at <= ?`
-      ).all(new Date().toISOString());
+           AND event_expires_at <= ?`,
+        [new Date().toISOString()]
+      );
 
       for (const church of expired) {
         await this.expireEvent(church, tallyBot, churchesMap);

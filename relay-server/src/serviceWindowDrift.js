@@ -48,6 +48,9 @@ function findMatchingWindow(schedule, sessionStart) {
 function detectDrift(db, churchId, currentSession) {
   const drifts = [];
   const schedule = getSchedule(db, churchId);
+  if (!db || typeof db.prepare !== 'function') {
+    return { drifts };
+  }
   const startedAt = currentSession.startedAt instanceof Date
     ? currentSession.startedAt
     : new Date(currentSession.startedAt);
@@ -166,6 +169,9 @@ function detectDrift(db, churchId, currentSession) {
  * @returns {{ avgStartDelay: number, avgDuration: number, avgEndDelay: number, onTimePercent: number }}
  */
 function getServiceTimingStats(db, churchId, weeks = 4) {
+  if (!db || typeof db.prepare !== 'function') {
+    return { avgStartDelay: 0, avgDuration: 0, avgEndDelay: 0, onTimePercent: 100 };
+  }
   const cutoff = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
   const schedule = getSchedule(db, churchId);
 
@@ -238,6 +244,7 @@ function getServiceTimingStats(db, churchId, weeks = 4) {
  * @returns {Array<{ windowA: object, windowB: object, overlapMinutes: number }>}
  */
 function checkUpcomingConflicts(db, churchId) {
+  if (!db || typeof db.prepare !== 'function') return [];
   const schedule = getSchedule(db, churchId);
   const conflicts = [];
 
@@ -272,6 +279,7 @@ function checkUpcomingConflicts(db, churchId) {
 // ─── Internal helper ──────────────────────────────────────────────────────────
 
 function getSchedule(db, churchId) {
+  if (!db || typeof db.prepare !== 'function') return [];
   try {
     const row = db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get(churchId);
     if (!row || !row.service_times) return [];

@@ -265,6 +265,27 @@ describe('requireAdminJwt — auth bypass attempts', () => {
   });
 });
 
+describe('requireAdmin — legacy admin API key fallback', () => {
+  let mw, db;
+
+  beforeEach(() => {
+    db = makeDb();
+    seedAdmin(db);
+    mw = buildMiddleware(db);
+  });
+
+  it('allows the configured admin API key without requiring a JWT', () => {
+    const req = makeReq({ 'x-admin-api-key': 'sk-test-admin-key-123' });
+    const res = makeRes();
+    let nextCalled = false;
+
+    mw.requireAdmin(req, res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(res.statusCode).toBeNull();
+  });
+});
+
 // ─── requireChurchAppAuth ─────────────────────────────────────────────────────
 
 describe('requireChurchAppAuth — token type enforcement', () => {
@@ -340,6 +361,22 @@ describe('requireChurchAppAuth — token type enforcement', () => {
     mw.requireChurchAppAuth(req, res, () => { nextCalled = true; });
     expect(nextCalled).toBe(true);
     expect(res.statusCode).toBeNull();
+  });
+
+  it('marks readonly church_app tokens on the request', () => {
+    const token = jwt.sign(
+      { type: 'church_app', churchId: 'church-sec-app-001', readonly: true },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    const req = makeReq({ authorization: `Bearer ${token}` });
+    const res = makeRes();
+    let nextCalled = false;
+
+    mw.requireChurchAppAuth(req, res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(req.churchReadonly).toBe(true);
   });
 });
 

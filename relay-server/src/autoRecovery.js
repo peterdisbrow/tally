@@ -11,6 +11,15 @@
  * - Signal failover commands are handled by signalFailover.js (not here)
  */
 
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
 const RECOVERY_PLAYBOOK = {
   'stream_stopped':            { onFail: 'escalate_to_td' },
   'fps_low':                   { onFail: 'alert_td_fps' },
@@ -64,15 +73,38 @@ const COOLDOWN_MS = 30_000;
 const MAX_ATTEMPTS = 3;
 
 class AutoRecovery {
-  constructor(churches, alertEngine, db, options = {}) {
+  constructor(churches, alertEngine, dbOrClient, options = {}) {
     this.churches = churches;
     this.alertEngine = alertEngine;
-    this.db = db || null;
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.attemptCounts = new Map();
     /** Tracks last attempt timestamp per key for cooldown enforcement. */
     this.lastAttemptTime = new Map();
     /** Optional schedule engine for service-hours gating. */
     this.scheduleEngine = options.scheduleEngine || null;
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[AutoRecovery] Database client is not configured.');
+    return this.client;
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    return this._requireClient().queryOne(sql, params);
   }
 
   _key(churchId, failureType) {
@@ -104,6 +136,12 @@ class AutoRecovery {
    * Defaults to enabled (fail-open — don't break alert flow).
    */
   _isEnabled(churchId) {
+    if (!this.db && !this.client) return true;
+    if (this.db) return this._isEnabledSync(churchId);
+    return this._isEnabledAsync(churchId);
+  }
+
+  _isEnabledSync(churchId) {
     try {
       const row = this.db?.prepare(
         'SELECT auto_recovery_enabled FROM churches WHERE churchId = ?'
@@ -111,6 +149,18 @@ class AutoRecovery {
       return row ? row.auto_recovery_enabled !== 0 : true;
     } catch {
       return true; // fail-open
+    }
+  }
+
+  async _isEnabledAsync(churchId) {
+    try {
+      const row = await this._one(
+        'SELECT auto_recovery_enabled FROM churches WHERE churchId = ?',
+        [churchId]
+      );
+      return row ? row.auto_recovery_enabled !== 0 : true;
+    } catch {
+      return true;
     }
   }
 
@@ -122,6 +172,12 @@ class AutoRecovery {
    *   - Church has recovery_outside_service_hours enabled
    */
   _isServiceHoursAllowed(churchId) {
+    if (!this.db && !this.client) return true;
+    if (this.db) return this._isServiceHoursAllowedSync(churchId);
+    return this._isServiceHoursAllowedAsync(churchId);
+  }
+
+  _isServiceHoursAllowedSync(churchId) {
     if (!this.scheduleEngine) return true;
     try {
       if (this.scheduleEngine.isServiceWindow(churchId)) return true;
@@ -132,6 +188,20 @@ class AutoRecovery {
       return row?.recovery_outside_service_hours === 1;
     } catch {
       return true; // fail-open
+    }
+  }
+
+  async _isServiceHoursAllowedAsync(churchId) {
+    if (!this.scheduleEngine) return true;
+    try {
+      if (this.scheduleEngine.isServiceWindow(churchId)) return true;
+      const row = await this._one(
+        'SELECT recovery_outside_service_hours FROM churches WHERE churchId = ?',
+        [churchId]
+      );
+      return row?.recovery_outside_service_hours === 1;
+    } catch {
+      return true;
     }
   }
 
@@ -156,7 +226,7 @@ class AutoRecovery {
     const event = playbook ? playbook.onFail : 'escalate_to_td';
 
     // Check per-church opt-in
-    if (!this._isEnabled(church.churchId)) {
+    if (!(await this._isEnabled(church.churchId))) {
       return { attempted: false, reason: 'auto_recovery_disabled', command: null, event };
     }
 
@@ -193,7 +263,7 @@ class AutoRecovery {
 
     // Service hours gate — don't auto-recover outside service windows
     // unless the church has explicitly opted in
-    if (!this._isServiceHoursAllowed(church.churchId)) {
+    if (!(await this._isServiceHoursAllowed(church.churchId))) {
       return { attempted: false, reason: 'outside_service_hours', command: null, event };
     }
 

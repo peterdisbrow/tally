@@ -16,6 +16,10 @@ const activeStreams = new Map();
 let _db = null;
 let _broadcastToSSE = null;
 let _nms = null;
+let _queryClient = null;
+let _authCacheReady = Promise.resolve();
+const _roomAuthCache = new Map();
+const _churchAuthCache = new Map();
 
 /**
  * Initialize the RTMP ingest server.
@@ -24,6 +28,7 @@ let _nms = null;
  */
 function initRtmpIngest(db, broadcastToSSE) {
   _db = db;
+  _queryClient = db?.queryClient || null;
   _broadcastToSSE = broadcastToSSE;
 
   // Ensure HLS temp directory exists
@@ -47,6 +52,69 @@ function initRtmpIngest(db, broadcastToSSE) {
 
   _nms = new NodeMediaServer(config);
 
+  async function refreshAuthCache() {
+    _roomAuthCache.clear();
+    _churchAuthCache.clear();
+    if (_queryClient && typeof _queryClient.query === 'function') {
+      try {
+        const roomRows = await _queryClient.query(`
+          SELECT r.id AS roomId, r.name AS roomName, r.stream_key, r.campus_id AS churchId, c.name AS churchName
+          FROM rooms r JOIN churches c ON c.churchId = r.campus_id
+          WHERE r.deleted_at IS NULL
+        `);
+        for (const row of roomRows) {
+          _roomAuthCache.set(String(row.stream_key || ''), {
+            churchId: row.churchId,
+            churchName: row.churchName,
+            roomId: row.roomId,
+            roomName: row.roomName,
+          });
+        }
+        const churchRows = await _queryClient.query(
+          'SELECT churchId, name, ingest_stream_key FROM churches WHERE ingest_stream_key IS NOT NULL AND ingest_stream_key != \'\''
+        );
+        for (const row of churchRows) {
+          _churchAuthCache.set(String(row.ingest_stream_key || ''), {
+            churchId: row.churchId,
+            churchName: row.name,
+          });
+        }
+        return;
+      } catch (e) {
+        console.error(`[RTMP] Failed to preload stream auth cache: ${e.message}`);
+      }
+    }
+
+    if (_db && typeof _db.prepare === 'function') {
+      try {
+        const roomRows = _db.prepare(`
+          SELECT r.id AS roomId, r.name AS roomName, r.stream_key, r.campus_id AS churchId, c.name AS churchName
+          FROM rooms r JOIN churches c ON c.churchId = r.campus_id
+          WHERE r.deleted_at IS NULL
+        `).all();
+        for (const row of roomRows) {
+          _roomAuthCache.set(String(row.stream_key || ''), {
+            churchId: row.churchId,
+            churchName: row.churchName,
+            roomId: row.roomId,
+            roomName: row.roomName,
+          });
+        }
+        const churchRows = _db.prepare(
+          'SELECT churchId, name, ingest_stream_key FROM churches WHERE ingest_stream_key IS NOT NULL AND ingest_stream_key != \'\''
+        ).all();
+        for (const row of churchRows) {
+          _churchAuthCache.set(String(row.ingest_stream_key || ''), {
+            churchId: row.churchId,
+            churchName: row.name,
+          });
+        }
+      } catch (e) {
+        console.error(`[RTMP] Failed to preload stream auth cache: ${e.message}`);
+      }
+    }
+  }
+
   // ─── Auth: validate stream key on publish ────────────────────────────────
   // NMS v4.x emits a single session object (not id, streamPath, args)
   _nms.on('prePublish', (session) => {
@@ -60,12 +128,7 @@ function initRtmpIngest(db, broadcastToSSE) {
       return;
     }
 
-    // Try room-level stream key first, then fall back to church-level key
-    const room = _db.prepare(
-      `SELECT r.id AS roomId, r.name AS roomName, r.campus_id AS churchId, c.name AS churchName
-       FROM rooms r JOIN churches c ON c.churchId = r.campus_id
-       WHERE r.stream_key = ? AND r.deleted_at IS NULL`
-    ).get(streamKey);
+    const room = _roomAuthCache.get(streamKey) || null;
 
     let churchId, churchName, roomId, roomName;
 
@@ -76,9 +139,7 @@ function initRtmpIngest(db, broadcastToSSE) {
       roomName = room.roomName;
     } else {
       // Fallback: church-level key
-      const church = _db.prepare(
-        'SELECT churchId, name FROM churches WHERE ingest_stream_key = ?'
-      ).get(streamKey);
+      const church = _churchAuthCache.get(streamKey) || null;
 
       if (!church) {
         console.log(`[RTMP] Rejected publish — invalid stream key: ${streamKey.slice(0, 8)}...`);
@@ -269,8 +330,11 @@ function initRtmpIngest(db, broadcastToSSE) {
     }
   });
 
-  _nms.run();
-  console.log(`[RTMP] Ingest server listening on port ${RTMP_PORT}`);
+  _authCacheReady = refreshAuthCache().then(() => {
+    _nms.run();
+    console.log(`[RTMP] Ingest server listening on port ${RTMP_PORT}`);
+  });
+  void _authCacheReady.catch(() => {});
 
   // Periodic stale cleanup every 5 minutes
   const cleanupInterval = setInterval(() => cleanupStaleStreams(), 5 * 60 * 1000);
@@ -411,6 +475,8 @@ function shutdownRtmpIngest() {
     cleanupHlsDir(path.join(HLS_TEMP_DIR, hlsTargetId));
   }
   activeStreams.clear();
+  _roomAuthCache.clear();
+  _churchAuthCache.clear();
 
   // NMS doesn't expose a stop() method — sockets are cleaned up on process exit
 }

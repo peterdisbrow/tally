@@ -1222,18 +1222,7 @@ function buildResellerPortalHtml(reseller) {
 
 function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requireAdmin) {
   const express = require('express');
-  const { v4: uuidv4 } = require('uuid');
-  const crypto = require('crypto');
   console.log('[ResellerPortal] Setup started');
-
-  // ── Schema migration ────────────────────────────────────────────────────────
-  const migrations = [
-    "ALTER TABLE resellers ADD COLUMN portal_email TEXT",
-    "ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT",
-  ];
-  for (const m of migrations) {
-    try { db.exec(m); } catch { /* already exists */ }
-  }
 
   const authMiddleware = requireResellerPortalAuth(db, resellerSystem, jwtSecret);
 
@@ -1304,7 +1293,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     }
 
     // Duplicate check
-    const existing = db.prepare('SELECT id FROM resellers WHERE portal_email = ?').get(emailNorm);
+    const existing = resellerSystem.getResellerByPortalEmail(emailNorm);
     if (existing) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(409).send(buildResellerSalesPageHtml('An account with this email already exists. <a href="/reseller-login" style="color:#22c55e">Sign in instead</a>'));
@@ -1320,8 +1309,10 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       });
 
       // Set portal credentials
-      db.prepare('UPDATE resellers SET portal_email = ?, portal_password_hash = ? WHERE id = ?')
-        .run(emailNorm, hashPassword(password), result.resellerId);
+      resellerSystem.updateReseller(result.resellerId, {
+        portal_email: emailNorm,
+        portal_password_hash: hashPassword(password),
+      });
 
       // Issue session cookie
       const token = issueResellerToken(result.resellerId, jwtSecret);
@@ -1355,7 +1346,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(400).send(buildResellerLoginHtml('Email and password are required.'));
     }
-    const reseller = db.prepare('SELECT * FROM resellers WHERE portal_email = ?').get(email.trim().toLowerCase());
+    const reseller = resellerSystem.getResellerByPortalEmail(email.trim().toLowerCase());
     if (!reseller || !reseller.portal_password_hash || !verifyPassword(password, reseller.portal_password_hash)) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(401).send(buildResellerLoginHtml('Invalid email or password.'));
@@ -1408,12 +1399,12 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       if (!currentPassword) {
         return res.status(400).json({ error: 'Current password is required to set a new password' });
       }
-      const reseller = db.prepare('SELECT portal_password_hash FROM resellers WHERE id = ?').get(resellerId);
+      const reseller = resellerSystem.getResellerById(resellerId);
       if (!reseller?.portal_password_hash || !verifyPassword(currentPassword, reseller.portal_password_hash)) {
         return res.status(400).json({ error: 'Current password is incorrect' });
       }
       if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-      db.prepare('UPDATE resellers SET portal_password_hash = ? WHERE id = ?').run(hashPassword(newPassword), resellerId);
+      resellerSystem.updateReseller(resellerId, { portal_password_hash: hashPassword(newPassword) });
     }
 
     const allowedColumns = ['brand_name', 'support_email', 'logo_url', 'primary_color', 'custom_domain', 'webhook_url'];
@@ -1421,8 +1412,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     const patch = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v !== undefined && allowedColumns.includes(k)));
 
     if (Object.keys(patch).length) {
-      const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE resellers SET ${sets} WHERE id = ?`).run(...Object.values(patch), resellerId);
+      resellerSystem.updateReseller(resellerId, patch);
     }
     res.json({ ok: true });
   });
@@ -1488,7 +1478,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
   // ── DELETE /api/reseller-portal/churches/:id ──────────────────────────────────
   app.delete('/api/reseller-portal/churches/:churchId', authMiddleware, (req, res) => {
     const { churchId } = req.params;
-    const church = db.prepare('SELECT * FROM churches WHERE churchId = ? AND reseller_id = ?').get(churchId, req.reseller.id);
+    const church = resellerSystem.getChurchForReseller(req.reseller.id, churchId);
     if (!church) return res.status(404).json({ error: 'Church not found in your account' });
 
     // Disconnect WS if connected
@@ -1497,7 +1487,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       for (const sock of runtime.sockets.values()) { try { sock.close(); } catch {} }
     }
     churches.delete(churchId);
-    db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
+    resellerSystem.deleteChurch(churchId);
 
     console.log(`[ResellerPortal] Reseller ${req.reseller.id} removed church ${churchId}`);
     res.json({ ok: true });
@@ -1509,16 +1499,17 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     const { churchId } = req.params;
     const { email, password } = req.body;
 
-    const church = db.prepare('SELECT * FROM churches WHERE churchId = ? AND reseller_id = ?').get(churchId, req.reseller.id);
+    const church = resellerSystem.getChurchForReseller(req.reseller.id, churchId);
     if (!church) return res.status(404).json({ error: 'Church not found in your account' });
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
-    const conflict = db.prepare('SELECT churchId FROM churches WHERE portal_email = ? AND churchId != ?').get(email.toLowerCase(), churchId);
-    if (conflict) return res.status(409).json({ error: 'Email already in use by another church' });
-
-    db.prepare('UPDATE churches SET portal_email = ?, portal_password_hash = ? WHERE churchId = ?')
-      .run(email.trim().toLowerCase(), hashPassword(password), churchId);
+    const conflict = resellerSystem.getChurchByPortalEmail(email.toLowerCase());
+    if (conflict && conflict.churchId !== churchId) return res.status(409).json({ error: 'Email already in use by another church' });
+    resellerSystem.updateChurch(churchId, {
+      portal_email: email.trim().toLowerCase(),
+      portal_password_hash: hashPassword(password),
+    });
 
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/church-login' });
   });
@@ -1529,11 +1520,13 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
-    const existing = db.prepare('SELECT id FROM resellers WHERE portal_email = ? AND id != ?').get(email.toLowerCase(), req.params.resellerId);
-    if (existing) return res.status(409).json({ error: 'Email already used by another reseller' });
+    const existing = resellerSystem.getResellerByPortalEmail(email.toLowerCase());
+    if (existing && existing.id !== req.params.resellerId) return res.status(409).json({ error: 'Email already used by another reseller' });
 
-    db.prepare('UPDATE resellers SET portal_email = ?, portal_password_hash = ? WHERE id = ?')
-      .run(email.trim().toLowerCase(), hashPassword(password), req.params.resellerId);
+    resellerSystem.updateReseller(req.params.resellerId, {
+      portal_email: email.trim().toLowerCase(),
+      portal_password_hash: hashPassword(password),
+    });
 
     console.log(`[ResellerPortal] Set portal credentials for reseller ${req.params.resellerId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/reseller-login' });

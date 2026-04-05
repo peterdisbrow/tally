@@ -7,24 +7,31 @@
  */
 module.exports = function setupMobileRoutes(app, ctx) {
   const {
-    db, churches, requireChurchAppAuth, rateLimit,
+    db, churches, queryClient, requireChurchAppAuth, rateLimit,
     hashPassword, verifyPassword, issueChurchAppToken, checkChurchPaidAccess,
     pushNotifications, scheduleEngine, rundownEngine,
     jwt, JWT_SECRET, CHURCH_APP_TOKEN_TTL, uuidv4, safeErrorMessage, log,
   } = ctx;
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qAll = (sql, params = []) => (
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
+  );
 
   // ─── MOBILE LOGIN ──────────────────────────────────────────────────────────
   // Returns JWT in body (not cookie) for mobile clients.
   // Includes room list and church metadata the app needs on launch.
 
-  app.post('/api/church/mobile/login', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/mobile/login', rateLimit(5, 15 * 60 * 1000), async (req, res) => {
     const { email, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !password) {
       return res.status(400).json({ error: 'email and password required' });
     }
 
-    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = await qOne('SELECT * FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -42,9 +49,9 @@ module.exports = function setupMobileRoutes(app, ctx) {
     // Gather rooms
     let rooms = [];
     try {
-      rooms = db.prepare(
+      rooms = await qAll(
         'SELECT id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC'
-      ).all(church.churchId);
+      , [church.churchId]);
     } catch { /* no rooms table yet */ }
 
     // Runtime connection status
@@ -67,12 +74,12 @@ module.exports = function setupMobileRoutes(app, ctx) {
 
   // ─── REGISTER DEVICE ──────────────────────────────────────────────────────
 
-  app.post('/api/church/mobile/register-device', requireChurchAppAuth, (req, res) => {
+  app.post('/api/church/mobile/register-device', requireChurchAppAuth, async (req, res) => {
     try {
       const { pushToken, platform, deviceName, appVersion } = req.body || {};
       if (!pushToken) return res.status(400).json({ error: 'pushToken required' });
 
-      const result = pushNotifications.registerDevice({
+      const result = await pushNotifications.registerDevice({
         churchId: req.church.churchId,
         userId: null,
         deviceToken: pushToken,
@@ -90,12 +97,12 @@ module.exports = function setupMobileRoutes(app, ctx) {
 
   // ─── UNREGISTER DEVICE ────────────────────────────────────────────────────
 
-  app.delete('/api/church/mobile/unregister-device', requireChurchAppAuth, (req, res) => {
+  app.delete('/api/church/mobile/unregister-device', requireChurchAppAuth, async (req, res) => {
     try {
       const { pushToken } = req.body || {};
       if (!pushToken) return res.status(400).json({ error: 'pushToken required' });
 
-      const result = pushNotifications.unregisterDevice(pushToken, req.church.churchId);
+      const result = await pushNotifications.unregisterDevice(pushToken, req.church.churchId);
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -104,18 +111,18 @@ module.exports = function setupMobileRoutes(app, ctx) {
 
   // ─── NOTIFICATION PREFERENCES ─────────────────────────────────────────────
 
-  app.get('/api/church/mobile/notification-prefs', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/mobile/notification-prefs', requireChurchAppAuth, async (req, res) => {
     try {
-      const prefs = pushNotifications.getPrefs(req.church.churchId);
+      const prefs = await pushNotifications.getPrefs(req.church.churchId);
       res.json(prefs);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
-  app.put('/api/church/mobile/notification-prefs', requireChurchAppAuth, (req, res) => {
+  app.put('/api/church/mobile/notification-prefs', requireChurchAppAuth, async (req, res) => {
     try {
-      const updated = pushNotifications.updatePrefs(req.church.churchId, null, req.body || {});
+      const updated = await pushNotifications.updatePrefs(req.church.churchId, null, req.body || {});
       res.json(updated);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -126,7 +133,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
   // Single endpoint that returns everything the mobile dashboard needs.
   // Reduces initial API calls from 5-6 down to 1.
 
-  app.get('/api/church/mobile/summary', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/mobile/summary', requireChurchAppAuth, async (req, res) => {
     try {
       const churchId = req.church.churchId;
       const runtime = churches.get(churchId);
@@ -134,9 +141,10 @@ module.exports = function setupMobileRoutes(app, ctx) {
       // Rooms with connection/status info
       let rooms = [];
       try {
-        const dbRooms = db.prepare(
-          'SELECT id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC'
-        ).all(churchId);
+        const dbRooms = await qAll(
+          'SELECT id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC',
+          [churchId],
+        );
         rooms = dbRooms.map(room => ({
           id: room.id,
           name: room.name,
@@ -149,9 +157,10 @@ module.exports = function setupMobileRoutes(app, ctx) {
       // Recent alerts (last 10)
       let recentAlerts = [];
       try {
-        recentAlerts = db.prepare(
-          'SELECT id, alert_type, severity, context, created_at, acknowledged_at, room_id FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 10'
-        ).all(churchId).map(a => ({
+        recentAlerts = (await qAll(
+          'SELECT id, alert_type, severity, context, created_at, acknowledged_at, room_id FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 10',
+          [churchId],
+        )).map(a => ({
           id: a.id,
           alertType: a.alert_type,
           severity: a.severity,
@@ -164,14 +173,16 @@ module.exports = function setupMobileRoutes(app, ctx) {
       // Active session info
       let activeSession = null;
       try {
-        const session = db.prepare(
-          'SELECT id, started_at, grade FROM service_sessions WHERE church_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1'
-        ).get(churchId);
+        const session = await qOne(
+          'SELECT id, started_at, grade FROM service_sessions WHERE church_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1',
+          [churchId],
+        );
         if (session) {
           const duration = Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000);
-          const incidentCount = db.prepare(
-            'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND session_id = ?'
-          ).get(churchId, session.id)?.cnt || 0;
+          const incidentCount = (await qOne(
+            'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND session_id = ?',
+            [churchId, session.id],
+          ))?.cnt || 0;
           activeSession = {
             id: session.id,
             grade: session.grade || null,
@@ -184,9 +195,10 @@ module.exports = function setupMobileRoutes(app, ctx) {
       // Health score (if available)
       let healthScore = null;
       try {
-        const report = db.prepare(
-          'SELECT score FROM health_score_cache WHERE church_id = ? ORDER BY computed_at DESC LIMIT 1'
-        ).get(churchId);
+        const report = await qOne(
+          'SELECT score FROM health_score_cache WHERE church_id = ? ORDER BY computed_at DESC LIMIT 1',
+          [churchId],
+        );
         if (report) healthScore = report.score;
       } catch { /* no health score cache */ }
 
@@ -208,7 +220,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
       }
 
       // Push device count
-      const pushStats = pushNotifications.getStats(churchId);
+      const pushStats = await pushNotifications.getStats(churchId);
 
       res.json({
         rooms,

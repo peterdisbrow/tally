@@ -125,8 +125,8 @@ describe('GET /api/churches/:churchId/presets', () => {
   });
 
   it('returns presets after saving some', async () => {
-    presetLibrary.save('ch1', 'Morning Scene', 'mixer_scene', { scene: 'morning' });
-    presetLibrary.save('ch1', 'Evening Scene', 'obs_scene', { sceneName: 'Evening' });
+    await presetLibrary.save('ch1', 'Morning Scene', 'mixer_scene', { scene: 'morning' });
+    await presetLibrary.save('ch1', 'Evening Scene', 'obs_scene', { sceneName: 'Evening' });
 
     const { body, status } = await callRoute(routes, 'GET:/api/churches/:churchId/presets', {
       params: { churchId: 'ch1' },
@@ -257,7 +257,7 @@ describe('GET /api/churches/:churchId/presets/:name', () => {
   });
 
   it('returns preset when found', async () => {
-    presetLibrary.save('ch1', 'Sunday Morning', 'obs_scene', { sceneName: 'Wide Shot' });
+    await presetLibrary.save('ch1', 'Sunday Morning', 'obs_scene', { sceneName: 'Wide Shot' });
 
     const { body, status } = await callRoute(routes, 'GET:/api/churches/:churchId/presets/:name', {
       params: { churchId: 'ch1', name: 'Sunday Morning' },
@@ -305,7 +305,7 @@ describe('DELETE /api/churches/:churchId/presets/:name', () => {
   });
 
   it('returns { deleted: true } when deleted', async () => {
-    presetLibrary.save('ch1', 'Preset To Delete', 'atem_macro', { macroIndex: 7 });
+    await presetLibrary.save('ch1', 'Preset To Delete', 'atem_macro', { macroIndex: 7 });
 
     const { body, status } = await callRoute(routes, 'DEL:/api/churches/:churchId/presets/:name', {
       params: { churchId: 'ch1', name: 'Preset To Delete' },
@@ -314,7 +314,7 @@ describe('DELETE /api/churches/:churchId/presets/:name', () => {
     expect(body.deleted).toBe(true);
 
     // Verify the preset is actually gone
-    const gone = presetLibrary.get('ch1', 'Preset To Delete');
+    const gone = await presetLibrary.get('ch1', 'Preset To Delete');
     expect(gone).toBeNull();
   });
 });

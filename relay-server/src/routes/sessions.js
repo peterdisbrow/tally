@@ -5,20 +5,34 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupSessionRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireFeature, stmtGet,
-          scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
+  const { db, queryClient, churches, requireAdmin, requireFeature,
+          scheduleEngine, alertEngine, weeklyDigest, sessionRecap, signalFailover,
           monthlyReport, safeErrorMessage, logAiUsage, isOnTopic,
           OFF_TOPIC_RESPONSE, rateLimit, log } = ctx;
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qAll = (sql, params = []) => (
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
+  );
+  const qRun = (sql, params = []) => (
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
+  );
 
   // ─── SCHEDULE ────────────────────────────────────────────────────────────────
 
-  app.put('/api/churches/:churchId/schedule', requireAdmin, (req, res) => {
+  app.put('/api/churches/:churchId/schedule', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const { serviceTimes } = req.body;
     if (!Array.isArray(serviceTimes)) return res.status(400).json({ error: 'serviceTimes array required' });
-    scheduleEngine.setSchedule(req.params.churchId, serviceTimes);
-    res.json({ saved: true, serviceTimes });
+    try {
+      await scheduleEngine.setSchedule(req.params.churchId, serviceTimes);
+      res.json({ saved: true, serviceTimes });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   app.get('/api/churches/:churchId/schedule', requireAdmin, (req, res) => {
@@ -30,24 +44,35 @@ module.exports = function setupSessionRoutes(app, ctx) {
     res.json({ schedule, inServiceWindow: inWindow, nextService: next });
   });
 
-  app.put('/api/churches/:churchId/td-contact', requireAdmin, (req, res) => {
+  app.put('/api/churches/:churchId/td-contact', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    const { tdChatId, tdName, alertBotToken } = req.body;
-    if (tdChatId) db.prepare('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?').run(tdChatId, req.params.churchId);
-    if (tdName) db.prepare('UPDATE churches SET td_name = ? WHERE churchId = ?').run(tdName, req.params.churchId);
-    if (alertBotToken) db.prepare('UPDATE churches SET alert_bot_token = ? WHERE churchId = ?').run(alertBotToken, req.params.churchId);
-    const row = stmtGet.get(req.params.churchId);
-    if (row) { church.td_telegram_chat_id = row.td_telegram_chat_id; church.td_name = row.td_name; church.alert_bot_token = row.alert_bot_token; }
-    res.json({ saved: true });
+    try {
+      const { tdChatId, tdName, alertBotToken } = req.body;
+      if (tdChatId) await qRun('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?', [tdChatId, req.params.churchId]);
+      if (tdName) await qRun('UPDATE churches SET td_name = ? WHERE churchId = ?', [tdName, req.params.churchId]);
+      if (alertBotToken) await qRun('UPDATE churches SET alert_bot_token = ? WHERE churchId = ?', [alertBotToken, req.params.churchId]);
+      const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
+      if (row) { church.td_telegram_chat_id = row.td_telegram_chat_id; church.td_name = row.td_name; church.alert_bot_token = row.alert_bot_token; }
+      if (signalFailover?.refreshChurchConfig) {
+        await signalFailover.refreshChurchConfig(req.params.churchId);
+      }
+      res.json({ saved: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   // ─── ALERTS & DIGEST ─────────────────────────────────────────────────────────
 
-  app.post('/api/alerts/:alertId/acknowledge', requireAdmin, (req, res) => {
+  app.post('/api/alerts/:alertId/acknowledge', requireAdmin, async (req, res) => {
     const { responder } = req.body;
-    const result = alertEngine.acknowledgeAlert(req.params.alertId, responder || 'admin');
-    res.json(result);
+    try {
+      const result = await alertEngine.acknowledgeAlert(req.params.alertId, responder || 'admin');
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   app.get('/api/digest/latest', requireAdmin, (req, res) => {
@@ -145,15 +170,16 @@ module.exports = function setupSessionRoutes(app, ctx) {
 
   // ─── SESSION RECAP ───────────────────────────────────────────────────────────
 
-  app.get('/api/churches/:churchId/sessions', requireAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/sessions', requireAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
     const offset = parseInt(req.query.offset) || 0;
-    const sessions = db.prepare(
-      'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?'
-    ).all(req.params.churchId, limit, offset);
-    const total = db.prepare('SELECT COUNT(*) as count FROM service_sessions WHERE church_id = ?').get(req.params.churchId);
+    const sessions = await qAll(
+      'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?',
+      [req.params.churchId, limit, offset],
+    );
+    const total = await qOne('SELECT COUNT(*) as count FROM service_sessions WHERE church_id = ?', [req.params.churchId]);
     res.json({ sessions, total: total?.count || 0, limit, offset });
   });
 
@@ -165,24 +191,27 @@ module.exports = function setupSessionRoutes(app, ctx) {
     res.json({ active: true, ...active });
   });
 
-  app.get('/api/churches/:churchId/sessions/:sessionId/timeline', requireAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/sessions/:sessionId/timeline', requireAdmin, async (req, res) => {
     const { churchId, sessionId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
-    const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
+    const session = await qOne('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?', [sessionId, churchId]);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     const TIMELINE_LIMIT = 500; // per-table hard cap to protect in-memory sort
-    const events = db.prepare(
-      'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?'
-    ).all(sessionId, TIMELINE_LIMIT);
-    const alerts = db.prepare(
-      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?'
-    ).all(sessionId, churchId, TIMELINE_LIMIT);
-    const chatMsgs = db.prepare(
-      'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?'
-    ).all(sessionId, TIMELINE_LIMIT);
+    const events = await qAll(
+      'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?',
+      [sessionId, TIMELINE_LIMIT],
+    );
+    const alerts = await qAll(
+      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?',
+      [sessionId, churchId, TIMELINE_LIMIT],
+    );
+    const chatMsgs = await qAll(
+      'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?',
+      [sessionId, TIMELINE_LIMIT],
+    );
 
     const timeline = [
       { _type: 'marker', timestamp: session.started_at, label: 'Session Started', severity: 'INFO', td_name: session.td_name },
@@ -210,18 +239,18 @@ module.exports = function setupSessionRoutes(app, ctx) {
     res.json({ session, timeline });
   });
 
-  app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, async (req, res) => {
     const { churchId, sessionId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
-    const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
+    const session = await qOne('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?', [sessionId, churchId]);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     const DEBRIEF_LIMIT = 500;
-    const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?').all(sessionId, DEBRIEF_LIMIT);
-    const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?').all(sessionId, churchId, DEBRIEF_LIMIT);
-    const chatMsgs = db.prepare('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?').all(sessionId, DEBRIEF_LIMIT);
+    const events = await qAll('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?', [sessionId, DEBRIEF_LIMIT]);
+    const alerts = await qAll('SELECT * FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?', [sessionId, churchId, DEBRIEF_LIMIT]);
+    const chatMsgs = await qAll('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?', [sessionId, DEBRIEF_LIMIT]);
 
     const startTime = new Date(session.started_at);
     const endTime = session.ended_at ? new Date(session.ended_at) : null;

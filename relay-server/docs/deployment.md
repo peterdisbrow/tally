@@ -39,7 +39,9 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 | `NODE_ENV` | | `development` | Set to `production` in prod |
 | `ADMIN_API_KEY` | **Yes** | — | Shared secret for admin/controller access |
 | `JWT_SECRET` | **Yes** | — | Secret used to sign church app JWTs |
+| `DATABASE_DRIVER` | | `sqlite` | Database runtime selector (`sqlite` for file-backed dev, `postgres` for Neon/Postgres deployments) |
 | `DATABASE_PATH` | | `./data/churches.db` | Path to the SQLite database file |
+| `DATABASE_URL` | | — | Postgres / Neon connection string (required when `DATABASE_DRIVER=postgres`) |
 | `APP_URL` | **Yes** | — | Public base URL (e.g. `https://relay.example.com`) |
 | `ALLOWED_ORIGINS` | | — | Comma-separated CORS origins |
 
@@ -272,9 +274,14 @@ pm2 startup
 
 ---
 
-## Database Setup (SQLite)
+## Database Setup
 
-The relay server uses **SQLite** via `better-sqlite3`. No separate database server is required.
+The relay server supports either:
+
+- **SQLite** via `better-sqlite3` for local development and single-node file-backed deployments
+- **Postgres** via `pg` for Neon or other managed Postgres deployments
+
+Use `DATABASE_DRIVER=sqlite` with `DATABASE_PATH` for SQLite, or `DATABASE_DRIVER=postgres` with `DATABASE_URL` for Neon/Postgres.
 
 ### File location
 

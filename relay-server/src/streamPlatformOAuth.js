@@ -10,6 +10,7 @@
  */
 
 const crypto = require('crypto');
+const { createQueryClient } = require('./db');
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -29,19 +30,53 @@ const _fbPendingCodes = new Map(); // state → { code, createdAt }
 const _ytPendingCodes = new Map(); // state → { code, createdAt }
 const FB_PENDING_TTL = 5 * 60 * 1000; // 5 min
 
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
 class StreamPlatformOAuth {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {import('better-sqlite3').Database|object} dbOrClient
    */
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this._refreshTimer = null;
-    this._ensureColumns();
+    if (this.db) {
+      this._ensureColumnsSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[StreamOAuth] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureColumns();
   }
 
   // ─── SCHEMA ──────────────────────────────────────────────────────────────────
 
-  _ensureColumns() {
+  _ensureColumnsSync() {
     const cols = {
       // YouTube
       yt_access_token:    'TEXT',
@@ -67,6 +102,55 @@ class StreamPlatformOAuth {
     }
   }
 
+  async _ensureColumns() {
+    const cols = {
+      yt_access_token: 'TEXT',
+      yt_refresh_token: 'TEXT',
+      yt_token_expires_at: 'TEXT',
+      yt_stream_key: 'TEXT',
+      yt_stream_url: 'TEXT',
+      yt_channel_name: 'TEXT',
+      fb_access_token: 'TEXT',
+      fb_token_expires_at: 'TEXT',
+      fb_page_id: 'TEXT',
+      fb_page_name: 'TEXT',
+      fb_stream_key: 'TEXT',
+      fb_stream_url: 'TEXT',
+    };
+
+    const client = this._requireClient();
+    for (const [col, type] of Object.entries(cols)) {
+      try {
+        await client.queryOne(`SELECT ${col} FROM churches LIMIT 1`);
+      } catch {
+        try {
+          await client.exec(`ALTER TABLE churches ADD COLUMN ${col} ${type}`);
+        } catch (error) {
+          const message = String(error?.message || '').toLowerCase();
+          if (!message.includes('already exists') && !message.includes('duplicate column')) throw error;
+        }
+      }
+    }
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    await this.ready;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    await this.ready;
+    return this._requireClient().run(sql, params);
+  }
+
   // ─── YOUTUBE ─────────────────────────────────────────────────────────────────
 
   /**
@@ -77,6 +161,7 @@ class StreamPlatformOAuth {
    * @returns {Promise<{success: boolean, streamKey?, streamUrl?, channelName?, error?}>}
    */
   async exchangeYouTubeCode(churchId, code, redirectUri) {
+    await this.ready;
     const clientId = process.env.YOUTUBE_CLIENT_ID;
     const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
     if (!clientId || !clientSecret) return { success: false, error: 'YouTube OAuth not configured on server' };
@@ -106,13 +191,13 @@ class StreamPlatformOAuth {
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
 
       // Store tokens
-      this.db.prepare(`
+      await this._run(`
         UPDATE churches SET
           yt_access_token = ?,
           yt_refresh_token = COALESCE(?, yt_refresh_token),
           yt_token_expires_at = ?
         WHERE churchId = ?
-      `).run(tokens.access_token, tokens.refresh_token || null, expiresAt, churchId);
+      `, [tokens.access_token, tokens.refresh_token || null, expiresAt, churchId]);
 
       // Fetch channel name (YouTube Data API) or fall back to Google user profile
       let channelName = '';
@@ -140,7 +225,7 @@ class StreamPlatformOAuth {
         } catch { /* non-fatal */ }
       }
       if (channelName) {
-        this.db.prepare('UPDATE churches SET yt_channel_name = ? WHERE churchId = ?').run(channelName, churchId);
+        await this._run('UPDATE churches SET yt_channel_name = ? WHERE churchId = ?', [channelName, churchId]);
       }
 
       // Fetch stream key
@@ -165,7 +250,8 @@ class StreamPlatformOAuth {
    * @returns {Promise<boolean>}
    */
   async refreshYouTubeToken(churchId) {
-    const church = this.db.prepare('SELECT yt_refresh_token FROM churches WHERE churchId = ?').get(churchId);
+    await this.ready;
+    const church = await this._one('SELECT yt_refresh_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.yt_refresh_token) return false;
 
     const clientId = process.env.YOUTUBE_CLIENT_ID;
@@ -189,9 +275,9 @@ class StreamPlatformOAuth {
       const tokens = await resp.json();
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
 
-      this.db.prepare(`
+      await this._run(`
         UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?
-      `).run(tokens.access_token, expiresAt, churchId);
+      `, [tokens.access_token, expiresAt, churchId]);
 
       console.log(`[StreamOAuth] YouTube token refreshed for ${churchId}`);
       return true;
@@ -208,8 +294,9 @@ class StreamPlatformOAuth {
    * @returns {Promise<{streamKey?: string, streamUrl?: string}>}
    */
   async fetchYouTubeStreamKey(churchId, accessToken) {
+    await this.ready;
     if (!accessToken) {
-      const church = this.db.prepare('SELECT yt_access_token FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._one('SELECT yt_access_token FROM churches WHERE churchId = ?', [churchId]);
       accessToken = church?.yt_access_token;
     }
     if (!accessToken) return {};
@@ -229,8 +316,7 @@ class StreamPlatformOAuth {
       const streamUrl = stream.cdn?.ingestionInfo?.ingestionAddress || '';
 
       if (streamKey) {
-        this.db.prepare('UPDATE churches SET yt_stream_key = ?, yt_stream_url = ? WHERE churchId = ?')
-          .run(streamKey, streamUrl, churchId);
+        await this._run('UPDATE churches SET yt_stream_key = ?, yt_stream_url = ? WHERE churchId = ?', [streamKey, streamUrl, churchId]);
       }
 
       return { streamKey, streamUrl };
@@ -244,12 +330,28 @@ class StreamPlatformOAuth {
    * Disconnect YouTube — clear all yt_* columns.
    */
   disconnectYouTube(churchId) {
+    if (this.db) return this._disconnectYouTubeSync(churchId);
+    return this._disconnectYouTubeAsync(churchId);
+  }
+
+  _disconnectYouTubeSync(churchId) {
     this.db.prepare(`
       UPDATE churches SET
         yt_access_token = NULL, yt_refresh_token = NULL, yt_token_expires_at = NULL,
         yt_stream_key = NULL, yt_stream_url = NULL, yt_channel_name = NULL
       WHERE churchId = ?
     `).run(churchId);
+    console.log(`[StreamOAuth] YouTube disconnected for ${churchId}`);
+  }
+
+  async _disconnectYouTubeAsync(churchId) {
+    await this.ready;
+    await this._run(`
+      UPDATE churches SET
+        yt_access_token = NULL, yt_refresh_token = NULL, yt_token_expires_at = NULL,
+        yt_stream_key = NULL, yt_stream_url = NULL, yt_channel_name = NULL
+      WHERE churchId = ?
+    `, [churchId]);
     console.log(`[StreamOAuth] YouTube disconnected for ${churchId}`);
   }
 
@@ -264,6 +366,7 @@ class StreamPlatformOAuth {
    * @returns {Promise<{success: boolean, pages?: Array, error?}>}
    */
   async exchangeFacebookCode(churchId, code, redirectUri) {
+    await this.ready;
     const appId = process.env.FACEBOOK_APP_ID;
     const appSecret = process.env.FACEBOOK_APP_SECRET;
     if (!appId || !appSecret) return { success: false, error: 'Facebook OAuth not configured on server' };
@@ -300,9 +403,9 @@ class StreamPlatformOAuth {
       const expiresAt = new Date(Date.now() + (longData.expires_in || 5184000) * 1000).toISOString();
 
       // Store token
-      this.db.prepare(`
+      await this._run(`
         UPDATE churches SET fb_access_token = ?, fb_token_expires_at = ? WHERE churchId = ?
-      `).run(longData.access_token, expiresAt, churchId);
+      `, [longData.access_token, expiresAt, churchId]);
 
       // Fetch user name + pages the user manages
       const pages = await this._listFacebookPages(longData.access_token);
@@ -355,7 +458,8 @@ class StreamPlatformOAuth {
    * @returns {Promise<{success: boolean, streamKey?, streamUrl?, pageName?, error?}>}
    */
   async selectFacebookPage(churchId, pageId) {
-    const church = this.db.prepare('SELECT fb_access_token FROM churches WHERE churchId = ?').get(churchId);
+    await this.ready;
+    const church = await this._one('SELECT fb_access_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
 
     try {
@@ -382,8 +486,7 @@ class StreamPlatformOAuth {
       }
 
       // Store page selection
-      this.db.prepare('UPDATE churches SET fb_page_id = ?, fb_page_name = ? WHERE churchId = ?')
-        .run(pageId, pageName, churchId);
+      await this._run('UPDATE churches SET fb_page_id = ?, fb_page_name = ? WHERE churchId = ?', [pageId, pageName, churchId]);
 
       // Create a live video to get the stream key
       const streamResult = await this._createFacebookLiveVideo(churchId, token, pageId);
@@ -406,6 +509,7 @@ class StreamPlatformOAuth {
    * Facebook keys are per-live-video (not persistent like YouTube).
    */
   async _createFacebookLiveVideo(churchId, pageToken, pageId) {
+    await this.ready;
     try {
       const resp = await fetch(`${FB_GRAPH_URL}/${pageId}/live_videos`, {
         method: 'POST',
@@ -439,8 +543,7 @@ class StreamPlatformOAuth {
       }
 
       if (streamKey) {
-        this.db.prepare('UPDATE churches SET fb_stream_key = ?, fb_stream_url = ? WHERE churchId = ?')
-          .run(streamKey, rtmpServer, churchId);
+        await this._run('UPDATE churches SET fb_stream_key = ?, fb_stream_url = ? WHERE churchId = ?', [streamKey, rtmpServer, churchId]);
       }
 
       return { streamKey, streamUrl: rtmpServer };
@@ -457,9 +560,11 @@ class StreamPlatformOAuth {
    * @returns {Promise<{streamKey?: string, streamUrl?: string}>}
    */
   async refreshFacebookStreamKey(churchId) {
-    const church = this.db.prepare(
-      'SELECT fb_access_token, fb_page_id FROM churches WHERE churchId = ?'
-    ).get(churchId);
+    await this.ready;
+    const church = await this._one(
+      'SELECT fb_access_token, fb_page_id FROM churches WHERE churchId = ?',
+      [churchId]
+    );
     if (!church?.fb_access_token || !church?.fb_page_id) return {};
 
     // Get page token
@@ -474,6 +579,11 @@ class StreamPlatformOAuth {
    * Disconnect Facebook — clear all fb_* columns.
    */
   disconnectFacebook(churchId) {
+    if (this.db) return this._disconnectFacebookSync(churchId);
+    return this._disconnectFacebookAsync(churchId);
+  }
+
+  _disconnectFacebookSync(churchId) {
     this.db.prepare(`
       UPDATE churches SET
         fb_access_token = NULL, fb_token_expires_at = NULL,
@@ -481,6 +591,18 @@ class StreamPlatformOAuth {
         fb_stream_key = NULL, fb_stream_url = NULL
       WHERE churchId = ?
     `).run(churchId);
+    console.log(`[StreamOAuth] Facebook disconnected for ${churchId}`);
+  }
+
+  async _disconnectFacebookAsync(churchId) {
+    await this.ready;
+    await this._run(`
+      UPDATE churches SET
+        fb_access_token = NULL, fb_token_expires_at = NULL,
+        fb_page_id = NULL, fb_page_name = NULL,
+        fb_stream_key = NULL, fb_stream_url = NULL
+      WHERE churchId = ?
+    `, [churchId]);
     console.log(`[StreamOAuth] Facebook disconnected for ${churchId}`);
   }
 
@@ -517,7 +639,8 @@ class StreamPlatformOAuth {
    * List available Facebook destinations (personal + pages) for an already-connected account.
    */
   async listFacebookDestinations(churchId) {
-    const church = this.db.prepare('SELECT fb_access_token FROM churches WHERE churchId = ?').get(churchId);
+    await this.ready;
+    const church = await this._one('SELECT fb_access_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
     const pages = await this._listFacebookPages(church.fb_access_token);
     let userName = 'My Account';
@@ -558,11 +681,42 @@ class StreamPlatformOAuth {
    * @param {string} churchId
    */
   getStatus(churchId) {
+    if (this.db) return this._getStatusSync(churchId);
+    return this._getStatusAsync(churchId);
+  }
+
+  _getStatusSync(churchId) {
     const church = this.db.prepare(`
       SELECT yt_access_token, yt_channel_name, yt_token_expires_at, yt_stream_key,
              fb_access_token, fb_page_name, fb_token_expires_at, fb_stream_key
       FROM churches WHERE churchId = ?
     `).get(churchId);
+
+    if (!church) return { youtube: { connected: false }, facebook: { connected: false } };
+
+    return {
+      youtube: {
+        connected: !!church.yt_access_token,
+        channelName: church.yt_channel_name || '',
+        streamKeySet: !!church.yt_stream_key,
+        expiresAt: church.yt_token_expires_at || null,
+      },
+      facebook: {
+        connected: !!church.fb_access_token,
+        pageName: church.fb_page_name || '',
+        streamKeySet: !!church.fb_stream_key,
+        expiresAt: church.fb_token_expires_at || null,
+      },
+    };
+  }
+
+  async _getStatusAsync(churchId) {
+    await this.ready;
+    const church = await this._one(`
+      SELECT yt_access_token, yt_channel_name, yt_token_expires_at, yt_stream_key,
+             fb_access_token, fb_page_name, fb_token_expires_at, fb_stream_key
+      FROM churches WHERE churchId = ?
+    `, [churchId]);
 
     if (!church) return { youtube: { connected: false }, facebook: { connected: false } };
 
@@ -588,10 +742,30 @@ class StreamPlatformOAuth {
    * @returns {{ youtube: {url, key}|null, facebook: {url, key}|null }}
    */
   getStreamKeys(churchId) {
+    if (this.db) return this._getStreamKeysSync(churchId);
+    return this._getStreamKeysAsync(churchId);
+  }
+
+  _getStreamKeysSync(churchId) {
     const church = this.db.prepare(`
       SELECT yt_stream_key, yt_stream_url, fb_stream_key, fb_stream_url
       FROM churches WHERE churchId = ?
     `).get(churchId);
+
+    if (!church) return { youtube: null, facebook: null };
+
+    return {
+      youtube: church.yt_stream_key ? { url: church.yt_stream_url, key: church.yt_stream_key } : null,
+      facebook: church.fb_stream_key ? { url: church.fb_stream_url, key: church.fb_stream_key } : null,
+    };
+  }
+
+  async _getStreamKeysAsync(churchId) {
+    await this.ready;
+    const church = await this._one(`
+      SELECT yt_stream_key, yt_stream_url, fb_stream_key, fb_stream_url
+      FROM churches WHERE churchId = ?
+    `, [churchId]);
 
     if (!church) return { youtube: null, facebook: null };
 
@@ -610,11 +784,12 @@ class StreamPlatformOAuth {
    * @returns {Promise<{youtube?: {checked, live, viewerCount, title}, facebook?: {checked, live, viewerCount}}>}
    */
   async verifyStreamOnPlatforms(churchId) {
-    const church = this.db.prepare(`
+    await this.ready;
+    const church = await this._one(`
       SELECT yt_access_token, yt_refresh_token, yt_token_expires_at,
              fb_access_token, fb_page_id
       FROM churches WHERE churchId = ?
-    `).get(churchId);
+    `, [churchId]);
     if (!church) return {};
 
     const result = {};
@@ -626,7 +801,7 @@ class StreamPlatformOAuth {
         const expiresAt = church.yt_token_expires_at ? new Date(church.yt_token_expires_at) : null;
         if (expiresAt && expiresAt <= new Date()) {
           await this.refreshYouTubeToken(churchId);
-          const refreshed = this.db.prepare('SELECT yt_access_token FROM churches WHERE churchId = ?').get(churchId);
+          const refreshed = await this._one('SELECT yt_access_token FROM churches WHERE churchId = ?', [churchId]);
           if (refreshed) church.yt_access_token = refreshed.yt_access_token;
         }
 
@@ -697,15 +872,16 @@ class StreamPlatformOAuth {
   }
 
   async _refreshAll() {
+    await this.ready;
     const now = new Date();
 
     // YouTube: refresh tokens expiring within 10 minutes
-    const ytChurches = this.db.prepare(
+    const ytChurches = await this._all(
       'SELECT churchId FROM churches WHERE yt_refresh_token IS NOT NULL AND yt_token_expires_at IS NOT NULL'
-    ).all();
+    );
 
     for (const { churchId } of ytChurches) {
-      const church = this.db.prepare('SELECT yt_token_expires_at FROM churches WHERE churchId = ?').get(churchId);
+      const church = await this._one('SELECT yt_token_expires_at FROM churches WHERE churchId = ?', [churchId]);
       if (!church?.yt_token_expires_at) continue;
 
       const expiresAt = new Date(church.yt_token_expires_at);
@@ -715,9 +891,9 @@ class StreamPlatformOAuth {
     }
 
     // Facebook: warn if token expires within 7 days
-    const fbChurches = this.db.prepare(
+    const fbChurches = await this._all(
       'SELECT churchId, name, fb_token_expires_at FROM churches WHERE fb_access_token IS NOT NULL AND fb_token_expires_at IS NOT NULL'
-    ).all();
+    );
 
     for (const church of fbChurches) {
       const expiresAt = new Date(church.fb_token_expires_at);

@@ -177,6 +177,24 @@ describe('computeHealthScore — edge cases', () => {
     // In-progress sessions should not count; score should be null (no data)
     expect(result.score).toBeNull();
   });
+
+  it('fails soft when only a query-client/postgres handle is available', () => {
+    const result = computeHealthScore({}, 'church-1');
+    expect(result.score).toBeNull();
+    expect(result.status).toBe('new');
+    expect(result.breakdown).toEqual({
+      uptime: null,
+      alertRate: null,
+      recoveryRate: null,
+      preServicePassRate: null,
+      streamStability: null,
+    });
+
+    const trend = getHealthTrend({}, 'church-1', 2);
+    expect(trend.weeks).toHaveLength(2);
+    expect(trend.trend).toBe('stable');
+    expect(trend.weeks.every(w => w.score === null)).toBe(true);
+  });
 });
 
 // ─── getHealthRecommendations edge cases ──────────────────────────────────────

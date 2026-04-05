@@ -9,7 +9,9 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = function createAuthMiddleware(ctx) {
-  const { db, JWT_SECRET, ADMIN_API_KEY, safeCompareKey, resolveAdminKey } = ctx;
+  const { db, queryClient, JWT_SECRET, ADMIN_API_KEY, safeCompareKey, resolveAdminKey } = ctx;
+  const hasQueryClient = queryClient
+    && typeof queryClient.queryOne === 'function';
 
   const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
@@ -40,6 +42,46 @@ module.exports = function createAuthMiddleware(ctx) {
    * @param {...string} allowedRoles - If provided, only these roles are allowed. Empty = any admin role.
    */
   function requireAdminJwt(...allowedRoles) {
+    if (hasQueryClient) {
+      return async (req, res, next) => {
+        let token = null;
+        const authHeader = req.headers['authorization'] || '';
+        if (authHeader.startsWith('Bearer ')) {
+          token = authHeader.slice(7);
+        }
+        if (!token) token = req.headers['x-admin-jwt'];
+
+        if (token) {
+          try {
+            const payload = jwt.verify(token, JWT_SECRET);
+            if (payload.type !== 'admin') throw new Error('wrong token type');
+
+            const user = await queryClient.queryOne(
+              'SELECT id, email, name, role, active FROM admin_users WHERE id = ?',
+              [payload.userId],
+            );
+            if (!user || !user.active) {
+              return res.status(401).json({ error: 'Account deactivated or not found' });
+            }
+
+            if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+              return res.status(403).json({ error: 'Insufficient permissions' });
+            }
+
+            req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
+            return next();
+          } catch (e) {
+            if (e.name === 'TokenExpiredError') {
+              return res.status(401).json({ error: 'Token expired' });
+            }
+            return res.status(401).json({ error: 'Invalid admin token' });
+          }
+        }
+
+        return res.status(401).json({ error: 'unauthorized' });
+      };
+    }
+
     return (req, res, next) => {
       // 1. Try JWT from Authorization: Bearer header
       let token = null;
@@ -81,11 +123,28 @@ module.exports = function createAuthMiddleware(ctx) {
   }
 
   function requireAdmin(req, res, next) {
-    // Alias for JWT-based admin auth
+    // Accept x-api-key for backward compat (CLI, integration tests, internal calls)
+    const apiKey = resolveAdminKey(req);
+    if (apiKey && safeCompareKey(apiKey, ADMIN_API_KEY)) return next();
+    // Fall back to JWT-based admin auth
     return requireAdminJwt()(req, res, next);
   }
 
   function requireReseller(req, res, next) {
+    if (hasQueryClient) {
+      return (async () => {
+        const key = req.headers['x-reseller-key'];
+        if (!key) return res.status(401).json({ error: 'Reseller API key required' });
+        const reseller = await queryClient.queryOne(
+          'SELECT * FROM resellers WHERE api_key = ? AND active = 1',
+          [key],
+        );
+        if (!reseller) return res.status(403).json({ error: 'Invalid or deactivated reseller key' });
+        req.reseller = reseller;
+        next();
+      })();
+    }
+
     const key = req.headers['x-reseller-key'];
     if (!key) return res.status(401).json({ error: 'Reseller API key required' });
     const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ? AND active = 1').get(key);
@@ -117,6 +176,29 @@ module.exports = function createAuthMiddleware(ctx) {
   }
 
   function requireChurchAppAuth(req, res, next) {
+    if (hasQueryClient) {
+      return (async () => {
+        const auth = req.headers.authorization;
+        if (!auth || !auth.startsWith('Bearer ')) {
+          return res.status(401).json({ error: 'Authorization: Bearer <token> required' });
+        }
+        try {
+          const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+          if (payload.type !== 'church_app') throw new Error('wrong token type');
+          const church = await queryClient.queryOne(
+            'SELECT * FROM churches WHERE churchId = ?',
+            [payload.churchId],
+          );
+          if (!church) return res.status(404).json({ error: 'Church not found' });
+          req.church = church;
+          req.churchReadonly = !!payload.readonly;
+          next();
+        } catch (e) {
+          return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+      })();
+    }
+
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Authorization: Bearer <token> required' });
@@ -127,6 +209,7 @@ module.exports = function createAuthMiddleware(ctx) {
       const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
       if (!church) return res.status(404).json({ error: 'Church not found' });
       req.church = church;
+      req.churchReadonly = !!payload.readonly;
       next();
     } catch (e) {
       return res.status(401).json({ error: 'Invalid or expired token' });

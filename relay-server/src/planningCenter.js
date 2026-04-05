@@ -16,6 +16,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { createQueryClient } = require('./db');
 
 const PC_API_BASE = 'https://api.planningcenteronline.com/services/v2';
 const PC_OAUTH_AUTHORIZE = 'https://api.planningcenteronline.com/oauth/authorize';
@@ -27,17 +28,283 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 // Refresh tokens 5 minutes before expiry
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const CHURCH_CACHE_SELECT = `
+  SELECT
+    churchId AS "churchId",
+    name,
+    service_times AS "service_times",
+    pc_app_id,
+    pc_secret,
+    pc_service_type_id,
+    pc_sync_enabled,
+    pc_writeback_enabled,
+    pc_last_synced,
+    pc_oauth_access_token,
+    pc_oauth_refresh_token,
+    pc_oauth_token_expires,
+    pc_oauth_connected_at,
+    pc_oauth_org_name,
+    pc_service_type_ids
+  FROM churches
+`;
+
+function parseJson(value, fallback = []) {
+  try {
+    return JSON.parse(value || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
 class PlanningCenter {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {import('better-sqlite3').Database|object} dbOrClient
    */
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this._scheduleEngine = null;
     this._syncTimer = null;
     this._pendingOAuthStates = new Map(); // state → {churchId, codeVerifier, createdAt}
-    this._ensureColumns();
-    this._ensurePcPlansTable();
+    this._churchCache = new Map(); // churchId -> row
+    this._planCache = new Map(); // planId -> row
+    this._pendingWrites = new Set();
+
+    if (this.db) {
+      this._ensureColumnsSync();
+      this._ensurePcPlansTableSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[PlanningCenter] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureColumns();
+    await this._ensurePcPlansTable();
+    await this._loadCache();
+  }
+
+  _isDuplicateColumnError(error) {
+    return /duplicate column|already exists/i.test(String(error?.message || ''));
+  }
+
+  async _query(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    return this._requireClient().run(sql, params);
+  }
+
+  async _exec(sql) {
+    if (this.db) return this.db.exec(sql);
+    return this._requireClient().exec(sql);
+  }
+
+  _setChurchCache(row) {
+    if (!row?.churchId) return row;
+    this._churchCache.set(row.churchId, { ...row });
+    return this._churchCache.get(row.churchId);
+  }
+
+  _updateChurchCache(churchId, updates = {}) {
+    const existing = this._churchCache.get(churchId) || { churchId };
+    const next = { ...existing, ...updates, churchId };
+    this._churchCache.set(churchId, next);
+    return next;
+  }
+
+  _getChurchCached(churchId) {
+    return this._churchCache.get(churchId) || null;
+  }
+
+  _setPlanCache(row) {
+    if (!row?.id) return row;
+    this._planCache.set(row.id, { ...row });
+    return this._planCache.get(row.id);
+  }
+
+  _deletePlanCache(planId) {
+    this._planCache.delete(planId);
+  }
+
+  _queueWrite(promise) {
+    const tracked = Promise.resolve(promise)
+      .then(() => ({ ok: true }))
+      .catch((error) => {
+        console.error('[PlanningCenter] Persist write failed:', error.message);
+        return { ok: false, error };
+      })
+      .finally(() => {
+        this._pendingWrites.delete(tracked);
+      });
+    this._pendingWrites.add(tracked);
+    return tracked;
+  }
+
+  async flushWrites() {
+    await this.ready;
+    const pending = [...this._pendingWrites];
+    if (!pending.length) return;
+    const results = await Promise.all(pending);
+    const failure = results.find((result) => !result?.ok);
+    if (failure) throw failure.error;
+  }
+
+  async _loadCache() {
+    const [churchRows, planRows] = await Promise.all([
+      this._query(CHURCH_CACHE_SELECT),
+      this._query('SELECT * FROM pc_plans'),
+    ]);
+    this._churchCache.clear();
+    this._planCache.clear();
+    for (const row of churchRows) this._setChurchCache(row);
+    for (const row of planRows) this._setPlanCache(row);
+  }
+
+  _getChurch(churchId) {
+    if (this.db) {
+      return this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId) || null;
+    }
+    return this._getChurchCached(churchId);
+  }
+
+  _getSyncEnabledChurches() {
+    if (this.db) {
+      return this.db.prepare('SELECT churchId, name FROM churches WHERE pc_sync_enabled = 1').all();
+    }
+    return [...this._churchCache.values()]
+      .filter((church) => church.pc_sync_enabled)
+      .map((church) => ({ churchId: church.churchId, name: church.name }));
+  }
+
+  async _persistChurchUpdate(sql, params, churchId, cacheUpdates = {}) {
+    await this._run(sql, params);
+    this._updateChurchCache(churchId, cacheUpdates);
+  }
+
+  async _deletePlansForChurch(churchId) {
+    await this._run('DELETE FROM pc_plans WHERE church_id = ?', [churchId]);
+    for (const [planId, row] of this._planCache.entries()) {
+      if (row.church_id === churchId) this._planCache.delete(planId);
+    }
+  }
+
+  async _upsertPlan(row) {
+    const params = [
+      row.id,
+      row.church_id,
+      row.service_type_id,
+      row.title,
+      row.sort_date,
+      row.items_json,
+      row.team_json,
+      row.times_json,
+      row.notes_json,
+      row.last_fetched,
+      row.pco_updated_at,
+    ];
+
+    if (this.db) {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO pc_plans (
+          id, church_id, service_type_id, title, sort_date,
+          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(...params);
+    } else if (this._requireClient().driver === 'postgres') {
+      await this._requireClient().run(`
+        INSERT INTO pc_plans (
+          id, church_id, service_type_id, title, sort_date,
+          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          church_id = EXCLUDED.church_id,
+          service_type_id = EXCLUDED.service_type_id,
+          title = EXCLUDED.title,
+          sort_date = EXCLUDED.sort_date,
+          items_json = EXCLUDED.items_json,
+          team_json = EXCLUDED.team_json,
+          times_json = EXCLUDED.times_json,
+          notes_json = EXCLUDED.notes_json,
+          last_fetched = EXCLUDED.last_fetched,
+          pco_updated_at = EXCLUDED.pco_updated_at
+      `, params);
+    } else {
+      await this._requireClient().run(`
+        INSERT OR REPLACE INTO pc_plans (
+          id, church_id, service_type_id, title, sort_date,
+          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, params);
+    }
+
+    this._setPlanCache(row);
+  }
+
+  _toPlanSummary(row) {
+    const items = parseJson(row.items_json, []);
+    const team = parseJson(row.team_json, []);
+    return {
+      id: row.id,
+      title: row.title,
+      sortDate: row.sort_date,
+      serviceTypeId: row.service_type_id,
+      itemCount: items.length,
+      teamCount: team.length,
+      lastFetched: row.last_fetched,
+    };
+  }
+
+  _toCachedPlan(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      churchId: row.church_id,
+      title: row.title,
+      sortDate: row.sort_date,
+      serviceTypeId: row.service_type_id,
+      items: parseJson(row.items_json, []),
+      team: parseJson(row.team_json, []),
+      times: parseJson(row.times_json, []),
+      notes: parseJson(row.notes_json, []),
+      lastFetched: row.last_fetched,
+    };
   }
 
   /** Inject the ScheduleEngine so syncs update it directly. */
@@ -47,7 +314,7 @@ class PlanningCenter {
 
   // ─── DATABASE SCHEMA ─────────────────────────────────────────────────────────
 
-  _ensureColumns() {
+  _ensureColumnsSync() {
     const cols = {
       // Legacy PAT columns (kept for backward compat)
       pc_app_id:              'TEXT',
@@ -73,7 +340,35 @@ class PlanningCenter {
     }
   }
 
-  _ensurePcPlansTable() {
+  async _ensureColumns() {
+    const cols = {
+      pc_app_id: 'TEXT',
+      pc_secret: 'TEXT',
+      pc_service_type_id: 'TEXT',
+      pc_sync_enabled: 'INTEGER DEFAULT 0',
+      pc_writeback_enabled: 'INTEGER DEFAULT 0',
+      pc_last_synced: 'TEXT',
+      pc_oauth_access_token: 'TEXT',
+      pc_oauth_refresh_token: 'TEXT',
+      pc_oauth_token_expires: 'TEXT',
+      pc_oauth_connected_at: 'TEXT',
+      pc_oauth_org_name: 'TEXT',
+      pc_service_type_ids: 'TEXT',
+    };
+    for (const [col, type] of Object.entries(cols)) {
+      try {
+        await this._one(`SELECT ${col} FROM churches LIMIT 1`);
+      } catch {
+        try {
+          await this._exec(`ALTER TABLE churches ADD COLUMN ${col} ${type}`);
+        } catch (error) {
+          if (!this._isDuplicateColumnError(error)) throw error;
+        }
+      }
+    }
+  }
+
+  _ensurePcPlansTableSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS pc_plans (
         id              TEXT PRIMARY KEY,
@@ -94,6 +389,29 @@ class PlanningCenter {
     // Create index if not exists
     try {
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_pc_plans_church_date ON pc_plans(church_id, sort_date)`);
+    } catch { /* index may already exist */ }
+  }
+
+  async _ensurePcPlansTable() {
+    await this._exec(`
+      CREATE TABLE IF NOT EXISTS pc_plans (
+        id              TEXT PRIMARY KEY,
+        church_id       TEXT NOT NULL,
+        service_type_id TEXT NOT NULL,
+        title           TEXT,
+        sort_date       TEXT,
+        items_json      TEXT,
+        team_json       TEXT,
+        times_json      TEXT,
+        notes_json      TEXT,
+        last_fetched    TEXT,
+        pco_updated_at  TEXT,
+        FOREIGN KEY (church_id) REFERENCES churches(churchId)
+      )
+    `);
+
+    try {
+      await this._exec(`CREATE INDEX IF NOT EXISTS idx_pc_plans_church_date ON pc_plans(church_id, sort_date)`);
     } catch { /* index may already exist */ }
   }
 
@@ -200,9 +518,10 @@ class PlanningCenter {
 
       const tokenData = await tokenResp.json();
       const expiresAt = new Date(Date.now() + (tokenData.expires_in || 7200) * 1000).toISOString();
+      const connectedAt = new Date().toISOString();
 
       // Store tokens
-      this.db.prepare(`
+      await this._persistChurchUpdate(`
         UPDATE churches SET
           pc_oauth_access_token = ?,
           pc_oauth_refresh_token = ?,
@@ -210,13 +529,19 @@ class PlanningCenter {
           pc_oauth_connected_at = ?,
           pc_sync_enabled = 1
         WHERE churchId = ?
-      `).run(
+      `, [
         tokenData.access_token,
         tokenData.refresh_token,
         expiresAt,
-        new Date().toISOString(),
-        churchId
-      );
+        connectedAt,
+        churchId,
+      ], churchId, {
+        pc_oauth_access_token: tokenData.access_token,
+        pc_oauth_refresh_token: tokenData.refresh_token,
+        pc_oauth_token_expires: expiresAt,
+        pc_oauth_connected_at: connectedAt,
+        pc_sync_enabled: 1,
+      });
 
       // Fetch org name from PCO
       let orgName = null;
@@ -236,8 +561,12 @@ class PlanningCenter {
       } catch { /* non-fatal */ }
 
       if (orgName) {
-        this.db.prepare('UPDATE churches SET pc_oauth_org_name = ? WHERE churchId = ?')
-          .run(orgName, churchId);
+        await this._persistChurchUpdate(
+          'UPDATE churches SET pc_oauth_org_name = ? WHERE churchId = ?',
+          [orgName, churchId],
+          churchId,
+          { pc_oauth_org_name: orgName }
+        );
       }
 
       console.log(`[PlanningCenter] OAuth connected for church ${churchId}${orgName ? ` (${orgName})` : ''}`);
@@ -256,7 +585,7 @@ class PlanningCenter {
    * @returns {Promise<{disconnected: boolean}>}
    */
   async disconnect(churchId) {
-    const church = this.db.prepare('SELECT pc_oauth_access_token, pc_oauth_refresh_token FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
 
     // Try to revoke at PCO (best effort)
     if (church?.pc_oauth_access_token) {
@@ -279,7 +608,7 @@ class PlanningCenter {
     }
 
     // Clear all OAuth columns
-    this.db.prepare(`
+    await this._persistChurchUpdate(`
       UPDATE churches SET
         pc_oauth_access_token = NULL,
         pc_oauth_refresh_token = NULL,
@@ -288,10 +617,17 @@ class PlanningCenter {
         pc_oauth_org_name = NULL,
         pc_service_type_ids = NULL
       WHERE churchId = ?
-    `).run(churchId);
+    `, [churchId], churchId, {
+      pc_oauth_access_token: null,
+      pc_oauth_refresh_token: null,
+      pc_oauth_token_expires: null,
+      pc_oauth_connected_at: null,
+      pc_oauth_org_name: null,
+      pc_service_type_ids: null,
+    });
 
     // Clear cached plans
-    this.db.prepare('DELETE FROM pc_plans WHERE church_id = ?').run(churchId);
+    await this._deletePlansForChurch(churchId);
 
     console.log(`[PlanningCenter] Disconnected OAuth for church ${churchId}`);
     return { disconnected: true };
@@ -307,9 +643,7 @@ class PlanningCenter {
    * @returns {Promise<{headers: object, authType: string}|null>}
    */
   async _getAuthHeaders(churchId) {
-    const church = this.db.prepare(
-      'SELECT pc_oauth_access_token, pc_oauth_refresh_token, pc_oauth_token_expires, pc_app_id, pc_secret FROM churches WHERE churchId = ?'
-    ).get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) return null;
 
     // Try OAuth first
@@ -393,12 +727,15 @@ class PlanningCenter {
 
         // If refresh token is revoked/expired, mark church as disconnected
         if (resp.status === 401 || resp.status === 400) {
-          this.db.prepare(`
+          await this._persistChurchUpdate(`
             UPDATE churches SET
               pc_oauth_access_token = NULL,
               pc_oauth_token_expires = NULL
             WHERE churchId = ?
-          `).run(churchId);
+          `, [churchId], churchId, {
+            pc_oauth_access_token: null,
+            pc_oauth_token_expires: null,
+          });
           console.warn(`[PlanningCenter] OAuth token expired/revoked for ${churchId} — marked disconnected`);
         }
         return null;
@@ -408,13 +745,17 @@ class PlanningCenter {
       const expiresAt = new Date(Date.now() + (data.expires_in || 7200) * 1000).toISOString();
 
       // Update stored tokens
-      this.db.prepare(`
+      await this._persistChurchUpdate(`
         UPDATE churches SET
           pc_oauth_access_token = ?,
           pc_oauth_refresh_token = ?,
           pc_oauth_token_expires = ?
         WHERE churchId = ?
-      `).run(data.access_token, data.refresh_token || refreshToken, expiresAt, churchId);
+      `, [data.access_token, data.refresh_token || refreshToken, expiresAt, churchId], churchId, {
+        pc_oauth_access_token: data.access_token,
+        pc_oauth_refresh_token: data.refresh_token || refreshToken,
+        pc_oauth_token_expires: expiresAt,
+      });
 
       console.log(`[PlanningCenter] Token refreshed for church ${churchId}`);
       return data.access_token;
@@ -559,7 +900,7 @@ class PlanningCenter {
    * @param {string} churchId
    */
   async getUpcomingServicesForChurch(churchId) {
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) throw new Error('Church not found');
     if (!church.pc_app_id || !church.pc_secret || !church.pc_service_type_id) {
       throw new Error('Planning Center credentials not configured for this church');
@@ -707,21 +1048,19 @@ class PlanningCenter {
 
     // Cache in pc_plans table
     const now = new Date().toISOString();
-    this.db.prepare(`
-      INSERT OR REPLACE INTO pc_plans (id, church_id, service_type_id, title, sort_date, items_json, team_json, times_json, last_fetched, pco_updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      planId,
-      churchId,
-      serviceTypeId,
-      plan.attributes?.title || '',
-      plan.attributes?.sort_date || '',
-      JSON.stringify(items),
-      JSON.stringify(team),
-      JSON.stringify(times),
-      now,
-      plan.attributes?.updated_at || now,
-    );
+    await this._upsertPlan({
+      id: planId,
+      church_id: churchId,
+      service_type_id: serviceTypeId,
+      title: plan.attributes?.title || '',
+      sort_date: plan.attributes?.sort_date || '',
+      items_json: JSON.stringify(items),
+      team_json: JSON.stringify(team),
+      times_json: JSON.stringify(times),
+      notes_json: JSON.stringify([]),
+      last_fetched: now,
+      pco_updated_at: plan.attributes?.updated_at || now,
+    });
 
     return { plan: plan.attributes, items, team, times };
   }
@@ -734,9 +1073,7 @@ class PlanningCenter {
    * @returns {Promise<{synced: number, plans: Array}>}
    */
   async syncFullPlans(churchId) {
-    const church = this.db.prepare(
-      'SELECT pc_service_type_ids, pc_service_type_id FROM churches WHERE churchId = ?'
-    ).get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) throw new Error('Church not found');
 
     // Support both new multi-type array and legacy single type
@@ -774,9 +1111,9 @@ class PlanningCenter {
           if (new Date(sortDate) > cutoff) continue;
 
           // Check if we need to re-fetch (compare pco_updated_at)
-          const cached = this.db.prepare(
-            'SELECT pco_updated_at FROM pc_plans WHERE id = ?'
-          ).get(plan.id);
+          const cached = this.db
+            ? this.db.prepare('SELECT pco_updated_at FROM pc_plans WHERE id = ?').get(plan.id)
+            : this._planCache.get(plan.id) || null;
           const pcoUpdatedAt = plan.attributes?.updated_at || '';
 
           if (cached && cached.pco_updated_at === pcoUpdatedAt) {
@@ -804,8 +1141,13 @@ class PlanningCenter {
     }
 
     // Update last synced
-    this.db.prepare('UPDATE churches SET pc_last_synced = ? WHERE churchId = ?')
-      .run(new Date().toISOString(), churchId);
+    const lastSynced = new Date().toISOString();
+    await this._persistChurchUpdate(
+      'UPDATE churches SET pc_last_synced = ? WHERE churchId = ?',
+      [lastSynced, churchId],
+      churchId,
+      { pc_last_synced: lastSynced }
+    );
 
     console.log(`[PlanningCenter] Full plan sync: ${syncedPlans.length} plan(s) for church ${churchId}`);
     return { synced: syncedPlans.length, plans: syncedPlans };
@@ -821,7 +1163,7 @@ class PlanningCenter {
    * @returns {Promise<{synced: number, services: Array}>}
    */
   async syncChurch(churchId) {
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) throw new Error(`Church ${churchId} not found`);
 
     if (!church.pc_sync_enabled) {
@@ -902,15 +1244,25 @@ class PlanningCenter {
 
     // Apply to scheduleEngine (or DB directly as fallback)
     if (this._scheduleEngine) {
-      this._scheduleEngine.setSchedule(churchId, serviceTimes);
+      await this._scheduleEngine.setSchedule(churchId, serviceTimes);
+      this._updateChurchCache(churchId, { service_times: JSON.stringify(serviceTimes) });
     } else {
-      this.db.prepare('UPDATE churches SET service_times = ? WHERE churchId = ?')
-        .run(JSON.stringify(serviceTimes), churchId);
+      await this._persistChurchUpdate(
+        'UPDATE churches SET service_times = ? WHERE churchId = ?',
+        [JSON.stringify(serviceTimes), churchId],
+        churchId,
+        { service_times: JSON.stringify(serviceTimes) }
+      );
     }
 
     // Persist last-synced timestamp
-    this.db.prepare('UPDATE churches SET pc_last_synced = ? WHERE churchId = ?')
-      .run(new Date().toISOString(), churchId);
+    const lastSynced = new Date().toISOString();
+    await this._persistChurchUpdate(
+      'UPDATE churches SET pc_last_synced = ? WHERE churchId = ?',
+      [lastSynced, churchId],
+      churchId,
+      { pc_last_synced: lastSynced }
+    );
 
     // Also sync full plan data if OAuth is available
     if (auth.authType === 'oauth') {
@@ -928,7 +1280,7 @@ class PlanningCenter {
    * Failures are caught per-church so one bad credential doesn't block others.
    */
   async syncAll() {
-    const churches = this.db.prepare('SELECT churchId, name FROM churches WHERE pc_sync_enabled = 1').all();
+    const churches = this._getSyncEnabledChurches();
     if (!churches.length) return;
 
     console.log(`[PlanningCenter] Running sync for ${churches.length} church(es)...`);
@@ -951,29 +1303,29 @@ class PlanningCenter {
    * @returns {Array<{id, title, sortDate, serviceTypeId, itemCount, teamCount, lastFetched}>}
    */
   getCachedPlans(churchId, limit = 5) {
-    const rows = this.db.prepare(`
-      SELECT id, title, sort_date, service_type_id, items_json, team_json, last_fetched
-      FROM pc_plans
-      WHERE church_id = ? AND sort_date >= date('now')
-      ORDER BY sort_date ASC
-      LIMIT ?
-    `).all(churchId, limit);
+    if (this.db) {
+      const rows = this.db.prepare(`
+        SELECT id, title, sort_date, service_type_id, items_json, team_json, last_fetched
+        FROM pc_plans
+        WHERE church_id = ? AND sort_date >= date('now')
+        ORDER BY sort_date ASC
+        LIMIT ?
+      `).all(churchId, limit);
+      return rows.map((row) => this._toPlanSummary(row));
+    }
 
-    return rows.map(row => {
-      let itemCount = 0;
-      let teamCount = 0;
-      try { itemCount = JSON.parse(row.items_json || '[]').length; } catch { /* ignore */ }
-      try { teamCount = JSON.parse(row.team_json || '[]').length; } catch { /* ignore */ }
-      return {
-        id: row.id,
-        title: row.title,
-        sortDate: row.sort_date,
-        serviceTypeId: row.service_type_id,
-        itemCount,
-        teamCount,
-        lastFetched: row.last_fetched,
-      };
-    });
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const threshold = todayStart.getTime();
+    return [...this._planCache.values()]
+      .filter((row) => row.church_id === churchId)
+      .filter((row) => {
+        const sortTime = Date.parse(row.sort_date || '');
+        return Number.isFinite(sortTime) && sortTime >= threshold;
+      })
+      .sort((a, b) => String(a.sort_date || '').localeCompare(String(b.sort_date || '')))
+      .slice(0, limit)
+      .map((row) => this._toPlanSummary(row));
   }
 
   /**
@@ -982,23 +1334,10 @@ class PlanningCenter {
    * @returns {{id, title, sortDate, items: Array, team: Array, times: Array, lastFetched}|null}
    */
   getCachedPlan(planId) {
-    const row = this.db.prepare(
-      'SELECT * FROM pc_plans WHERE id = ?'
-    ).get(planId);
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      churchId: row.church_id,
-      title: row.title,
-      sortDate: row.sort_date,
-      serviceTypeId: row.service_type_id,
-      items: JSON.parse(row.items_json || '[]'),
-      team: JSON.parse(row.team_json || '[]'),
-      times: JSON.parse(row.times_json || '[]'),
-      notes: JSON.parse(row.notes_json || '[]'),
-      lastFetched: row.last_fetched,
-    };
+    const row = this.db
+      ? this.db.prepare('SELECT * FROM pc_plans WHERE id = ?').get(planId)
+      : this._planCache.get(planId) || null;
+    return this._toCachedPlan(row);
   }
 
   /**
@@ -1007,25 +1346,25 @@ class PlanningCenter {
    * @returns {{id, title, sortDate, items: Array, team: Array, times: Array}|null}
    */
   getNextPlanCached(churchId) {
-    const row = this.db.prepare(`
-      SELECT * FROM pc_plans
-      WHERE church_id = ? AND sort_date >= datetime('now', '-2 hours')
-      ORDER BY sort_date ASC
-      LIMIT 1
-    `).get(churchId);
-    if (!row) return null;
+    if (this.db) {
+      const row = this.db.prepare(`
+        SELECT * FROM pc_plans
+        WHERE church_id = ? AND sort_date >= datetime('now', '-2 hours')
+        ORDER BY sort_date ASC
+        LIMIT 1
+      `).get(churchId);
+      return this._toCachedPlan(row);
+    }
 
-    return {
-      id: row.id,
-      churchId: row.church_id,
-      title: row.title,
-      sortDate: row.sort_date,
-      serviceTypeId: row.service_type_id,
-      items: JSON.parse(row.items_json || '[]'),
-      team: JSON.parse(row.team_json || '[]'),
-      times: JSON.parse(row.times_json || '[]'),
-      lastFetched: row.last_fetched,
-    };
+    const threshold = Date.now() - (2 * 60 * 60 * 1000);
+    const row = [...this._planCache.values()]
+      .filter((plan) => plan.church_id === churchId)
+      .filter((plan) => {
+        const sortTime = Date.parse(plan.sort_date || '');
+        return Number.isFinite(sortTime) && sortTime >= threshold;
+      })
+      .sort((a, b) => String(a.sort_date || '').localeCompare(String(b.sort_date || '')))[0] || null;
+    return this._toCachedPlan(row);
   }
 
   // ─── PROPRESENTER CROSS-REFERENCE ────────────────────────────────────────────
@@ -1184,17 +1523,48 @@ class PlanningCenter {
   setCredentials(churchId, { appId, secret, serviceTypeId, syncEnabled, writebackEnabled, serviceTypeIds }) {
     const updates = [];
     const params = [];
+    const cacheUpdates = {};
 
-    if (appId !== undefined)          { updates.push('pc_app_id = ?');          params.push(appId); }
-    if (secret !== undefined)         { updates.push('pc_secret = ?');          params.push(secret); }
-    if (serviceTypeId !== undefined)  { updates.push('pc_service_type_id = ?'); params.push(serviceTypeId); }
-    if (syncEnabled !== undefined)    { updates.push('pc_sync_enabled = ?');    params.push(syncEnabled ? 1 : 0); }
-    if (writebackEnabled !== undefined) { updates.push('pc_writeback_enabled = ?'); params.push(writebackEnabled ? 1 : 0); }
-    if (serviceTypeIds !== undefined) { updates.push('pc_service_type_ids = ?'); params.push(JSON.stringify(serviceTypeIds)); }
+    if (appId !== undefined) {
+      updates.push('pc_app_id = ?');
+      params.push(appId);
+      cacheUpdates.pc_app_id = appId;
+    }
+    if (secret !== undefined) {
+      updates.push('pc_secret = ?');
+      params.push(secret);
+      cacheUpdates.pc_secret = secret;
+    }
+    if (serviceTypeId !== undefined) {
+      updates.push('pc_service_type_id = ?');
+      params.push(serviceTypeId);
+      cacheUpdates.pc_service_type_id = serviceTypeId;
+    }
+    if (syncEnabled !== undefined) {
+      updates.push('pc_sync_enabled = ?');
+      params.push(syncEnabled ? 1 : 0);
+      cacheUpdates.pc_sync_enabled = syncEnabled ? 1 : 0;
+    }
+    if (writebackEnabled !== undefined) {
+      updates.push('pc_writeback_enabled = ?');
+      params.push(writebackEnabled ? 1 : 0);
+      cacheUpdates.pc_writeback_enabled = writebackEnabled ? 1 : 0;
+    }
+    if (serviceTypeIds !== undefined) {
+      updates.push('pc_service_type_ids = ?');
+      params.push(JSON.stringify(serviceTypeIds));
+      cacheUpdates.pc_service_type_ids = JSON.stringify(serviceTypeIds);
+    }
 
     if (!updates.length) return;
     params.push(churchId);
-    this.db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
+    if (this.db) {
+      this.db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
+      return;
+    }
+
+    this._updateChurchCache(churchId, cacheUpdates);
+    this._queueWrite(this._run(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`, params));
   }
 
   /**
@@ -1203,13 +1573,7 @@ class PlanningCenter {
    * @returns {object|null}
    */
   getStatus(churchId) {
-    const church = this.db.prepare(
-      `SELECT pc_sync_enabled, pc_service_type_id, pc_service_type_ids, pc_last_synced,
-              pc_oauth_connected_at, pc_oauth_org_name, pc_oauth_token_expires,
-              pc_writeback_enabled, pc_app_id,
-              service_times
-       FROM churches WHERE churchId = ?`
-    ).get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) return null;
 
     // Determine auth type
@@ -1237,7 +1601,7 @@ class PlanningCenter {
     // Compute next PC-sourced service
     let nextService = null;
     try {
-      const times = JSON.parse(church.service_times || '[]');
+      const times = parseJson(church.service_times, []);
       const pcTimes = times.filter(t => t.source === 'planning_center');
       if (pcTimes.length) {
         const now = new Date();
@@ -1263,9 +1627,17 @@ class PlanningCenter {
     } catch { /* ignore parse errors */ }
 
     // Get cached plan count
-    const planCount = this.db.prepare(
-      'SELECT COUNT(*) as count FROM pc_plans WHERE church_id = ? AND sort_date >= date(\'now\')'
-    ).get(churchId)?.count || 0;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const planCount = this.db
+      ? (this.db.prepare(
+        'SELECT COUNT(*) as count FROM pc_plans WHERE church_id = ? AND sort_date >= date(\'now\')'
+      ).get(churchId)?.count || 0)
+      : [...this._planCache.values()].filter((plan) => {
+        if (plan.church_id !== churchId) return false;
+        const sortTime = Date.parse(plan.sort_date || '');
+        return Number.isFinite(sortTime) && sortTime >= todayStart.getTime();
+      }).length;
 
     return {
       connected:      authType !== 'none',
@@ -1304,7 +1676,7 @@ class PlanningCenter {
    * @returns {Promise<{church: object, headers: object}|{error: {written: boolean, reason: string}}>}
    */
   async _loadChurchForWriteback(churchId) {
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) return { error: { written: false, reason: 'Church not found' } };
     if (!church.pc_writeback_enabled) return { error: { written: false, reason: 'Write-back disabled' } };
 
@@ -1536,7 +1908,7 @@ class PlanningCenter {
     const auth = await this._getAuthHeaders(churchId);
     if (!auth) throw new Error('Planning Center credentials not configured for this church');
 
-    const church = this.db.prepare('SELECT pc_service_type_id, pc_service_type_ids FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) throw new Error('Church not found');
 
     let serviceTypeIds = [];
@@ -1598,7 +1970,7 @@ class PlanningCenter {
    * @returns {Promise<{written: boolean, planId?: string}>}
    */
   async writeServiceNotes(churchId, sessionData) {
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = this._getChurch(churchId);
     if (!church) return { written: false, reason: 'Church not found' };
 
     if (!church.pc_writeback_enabled) return { written: false, reason: 'Write-back disabled' };
@@ -1681,11 +2053,17 @@ class PlanningCenter {
 
   /** Start the 6-hour background sync. */
   start() {
+    if (this._syncTimer) return;
+
+    const runSync = () => this.syncAll().catch(e => console.error('[PlanningCenter] syncAll error:', e.message));
+
     // Immediate first run, then every 6 hours
-    this.syncAll().catch(e => console.error('[PlanningCenter] initial sync error:', e.message));
+    this.ready
+      .then(() => this.syncAll())
+      .catch(e => console.error('[PlanningCenter] initial sync error:', e.message));
 
     this._syncTimer = setInterval(
-      () => this.syncAll().catch(e => console.error('[PlanningCenter] syncAll error:', e.message)),
+      runSync,
       6 * 60 * 60 * 1000
     );
 

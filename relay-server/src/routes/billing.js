@@ -63,13 +63,13 @@ module.exports = function setupBillingRoutes(app, ctx) {
   });
 
   // GET /api/billing/status/:churchId
-  app.get('/api/billing/status/:churchId', requireAdmin, (req, res) => {
-    const status = billing.getStatus(req.params.churchId);
+  app.get('/api/billing/status/:churchId', requireAdmin, async (req, res) => {
+    const status = await billing.getStatus(req.params.churchId);
     res.json(status);
   });
 
   // GET /api/billing — list all billing records
-  app.get('/api/billing', requireAdmin, (req, res) => {
-    res.json(billing.listAll());
+  app.get('/api/billing', requireAdmin, async (req, res) => {
+    res.json(await billing.listAll());
   });
 };

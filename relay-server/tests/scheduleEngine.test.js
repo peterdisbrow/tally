@@ -370,6 +370,32 @@ describe('C. Window open/close callbacks', () => {
     expect(goodCb).toHaveBeenCalledWith('ch1');
   });
 
+  it('supports async open callbacks', async () => {
+    const cb = vi.fn(async () => {});
+    engine.addWindowOpenCallback(cb);
+
+    addChurch(db, 'ch1');
+    engine.setSchedule('ch1', [serviceStartingInMinutes(10, 2)]);
+    engine._pollWindows();
+    await Promise.resolve();
+
+    expect(cb).toHaveBeenCalledWith('ch1');
+  });
+
+  it('isolates async callback rejections', async () => {
+    const failingCb = vi.fn(async () => { throw new Error('async boom'); });
+    const goodCb = vi.fn(async () => {});
+    engine.addWindowOpenCallback(failingCb);
+    engine.addWindowOpenCallback(goodCb);
+
+    addChurch(db, 'ch1');
+    engine.setSchedule('ch1', [serviceStartingInMinutes(10, 2)]);
+    expect(() => engine._pollWindows()).not.toThrow();
+    await Promise.resolve();
+
+    expect(goodCb).toHaveBeenCalledWith('ch1');
+  });
+
   it('close callback error does not break other close callbacks', () => {
     const openCb = vi.fn();
     const failClose = vi.fn(() => { throw new Error('close fail'); });

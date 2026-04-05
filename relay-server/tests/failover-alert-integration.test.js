@@ -405,12 +405,12 @@ describe('AlertEngine.acknowledgeAlert — integration with activeAlerts map', (
     const result = await ae.sendAlert(church, 'failover_confirmed_outage', {});
     const prefix = result.alertId.slice(0, 8);
 
-    const found = ae.findAlertByPrefix(prefix);
+    const found = await ae.findAlertByPrefix(prefix);
     expect(found).toBe(result.alertId);
   });
 
   it('findAlertByPrefix sanitizes non-hex characters', async () => {
-    const found = ae.findAlertByPrefix("../../etc/passwd");
+    const found = await ae.findAlertByPrefix("../../etc/passwd");
     // Sanitized to empty — no result
     expect(found).toBeNull();
   });
@@ -421,7 +421,7 @@ describe('AlertEngine.acknowledgeAlert — integration with activeAlerts map', (
     const prefix = result.alertId.slice(0, 8);
 
     await ae.acknowledgeAlert(result.alertId, 'TD');
-    const found = ae.findAlertByPrefix(prefix);
+    const found = await ae.findAlertByPrefix(prefix);
     expect(found).toBeNull();
   });
 });

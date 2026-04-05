@@ -5,45 +5,112 @@
  * Integrates with TallyBot via this.onCallRotation property.
  *
  * Expected API (called by telegramBot.js):
- *   getCurrentOnCall(churchId)         → TD row | null
- *   getOnCallTD(churchId)              → TD row | null
- *   formatOnCallStatus(churchId, db)   → string
- *   setOnCall(churchId, tdName)        → { success, message }
- *   addOrUpdateTD(opts)                → void
- *   initiateSwap(churchId, requesterChatId, targetName) → { success, message, target?, requester? }
- *   findPendingSwapForTarget(chatId)   → swap | null
- *   confirmSwap(swapKey)               → { success, message, target?, sundayStr? }
+ *   getCurrentOnCall(churchId)         -> TD row | null
+ *   getOnCallTD(churchId)              -> TD row | null
+ *   formatOnCallStatus(churchId, db)   -> string
+ *   setOnCall(churchId, tdName)        -> { success, message }
+ *   addOrUpdateTD(opts)                -> void
+ *   initiateSwap(churchId, requesterChatId, targetName) -> { success, message, target?, requester? }
+ *   findPendingSwapForTarget(chatId)   -> swap | null
+ *   confirmSwap(swapKey)               -> { success, message, target?, sundayStr? }
  *
  * Admin commands (wired in handleAdminCommand in telegramBot.js):
  *   "list tds [church]"
  *   "set oncall [church] [name]"
  *
  * TD commands (wired in handleTDCommand):
- *   /oncall — shows current on-call for their church
- *   /swap [name] — request an on-call swap
- *   /confirmswap — accept a pending swap request
+ *   /oncall - shows current on-call for their church
+ *   /swap [name] - request an on-call swap
+ *   /confirmswap - accept a pending swap request
  */
 
 const crypto = require('crypto');
 
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const ON_CALL_SELECT = `
+  id,
+  churchId AS "churchId",
+  name,
+  telegramChatId AS "telegramChatId",
+  telegramUserId AS "telegramUserId",
+  phone,
+  weekOf AS "weekOf",
+  isPrimary AS "isPrimary"
+`;
+
+const CHURCH_TD_SELECT = `
+  id,
+  church_id AS "churchId",
+  name,
+  telegram_chat_id AS "telegramChatId",
+  telegram_user_id AS "telegramUserId",
+  active
+`;
+
 class OnCallRotation {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {object} dbOrClient
+   * @param {object} [options]
+   * @param {object} [options.config]
    */
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
     this.tallyBot = null;
-    // In-memory: swapKey → { churchId, requesterChatId, targetChatId, requesterName, targetName, weekKey }
+    // In-memory: swapKey -> { churchId, requesterChatId, targetChatId, requesterName, targetName, weekKey }
     this._pendingSwaps = new Map();
-    if (this.db) this._ensureTable();
+    this.ready = this.client ? this._init() : Promise.resolve();
   }
 
-  // ─── DB SETUP ────────────────────────────────────────────────────────────
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
 
-  _ensureTable() {
-    this.db.exec(`
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[OnCallRotation] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTable();
+  }
+
+  _resolveReadableClient(dbOrClient) {
+    if (!dbOrClient) return this._requireClient();
+    if (dbOrClient === this.client || dbOrClient === this.db) return this._requireClient();
+    return this._resolveClient(dbOrClient, { config: SQLITE_FALLBACK_CONFIG });
+  }
+
+  _nameLike(name) {
+    return `%${String(name || '').trim().toLowerCase()}%`;
+  }
+
+  // --- DB SETUP -------------------------------------------------------------
+
+  async _ensureTable() {
+    const client = this._requireClient();
+    const idColumn = client.driver === 'postgres'
+      ? 'BIGSERIAL PRIMARY KEY'
+      : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+    await client.exec(`
       CREATE TABLE IF NOT EXISTS td_oncall (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        id               ${idColumn},
         churchId         TEXT NOT NULL,
         name             TEXT NOT NULL,
         telegramChatId   TEXT DEFAULT '',
@@ -55,7 +122,7 @@ class OnCallRotation {
     `);
   }
 
-  // ─── ISO WEEK HELPER ─────────────────────────────────────────────────────
+  // --- ISO WEEK HELPER ------------------------------------------------------
 
   _currentWeekKey() {
     const now = new Date();
@@ -74,53 +141,87 @@ class OnCallRotation {
     return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
 
-  // ─── PUBLIC API ──────────────────────────────────────────────────────────
+  // --- PUBLIC API -----------------------------------------------------------
 
   /**
    * Get current on-call TD for a church.
-   * Priority: current week → isPrimary → first registered
+   * Priority: current week -> isPrimary -> first registered
    */
-  getCurrentOnCall(churchId) {
+  async getCurrentOnCall(churchId) {
+    await this.ready;
+    const client = this._requireClient();
     const weekKey = this._currentWeekKey();
 
-    let td = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND weekOf = ? ORDER BY id ASC LIMIT 1'
-    ).get(churchId, weekKey);
+    let td = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND weekOf = ?
+       ORDER BY id ASC
+       LIMIT 1`,
+      [churchId, weekKey]
+    );
     if (td) return td;
 
-    td = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND isPrimary = 1 ORDER BY id ASC LIMIT 1'
-    ).get(churchId);
+    td = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND isPrimary = 1
+       ORDER BY id ASC
+       LIMIT 1`,
+      [churchId]
+    );
     if (td) return td;
 
-    return this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? ORDER BY id ASC LIMIT 1'
-    ).get(churchId) || null;
+    return client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ?
+       ORDER BY id ASC
+       LIMIT 1`,
+      [churchId]
+    );
   }
 
   /** Alias used by telegramBot.js */
-  getOnCallTD(churchId) {
+  async getOnCallTD(churchId) {
     return this.getCurrentOnCall(churchId);
+  }
+
+  async listTDs(churchId) {
+    await this.ready;
+    return this._requireClient().query(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ?
+       ORDER BY isPrimary DESC, id ASC`,
+      [churchId]
+    );
   }
 
   /**
    * Format a human-readable on-call status for a church.
    * Called by telegramBot.js handleAdminCommand and handleTDCommand.
    */
-  formatOnCallStatus(churchId, db) {
+  async formatOnCallStatus(churchId, dbOrClient) {
+    await this.ready;
+    const client = this._resolveReadableClient(dbOrClient);
     const weekKey = this._currentWeekKey();
-    const allTDs = (db || this.db).prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? ORDER BY isPrimary DESC, id ASC'
-    ).all(churchId);
+    const allTDs = await client.query(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ?
+       ORDER BY isPrimary DESC, id ASC`,
+      [churchId]
+    );
 
     if (!allTDs.length) return '_(no TDs registered)_';
 
-    return allTDs.map(td => {
+    return allTDs.map((td) => {
       const flags = [];
-      if (td.weekOf === weekKey) flags.push('✅ on-call this week');
-      if (td.isPrimary) flags.push('⭐ primary');
+      if (td.weekOf === weekKey) flags.push('on-call this week');
+      if (td.isPrimary) flags.push('primary');
       const flagStr = flags.length ? `  [${flags.join(', ')}]` : '';
-      const phone = td.phone ? ` — 📞 ${td.phone}` : '';
+      const phone = td.phone ? ` - ${td.phone}` : '';
       return `• *${td.name}*${phone}${flagStr}`;
     }).join('\n');
   }
@@ -129,46 +230,73 @@ class OnCallRotation {
    * Set a TD as on-call for the current week.
    * @param {string} churchId
    * @param {string} tdName - partial name match
-   * @returns {{ success: boolean, message: string }}
+   * @returns {Promise<{ success: boolean, message: string }>}
    */
-  setOnCall(churchId, tdName) {
+  async setOnCall(churchId, tdName) {
+    await this.ready;
+    const client = this._requireClient();
     const weekKey = this._currentWeekKey();
+    const nameLike = this._nameLike(tdName);
 
-    // Find by name (partial match) in td_oncall
-    let td = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND name LIKE ? LIMIT 1'
-    ).get(churchId, `%${tdName}%`);
+    let td = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND LOWER(name) LIKE ?
+       ORDER BY id ASC
+       LIMIT 1`,
+      [churchId, nameLike]
+    );
 
     if (!td) {
-      // Also check church_tds
       try {
-        const ctd = this.db.prepare(
-          'SELECT * FROM church_tds WHERE church_id = ? AND name LIKE ? AND active = 1 LIMIT 1'
-        ).get(churchId, `%${tdName}%`);
+        const ctd = await client.queryOne(
+          `SELECT ${CHURCH_TD_SELECT}
+           FROM church_tds
+           WHERE church_id = ? AND LOWER(name) LIKE ? AND active = 1
+           ORDER BY id ASC
+           LIMIT 1`,
+          [churchId, nameLike]
+        );
         if (ctd) {
-          // Create entry in td_oncall
-          const info = this.db.prepare(
-            'INSERT INTO td_oncall (churchId, name, telegramChatId, telegramUserId, weekOf) VALUES (?, ?, ?, ?, ?)'
-          ).run(churchId, ctd.name, ctd.telegram_chat_id || '', ctd.telegram_user_id || '', '');
-          td = this.db.prepare('SELECT * FROM td_oncall WHERE id = ?').get(info.lastInsertRowid);
+          await client.run(
+            'INSERT INTO td_oncall (churchId, name, telegramChatId, telegramUserId, weekOf) VALUES (?, ?, ?, ?, ?)',
+            [churchId, ctd.name, ctd.telegramChatId || '', ctd.telegramUserId || '', '']
+          );
+          td = await client.queryOne(
+            `SELECT ${ON_CALL_SELECT}
+             FROM td_oncall
+             WHERE churchId = ? AND name = ?
+             ORDER BY id DESC
+             LIMIT 1`,
+            [churchId, ctd.name]
+          );
         }
-      } catch { /* church_tds may not exist */ }
+      } catch {
+        // church_tds may not exist yet
+      }
     }
 
     if (!td) {
-      // Create new entry
-      const info = this.db.prepare(
-        'INSERT INTO td_oncall (churchId, name, weekOf) VALUES (?, ?, ?)'
-      ).run(churchId, tdName.trim(), '');
-      td = this.db.prepare('SELECT * FROM td_oncall WHERE id = ?').get(info.lastInsertRowid);
+      const trimmedName = tdName.trim();
+      await client.run(
+        'INSERT INTO td_oncall (churchId, name, weekOf) VALUES (?, ?, ?)',
+        [churchId, trimmedName, '']
+      );
+      td = await client.queryOne(
+        `SELECT ${ON_CALL_SELECT}
+         FROM td_oncall
+         WHERE churchId = ? AND name = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [churchId, trimmedName]
+      );
     }
 
-    // Clear existing on-call for this week, then assign
-    this.db.prepare(
-      "UPDATE td_oncall SET weekOf = '' WHERE churchId = ? AND weekOf = ?"
-    ).run(churchId, weekKey);
-
-    this.db.prepare('UPDATE td_oncall SET weekOf = ? WHERE id = ?').run(weekKey, td.id);
+    await client.run(
+      "UPDATE td_oncall SET weekOf = '' WHERE churchId = ? AND weekOf = ?",
+      [churchId, weekKey]
+    );
+    await client.run('UPDATE td_oncall SET weekOf = ? WHERE id = ?', [weekKey, td.id]);
 
     return { success: true, message: `*${td.name}* is now on-call for week ${weekKey}` };
   }
@@ -176,47 +304,80 @@ class OnCallRotation {
   /**
    * Called when a new TD registers via /register to add them to rotation.
    */
-  addOrUpdateTD({ churchId, name, telegramChatId, telegramUserId, isPrimary = 0 }) {
+  async addOrUpdateTD({ churchId, name, telegramChatId, telegramUserId, phone = '', isPrimary = 0 }) {
+    await this.ready;
+    const client = this._requireClient();
+
     try {
-      const existing = this.db.prepare(
-        'SELECT * FROM td_oncall WHERE churchId = ? AND (telegramUserId = ? OR name = ?) LIMIT 1'
-      ).get(churchId, String(telegramUserId), name);
+      const existing = await client.queryOne(
+        `SELECT ${ON_CALL_SELECT}
+         FROM td_oncall
+         WHERE churchId = ? AND (telegramUserId = ? OR name = ?)
+         LIMIT 1`,
+        [churchId, String(telegramUserId || ''), name]
+      );
 
       if (existing) {
-        this.db.prepare(
-          'UPDATE td_oncall SET telegramChatId = ?, telegramUserId = ?, name = ? WHERE id = ?'
-        ).run(String(telegramChatId), String(telegramUserId), name, existing.id);
-      } else {
-        this.db.prepare(
-          'INSERT INTO td_oncall (churchId, name, telegramChatId, telegramUserId, isPrimary) VALUES (?, ?, ?, ?, ?)'
-        ).run(churchId, name, String(telegramChatId), String(telegramUserId), isPrimary);
+        await client.run(
+          'UPDATE td_oncall SET telegramChatId = ?, telegramUserId = ?, name = ?, phone = ? WHERE id = ?',
+          [String(telegramChatId || ''), String(telegramUserId || ''), name, phone || '', existing.id]
+        );
+        return existing.id;
       }
+
+      await client.run(
+        'INSERT INTO td_oncall (churchId, name, telegramChatId, telegramUserId, phone, isPrimary) VALUES (?, ?, ?, ?, ?, ?)',
+        [churchId, name, String(telegramChatId || ''), String(telegramUserId || ''), phone || '', isPrimary]
+      );
+
+      const inserted = await client.queryOne(
+        `SELECT ${ON_CALL_SELECT}
+         FROM td_oncall
+         WHERE churchId = ? AND name = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [churchId, name]
+      );
+      return inserted?.id ?? null;
     } catch (e) {
       console.error('[OnCallRotation] addOrUpdateTD error:', e.message);
+      return null;
     }
   }
 
-  // ─── SWAP REQUESTS ────────────────────────────────────────────────────────
+  // --- SWAP REQUESTS --------------------------------------------------------
 
   /**
    * Initiate an on-call swap request.
    * @param {string} churchId
    * @param {string} requesterChatId - Telegram chat ID of the requester
    * @param {string} targetName - name to search for
-   * @returns {{ success, message, target?, requester? }}
+   * @returns {Promise<{ success: boolean, message: string, target?: object, requester?: object }>}
    */
-  initiateSwap(churchId, requesterChatId, targetName) {
-    const requesterTd = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND telegramChatId = ? LIMIT 1'
-    ).get(churchId, String(requesterChatId));
+  async initiateSwap(churchId, requesterChatId, targetName) {
+    await this.ready;
+    const client = this._requireClient();
+
+    const requesterTd = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND telegramChatId = ?
+       LIMIT 1`,
+      [churchId, String(requesterChatId)]
+    );
 
     if (!requesterTd) {
       return { success: false, message: "You're not registered in the on-call rotation for this church." };
     }
 
-    const targetTd = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND name LIKE ? AND telegramChatId != ? LIMIT 1'
-    ).get(churchId, `%${targetName}%`, String(requesterChatId));
+    const targetTd = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND LOWER(name) LIKE ? AND telegramChatId != ?
+       ORDER BY id ASC
+       LIMIT 1`,
+      [churchId, this._nameLike(targetName), String(requesterChatId)]
+    );
 
     if (!targetTd) {
       return {
@@ -228,7 +389,7 @@ class OnCallRotation {
     if (!targetTd.telegramChatId) {
       return {
         success: false,
-        message: `${targetTd.name} doesn't have a Telegram chat registered — can't send them a swap request.`,
+        message: `${targetTd.name} doesn't have a Telegram chat registered - can't send them a swap request.`,
       };
     }
 
@@ -240,9 +401,9 @@ class OnCallRotation {
       churchId,
       weekKey,
       requesterChatId: String(requesterChatId),
-      targetChatId:    String(targetTd.telegramChatId),
-      requesterName:   requesterTd.name,
-      targetName:      targetTd.name,
+      targetChatId: String(targetTd.telegramChatId),
+      requesterName: requesterTd.name,
+      targetName: targetTd.name,
     });
 
     // Auto-expire swap requests after 24h
@@ -276,9 +437,11 @@ class OnCallRotation {
 
   /**
    * Confirm a pending swap.
-   * @returns {{ success, message, target?, sundayStr? }}
+   * @returns {Promise<{ success: boolean, message: string, target?: object, sundayStr?: string }>}
    */
-  confirmSwap(swapKey) {
+  async confirmSwap(swapKey) {
+    await this.ready;
+    const client = this._requireClient();
     const swap = this._pendingSwaps.get(swapKey);
     if (!swap) {
       return { success: false, message: 'Swap request not found or already expired.' };
@@ -287,26 +450,29 @@ class OnCallRotation {
     const weekKey = this._currentWeekKey();
     this._pendingSwaps.delete(swapKey);
 
-    // Find the target in td_oncall and set them as on-call
-    const targetTd = this.db.prepare(
-      'SELECT * FROM td_oncall WHERE churchId = ? AND telegramChatId = ? LIMIT 1'
-    ).get(swap.churchId, swap.targetChatId);
+    const targetTd = await client.queryOne(
+      `SELECT ${ON_CALL_SELECT}
+       FROM td_oncall
+       WHERE churchId = ? AND telegramChatId = ?
+       LIMIT 1`,
+      [swap.churchId, swap.targetChatId]
+    );
 
     if (!targetTd) {
       return { success: false, message: 'Could not find target TD in rotation.' };
     }
 
-    // Clear existing on-call, assign to target
-    this.db.prepare(
-      "UPDATE td_oncall SET weekOf = '' WHERE churchId = ? AND weekOf = ?"
-    ).run(swap.churchId, weekKey);
-    this.db.prepare('UPDATE td_oncall SET weekOf = ? WHERE id = ?').run(weekKey, targetTd.id);
+    await client.run(
+      "UPDATE td_oncall SET weekOf = '' WHERE churchId = ? AND weekOf = ?",
+      [swap.churchId, weekKey]
+    );
+    await client.run('UPDATE td_oncall SET weekOf = ? WHERE id = ?', [weekKey, targetTd.id]);
 
     const sundayStr = this._nextSundayStr();
 
     return {
       success: true,
-      message: `Swap confirmed — *${targetTd.name}* is now on-call starting ${sundayStr}.`,
+      message: `Swap confirmed - *${targetTd.name}* is now on-call starting ${sundayStr}.`,
       target: { name: targetTd.name },
       sundayStr,
     };

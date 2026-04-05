@@ -12,21 +12,151 @@
  * The command parser reads this cached string with zero extra queries.
  */
 
+const { createQueryClient } = require('./db');
+
 const MAX_MEMORIES_PER_CHURCH = 30;
 const MAX_SUMMARY_CHARS = 800;
 const CONFIDENCE_DECAY_PER_WEEK = 15;
 const ARCHIVE_THRESHOLD = 10;
 
-class ChurchMemory {
-  /**
-   * @param {import('better-sqlite3').Database} db
-   */
-  constructor(db) {
-    this.db = db;
-    this._ensureSchema();
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+function parseJson(value, fallback = {}) {
+  try {
+    return JSON.parse(value || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+function applyTextBudget(text, maxChars = 600) {
+  return text.length > maxChars ? text.slice(0, maxChars - 3) + '...' : text;
+}
+
+function toRecentInsights(rows) {
+  return rows.map((row) => {
+    const details = parseJson(row.details || '{}', {});
+    delete details._matchKey;
+    return {
+      summary: row.summary,
+      category: row.category,
+      confidence: row.confidence,
+      lastSeen: row.last_seen,
+      observationCount: row.observation_count,
+      details,
+    };
+  });
+}
+
+function formatPreServiceContext(rows) {
+  if (!rows.length) return '';
+
+  const lines = [];
+  for (const row of rows) {
+    let prefix = '';
+    if (row.category === 'equipment_quirk') prefix = '[QUIRK] ';
+    else if (row.category === 'recurring_issue') prefix = '[RECURRING] ';
+    else if (row.category === 'fix_outcome') {
+      const details = parseJson(row.details || '{}', {});
+      prefix = details.success === false ? '[PAST FAILURE] ' : '[FIX] ';
+    } else if (row.category === 'user_note') {
+      prefix = '[NOTE] ';
+    }
+    lines.push(`- ${prefix}${row.summary}`);
   }
 
-  _ensureSchema() {
+  return applyTextBudget(`Pre-service watch list:\n${lines.join('\n')}`);
+}
+
+function formatSessionContext(rows) {
+  if (!rows.length) return '';
+
+  const lines = [];
+  for (const row of rows) {
+    const details = parseJson(row.details || '{}', {});
+    if (row.category === 'fix_outcome' && details.success) {
+      lines.push(`- Known fix: ${row.summary}`);
+    } else if (row.category === 'fix_outcome' && details.success === false) {
+      lines.push(`- Unresolved: ${row.summary}`);
+    } else if (row.category === 'recurring_issue') {
+      const rec = details.recommendation ? ` (tip: ${details.recommendation})` : '';
+      lines.push(`- Pattern: ${row.summary}${rec}`);
+    } else if (row.category === 'reliability_trend') {
+      lines.push(`- Trend: ${row.summary}`);
+    } else if (row.category === 'equipment_quirk') {
+      lines.push(`- Quirk: ${row.summary}`);
+    } else {
+      lines.push(`- ${row.summary}`);
+    }
+  }
+
+  return applyTextBudget(`Session history:\n${lines.join('\n')}`);
+}
+
+function formatOnboardingContext(rows) {
+  if (!rows.length) return '';
+
+  const lines = [];
+  for (const row of rows) {
+    if (row.category === 'user_note') {
+      lines.push(`- Preference: ${row.summary}`);
+    } else if (row.category === 'equipment_quirk') {
+      lines.push(`- Equipment note: ${row.summary}`);
+    } else if (row.category === 'reliability_trend') {
+      lines.push(`- ${row.summary}`);
+    } else if (row.category === 'fix_outcome') {
+      lines.push(`- Past experience: ${row.summary}`);
+    }
+  }
+
+  return applyTextBudget(`Church history:\n${lines.join('\n')}`);
+}
+
+class ChurchMemory {
+  /**
+   * @param {import('better-sqlite3').Database|object} dbOrClient
+   * @param {object} [options]
+   * @param {object} [options.config]
+   */
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
+
+    if (this.db) {
+      this._ensureSchemaSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[ChurchMemory] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureSchema();
+  }
+
+  _ensureSchemaSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS church_memory (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,9 +173,34 @@ class ChurchMemory {
       )
     `);
 
-    // Create index if not exists
     try {
-      this.db.exec(`CREATE INDEX idx_memory_church ON church_memory(church_id, active, confidence DESC)`);
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_memory_church ON church_memory(church_id, active, confidence DESC)');
+    } catch { /* already exists */ }
+  }
+
+  async _ensureSchema() {
+    const client = this._requireClient();
+    const idType = client.driver === 'postgres' ? 'BIGSERIAL' : 'INTEGER';
+    const autoIncrement = client.driver === 'postgres' ? '' : ' AUTOINCREMENT';
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS church_memory (
+        id ${idType} PRIMARY KEY${autoIncrement},
+        church_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        details TEXT DEFAULT '{}',
+        confidence INTEGER DEFAULT 50,
+        observation_count INTEGER DEFAULT 1,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        source TEXT NOT NULL,
+        active INTEGER DEFAULT 1
+      )
+    `);
+
+    try {
+      await client.exec('CREATE INDEX IF NOT EXISTS idx_memory_church ON church_memory(church_id, active, confidence DESC)');
     } catch { /* already exists */ }
   }
 
@@ -56,22 +211,35 @@ class ChurchMemory {
    * @param {string} churchId
    * @param {string} category
    * @param {string} matchKey  Category-specific key for dedup (e.g., alert_type for fix_outcome)
-   * @returns {object|null}
+   * @returns {object|null|Promise<object|null>}
    */
   _findExisting(churchId, category, matchKey) {
-    // For fix_outcome: matchKey = command or alert_type
-    // For recurring_issue: matchKey = event_type
-    // For equipment_quirk: matchKey = device+trigger
-    // For reliability_trend: matchKey = 'overall'
+    if (this.db) return this._findExistingSync(churchId, category, matchKey);
+    return this._findExistingAsync(churchId, category, matchKey);
+  }
+
+  _findExistingSync(churchId, category, matchKey) {
     const rows = this.db.prepare(
-      `SELECT * FROM church_memory WHERE church_id = ? AND category = ? AND active = 1`
+      'SELECT * FROM church_memory WHERE church_id = ? AND category = ? AND active = 1'
     ).all(churchId, category);
 
     for (const row of rows) {
-      try {
-        const details = JSON.parse(row.details || '{}');
-        if (details._matchKey === matchKey) return row;
-      } catch { /* skip malformed */ }
+      const details = parseJson(row.details || '{}', {});
+      if (details._matchKey === matchKey) return row;
+    }
+    return null;
+  }
+
+  async _findExistingAsync(churchId, category, matchKey) {
+    await this.ready;
+    const rows = await this._requireClient().query(
+      'SELECT * FROM church_memory WHERE church_id = ? AND category = ? AND active = 1',
+      [churchId, category]
+    );
+
+    for (const row of rows) {
+      const details = parseJson(row.details || '{}', {});
+      if (details._matchKey === matchKey) return row;
     }
     return null;
   }
@@ -85,16 +253,19 @@ class ChurchMemory {
    * @param {string} summary  Human-readable sentence, max ~100 chars
    * @param {object} details  Category-specific JSON
    * @param {string} source   post_service | weekly_digest | command_feedback
-   * @returns {boolean} true if a new memory was created
+   * @returns {boolean|Promise<boolean>} true if a new memory was created
    */
   _upsertMemory(churchId, category, matchKey, summary, details, source) {
+    if (this.db) return this._upsertMemorySync(churchId, category, matchKey, summary, details, source);
+    return this._upsertMemoryAsync(churchId, category, matchKey, summary, details, source);
+  }
+
+  _upsertMemorySync(churchId, category, matchKey, summary, details, source) {
     const now = new Date().toISOString();
-    details._matchKey = matchKey;
+    const nextDetails = { ...details, _matchKey: matchKey };
 
-    const existing = this._findExisting(churchId, category, matchKey);
-
+    const existing = this._findExistingSync(churchId, category, matchKey);
     if (existing) {
-      // Merge: bump count, confidence, update summary + details
       const newCount = existing.observation_count + 1;
       const newConfidence = Math.min(100, existing.confidence + 5);
       this.db.prepare(`
@@ -102,90 +273,185 @@ class ChurchMemory {
           summary = ?, details = ?, confidence = ?,
           observation_count = ?, last_seen = ?, source = ?
         WHERE id = ?
-      `).run(summary, JSON.stringify(details), newConfidence, newCount, now, source, existing.id);
-      return false; // no new row
+      `).run(summary, JSON.stringify(nextDetails), newConfidence, newCount, now, source, existing.id);
+      return false;
     }
 
-    // New memory
     this.db.prepare(`
       INSERT INTO church_memory (church_id, category, summary, details, confidence, observation_count, first_seen, last_seen, source, active)
       VALUES (?, ?, ?, ?, 50, 1, ?, ?, ?, 1)
-    `).run(churchId, category, summary, JSON.stringify(details), now, now, source);
-    return true; // new row created
+    `).run(churchId, category, summary, JSON.stringify(nextDetails), now, now, source);
+    return true;
+  }
+
+  async _upsertMemoryAsync(churchId, category, matchKey, summary, details, source) {
+    await this.ready;
+    const client = this._requireClient();
+    const now = new Date().toISOString();
+    const nextDetails = { ...details, _matchKey: matchKey };
+
+    const existing = await this._findExistingAsync(churchId, category, matchKey);
+    if (existing) {
+      const newCount = existing.observation_count + 1;
+      const newConfidence = Math.min(100, existing.confidence + 5);
+      await client.run(`
+        UPDATE church_memory SET
+          summary = ?, details = ?, confidence = ?,
+          observation_count = ?, last_seen = ?, source = ?
+        WHERE id = ?
+      `, [summary, JSON.stringify(nextDetails), newConfidence, newCount, now, source, existing.id]);
+      return false;
+    }
+
+    await client.run(`
+      INSERT INTO church_memory (church_id, category, summary, details, confidence, observation_count, first_seen, last_seen, source, active)
+      VALUES (?, ?, ?, ?, 50, 1, ?, ?, ?, 1)
+    `, [churchId, category, summary, JSON.stringify(nextDetails), now, now, source]);
+    return true;
   }
 
   // ─── WRITE: USER NOTES ──────────────────────────────────────────────────────
 
-  /**
-   * Save a TD-provided note as a persistent memory.
-   * "Remember the pastor likes a tight shot during prayer"
-   * @param {string} churchId
-   * @param {string} note  Free-text note from the TD
-   * @param {string} [senderName='TD']
-   */
   saveUserNote(churchId, note, senderName = 'TD') {
+    if (this.db) return this._saveUserNoteSync(churchId, note, senderName);
+    return this._saveUserNoteAsync(churchId, note, senderName);
+  }
+
+  _saveUserNoteSync(churchId, note, senderName = 'TD') {
     try {
       const matchKey = `note:${note.slice(0, 50).toLowerCase().replace(/\s+/g, '_')}`;
       const now = new Date().toISOString();
       const details = { _matchKey: matchKey, fullNote: note, setBy: senderName };
 
-      const existing = this._findExisting(churchId, 'user_note', matchKey);
-
+      const existing = this._findExistingSync(churchId, 'user_note', matchKey);
       if (existing) {
-        // Update existing note
         this.db.prepare(`
           UPDATE church_memory SET
             summary = ?, details = ?, confidence = ?, last_seen = ?
           WHERE id = ?
         `).run(note.slice(0, 120), JSON.stringify(details), Math.min(100, existing.confidence + 5), now, existing.id);
       } else {
-        // New note — starts at confidence 80 (higher than auto-detected memories)
         this.db.prepare(`
           INSERT INTO church_memory (church_id, category, summary, details, confidence, observation_count, first_seen, last_seen, source, active)
           VALUES (?, ?, ?, ?, 80, 1, ?, ?, ?, 1)
         `).run(churchId, 'user_note', note.slice(0, 120), JSON.stringify(details), now, now, 'user_note');
       }
 
-      this._rebuildSummary(churchId);
+      this._rebuildSummarySync(churchId);
     } catch (e) {
-      console.error(`[ChurchMemory] User note error:`, e.message);
+      console.error('[ChurchMemory] User note error:', e.message);
     }
   }
 
-  /**
-   * Get all active user notes for a church.
-   * @param {string} churchId
-   * @returns {object[]}
-   */
+  async _saveUserNoteAsync(churchId, note, senderName = 'TD') {
+    try {
+      await this.ready;
+      const client = this._requireClient();
+      const matchKey = `note:${note.slice(0, 50).toLowerCase().replace(/\s+/g, '_')}`;
+      const now = new Date().toISOString();
+      const details = { _matchKey: matchKey, fullNote: note, setBy: senderName };
+
+      const existing = await this._findExistingAsync(churchId, 'user_note', matchKey);
+      if (existing) {
+        await client.run(`
+          UPDATE church_memory SET
+            summary = ?, details = ?, confidence = ?, last_seen = ?
+          WHERE id = ?
+        `, [note.slice(0, 120), JSON.stringify(details), Math.min(100, existing.confidence + 5), now, existing.id]);
+      } else {
+        await client.run(`
+          INSERT INTO church_memory (church_id, category, summary, details, confidence, observation_count, first_seen, last_seen, source, active)
+          VALUES (?, ?, ?, ?, 80, 1, ?, ?, ?, 1)
+        `, [churchId, 'user_note', note.slice(0, 120), JSON.stringify(details), now, now, 'user_note']);
+      }
+
+      await this._rebuildSummaryAsync(churchId);
+    } catch (e) {
+      console.error('[ChurchMemory] User note error:', e.message);
+    }
+  }
+
   getUserNotes(churchId) {
-    return this.db.prepare(
-      `SELECT * FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY last_seen DESC`
-    ).all(churchId);
+    if (this.db) {
+      return this.db.prepare(
+        `SELECT * FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY last_seen DESC`
+      ).all(churchId);
+    }
+
+    return this._getUserNotesAsync(churchId);
+  }
+
+  async _getUserNotesAsync(churchId) {
+    try {
+      await this.ready;
+      return this._requireClient().query(
+        `SELECT * FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY last_seen DESC`,
+        [churchId]
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  archiveMemory(churchId, memoryId) {
+    if (this.db) return this._archiveMemorySync(churchId, memoryId);
+    return this._archiveMemoryAsync(churchId, memoryId);
+  }
+
+  _archiveMemorySync(churchId, memoryId) {
+    try {
+      const result = this.db.prepare(
+        'UPDATE church_memory SET active = 0 WHERE id = ? AND church_id = ? AND active = 1'
+      ).run(memoryId, churchId);
+      if (result.changes > 0) {
+        this._rebuildSummarySync(churchId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(`[ChurchMemory] Archive memory error for ${churchId}:`, e.message);
+      return false;
+    }
+  }
+
+  async _archiveMemoryAsync(churchId, memoryId) {
+    try {
+      await this.ready;
+      const result = await this._requireClient().run(
+        'UPDATE church_memory SET active = 0 WHERE id = ? AND church_id = ? AND active = 1',
+        [memoryId, churchId]
+      );
+      if (result.changes > 0) {
+        await this._rebuildSummaryAsync(churchId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(`[ChurchMemory] Archive memory error for ${churchId}:`, e.message);
+      return false;
+    }
   }
 
   // ─── WRITE: POST-SERVICE ────────────────────────────────────────────────────
 
-  /**
-   * Analyze a completed session and write/update memories.
-   * Called from sessionRecap.endSession() after grading.
-   * @param {string} churchId
-   * @param {object} session  Finalized session from SessionRecap
-   */
   writePostServiceMemories(churchId, session) {
+    if (this.db) return this._writePostServiceMemoriesSync(churchId, session);
+    return this._writePostServiceMemoriesAsync(churchId, session);
+  }
+
+  _writePostServiceMemoriesSync(churchId, session) {
     try {
-      // Get events for this session
       const events = this.db.prepare(
         'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
       ).all(session.sessionId);
 
       if (!events.length) return;
 
-      // Record fix outcomes for auto-recovered events
-      const autoRecovered = events.filter(e => e.auto_resolved);
+      const autoRecovered = events.filter((event) => event.auto_resolved);
       for (const event of autoRecovered) {
         const matchKey = `fix:${event.event_type}`;
-        const successRate = this._computeFixSuccessRate(churchId, event.event_type);
-        this._upsertMemory(
+        const successRate = this._computeFixSuccessRateSync(churchId, event.event_type);
+        this._upsertMemorySync(
           churchId,
           'fix_outcome',
           matchKey,
@@ -195,11 +461,10 @@ class ChurchMemory {
         );
       }
 
-      // Record escalated (unresolved) events as failed fixes
-      const escalated = events.filter(e => !e.resolved && !e.auto_resolved);
+      const escalated = events.filter((event) => !event.resolved && !event.auto_resolved);
       for (const event of escalated) {
         const matchKey = `fail:${event.event_type}`;
-        this._upsertMemory(
+        this._upsertMemorySync(
           churchId,
           'fix_outcome',
           matchKey,
@@ -209,13 +474,11 @@ class ChurchMemory {
         );
       }
 
-      // Detect equipment quirks: if same event type occurred in 3+ of last 5 sessions
       const recentSessions = this.db.prepare(
         'SELECT id FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 5'
-      ).all(churchId).map(r => r.id);
+      ).all(churchId).map((row) => row.id);
 
       if (recentSessions.length >= 3) {
-        // Count event types across recent sessions
         const placeholders = recentSessions.map(() => '?').join(',');
         const typeCounts = this.db.prepare(`
           SELECT event_type, COUNT(DISTINCT session_id) as session_count
@@ -227,7 +490,7 @@ class ChurchMemory {
 
         for (const tc of typeCounts) {
           const matchKey = `quirk:${tc.event_type}`;
-          this._upsertMemory(
+          this._upsertMemorySync(
             churchId,
             'equipment_quirk',
             matchKey,
@@ -238,16 +501,90 @@ class ChurchMemory {
         }
       }
 
-      this._rebuildSummary(churchId);
+      this._rebuildSummarySync(churchId);
     } catch (e) {
       console.error(`[ChurchMemory] Post-service write error for ${churchId}:`, e.message);
     }
   }
 
-  /**
-   * Compute auto-recovery success rate for a given event type at a church.
-   */
+  async _writePostServiceMemoriesAsync(churchId, session) {
+    try {
+      await this.ready;
+      const client = this._requireClient();
+      const events = await client.query(
+        'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC',
+        [session.sessionId]
+      );
+
+      if (!events.length) return;
+
+      const autoRecovered = events.filter((event) => event.auto_resolved);
+      for (const event of autoRecovered) {
+        const matchKey = `fix:${event.event_type}`;
+        const successRate = await this._computeFixSuccessRateAsync(churchId, event.event_type);
+        await this._upsertMemoryAsync(
+          churchId,
+          'fix_outcome',
+          matchKey,
+          `Auto-recovery works ${successRate}% for ${event.event_type.replace(/_/g, ' ')}`,
+          { alertType: event.event_type, success: true, successRate },
+          'post_service'
+        );
+      }
+
+      const escalated = events.filter((event) => !event.resolved && !event.auto_resolved);
+      for (const event of escalated) {
+        const matchKey = `fail:${event.event_type}`;
+        await this._upsertMemoryAsync(
+          churchId,
+          'fix_outcome',
+          matchKey,
+          `${event.event_type.replace(/_/g, ' ')} required manual intervention`,
+          { alertType: event.event_type, success: false },
+          'post_service'
+        );
+      }
+
+      const recentSessions = (await client.query(
+        'SELECT id FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 5',
+        [churchId]
+      )).map((row) => row.id);
+
+      if (recentSessions.length >= 3) {
+        const placeholders = recentSessions.map(() => '?').join(',');
+        const typeCounts = await client.query(`
+          SELECT event_type, COUNT(DISTINCT session_id) as session_count
+          FROM service_events
+          WHERE session_id IN (${placeholders})
+          GROUP BY event_type
+          HAVING session_count >= 3
+        `, recentSessions);
+
+        for (const tc of typeCounts) {
+          const matchKey = `quirk:${tc.event_type}`;
+          await this._upsertMemoryAsync(
+            churchId,
+            'equipment_quirk',
+            matchKey,
+            `${tc.event_type.replace(/_/g, ' ')} occurs in ${tc.session_count}/5 recent services`,
+            { eventType: tc.event_type, sessionCount: tc.session_count, outOf: recentSessions.length },
+            'post_service'
+          );
+        }
+      }
+
+      await this._rebuildSummaryAsync(churchId);
+    } catch (e) {
+      console.error(`[ChurchMemory] Post-service write error for ${churchId}:`, e.message);
+    }
+  }
+
   _computeFixSuccessRate(churchId, eventType) {
+    if (this.db) return this._computeFixSuccessRateSync(churchId, eventType);
+    return this._computeFixSuccessRateAsync(churchId, eventType);
+  }
+
+  _computeFixSuccessRateSync(churchId, eventType) {
     const row = this.db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -260,48 +597,52 @@ class ChurchMemory {
     return Math.round((row.auto_fixed / row.total) * 100);
   }
 
+  async _computeFixSuccessRateAsync(churchId, eventType) {
+    await this.ready;
+    const row = await this._requireClient().queryOne(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN auto_resolved = 1 THEN 1 ELSE 0 END) as auto_fixed
+      FROM service_events
+      WHERE church_id = ? AND event_type = ?
+    `, [churchId, eventType]);
+
+    if (!row || !Number(row.total)) return 0;
+    return Math.round((Number(row.auto_fixed || 0) / Number(row.total)) * 100);
+  }
+
   // ─── WRITE: WEEKLY DIGEST ──────────────────────────────────────────────────
 
-  /**
-   * Consolidate weekly patterns into memories.
-   * Called from weeklyDigest weekly timer after digest generation.
-   * @param {string} churchId
-   * @param {Array} patterns  Output of detectPatterns()
-   * @param {number|null} reliability  Computed reliability percentage
-   */
   writeWeeklyMemories(churchId, patterns, reliability) {
+    if (this.db) return this._writeWeeklyMemoriesSync(churchId, patterns, reliability);
+    return this._writeWeeklyMemoriesAsync(churchId, patterns, reliability);
+  }
+
+  _writeWeeklyMemoriesSync(churchId, patterns, reliability) {
     try {
-      // Upsert recurring issue memories from patterns
-      for (const p of patterns) {
-        // Strip count suffix like " (3x)" from pattern string before using as match key
-        const patternBase = (p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '').replace(/\s+/g, '_');
+      for (const pattern of patterns) {
+        const patternBase = (pattern.pattern || '').replace(/\s*\(\d+x\)\s*$/, '').replace(/\s+/g, '_');
         const matchKey = `recurring:${patternBase}`;
-        this._upsertMemory(
+        this._upsertMemorySync(
           churchId,
           'recurring_issue',
           matchKey,
-          `${(p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '')} ${p.frequency}x/week${p.timeWindow ? ` around ${p.timeWindow}` : ''}`,
-          { eventType: patternBase, frequency: p.frequency, timeWindow: p.timeWindow, recommendation: p.recommendation },
+          `${(pattern.pattern || '').replace(/\s*\(\d+x\)\s*$/, '')} ${pattern.frequency}x/week${pattern.timeWindow ? ` around ${pattern.timeWindow}` : ''}`,
+          { eventType: patternBase, frequency: pattern.frequency, timeWindow: pattern.timeWindow, recommendation: pattern.recommendation },
           'weekly_digest'
         );
       }
 
-      // Upsert reliability trend
       if (reliability !== null) {
-        // Get previous reliability from existing memory
-        const existing = this._findExisting(churchId, 'reliability_trend', 'overall');
+        const existing = this._findExistingSync(churchId, 'reliability_trend', 'overall');
         let previousReliability = null;
-        if (existing) {
-          try {
-            previousReliability = JSON.parse(existing.details || '{}').current;
-          } catch {}
-        }
+        if (existing) previousReliability = parseJson(existing.details || '{}', {}).current ?? null;
 
         const trend = previousReliability !== null
           ? (reliability > previousReliability ? 'improving' : reliability < previousReliability ? 'degrading' : 'stable')
           : 'new';
 
-        this._upsertMemory(
+        this._upsertMemorySync(
           churchId,
           'reliability_trend',
           'overall',
@@ -311,9 +652,50 @@ class ChurchMemory {
         );
       }
 
-      // Decay stale memories and run consolidation
       this.consolidate(churchId);
-      this._rebuildSummary(churchId);
+      this._rebuildSummarySync(churchId);
+    } catch (e) {
+      console.error(`[ChurchMemory] Weekly write error for ${churchId}:`, e.message);
+    }
+  }
+
+  async _writeWeeklyMemoriesAsync(churchId, patterns, reliability) {
+    try {
+      await this.ready;
+      for (const pattern of patterns) {
+        const patternBase = (pattern.pattern || '').replace(/\s*\(\d+x\)\s*$/, '').replace(/\s+/g, '_');
+        const matchKey = `recurring:${patternBase}`;
+        await this._upsertMemoryAsync(
+          churchId,
+          'recurring_issue',
+          matchKey,
+          `${(pattern.pattern || '').replace(/\s*\(\d+x\)\s*$/, '')} ${pattern.frequency}x/week${pattern.timeWindow ? ` around ${pattern.timeWindow}` : ''}`,
+          { eventType: patternBase, frequency: pattern.frequency, timeWindow: pattern.timeWindow, recommendation: pattern.recommendation },
+          'weekly_digest'
+        );
+      }
+
+      if (reliability !== null) {
+        const existing = await this._findExistingAsync(churchId, 'reliability_trend', 'overall');
+        let previousReliability = null;
+        if (existing) previousReliability = parseJson(existing.details || '{}', {}).current ?? null;
+
+        const trend = previousReliability !== null
+          ? (reliability > previousReliability ? 'improving' : reliability < previousReliability ? 'degrading' : 'stable')
+          : 'new';
+
+        await this._upsertMemoryAsync(
+          churchId,
+          'reliability_trend',
+          'overall',
+          `Reliability ${reliability}% uptime${previousReliability !== null ? ` (${trend} from ${previousReliability}%)` : ''}`,
+          { current: reliability, previous: previousReliability, trend },
+          'weekly_digest'
+        );
+      }
+
+      await this._consolidateAsync(churchId);
+      await this._rebuildSummaryAsync(churchId);
     } catch (e) {
       console.error(`[ChurchMemory] Weekly write error for ${churchId}:`, e.message);
     }
@@ -321,14 +703,12 @@ class ChurchMemory {
 
   // ─── WRITE: COMMAND FEEDBACK ───────────────────────────────────────────────
 
-  /**
-   * Record that an AI-generated command succeeded or failed.
-   * @param {string} churchId
-   * @param {string} command  e.g., 'obs.startStream'
-   * @param {boolean} success
-   * @param {string} alertContext  What triggered this (alert_type or 'user_request')
-   */
   recordCommandOutcome(churchId, command, success, alertContext = 'user_request') {
+    if (this.db) return this._recordCommandOutcomeSync(churchId, command, success, alertContext);
+    return this._recordCommandOutcomeAsync(churchId, command, success, alertContext);
+  }
+
+  _recordCommandOutcomeSync(churchId, command, success, alertContext = 'user_request') {
     try {
       const matchKey = `cmd:${command}:${alertContext}`;
       const label = command.replace(/\./g, ' ');
@@ -336,7 +716,7 @@ class ChurchMemory {
         ? `${label} works for ${alertContext.replace(/_/g, ' ')}`
         : `${label} failed for ${alertContext.replace(/_/g, ' ')}`;
 
-      const isNew = this._upsertMemory(
+      const isNew = this._upsertMemorySync(
         churchId,
         'fix_outcome',
         matchKey,
@@ -345,8 +725,31 @@ class ChurchMemory {
         'command_feedback'
       );
 
-      // Only rebuild summary if a new memory was created (avoid churn during services)
-      if (isNew) this._rebuildSummary(churchId);
+      if (isNew) this._rebuildSummarySync(churchId);
+    } catch (e) {
+      console.error(`[ChurchMemory] Command outcome error:`, e.message);
+    }
+  }
+
+  async _recordCommandOutcomeAsync(churchId, command, success, alertContext = 'user_request') {
+    try {
+      await this.ready;
+      const matchKey = `cmd:${command}:${alertContext}`;
+      const label = command.replace(/\./g, ' ');
+      const summary = success
+        ? `${label} works for ${alertContext.replace(/_/g, ' ')}`
+        : `${label} failed for ${alertContext.replace(/_/g, ' ')}`;
+
+      const isNew = await this._upsertMemoryAsync(
+        churchId,
+        'fix_outcome',
+        matchKey,
+        summary,
+        { command, success, alertContext },
+        'command_feedback'
+      );
+
+      if (isNew) await this._rebuildSummaryAsync(churchId);
     } catch (e) {
       console.error(`[ChurchMemory] Command outcome error:`, e.message);
     }
@@ -354,15 +757,26 @@ class ChurchMemory {
 
   // ─── READ: PARSER CONTEXT ─────────────────────────────────────────────────
 
-  /**
-   * Get compact memory context for the command parser.
-   * Reads pre-compiled summary from churches table — zero extra queries.
-   * @param {string} churchId
-   * @returns {string}  Formatted text, max ~200 tokens
-   */
   getParserContext(churchId) {
+    if (this.db) {
+      try {
+        const row = this.db.prepare('SELECT memory_summary FROM churches WHERE churchId = ?').get(churchId);
+        return row?.memory_summary || '';
+      } catch {
+        return '';
+      }
+    }
+
+    return this._getParserContextAsync(churchId);
+  }
+
+  async _getParserContextAsync(churchId) {
     try {
-      const row = this.db.prepare('SELECT memory_summary FROM churches WHERE churchId = ?').get(churchId);
+      await this.ready;
+      const row = await this._requireClient().queryOne(
+        'SELECT memory_summary FROM churches WHERE churchId = ?',
+        [churchId]
+      );
       return row?.memory_summary || '';
     } catch {
       return '';
@@ -371,56 +785,92 @@ class ChurchMemory {
 
   // ─── READ: RECAP CONTEXT ──────────────────────────────────────────────────
 
-  /**
-   * Get memory context for post-service coaching recommendations.
-   * Queries recurring issues + reliability trends so AI avoids repeating stale advice.
-   * @param {string} churchId
-   * @returns {string}  Formatted text, max ~150 tokens
-   */
   getRecapContext(churchId) {
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT summary, details FROM church_memory
+          WHERE church_id = ? AND active = 1 AND category IN ('recurring_issue', 'reliability_trend')
+          ORDER BY confidence DESC, last_seen DESC
+          LIMIT 5
+        `).all(churchId);
+        if (!rows.length) return '';
+        return applyTextBudget(`Known patterns:\n${rows.map((row) => `- ${row.summary}`).join('\n')}`);
+      } catch {
+        return '';
+      }
+    }
+
+    return this._getRecapContextAsync(churchId);
+  }
+
+  async _getRecapContextAsync(churchId) {
     try {
-      const rows = this.db.prepare(`
+      await this.ready;
+      const rows = await this._requireClient().query(`
         SELECT summary, details FROM church_memory
         WHERE church_id = ? AND active = 1 AND category IN ('recurring_issue', 'reliability_trend')
         ORDER BY confidence DESC, last_seen DESC
         LIMIT 5
-      `).all(churchId);
-
+      `, [churchId]);
       if (!rows.length) return '';
-
-      const lines = rows.map(r => `- ${r.summary}`);
-      const text = `Known patterns:\n${lines.join('\n')}`;
-
-      // Enforce 600 char budget (~150 tokens)
-      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+      return applyTextBudget(`Known patterns:\n${rows.map((row) => `- ${row.summary}`).join('\n')}`);
     } catch {
       return '';
     }
   }
 
-  // ─── READ: PRE-SERVICE BRIEFING ─────────────────────────────────────────
+  // ─── READ: PRE-SERVICE BRIEFING ───────────────────────────────────────────
 
-  /**
-   * Get structured data for a pre-service intelligence briefing.
-   * Zero AI calls — just database queries.
-   * @param {string} churchId
-   * @returns {{ userNotes: object[], recurringIssues: object[], equipmentQuirks: object[], reliabilityTrend: object|null }}
-   */
   getPreServiceBriefing(churchId) {
+    if (this.db) {
+      try {
+        const userNotes = this.db.prepare(
+          `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY confidence DESC LIMIT 5`
+        ).all(churchId);
+        const recurringIssues = this.db.prepare(
+          `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 ORDER BY confidence DESC LIMIT 3`
+        ).all(churchId);
+        const equipmentQuirks = this.db.prepare(
+          `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'equipment_quirk' AND active = 1 ORDER BY confidence DESC LIMIT 3`
+        ).all(churchId);
+        const reliabilityTrend = this.db.prepare(
+          `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'reliability_trend' AND active = 1 LIMIT 1`
+        ).get(churchId) || null;
+        return { userNotes, recurringIssues, equipmentQuirks, reliabilityTrend };
+      } catch (e) {
+        console.error(`[ChurchMemory] Briefing query error for ${churchId}:`, e.message);
+        return { userNotes: [], recurringIssues: [], equipmentQuirks: [], reliabilityTrend: null };
+      }
+    }
+
+    return this._getPreServiceBriefingAsync(churchId);
+  }
+
+  async _getPreServiceBriefingAsync(churchId) {
     try {
-      const userNotes = this.db.prepare(
-        `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY confidence DESC LIMIT 5`
-      ).all(churchId);
-      const recurringIssues = this.db.prepare(
-        `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 ORDER BY confidence DESC LIMIT 3`
-      ).all(churchId);
-      const equipmentQuirks = this.db.prepare(
-        `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'equipment_quirk' AND active = 1 ORDER BY confidence DESC LIMIT 3`
-      ).all(churchId);
-      const reliabilityTrend = this.db.prepare(
-        `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'reliability_trend' AND active = 1 LIMIT 1`
-      ).get(churchId) || null;
-      return { userNotes, recurringIssues, equipmentQuirks, reliabilityTrend };
+      await this.ready;
+      const client = this._requireClient();
+      const [userNotes, recurringIssues, equipmentQuirks, reliabilityTrend] = await Promise.all([
+        client.query(
+          `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY confidence DESC LIMIT 5`,
+          [churchId]
+        ),
+        client.query(
+          `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 ORDER BY confidence DESC LIMIT 3`,
+          [churchId]
+        ),
+        client.query(
+          `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'equipment_quirk' AND active = 1 ORDER BY confidence DESC LIMIT 3`,
+          [churchId]
+        ),
+        client.queryOne(
+          `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'reliability_trend' AND active = 1 LIMIT 1`,
+          [churchId]
+        ),
+      ]);
+
+      return { userNotes, recurringIssues, equipmentQuirks, reliabilityTrend: reliabilityTrend || null };
     } catch (e) {
       console.error(`[ChurchMemory] Briefing query error for ${churchId}:`, e.message);
       return { userNotes: [], recurringIssues: [], equipmentQuirks: [], reliabilityTrend: null };
@@ -429,77 +879,91 @@ class ChurchMemory {
 
   // ─── READ: TIMED WARNINGS ─────────────────────────────────────────────────
 
-  /**
-   * Get recurring issues that have a known time-of-day pattern.
-   * Used for proactive warnings during a live service.
-   * @param {string} churchId
-   * @returns {Array<{ summary: string, eventType: string, windowMinuteOfDay: number }>}
-   */
   getTimedWarnings(churchId) {
-    try {
-      const rows = this.db.prepare(
-        `SELECT summary, details FROM church_memory
-         WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 AND confidence >= 30`
-      ).all(churchId);
-
-      const warnings = [];
-      for (const row of rows) {
-        try {
-          const details = JSON.parse(row.details || '{}');
-          const tw = details.timeWindow;
-          if (!tw || tw === 'varied times') continue;
-          const match = tw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-          if (!match) continue;
-          let h = parseInt(match[1]);
-          const m = parseInt(match[2]);
-          if (match[3].toUpperCase() === 'PM' && h < 12) h += 12;
-          if (match[3].toUpperCase() === 'AM' && h === 12) h = 0;
-          warnings.push({
-            summary: row.summary,
-            eventType: details.eventType || '',
-            windowMinuteOfDay: h * 60 + m,
-          });
-        } catch { /* skip malformed */ }
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(
+          `SELECT summary, details FROM church_memory
+           WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 AND confidence >= 30`
+        ).all(churchId);
+        return this._buildTimedWarnings(rows, churchId);
+      } catch (e) {
+        console.error(`[ChurchMemory] Timed warnings error for ${churchId}:`, e.message);
+        return [];
       }
-      return warnings;
+    }
+
+    return this._getTimedWarningsAsync(churchId);
+  }
+
+  async _getTimedWarningsAsync(churchId) {
+    try {
+      await this.ready;
+      const rows = await this._requireClient().query(
+        `SELECT summary, details FROM church_memory
+         WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 AND confidence >= 30`,
+        [churchId]
+      );
+      return this._buildTimedWarnings(rows, churchId);
     } catch (e) {
       console.error(`[ChurchMemory] Timed warnings error for ${churchId}:`, e.message);
       return [];
     }
   }
 
+  _buildTimedWarnings(rows) {
+    const warnings = [];
+    for (const row of rows) {
+      const details = parseJson(row.details || '{}', {});
+      const timeWindow = details.timeWindow;
+      if (!timeWindow || timeWindow === 'varied times') continue;
+
+      const match = String(timeWindow).match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (!match) continue;
+
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      if (match[3].toUpperCase() === 'PM' && hours < 12) hours += 12;
+      if (match[3].toUpperCase() === 'AM' && hours === 12) hours = 0;
+
+      warnings.push({
+        summary: row.summary,
+        eventType: details.eventType || '',
+        windowMinuteOfDay: hours * 60 + minutes,
+      });
+    }
+    return warnings;
+  }
+
   // ─── CONSOLIDATION ────────────────────────────────────────────────────────
 
-  /**
-   * Weekly consolidation: decay stale memories, archive low-confidence, enforce cap.
-   * @param {string} churchId
-   */
   consolidate(churchId) {
-    const now = new Date();
+    if (this.db) return this._consolidateSync(churchId);
+    return this._consolidateAsync(churchId);
+  }
 
-    // 1. Decay confidence on memories not seen in 4+ weeks
-    //    User notes decay at half speed (explicit user intent should persist longer)
+  _consolidateSync(churchId) {
+    const now = new Date();
     const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString();
     const stale = this.db.prepare(`
       SELECT id, confidence, last_seen, category FROM church_memory
       WHERE church_id = ? AND active = 1 AND last_seen < ?
     `).all(churchId, fourWeeksAgo);
 
-    for (const mem of stale) {
-      const weeksSinceLastSeen = Math.floor((now - new Date(mem.last_seen)) / (7 * 24 * 60 * 60 * 1000));
+    for (const memory of stale) {
+      const weeksSinceLastSeen = Math.floor((now - new Date(memory.last_seen)) / (7 * 24 * 60 * 60 * 1000));
       const weeksOverThreshold = weeksSinceLastSeen - 4;
-      const decayRate = mem.category === 'user_note' ? CONFIDENCE_DECAY_PER_WEEK * 0.5 : CONFIDENCE_DECAY_PER_WEEK;
+      const decayRate = memory.category === 'user_note' ? CONFIDENCE_DECAY_PER_WEEK * 0.5 : CONFIDENCE_DECAY_PER_WEEK;
       const decay = weeksOverThreshold * decayRate;
-      const newConfidence = Math.max(0, mem.confidence - decay);
+      const newConfidence = Math.max(0, memory.confidence - decay);
 
       if (newConfidence < ARCHIVE_THRESHOLD) {
-        this.db.prepare('UPDATE church_memory SET active = 0, confidence = ? WHERE id = ?').run(newConfidence, mem.id);
+        this.db.prepare('UPDATE church_memory SET active = 0, confidence = ? WHERE id = ?').run(newConfidence, memory.id);
       } else {
-        this.db.prepare('UPDATE church_memory SET confidence = ? WHERE id = ?').run(newConfidence, mem.id);
+        this.db.prepare('UPDATE church_memory SET confidence = ? WHERE id = ?').run(newConfidence, memory.id);
       }
     }
 
-    // 2. Enforce per-church cap
     const activeCount = this.db.prepare(
       'SELECT COUNT(*) as cnt FROM church_memory WHERE church_id = ? AND active = 1'
     ).get(churchId)?.cnt || 0;
@@ -518,14 +982,58 @@ class ChurchMemory {
     }
   }
 
+  async _consolidateAsync(churchId) {
+    await this.ready;
+    const client = this._requireClient();
+    const now = new Date();
+    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await client.query(`
+      SELECT id, confidence, last_seen, category FROM church_memory
+      WHERE church_id = ? AND active = 1 AND last_seen < ?
+    `, [churchId, fourWeeksAgo]);
+
+    for (const memory of stale) {
+      const weeksSinceLastSeen = Math.floor((now - new Date(memory.last_seen)) / (7 * 24 * 60 * 60 * 1000));
+      const weeksOverThreshold = weeksSinceLastSeen - 4;
+      const decayRate = memory.category === 'user_note' ? CONFIDENCE_DECAY_PER_WEEK * 0.5 : CONFIDENCE_DECAY_PER_WEEK;
+      const decay = weeksOverThreshold * decayRate;
+      const newConfidence = Math.max(0, memory.confidence - decay);
+
+      if (newConfidence < ARCHIVE_THRESHOLD) {
+        await client.run('UPDATE church_memory SET active = 0, confidence = ? WHERE id = ?', [newConfidence, memory.id]);
+      } else {
+        await client.run('UPDATE church_memory SET confidence = ? WHERE id = ?', [newConfidence, memory.id]);
+      }
+    }
+
+    const activeCountRow = await client.queryOne(
+      'SELECT COUNT(*) as cnt FROM church_memory WHERE church_id = ? AND active = 1',
+      [churchId]
+    );
+    const activeCount = Number(activeCountRow?.cnt || 0);
+
+    if (activeCount > MAX_MEMORIES_PER_CHURCH) {
+      const toArchive = activeCount - MAX_MEMORIES_PER_CHURCH;
+      await client.run(`
+        UPDATE church_memory SET active = 0
+        WHERE id IN (
+          SELECT id FROM church_memory
+          WHERE church_id = ? AND active = 1
+          ORDER BY confidence ASC, last_seen ASC
+          LIMIT ?
+        )
+      `, [churchId, toArchive]);
+    }
+  }
+
   // ─── SUMMARY REBUILD ──────────────────────────────────────────────────────
 
-  /**
-   * Recompile the cached memory summary from the top memories.
-   * Written to churches.memory_summary for fast reads by the parser.
-   * @param {string} churchId
-   */
   _rebuildSummary(churchId) {
+    if (this.db) return this._rebuildSummarySync(churchId);
+    return this._rebuildSummaryAsync(churchId);
+  }
+
+  _rebuildSummarySync(churchId) {
     try {
       const rows = this.db.prepare(`
         SELECT summary FROM church_memory
@@ -534,46 +1042,82 @@ class ChurchMemory {
         LIMIT 8
       `).all(churchId);
 
-      if (!rows.length) {
-        this.db.prepare('UPDATE churches SET memory_summary = ? WHERE churchId = ?').run('', churchId);
-        return;
-      }
-
-      // Build compact summary string
-      const sentences = rows.map(r => r.summary);
-      let text = '[Memory: ' + sentences.join('. ') + '.]';
-
-      // Enforce character budget
-      if (text.length > MAX_SUMMARY_CHARS) {
-        // Progressively drop last sentences until it fits
-        while (sentences.length > 1 && text.length > MAX_SUMMARY_CHARS) {
-          sentences.pop();
-          text = '[Memory: ' + sentences.join('. ') + '.]';
-        }
-        if (text.length > MAX_SUMMARY_CHARS) {
-          text = text.slice(0, MAX_SUMMARY_CHARS - 1) + ']';
-        }
-      }
-
+      const text = this._compileSummary(rows);
       this.db.prepare('UPDATE churches SET memory_summary = ? WHERE churchId = ?').run(text, churchId);
     } catch (e) {
       console.error(`[ChurchMemory] Summary rebuild error for ${churchId}:`, e.message);
     }
   }
 
+  async _rebuildSummaryAsync(churchId) {
+    try {
+      await this.ready;
+      const rows = await this._requireClient().query(`
+        SELECT summary FROM church_memory
+        WHERE church_id = ? AND active = 1
+        ORDER BY CASE WHEN category = 'user_note' THEN 0 ELSE 1 END, confidence DESC, last_seen DESC
+        LIMIT 8
+      `, [churchId]);
+
+      const text = this._compileSummary(rows);
+      await this._requireClient().run('UPDATE churches SET memory_summary = ? WHERE churchId = ?', [text, churchId]);
+    } catch (e) {
+      console.error(`[ChurchMemory] Summary rebuild error for ${churchId}:`, e.message);
+    }
+  }
+
+  _compileSummary(rows) {
+    if (!rows.length) return '';
+
+    const sentences = rows.map((row) => row.summary);
+    let text = `[Memory: ${sentences.join('. ')}.]`;
+
+    if (text.length > MAX_SUMMARY_CHARS) {
+      while (sentences.length > 1 && text.length > MAX_SUMMARY_CHARS) {
+        sentences.pop();
+        text = `[Memory: ${sentences.join('. ')}.]`;
+      }
+      if (text.length > MAX_SUMMARY_CHARS) {
+        text = text.slice(0, MAX_SUMMARY_CHARS - 1) + ']';
+      }
+    }
+
+    return text;
+  }
+
   // ─── READ: PRE-SERVICE CONTEXT ──────────────────────────────────────────
 
-  /**
-   * Get memory context tailored for pre-service checks.
-   * Returns known issues, past failures, and equipment quirks so the
-   * pre-service check can call out areas that need extra attention.
-   * E.g., "OBS crashed twice last month — check OBS extra carefully"
-   * @param {string} churchId
-   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
-   */
   getPreServiceContext(churchId) {
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT summary, category, confidence, details FROM church_memory
+          WHERE church_id = ? AND active = 1
+            AND category IN ('equipment_quirk', 'fix_outcome', 'recurring_issue', 'user_note')
+          ORDER BY
+            CASE category
+              WHEN 'equipment_quirk' THEN 0
+              WHEN 'recurring_issue' THEN 1
+              WHEN 'fix_outcome' THEN 2
+              WHEN 'user_note' THEN 3
+            END,
+            confidence DESC, last_seen DESC
+          LIMIT 8
+        `).all(churchId);
+        return formatPreServiceContext(rows);
+      } catch (e) {
+        console.error(`[ChurchMemory] Pre-service context error for ${churchId}:`, e.message);
+        return '';
+      }
+    }
+
+    return this._getPreServiceContextAsync(churchId);
+  }
+
+  async _getPreServiceContextAsync(churchId) {
     try {
-      const rows = this.db.prepare(`
+      await this.ready;
+      const rows = await this._requireClient().query(`
         SELECT summary, category, confidence, details FROM church_memory
         WHERE church_id = ? AND active = 1
           AND category IN ('equipment_quirk', 'fix_outcome', 'recurring_issue', 'user_note')
@@ -586,26 +1130,8 @@ class ChurchMemory {
           END,
           confidence DESC, last_seen DESC
         LIMIT 8
-      `).all(churchId);
-
-      if (!rows.length) return '';
-
-      const lines = [];
-      for (const r of rows) {
-        let prefix = '';
-        if (r.category === 'equipment_quirk') prefix = '[QUIRK] ';
-        else if (r.category === 'recurring_issue') prefix = '[RECURRING] ';
-        else if (r.category === 'fix_outcome') {
-          try {
-            const d = JSON.parse(r.details || '{}');
-            prefix = d.success === false ? '[PAST FAILURE] ' : '[FIX] ';
-          } catch { prefix = '[FIX] '; }
-        } else if (r.category === 'user_note') prefix = '[NOTE] ';
-        lines.push(`- ${prefix}${r.summary}`);
-      }
-
-      const text = `Pre-service watch list:\n${lines.join('\n')}`;
-      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+      `, [churchId]);
+      return formatPreServiceContext(rows);
     } catch (e) {
       console.error(`[ChurchMemory] Pre-service context error for ${churchId}:`, e.message);
       return '';
@@ -614,50 +1140,37 @@ class ChurchMemory {
 
   // ─── READ: SESSION CONTEXT ────────────────────────────────────────────────
 
-  /**
-   * Get memory context for session recap enrichment.
-   * Returns recurring patterns, known workarounds, and reliability trends
-   * so post-service AI recommendations can reference historical context.
-   * @param {string} churchId
-   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
-   */
   getSessionContext(churchId) {
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT summary, category, confidence, details FROM church_memory
+          WHERE church_id = ? AND active = 1
+            AND category IN ('recurring_issue', 'fix_outcome', 'reliability_trend', 'equipment_quirk')
+          ORDER BY confidence DESC, last_seen DESC
+          LIMIT 8
+        `).all(churchId);
+        return formatSessionContext(rows);
+      } catch (e) {
+        console.error(`[ChurchMemory] Session context error for ${churchId}:`, e.message);
+        return '';
+      }
+    }
+
+    return this._getSessionContextAsync(churchId);
+  }
+
+  async _getSessionContextAsync(churchId) {
     try {
-      const rows = this.db.prepare(`
+      await this.ready;
+      const rows = await this._requireClient().query(`
         SELECT summary, category, confidence, details FROM church_memory
         WHERE church_id = ? AND active = 1
           AND category IN ('recurring_issue', 'fix_outcome', 'reliability_trend', 'equipment_quirk')
         ORDER BY confidence DESC, last_seen DESC
         LIMIT 8
-      `).all(churchId);
-
-      if (!rows.length) return '';
-
-      const lines = [];
-      for (const r of rows) {
-        try {
-          const d = JSON.parse(r.details || '{}');
-          if (r.category === 'fix_outcome' && d.success) {
-            lines.push(`- Known fix: ${r.summary}`);
-          } else if (r.category === 'fix_outcome' && d.success === false) {
-            lines.push(`- Unresolved: ${r.summary}`);
-          } else if (r.category === 'recurring_issue') {
-            const rec = d.recommendation ? ` (tip: ${d.recommendation})` : '';
-            lines.push(`- Pattern: ${r.summary}${rec}`);
-          } else if (r.category === 'reliability_trend') {
-            lines.push(`- Trend: ${r.summary}`);
-          } else if (r.category === 'equipment_quirk') {
-            lines.push(`- Quirk: ${r.summary}`);
-          } else {
-            lines.push(`- ${r.summary}`);
-          }
-        } catch {
-          lines.push(`- ${r.summary}`);
-        }
-      }
-
-      const text = `Session history:\n${lines.join('\n')}`;
-      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+      `, [churchId]);
+      return formatSessionContext(rows);
     } catch (e) {
       console.error(`[ChurchMemory] Session context error for ${churchId}:`, e.message);
       return '';
@@ -666,17 +1179,37 @@ class ChurchMemory {
 
   // ─── READ: ONBOARDING CONTEXT ─────────────────────────────────────────────
 
-  /**
-   * Get memory context for onboarding conversations.
-   * Returns equipment preferences, past configurations, and user notes
-   * so the onboarding AI can reference what the church has used before.
-   * Useful when a church re-onboards or a new TD takes over.
-   * @param {string} churchId
-   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
-   */
   getOnboardingContext(churchId) {
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT summary, category, confidence, details FROM church_memory
+          WHERE church_id = ? AND active = 1
+            AND category IN ('user_note', 'equipment_quirk', 'fix_outcome', 'reliability_trend')
+          ORDER BY
+            CASE category
+              WHEN 'user_note' THEN 0
+              WHEN 'equipment_quirk' THEN 1
+              WHEN 'reliability_trend' THEN 2
+              WHEN 'fix_outcome' THEN 3
+            END,
+            confidence DESC, last_seen DESC
+          LIMIT 6
+        `).all(churchId);
+        return formatOnboardingContext(rows);
+      } catch (e) {
+        console.error(`[ChurchMemory] Onboarding context error for ${churchId}:`, e.message);
+        return '';
+      }
+    }
+
+    return this._getOnboardingContextAsync(churchId);
+  }
+
+  async _getOnboardingContextAsync(churchId) {
     try {
-      const rows = this.db.prepare(`
+      await this.ready;
+      const rows = await this._requireClient().query(`
         SELECT summary, category, confidence, details FROM church_memory
         WHERE church_id = ? AND active = 1
           AND category IN ('user_note', 'equipment_quirk', 'fix_outcome', 'reliability_trend')
@@ -689,25 +1222,8 @@ class ChurchMemory {
           END,
           confidence DESC, last_seen DESC
         LIMIT 6
-      `).all(churchId);
-
-      if (!rows.length) return '';
-
-      const lines = [];
-      for (const r of rows) {
-        if (r.category === 'user_note') {
-          lines.push(`- Preference: ${r.summary}`);
-        } else if (r.category === 'equipment_quirk') {
-          lines.push(`- Equipment note: ${r.summary}`);
-        } else if (r.category === 'reliability_trend') {
-          lines.push(`- ${r.summary}`);
-        } else if (r.category === 'fix_outcome') {
-          lines.push(`- Past experience: ${r.summary}`);
-        }
-      }
-
-      const text = `Church history:\n${lines.join('\n')}`;
-      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+      `, [churchId]);
+      return formatOnboardingContext(rows);
     } catch (e) {
       console.error(`[ChurchMemory] Onboarding context error for ${churchId}:`, e.message);
       return '';
@@ -716,20 +1232,12 @@ class ChurchMemory {
 
   // ─── WRITE: INCIDENT LEARNING ─────────────────────────────────────────────
 
-  /**
-   * Store a new memory from an incident.
-   * E.g., "ATEM needed power cycle after firmware update"
-   * Can be called from alertEngine, manual TD reports, or post-service analysis.
-   * @param {string} churchId
-   * @param {object} incident
-   * @param {string} incident.type  Event type (e.g., 'atem_connection_lost', 'obs_crash')
-   * @param {string} incident.summary  Human-readable description of the learning
-   * @param {string} [incident.resolution]  What fixed it
-   * @param {string} [incident.device]  Device involved (e.g., 'ATEM', 'OBS')
-   * @param {object} [incident.metadata]  Additional structured data
-   * @returns {boolean}  true if a new memory was created
-   */
   recordIncidentLearning(churchId, incident) {
+    if (this.db) return this._recordIncidentLearningSync(churchId, incident);
+    return this._recordIncidentLearningAsync(churchId, incident);
+  }
+
+  _recordIncidentLearningSync(churchId, incident) {
     try {
       if (!incident || !incident.type || !incident.summary) {
         console.warn('[ChurchMemory] recordIncidentLearning: missing type or summary');
@@ -745,7 +1253,7 @@ class ChurchMemory {
         ...incident.metadata,
       };
 
-      const isNew = this._upsertMemory(
+      const isNew = this._upsertMemorySync(
         churchId,
         incident.resolution ? 'fix_outcome' : 'equipment_quirk',
         matchKey,
@@ -754,7 +1262,41 @@ class ChurchMemory {
         'incident_learning'
       );
 
-      this._rebuildSummary(churchId);
+      this._rebuildSummarySync(churchId);
+      return isNew;
+    } catch (e) {
+      console.error(`[ChurchMemory] Incident learning error for ${churchId}:`, e.message);
+      return false;
+    }
+  }
+
+  async _recordIncidentLearningAsync(churchId, incident) {
+    try {
+      await this.ready;
+      if (!incident || !incident.type || !incident.summary) {
+        console.warn('[ChurchMemory] recordIncidentLearning: missing type or summary');
+        return false;
+      }
+
+      const matchKey = `incident:${incident.type}:${(incident.device || 'unknown').toLowerCase()}`;
+      const summary = incident.summary.slice(0, 120);
+      const details = {
+        eventType: incident.type,
+        device: incident.device || null,
+        resolution: incident.resolution || null,
+        ...incident.metadata,
+      };
+
+      const isNew = await this._upsertMemoryAsync(
+        churchId,
+        incident.resolution ? 'fix_outcome' : 'equipment_quirk',
+        matchKey,
+        summary,
+        details,
+        'incident_learning'
+      );
+
+      await this._rebuildSummaryAsync(churchId);
       return isNew;
     } catch (e) {
       console.error(`[ChurchMemory] Incident learning error for ${churchId}:`, e.message);
@@ -764,37 +1306,37 @@ class ChurchMemory {
 
   // ─── READ: RECENT INSIGHTS ────────────────────────────────────────────────
 
-  /**
-   * Get the most relevant active memories sorted by confidence.
-   * A general-purpose accessor for any system that needs top memories.
-   * @param {string} churchId
-   * @param {number} [limit=5]  Maximum number of memories to return
-   * @returns {Array<{ summary: string, category: string, confidence: number, lastSeen: string, observationCount: number, details: object }>}
-   */
   getRecentInsights(churchId, limit = 5) {
+    if (this.db) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT summary, category, confidence, last_seen, observation_count, details
+          FROM church_memory
+          WHERE church_id = ? AND active = 1
+          ORDER BY confidence DESC, last_seen DESC
+          LIMIT ?
+        `).all(churchId, limit);
+        return toRecentInsights(rows);
+      } catch (e) {
+        console.error(`[ChurchMemory] Recent insights error for ${churchId}:`, e.message);
+        return [];
+      }
+    }
+
+    return this._getRecentInsightsAsync(churchId, limit);
+  }
+
+  async _getRecentInsightsAsync(churchId, limit = 5) {
     try {
-      const rows = this.db.prepare(`
+      await this.ready;
+      const rows = await this._requireClient().query(`
         SELECT summary, category, confidence, last_seen, observation_count, details
         FROM church_memory
         WHERE church_id = ? AND active = 1
         ORDER BY confidence DESC, last_seen DESC
         LIMIT ?
-      `).all(churchId, limit);
-
-      return rows.map(r => {
-        let parsedDetails = {};
-        try { parsedDetails = JSON.parse(r.details || '{}'); } catch {}
-        // Remove internal _matchKey from public API
-        delete parsedDetails._matchKey;
-        return {
-          summary: r.summary,
-          category: r.category,
-          confidence: r.confidence,
-          lastSeen: r.last_seen,
-          observationCount: r.observation_count,
-          details: parsedDetails,
-        };
-      });
+      `, [churchId, limit]);
+      return toRecentInsights(rows);
     } catch (e) {
       console.error(`[ChurchMemory] Recent insights error for ${churchId}:`, e.message);
       return [];
@@ -803,31 +1345,64 @@ class ChurchMemory {
 
   // ─── ADMIN / DEBUG ────────────────────────────────────────────────────────
 
-  /**
-   * List all memories for a church.
-   * @param {string} churchId
-   * @param {object} opts
-   * @returns {object[]}
-   */
   getAll(churchId, { activeOnly = true } = {}) {
-    const where = activeOnly ? 'AND active = 1' : '';
-    return this.db.prepare(
-      `SELECT * FROM church_memory WHERE church_id = ? ${where} ORDER BY confidence DESC, last_seen DESC`
-    ).all(churchId);
+    if (this.db) {
+      const where = activeOnly ? 'AND active = 1' : '';
+      return this.db.prepare(
+        `SELECT * FROM church_memory WHERE church_id = ? ${where} ORDER BY confidence DESC, last_seen DESC`
+      ).all(churchId);
+    }
+
+    return this._getAllAsync(churchId, { activeOnly });
   }
 
-  /**
-   * Get summary stats.
-   */
+  async _getAllAsync(churchId, { activeOnly = true } = {}) {
+    try {
+      await this.ready;
+      const where = activeOnly ? 'AND active = 1' : '';
+      return this._requireClient().query(
+        `SELECT * FROM church_memory WHERE church_id = ? ${where} ORDER BY confidence DESC, last_seen DESC`,
+        [churchId]
+      );
+    } catch {
+      return [];
+    }
+  }
+
   getStats() {
-    return this.db.prepare(`
-      SELECT
-        COUNT(*) as total_memories,
-        COUNT(DISTINCT church_id) as churches_with_memory,
-        SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_memories,
-        SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as archived_memories
-      FROM church_memory
-    `).get();
+    if (this.db) {
+      return this.db.prepare(`
+        SELECT
+          COUNT(*) as total_memories,
+          COUNT(DISTINCT church_id) as churches_with_memory,
+          SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_memories,
+          SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as archived_memories
+        FROM church_memory
+      `).get();
+    }
+
+    return this._getStatsAsync();
+  }
+
+  async _getStatsAsync() {
+    try {
+      await this.ready;
+      return this._requireClient().queryOne(`
+        SELECT
+          COUNT(*) as total_memories,
+          COUNT(DISTINCT church_id) as churches_with_memory,
+          SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_memories,
+          SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as archived_memories
+        FROM church_memory
+      `, []);
+    } catch {
+      return {
+        total_memories: 0,
+        churches_with_memory: 0,
+        active_memories: 0,
+        archived_memories: 0,
+      };
+    }
   }
 }
 

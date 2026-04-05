@@ -23,6 +23,17 @@ const DAY_MAP = {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function resolveDbAccess(dbOrClient) {
+  if (!dbOrClient) return { db: null, client: null };
+  if (typeof dbOrClient.queryOne === 'function' && typeof dbOrClient.run === 'function') {
+    return { db: null, client: dbOrClient };
+  }
+  if (typeof dbOrClient.prepare === 'function') {
+    return { db: dbOrClient, client: null };
+  }
+  return { db: null, client: null };
+}
+
 // ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
 
 function buildSystemPrompt(state, collectedData, scanResults) {
@@ -254,32 +265,72 @@ function ensureTable(db) {
 }
 
 function getSession(db, churchId) {
-  const row = db.prepare('SELECT * FROM onboarding_sessions WHERE church_id = ?').get(churchId);
-  if (!row) return null;
-  return {
-    churchId: row.church_id,
-    state: row.state,
-    collectedData: JSON.parse(row.collected_data || '{}'),
-    scanResults: JSON.parse(row.scan_results || '{}'),
-    startedAt: row.started_at,
-    updatedAt: row.updated_at,
+  const { db: sqliteDb, client } = resolveDbAccess(db);
+  const mapRow = (row) => {
+    if (!row) return null;
+    return {
+      churchId: row.church_id,
+      state: row.state,
+      collectedData: JSON.parse(row.collected_data || '{}'),
+      scanResults: JSON.parse(row.scan_results || '{}'),
+      startedAt: row.started_at,
+      updatedAt: row.updated_at,
+    };
   };
+
+  if (client) {
+    return client.queryOne('SELECT * FROM onboarding_sessions WHERE church_id = ?', [churchId]).then(mapRow);
+  }
+
+  if (!sqliteDb) return null;
+  return mapRow(sqliteDb.prepare('SELECT * FROM onboarding_sessions WHERE church_id = ?').get(churchId));
 }
 
 function createSession(db, churchId, scanResults = {}) {
   const now = new Date().toISOString();
-  db.prepare(`
-    INSERT OR REPLACE INTO onboarding_sessions (church_id, state, collected_data, scan_results, started_at, updated_at)
-    VALUES (?, 'intro', '{}', ?, ?, ?)
-  `).run(churchId, JSON.stringify(scanResults), now, now);
+  const { db: sqliteDb, client } = resolveDbAccess(db);
+  if (client) {
+    return client.run(`
+      INSERT INTO onboarding_sessions (church_id, state, collected_data, scan_results, started_at, updated_at)
+      VALUES (?, 'intro', '{}', ?, ?, ?)
+      ON CONFLICT(church_id) DO UPDATE SET
+        state = excluded.state,
+        collected_data = excluded.collected_data,
+        scan_results = excluded.scan_results,
+        started_at = excluded.started_at,
+        updated_at = excluded.updated_at
+    `, [churchId, JSON.stringify(scanResults), now, now]).then(() => ({
+      churchId,
+      state: 'intro',
+      collectedData: {},
+      scanResults,
+      startedAt: now,
+      updatedAt: now,
+    }));
+  }
+
+  if (sqliteDb) {
+    sqliteDb.prepare(`
+      INSERT OR REPLACE INTO onboarding_sessions (church_id, state, collected_data, scan_results, started_at, updated_at)
+      VALUES (?, 'intro', '{}', ?, ?, ?)
+    `).run(churchId, JSON.stringify(scanResults), now, now);
+  }
   return { churchId, state: 'intro', collectedData: {}, scanResults, startedAt: now, updatedAt: now };
 }
 
 function updateSession(db, churchId, state, collectedData) {
   const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE onboarding_sessions SET state = ?, collected_data = ?, updated_at = ? WHERE church_id = ?
-  `).run(state, JSON.stringify(collectedData), now, churchId);
+  const { db: sqliteDb, client } = resolveDbAccess(db);
+  if (client) {
+    return client.run(`
+      UPDATE onboarding_sessions SET state = ?, collected_data = ?, updated_at = ? WHERE church_id = ?
+    `, [state, JSON.stringify(collectedData), now, churchId]);
+  }
+  if (sqliteDb) {
+    sqliteDb.prepare(`
+      UPDATE onboarding_sessions SET state = ?, collected_data = ?, updated_at = ? WHERE church_id = ?
+    `).run(state, JSON.stringify(collectedData), now, churchId);
+  }
 }
 
 // ─── AI CALL ─────────────────────────────────────────────────────────────────
@@ -351,13 +402,18 @@ function parseAIResponse(raw) {
  */
 async function processOnboardingMessage(db, churchId, message, scanResults, chatEngine) {
   // Load or create session
-  let session = getSession(db, churchId);
+  let session = await Promise.resolve(getSession(db, churchId));
   if (!session) {
-    session = createSession(db, churchId, scanResults || {});
+    session = await Promise.resolve(createSession(db, churchId, scanResults || {}));
   } else if (scanResults && Object.keys(scanResults).length > 0) {
     // Update scan results if new ones provided
-    db.prepare('UPDATE onboarding_sessions SET scan_results = ? WHERE church_id = ?')
-      .run(JSON.stringify(scanResults), churchId);
+    const { db: sqliteDb, client } = resolveDbAccess(db);
+    if (client) {
+      await client.run('UPDATE onboarding_sessions SET scan_results = ? WHERE church_id = ?', [JSON.stringify(scanResults), churchId]);
+    } else if (sqliteDb) {
+      sqliteDb.prepare('UPDATE onboarding_sessions SET scan_results = ? WHERE church_id = ?')
+        .run(JSON.stringify(scanResults), churchId);
+    }
     session.scanResults = scanResults;
   }
 
@@ -365,7 +421,7 @@ async function processOnboardingMessage(db, churchId, message, scanResults, chat
   const history = [];
   if (chatEngine) {
     try {
-      const msgs = chatEngine.getMessages(churchId, { limit: 50 });
+      const msgs = await chatEngine.getMessages(churchId, { limit: 50 });
       const onboardingMsgs = msgs.filter(m => m.source === 'onboarding');
       // Take last 20 onboarding messages for context window
       const recent = onboardingMsgs.slice(-20);
@@ -424,7 +480,7 @@ async function processOnboardingMessage(db, churchId, message, scanResults, chat
     }
   }
 
-  updateSession(db, churchId, nextState, collectedData);
+  await Promise.resolve(updateSession(db, churchId, nextState, collectedData));
 
   // Compute progress
   const progress = parsed.progress || computeProgress(nextState, collectedData);
@@ -465,6 +521,119 @@ function computeProgress(state, collectedData) {
  */
 function executeOnboardingAction(db, churchId, action, churches, scheduleEngine) {
   const { type, data } = action;
+  const { db: sqliteDb, client } = resolveDbAccess(db);
+
+  if (client) {
+    return (async () => {
+      switch (type) {
+        case 'save_equipment': {
+          const updates = [];
+          const params = [];
+          const localConfig = {};
+
+          if (data.atemHost) { updates.push('atem_host = ?'); params.push(data.atemHost); localConfig.atemIp = data.atemHost; }
+          if (data.atemPort) { updates.push('atem_port = ?'); params.push(data.atemPort); }
+          if (data.obsHost) { updates.push('obs_host = ?'); params.push(data.obsHost); }
+          if (data.obsPort) { updates.push('obs_port = ?'); params.push(data.obsPort); }
+          if (data.videohubHost) { updates.push('videohub_host = ?'); params.push(data.videohubHost); }
+          if (data.videohubPort) { updates.push('videohub_port = ?'); params.push(data.videohubPort); }
+          if (data.proPresenterHost) { updates.push('propresenter_host = ?'); params.push(data.proPresenterHost); }
+          if (data.proPresenterPort) { updates.push('propresenter_port = ?'); params.push(data.proPresenterPort); }
+
+          if (data.encoderType) localConfig.encoderType = data.encoderType;
+          if (data.encoderHost) localConfig.encoderHost = data.encoderHost;
+          if (data.encoderPort) localConfig.encoderPort = data.encoderPort;
+
+          if (data.companionHost) {
+            const port = data.companionPort || 8888;
+            localConfig.companionUrl = `http://${data.companionHost}:${port}`;
+          }
+
+          if (updates.length > 0) {
+            params.push(churchId);
+            await client.run(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`, params);
+            const runtime = churches.get(churchId);
+            if (runtime) {
+              if (data.atemHost) runtime.atem_host = data.atemHost;
+              if (data.obsHost) runtime.obs_host = data.obsHost;
+            }
+          }
+          return { ok: true, message: 'Equipment configuration saved', localConfig };
+        }
+
+        case 'save_schedule': {
+          const services = data.services || data;
+          const { portalFormat, engineFormat } = parseScheduleToFormats(
+            Array.isArray(services) ? services : [services]
+          );
+
+          await client.run('UPDATE churches SET schedule = ? WHERE churchId = ?', [JSON.stringify(portalFormat), churchId]);
+
+          if (scheduleEngine) {
+            scheduleEngine.setSchedule(churchId, engineFormat);
+          }
+
+          const runtime = churches.get(churchId);
+          if (runtime) runtime.schedule = portalFormat;
+
+          return { ok: true, message: 'Service schedule saved' };
+        }
+
+        case 'save_tds': {
+          const tds = data.tds || [];
+          let added = 0;
+          for (const td of tds) {
+            if (!td.name) continue;
+            const id = uuidv4();
+            try {
+              await client.run(`
+                INSERT INTO church_tds (id, church_id, name, role, email, phone, registered_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `, [id, churchId, td.name, td.role || 'TD', td.email || null, td.phone || null, new Date().toISOString()]);
+              added++;
+            } catch { /* duplicate or missing table — non-fatal */ }
+          }
+          return { ok: true, message: `${added} team member${added !== 1 ? 's' : ''} added` };
+        }
+
+        case 'save_engineer_profile': {
+          const updates = [];
+          const params = [];
+          if (data.churchName) { updates.push('name = ?'); params.push(data.churchName); }
+          if (data.timezone) { updates.push('timezone = ?'); params.push(data.timezone); }
+
+          const profile = {};
+          if (data.streamPlatform) profile.streamPlatform = data.streamPlatform;
+          if (data.expectedViewers) profile.expectedViewers = data.expectedViewers;
+          if (data.operatorLevel) profile.operatorLevel = data.operatorLevel;
+          if (data.backupEncoder) profile.backupEncoder = data.backupEncoder;
+          if (data.backupSwitcher) profile.backupSwitcher = data.backupSwitcher;
+          if (data.specialNotes) profile.specialNotes = data.specialNotes;
+
+          if (Object.keys(profile).length > 0) {
+            updates.push('engineer_profile = ?');
+            params.push(JSON.stringify(profile));
+          }
+
+          if (updates.length > 0) {
+            params.push(churchId);
+            await client.run(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`, params);
+          }
+
+          const localConfig = {};
+          if (data.churchName) localConfig.name = data.churchName;
+          return { ok: true, message: 'Profile saved', localConfig };
+        }
+
+        case 'complete':
+          await client.run('UPDATE onboarding_sessions SET state = ? WHERE church_id = ?', ['complete', churchId]);
+          return { ok: true, message: 'Onboarding complete! Welcome to TallyConnect.' };
+
+        default:
+          return { ok: false, message: `Unknown action type: ${type}` };
+      }
+    })();
+  }
 
   switch (type) {
     case 'save_equipment': {
@@ -494,7 +663,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
 
       if (updates.length > 0) {
         params.push(churchId);
-        db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
+        sqliteDb.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
         const runtime = churches.get(churchId);
         if (runtime) {
           if (data.atemHost) runtime.atem_host = data.atemHost;
@@ -510,7 +679,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
         Array.isArray(services) ? services : [services]
       );
 
-      db.prepare('UPDATE churches SET schedule = ? WHERE churchId = ?')
+      sqliteDb.prepare('UPDATE churches SET schedule = ? WHERE churchId = ?')
         .run(JSON.stringify(portalFormat), churchId);
 
       if (scheduleEngine) {
@@ -530,7 +699,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
         if (!td.name) continue;
         const id = uuidv4();
         try {
-          db.prepare(`
+          sqliteDb.prepare(`
             INSERT INTO church_tds (id, church_id, name, role, email, phone, registered_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(id, churchId, td.name, td.role || 'TD', td.email || null, td.phone || null, new Date().toISOString());
@@ -563,7 +732,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
 
       if (updates.length > 0) {
         params.push(churchId);
-        db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
+        sqliteDb.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
       }
 
       // Return localConfig with name for Electron display
@@ -573,7 +742,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
     }
 
     case 'complete': {
-      db.prepare('UPDATE onboarding_sessions SET state = ? WHERE church_id = ?')
+      sqliteDb.prepare('UPDATE onboarding_sessions SET state = ? WHERE church_id = ?')
         .run('complete', churchId);
       return { ok: true, message: 'Onboarding complete! Welcome to TallyConnect.' };
     }

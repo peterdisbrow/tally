@@ -4,17 +4,57 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+function isDuplicateColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate column name') || message.includes('already exists');
+}
 
 class WeeklyDigest {
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
     this._lastDigestDate = null;
-    this._ensureTable();
     this.digestDir = path.join(__dirname, '..', 'data', 'digests');
     if (!fs.existsSync(this.digestDir)) fs.mkdirSync(this.digestDir, { recursive: true });
+    if (this.db) {
+      this._ensureTableSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
   }
 
-  _ensureTable() {
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[WeeklyDigest] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTable();
+  }
+
+  _ensureTableSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS service_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +81,61 @@ class WeeklyDigest {
     catch { this.db.exec('ALTER TABLE service_events ADD COLUMN room_id TEXT'); }
   }
 
+  async _ensureTable() {
+    const client = this._requireClient();
+    const idType = client.driver === 'postgres' ? 'BIGSERIAL' : 'INTEGER';
+    const autoIncrement = client.driver === 'postgres' ? '' : ' AUTOINCREMENT';
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS service_events (
+        id ${idType} PRIMARY KEY${autoIncrement},
+        church_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        details TEXT DEFAULT '',
+        resolved INTEGER DEFAULT 0,
+        resolved_at TEXT,
+        auto_resolved INTEGER DEFAULT 0
+      )
+    `);
+
+    try {
+      await client.queryOne('SELECT session_id FROM service_events LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_events ADD COLUMN session_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT instance_name FROM service_events LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_events ADD COLUMN instance_name TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT room_id FROM service_events LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_events ADD COLUMN room_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+  }
+
   addEvent(churchId, eventType, details = '', sessionId = null, { instanceName, roomId } = {}) {
+    if (this.db) return this._addEventSync(churchId, eventType, details, sessionId, { instanceName, roomId });
+    return this._addEventAsync(churchId, eventType, details, sessionId, { instanceName, roomId });
+  }
+
+  _addEventSync(churchId, eventType, details = '', sessionId = null, { instanceName, roomId } = {}) {
     const now = new Date().toISOString();
     const result = this.db.prepare(
       'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -49,10 +143,56 @@ class WeeklyDigest {
     return result.lastInsertRowid;
   }
 
+  async _addEventAsync(churchId, eventType, details = '', sessionId = null, { instanceName, roomId } = {}) {
+    await this.ready;
+    const client = this._requireClient();
+    const now = new Date().toISOString();
+    const detailValue = typeof details === 'string' ? details : JSON.stringify(details);
+
+    if (client.driver === 'postgres') {
+      const row = await client.queryOne(
+        'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [churchId, now, eventType, detailValue, sessionId, instanceName || null, roomId || null]
+      );
+      return row?.id ?? null;
+    }
+
+    const result = await client.run(
+      'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [churchId, now, eventType, detailValue, sessionId, instanceName || null, roomId || null]
+    );
+    return result.lastInsertRowid ?? null;
+  }
+
   resolveEvent(eventId, autoResolved = false) {
+    if (this.db) return this._resolveEventSync(eventId, autoResolved);
+    return this._resolveEventAsync(eventId, autoResolved);
+  }
+
+  _resolveEventSync(eventId, autoResolved = false) {
     this.db.prepare(
       'UPDATE service_events SET resolved = 1, resolved_at = ?, auto_resolved = ? WHERE id = ?'
     ).run(new Date().toISOString(), autoResolved ? 1 : 0, eventId);
+  }
+
+  async _resolveEventAsync(eventId, autoResolved = false) {
+    await this.ready;
+    await this._requireClient().run(
+      'UPDATE service_events SET resolved = 1, resolved_at = ?, auto_resolved = ? WHERE id = ?',
+      [new Date().toISOString(), autoResolved ? 1 : 0, eventId]
+    );
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    await this.ready;
+    return this._requireClient().queryOne(sql, params);
   }
 
   async generateDigest() {
@@ -60,11 +200,12 @@ class WeeklyDigest {
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const weekStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-    const events = this.db.prepare(
-      'SELECT * FROM service_events WHERE timestamp >= ? ORDER BY timestamp ASC'
-    ).all(weekAgo.toISOString());
+    const events = await this._all(
+      'SELECT * FROM service_events WHERE timestamp >= ? ORDER BY timestamp ASC',
+      [weekAgo.toISOString()]
+    );
 
-    const churches = this.db.prepare('SELECT churchId, name FROM churches').all();
+    const churches = await this._all('SELECT churchId AS "churchId", name FROM churches');
     const churchMap = new Map(churches.map(c => [c.churchId, c.name]));
 
     // Group events by church
@@ -151,7 +292,7 @@ class WeeklyDigest {
       }
 
       // Reliability score
-      const reliability = this._computeReliability(churchId, churchEvents);
+      const reliability = await this._computeReliability(churchId, churchEvents);
       if (reliability !== null) {
         lines.push(`**Reliability:** ${reliability}% uptime this week`);
       }
@@ -233,6 +374,11 @@ class WeeklyDigest {
    * @returns {number|null}
    */
   _computeReliability(churchId, events, instanceName) {
+    if (this.db) return this._computeReliabilitySync(churchId, events, instanceName);
+    return this._computeReliabilityAsync(churchId, events, instanceName);
+  }
+
+  _computeReliabilitySync(churchId, events, instanceName) {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       let sessions;
@@ -260,6 +406,38 @@ class WeeklyDigest {
       const reliability = Math.max(0, Math.round(((totalMinutes - downtimeMinutes) / totalMinutes) * 1000) / 10);
       return reliability;
     } catch { return null; }
+  }
+
+  async _computeReliabilityAsync(churchId, events, instanceName) {
+    try {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      let sessions;
+      if (instanceName) {
+        sessions = await this._all(
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY started_at ASC',
+          [churchId, weekAgo.toISOString(), instanceName]
+        );
+      } else {
+        sessions = await this._all(
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? ORDER BY started_at ASC',
+          [churchId, weekAgo.toISOString()]
+        );
+      }
+
+      if (!sessions.length) return null;
+
+      const totalMinutes = sessions.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+      if (totalMinutes === 0) return null;
+
+      const unresolvedCritical = events.filter(e =>
+        !e.resolved && ['stream_stopped', 'atem_disconnected', 'recording_failed', 'multiple_systems_down'].includes(e.event_type)
+      );
+      const downtimeMinutes = unresolvedCritical.length * 5;
+
+      return Math.max(0, Math.round(((totalMinutes - downtimeMinutes) / totalMinutes) * 1000) / 10);
+    } catch {
+      return null;
+    }
   }
 
   _formatSlotTime(slot) {
@@ -306,24 +484,27 @@ class WeeklyDigest {
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const weekStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-    const churches = this.db.prepare(
-      "SELECT churchId, name, billing_tier FROM churches WHERE billing_tier IN ('plus', 'pro', 'managed')"
-    ).all();
+    const churches = await this._all(
+      `SELECT churchId AS "churchId", name, billing_tier
+       FROM churches
+       WHERE billing_tier IN ('plus', 'pro', 'managed')`
+    );
 
     for (const church of churches) {
       try {
-        const events = this.db.prepare(
-          'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC'
-        ).all(church.churchId, weekAgo.toISOString());
+        const events = await this._all(
+          'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC',
+          [church.churchId, weekAgo.toISOString()]
+        );
 
         const patterns = this.detectPatterns(church.churchId, events);
-        const reliability = this._computeReliability(church.churchId, events);
+        const reliability = await this._computeReliability(church.churchId, events);
         const autoResolved = events.filter(e => e.auto_resolved).length;
 
         // Write weekly memories + consolidate stale data
         if (this.churchMemory) {
           try {
-            this.churchMemory.writeWeeklyMemories(church.churchId, patterns, reliability);
+            await this.churchMemory.writeWeeklyMemories(church.churchId, patterns, reliability);
           } catch (e) {
             console.error(`[WeeklyDigest] Memory write error for ${church.name}:`, e.message);
           }
@@ -358,9 +539,10 @@ class WeeklyDigest {
         const text = lines.join('\n');
 
         // Send to TDs via Telegram
-        const tds = this.db.prepare(
-          'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
-        ).all(church.churchId);
+        const tds = await this._all(
+          'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+          [church.churchId]
+        );
 
         for (const td of tds) {
           if (!td.telegram_chat_id) continue;
@@ -369,12 +551,14 @@ class WeeklyDigest {
 
         // Send digest email to leadership recipients
         if (this.lifecycleEmails) {
-          const fullChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+          const fullChurch = await this._one('SELECT * FROM churches WHERE churchId = ?', [church.churchId]);
           if (fullChurch && fullChurch.leadership_emails) {
             const leaderEmails = fullChurch.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
-            const sessionCount = this.db.prepare(
-              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?'
-            ).get(church.churchId, weekAgo.toISOString())?.cnt || 0;
+            const sessionCountRow = await this._one(
+              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?',
+              [church.churchId, weekAgo.toISOString()]
+            );
+            const sessionCount = sessionCountRow?.cnt || 0;
             // Top alert type
             const typeCounts = {};
             for (const ev of events) {
@@ -433,36 +617,40 @@ class WeeklyDigest {
    * @param {string} churchId
    * @returns {object}
    */
-  getChurchDigest(churchId, instanceName) {
+  async getChurchDigest(churchId, instanceName) {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     let events;
     if (instanceName) {
-      events = this.db.prepare(
-        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY timestamp ASC'
-      ).all(churchId, weekAgo.toISOString(), instanceName);
+      events = await this._all(
+        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY timestamp ASC',
+        [churchId, weekAgo.toISOString(), instanceName]
+      );
     } else {
-      events = this.db.prepare(
-        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC'
-      ).all(churchId, weekAgo.toISOString());
+      events = await this._all(
+        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC',
+        [churchId, weekAgo.toISOString()]
+      );
     }
 
     const patterns = this.detectPatterns(churchId, events);
-    const reliability = this._computeReliability(churchId, events, instanceName);
+    const reliability = await this._computeReliability(churchId, events, instanceName);
     const autoResolved = events.filter(e => e.auto_resolved).length;
     const totalEvents = events.length;
 
     let sessions = [];
     try {
       if (instanceName) {
-        sessions = this.db.prepare(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)'
-        ).all(churchId, weekAgo.toISOString(), instanceName);
+        sessions = await this._all(
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)',
+          [churchId, weekAgo.toISOString(), instanceName]
+        );
       } else {
-        sessions = this.db.prepare(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?'
-        ).all(churchId, weekAgo.toISOString());
+        sessions = await this._all(
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?',
+          [churchId, weekAgo.toISOString()]
+        );
       }
     } catch {}
 

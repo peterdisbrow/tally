@@ -4,6 +4,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
+const { SqliteQueryClient } = require('../src/db/queryClient');
 
 // ─── Pure function tests (no mocks needed) ────────────────────────────────
 
@@ -521,5 +526,107 @@ describe('setupBroadcastMonitor', () => {
     expect(church.broadcastHealth).toBeDefined();
     expect(church.broadcastHealth.youtube).toBeDefined();
     expect(church.broadcastHealth.youtube.status).toBe('no_broadcast');
+  });
+
+  it('supports the async queryClient path for token refresh and polling', async () => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE churches (
+        churchId TEXT PRIMARY KEY,
+        name TEXT,
+        yt_access_token TEXT,
+        yt_refresh_token TEXT,
+        yt_token_expires_at TEXT,
+        yt_channel_name TEXT,
+        fb_access_token TEXT,
+        fb_page_id TEXT,
+        fb_page_name TEXT,
+        room_id TEXT,
+        room_name TEXT
+      )
+    `);
+    db.prepare(`
+      INSERT INTO churches (
+        churchId, name, yt_access_token, yt_refresh_token, yt_token_expires_at,
+        yt_channel_name, fb_access_token, fb_page_id, fb_page_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'c1',
+      'Test Church',
+      'expired-token',
+      'refresh-token',
+      new Date(Date.now() + 60_000).toISOString(),
+      'Test Channel',
+      'fb-token',
+      'page-1',
+      'FB Page',
+    );
+
+    const queryClient = new SqliteQueryClient(db);
+    const churches = new Map([
+      ['c1', { churchId: 'c1', name: 'Test Church' }],
+    ]);
+    const alertEngine = {
+      sendAlert: vi.fn().mockResolvedValue({ alertId: 'test', severity: 'WARNING' }),
+    };
+    const notifyUpdate = vi.fn();
+    const monitor = (await import('../src/broadcastMonitor.js')).setupBroadcastMonitor(queryClient, { churches }, alertEngine, notifyUpdate);
+
+    fetchMock.mockImplementation((url) => {
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ access_token: 'refreshed-token', expires_in: 3600 }),
+        });
+      }
+      if (url.includes('liveBroadcasts')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            items: [{
+              status: { lifeCycleStatus: 'live' },
+              snippet: { title: 'Sunday Service' },
+              statistics: { concurrentViewers: '12' },
+              contentDetails: { boundStreamId: 'stream-1' },
+            }],
+          }),
+        });
+      }
+      if (url.includes('liveStreams')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            items: [{
+              status: { healthStatus: { status: 'good' } },
+              cdn: { resolution: '1080p', frameRate: '30fps' },
+            }],
+          }),
+        });
+      }
+      if (url.includes('live_videos')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{
+              status: 'LIVE',
+              title: 'Sunday Service',
+              live_views: 7,
+            }],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false });
+    });
+
+    await monitor.pollAll();
+
+    const refreshed = await queryClient.queryOne('SELECT yt_access_token FROM churches WHERE churchId = ?', ['c1']);
+    expect(refreshed?.yt_access_token).toBe('refreshed-token');
+    expect(churches.get('c1').broadcastHealth.youtube.status).toBe('good');
+    expect(churches.get('c1').broadcastHealth.facebook.status).toBe('good');
+    expect(notifyUpdate).toHaveBeenCalledWith('c1');
+
+    await queryClient.close();
+    db.close();
   });
 });

@@ -6,23 +6,28 @@
  */
 const crypto = require('node:crypto');
 const { hashPassword } = require('../auth');
+const { SqliteQueryClient } = require('../db/queryClient');
 
 module.exports = function setupEmailVerificationRoutes(app, ctx) {
-  const { db, APP_URL, sendOnboardingEmail, lifecycleEmails, rateLimit, log } = ctx;
+  const { db, queryClient, APP_URL, sendOnboardingEmail, lifecycleEmails, rateLimit, log } = ctx;
+  const emailQuery = queryClient || new SqliteQueryClient(db);
+  const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+  const qOne = (sql, params = []) => emailQuery.queryOne(sql, params);
+  const qRun = (sql, params = []) => emailQuery.run(sql, params);
 
   // Verify email via token link
-  app.get('/api/church/verify-email', (req, res) => {
+  app.get('/api/church/verify-email', asyncRoute(async (req, res) => {
     const { token } = req.query;
     if (!token) return res.status(400).json({ error: 'Verification token required' });
 
-    const church = db.prepare('SELECT churchId, name, email_verified, portal_email FROM churches WHERE email_verify_token = ?').get(token);
+    const church = await qOne('SELECT churchId, name, email_verified, portal_email FROM churches WHERE email_verify_token = ?', [token]);
     if (!church) return res.status(404).json({ error: 'Invalid or expired verification link' });
 
     if (church.email_verified) {
       return res.redirect('/church-portal?verified=already');
     }
 
-    db.prepare('UPDATE churches SET email_verified = 1, email_verify_token = NULL WHERE churchId = ?').run(church.churchId);
+    await qRun('UPDATE churches SET email_verified = 1, email_verify_token = NULL WHERE churchId = ?', [church.churchId]);
     log(`[EmailVerify] ✅ Email verified for "${church.name}" (${church.churchId})`);
 
     // Send welcome email (non-blocking)
@@ -31,15 +36,15 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     }
 
     res.redirect('/church-portal?verified=true');
-  });
+  }));
 
   // Resend verification email
-  app.post('/api/church/resend-verification', rateLimit(3, 60_000), (req, res) => {
+  app.post('/api/church/resend-verification', rateLimit(3, 60_000), asyncRoute(async (req, res) => {
     const { email } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail) return res.status(400).json({ error: 'email required' });
 
-    const church = db.prepare('SELECT churchId, name, portal_email, email_verified, email_verify_token FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = await qOne('SELECT churchId, name, portal_email, email_verified, email_verify_token FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church) return res.json({ sent: true }); // Don't reveal if account exists
     if (church.email_verified) return res.json({ sent: true, alreadyVerified: true });
 
@@ -47,8 +52,7 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     let verifyToken = church.email_verify_token;
     if (!verifyToken) {
       verifyToken = crypto.randomBytes(32).toString('hex');
-      db.prepare('UPDATE churches SET email_verify_token = ?, email_verify_sent_at = ? WHERE churchId = ?')
-        .run(verifyToken, new Date().toISOString(), church.churchId);
+      await qRun('UPDATE churches SET email_verify_token = ?, email_verify_sent_at = ? WHERE churchId = ?', [verifyToken, new Date().toISOString(), church.churchId]);
     }
 
     // Send verification email (non-blocking)
@@ -80,24 +84,23 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     }).catch(e => log(`[EmailVerify] ⚠ Verification email send failed for ${cleanEmail}: ${e.message}`));
 
     res.json({ sent: true });
-  });
+  }));
 
   // ─── FORGOT PASSWORD (self-service) ──────────────────────────────────────
 
-  app.post('/api/church/forgot-password', rateLimit(3, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/forgot-password', rateLimit(3, 15 * 60 * 1000), asyncRoute(async (req, res) => {
     const { email } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail) return res.status(400).json({ error: 'email required' });
 
     // Always return success to prevent email enumeration
-    const church = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = await qOne('SELECT churchId, name, portal_email FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church) return res.json({ sent: true });
 
     // Generate a secure reset token (1 hour expiry)
     const resetToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE churches SET password_reset_token = ?, password_reset_expires = ? WHERE churchId = ?')
-      .run(resetToken, expiresAt, church.churchId);
+    await qRun('UPDATE churches SET password_reset_token = ?, password_reset_expires = ? WHERE churchId = ?', [resetToken, expiresAt, church.churchId]);
 
     const resetUrl = `${APP_URL}/portal/reset-password?token=${resetToken}`;
 
@@ -107,36 +110,33 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
 
     log(`[PasswordReset] Reset token generated for "${church.name}" (${church.churchId})`);
     res.json({ sent: true });
-  });
+  }));
 
   // ─── RESET PASSWORD (with token) ────────────────────────────────────────
 
-  app.post('/api/church/reset-password-token', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/reset-password-token', rateLimit(5, 15 * 60 * 1000), asyncRoute(async (req, res) => {
     const { token, password } = req.body || {};
     if (!token || !password) return res.status(400).json({ error: 'token and password required' });
     if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
 
-    const church = db.prepare(
+    const church = await qOne(
       'SELECT churchId, name, password_reset_expires FROM churches WHERE password_reset_token = ?'
-    ).get(token);
+    , [token]);
 
     if (!church) return res.status(400).json({ error: 'Invalid or expired reset link' });
 
     // Check expiry
     if (new Date(church.password_reset_expires) < new Date()) {
-      db.prepare('UPDATE churches SET password_reset_token = NULL, password_reset_expires = NULL WHERE churchId = ?')
-        .run(church.churchId);
+      await qRun('UPDATE churches SET password_reset_token = NULL, password_reset_expires = NULL WHERE churchId = ?', [church.churchId]);
       return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
     }
 
     // Hash the new password (scrypt, same as auth.js)
     const hash = hashPassword(String(password));
 
-    db.prepare(
-      'UPDATE churches SET portal_password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL WHERE churchId = ?'
-    ).run(hash, church.churchId);
+    await qRun('UPDATE churches SET portal_password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL WHERE churchId = ?', [hash, church.churchId]);
 
     log(`[PasswordReset] ✅ Password reset for "${church.name}" (${church.churchId})`);
     res.json({ success: true, message: 'Password has been reset. You can now log in.' });
-  });
+  }));
 };

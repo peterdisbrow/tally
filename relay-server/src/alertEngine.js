@@ -3,6 +3,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 // Alert types that always bypass deduplication and send immediately
 const CRITICAL_BYPASS_TYPES = new Set([
@@ -12,6 +13,13 @@ const CRITICAL_BYPASS_TYPES = new Set([
 ]);
 
 const DEFAULT_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
 
 const ALERT_CLASSIFICATIONS = {
   'stream_started': 'INFO',
@@ -234,8 +242,9 @@ const DIAGNOSIS_TEMPLATES = {
 };
 
 class AlertEngine {
-  constructor(db, scheduleEngine, options = {}) {
-    this.db = db;
+  constructor(dbOrClient, scheduleEngine, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.scheduleEngine = scheduleEngine;
     this.adminChatId = options.adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.defaultBotToken = options.defaultBotToken || process.env.ALERT_BOT_TOKEN;
@@ -253,8 +262,49 @@ class AlertEngine {
     // Per-church, per-alertType dedup windows: Map<"churchId::alertType" → milliseconds>
     this.dedupWindows = new Map();
 
-    this._ensureColumns();
-    this._ensureAlertsTable();
+    if (this.db) {
+      this._ensureColumnsSync();
+      this._ensureAlertsTableSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[AlertEngine] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureColumns();
+    await this._ensureAlertsTable();
+  }
+
+  _isDuplicateColumnError(error) {
+    return /duplicate column|already exists/i.test(String(error?.message || ''));
+  }
+
+  async _queryOne(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    return this._requireClient().run(sql, params);
   }
 
   /** Attach lifecycle emails engine for escalation emails */
@@ -279,7 +329,7 @@ class AlertEngine {
     } catch { return 'Tally'; }
   }
 
-  _ensureColumns() {
+  _ensureColumnsSync() {
     const cols = { td_telegram_chat_id: 'TEXT', td_name: 'TEXT', alert_bot_token: 'TEXT' };
     for (const [col, type] of Object.entries(cols)) {
       try {
@@ -290,7 +340,23 @@ class AlertEngine {
     }
   }
 
-  _ensureAlertsTable() {
+  async _ensureColumns() {
+    const client = this._requireClient();
+    const cols = { td_telegram_chat_id: 'TEXT', td_name: 'TEXT', alert_bot_token: 'TEXT' };
+    for (const [col, type] of Object.entries(cols)) {
+      try {
+        await client.queryOne(`SELECT ${col} FROM churches LIMIT 1`);
+      } catch {
+        try {
+          await client.exec(`ALTER TABLE churches ADD COLUMN ${col} ${type} DEFAULT ''`);
+        } catch (error) {
+          if (!this._isDuplicateColumnError(error)) throw error;
+        }
+      }
+    }
+  }
+
+  _ensureAlertsTableSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS alerts (
         id TEXT PRIMARY KEY,
@@ -315,6 +381,36 @@ class AlertEngine {
     // Migration: add room_id for multi-room scoping
     try { this.db.prepare('SELECT room_id FROM alerts LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+  }
+
+  async _ensureAlertsTable() {
+    const client = this._requireClient();
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS alerts (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        alert_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        context TEXT DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        acknowledged_at TEXT,
+        acknowledged_by TEXT,
+        escalated INTEGER DEFAULT 0,
+        resolved INTEGER DEFAULT 0
+      )
+    `);
+
+    for (const col of ['session_id', 'instance_name', 'room_id']) {
+      try {
+        await client.queryOne(`SELECT ${col} FROM alerts LIMIT 1`);
+      } catch {
+        try {
+          await client.exec(`ALTER TABLE alerts ADD COLUMN ${col} TEXT`);
+        } catch (error) {
+          if (!this._isDuplicateColumnError(error)) throw error;
+        }
+      }
+    }
   }
 
   classifyAlert(alertType, context) {
@@ -444,6 +540,7 @@ class AlertEngine {
   }
 
   async sendAlert(church, alertType, context = {}, sessionId = null, recoveryResult = null) {
+    await this.ready;
     const severity = this.classifyAlert(alertType, context);
     const alertId = uuidv4();
     const now = new Date().toISOString();
@@ -461,9 +558,10 @@ class AlertEngine {
     const roomId = context._roomId || church._alertRoomId || church.room_id || null;
 
     // Log to DB (with optional session_id for timeline linking, plus room/instance)
-    this.db.prepare(
-      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(enrichedContext), now, sessionId, instanceName, roomId);
+    await this._run(
+      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [alertId, church.churchId, alertType, severity, JSON.stringify(enrichedContext), now, sessionId, instanceName, roomId]
+    );
 
     const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     console.log(`[${now}] ALERT [${severity}] ${church.name}: ${alertType}`);
@@ -517,7 +615,7 @@ class AlertEngine {
     let tdChatId = church.td_telegram_chat_id;
     if (this.onCallRotation) {
       try {
-        const onCallTd = this.onCallRotation.getOnCallTD(church.churchId);
+        const onCallTd = await this.onCallRotation.getOnCallTD(church.churchId);
         if (onCallTd?.telegramChatId) {
           tdChatId = onCallTd.telegramChatId;
           console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
@@ -552,7 +650,7 @@ class AlertEngine {
         const alert = this.activeAlerts.get(alertId);
         if (alert && !alert.acknowledged) {
           console.log('  ↳ No ack after 5min — escalating to admin contact');
-          this.db.prepare('UPDATE alerts SET escalated = 1 WHERE id = ?').run(alertId);
+          await this._run('UPDATE alerts SET escalated = 1 WHERE id = ?', [alertId]);
           if (this.adminChatId) {
             await this.sendTelegramMessage(this.adminChatId, botToken,
               `🚨 ESCALATED (no TD response in 5 min)\n\n${msg}`);
@@ -680,6 +778,7 @@ class AlertEngine {
   }
 
   async acknowledgeAlert(alertId, responder) {
+    await this.ready;
     const alert = this.activeAlerts.get(alertId);
     if (alert) {
       alert.acknowledged = true;
@@ -688,7 +787,10 @@ class AlertEngine {
 
       // Send Slack acknowledgment on ack (not resolution — ack ≠ resolved)
       try {
-        const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(alert.church.churchId);
+        const dbChurch = await this._queryOne(
+          'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
+          [alert.church.churchId]
+        );
         if (dbChurch?.slack_webhook_url) {
           await this.sendSlackAcknowledgment({ ...alert.church, ...dbChurch }, alert.alertType, responder);
         }
@@ -696,19 +798,24 @@ class AlertEngine {
         console.warn('Slack ack notification failed:', e.message);
       }
     }
-    this.db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
-      .run(new Date().toISOString(), responder, alertId);
+    await this._run(
+      'UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?',
+      [new Date().toISOString(), responder, alertId]
+    );
     console.log(`Alert ${alertId} acknowledged by ${responder}`);
     return { acknowledged: true };
   }
 
   // Find alert by short ID prefix (for /ack_XXXXXXXX commands)
-  findAlertByPrefix(prefix) {
+  async findAlertByPrefix(prefix) {
+    await this.ready;
     // Sanitize: only allow hex characters in alert ID prefix
     const sanitized = String(prefix).replace(/[^a-f0-9-]/gi, '');
     if (!sanitized) return null;
-    const row = this.db.prepare("SELECT id FROM alerts WHERE id LIKE ? AND acknowledged_at IS NULL ORDER BY created_at DESC LIMIT 1")
-      .get(sanitized + '%');
+    const row = await this._queryOne(
+      'SELECT id FROM alerts WHERE id LIKE ? AND acknowledged_at IS NULL ORDER BY created_at DESC LIMIT 1',
+      [sanitized + '%']
+    );
     return row ? row.id : null;
   }
 }

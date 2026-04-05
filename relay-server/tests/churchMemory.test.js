@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { ChurchMemory } from '../src/churchMemory.js';
+import { createQueryClient } from '../src/db/queryClient.js';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -57,6 +58,29 @@ describe('ChurchMemory', () => {
   beforeEach(() => {
     db = createTestDb();
     memory = new ChurchMemory(db);
+  });
+
+  it('works when constructed with a query client', async () => {
+    const queryClient = createQueryClient({
+      config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+      sqliteDb: db,
+    });
+    memory = new ChurchMemory(queryClient);
+    await memory.ready;
+
+    await memory.saveUserNote(CHURCH_ID, 'Pastor likes tight shot during prayer');
+    await memory.recordIncidentLearning(CHURCH_ID, {
+      type: 'obs_crash',
+      summary: 'OBS crashes when switching to scene 4',
+      device: 'OBS',
+    });
+
+    const briefing = await memory.getPreServiceBriefing(CHURCH_ID);
+    expect(briefing.userNotes).toHaveLength(1);
+    expect(briefing.equipmentQuirks).toHaveLength(1);
+
+    const parserContext = await memory.getParserContext(CHURCH_ID);
+    expect(parserContext).toContain('Pastor likes tight shot during prayer');
   });
 
   // ─── getPreServiceContext ─────────────────────────────────────────────────

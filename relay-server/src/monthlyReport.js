@@ -4,6 +4,14 @@
  * for each church to their TDs + the admin contact chat ID.
  *
  */
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
 
 class MonthlyReport {
   /**
@@ -13,13 +21,42 @@ class MonthlyReport {
    * @param {string} [opts.adminChatId] - Admin contact Telegram chat ID
    */
   constructor({ db, defaultBotToken, adminChatId } = {}) {
-    this.db = db || null;
+    this.db = db && typeof db.prepare === 'function' ? db : null;
+    this.client = this._resolveClient(db);
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.tallyBot = null;
     this.lifecycleEmails = null;
     this._timer = null;
     this._lastReportMonth = null; // 'YYYY-MM' of last run, to avoid double-sending
+    this.ready = Promise.resolve();
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[MonthlyReport] Database client is not configured.');
+    return this.client;
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    return this._requireClient().queryOne(sql, params);
   }
 
   /**
@@ -48,25 +85,27 @@ class MonthlyReport {
    * @param {string} month - 'YYYY-MM'
    * @returns {string|null} formatted Telegram message, or null if church not found
    */
-  generate(churchId, month) {
+  async generate(churchId, month) {
     const [year, mon] = month.split('-').map(Number);
     const startDate = new Date(year, mon - 1, 1).toISOString();
     const endDate   = new Date(year, mon,     1).toISOString();
 
-    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return null;
 
     // Service events for the month
-    const events = this.db.prepare(
-      'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND timestamp < ?'
-    ).all(churchId, startDate, endDate);
+    const events = await this._all(
+      'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND timestamp < ?',
+      [churchId, startDate, endDate]
+    );
 
     // Alerts for the month (table may not exist in all deployments)
     let alerts = [];
     try {
-      alerts = this.db.prepare(
-        'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?'
-      ).all(churchId, startDate, endDate);
+      alerts = await this._all(
+        'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?',
+        [churchId, startDate, endDate]
+      );
     } catch { /* alerts table may not exist */ }
 
     // ── Compute metrics ───────────────────────────────────────────────────
@@ -135,23 +174,24 @@ class MonthlyReport {
       console.log(`[MonthlyReport] Generating ${reportMonth} reports`);
 
       // Only send reports to Pro/Enterprise tier churches (skip Connect and Event)
-      const allChurches = this.db.prepare('SELECT * FROM churches').all();
-      for (const church of allChurches) {
-        const tier = (church.billing_tier || 'connect').toLowerCase();
-        if (tier === 'connect' || tier === 'event') {
-          continue; // monthly reports are a Pro/Enterprise feature
+      Promise.resolve(this._all('SELECT * FROM churches')).then((allChurches) => {
+        for (const church of allChurches) {
+          const tier = (church.billing_tier || 'connect').toLowerCase();
+          if (tier === 'connect' || tier === 'event') continue;
+          this._sendReport(church.churchId, reportMonth).catch(e =>
+            console.error(`[MonthlyReport] Error for ${church.name}:`, e.message)
+          );
         }
-        this._sendReport(church.churchId, reportMonth).catch(e =>
-          console.error(`[MonthlyReport] Error for ${church.name}:`, e.message)
-        );
-      }
+      }).catch((e) => {
+        console.error('[MonthlyReport] Tick error:', e.message);
+      });
     } catch (e) {
       console.error('[MonthlyReport] Tick error:', e.message);
     }
   }
 
   async _sendReport(churchId, month) {
-    const msg = this.generate(churchId, month);
+    const msg = await this.generate(churchId, month);
     if (!msg) return;
 
     // ── Telegram delivery ──
@@ -159,9 +199,10 @@ class MonthlyReport {
 
     let tds = [];
     try {
-      tds = this.db.prepare(
-        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
-      ).all(churchId);
+      tds = await this._all(
+        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+        [churchId]
+      );
     } catch { /* table may not exist */ }
 
     if (botToken) {
@@ -185,22 +226,24 @@ class MonthlyReport {
     // ── Email delivery ──
     if (this.lifecycleEmails) {
       try {
-        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+        const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
         if (church) {
           const [year, mon] = month.split('-').map(Number);
           const startDate = new Date(year, mon - 1, 1).toISOString();
           const endDate = new Date(year, mon, 1).toISOString();
 
           // Compute report data for email template
-          const events = this.db.prepare(
-            'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND timestamp < ?'
-          ).all(churchId, startDate, endDate);
+          const events = await this._all(
+            'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND timestamp < ?',
+            [churchId, startDate, endDate]
+          );
 
           let alerts = [];
           try {
-            alerts = this.db.prepare(
-              'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?'
-            ).all(churchId, startDate, endDate);
+            alerts = await this._all(
+              'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?',
+              [churchId, startDate, endDate]
+            );
           } catch { /* alerts table may not exist */ }
 
           const uniqueDates = new Set(events.map(e => e.timestamp.slice(0, 10)));
@@ -261,13 +304,13 @@ class MonthlyReport {
   }
 
   /** Alias for server.js API route compatibility */
-  generateReport(churchId, month) {
+  async generateReport(churchId, month) {
     if (!month) {
       const d = new Date();
       d.setMonth(d.getMonth() - 1);
       month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
-    const text = this.generate(churchId, month);
+    const text = await this.generate(churchId, month);
     return { churchId, month, text };
   }
 

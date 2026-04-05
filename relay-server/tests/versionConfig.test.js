@@ -86,9 +86,10 @@ describe('VersionConfig', () => {
   let db;
   let vc;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = new Database(':memory:');
     vc = new VersionConfig(db);
+    await vc.ready;
   });
 
   describe('constructor / _ensureTable()', () => {
@@ -99,8 +100,9 @@ describe('VersionConfig', () => {
       expect(tables.length).toBe(1);
     });
 
-    it('can be constructed multiple times without error (CREATE IF NOT EXISTS)', () => {
-      expect(() => new VersionConfig(db)).not.toThrow();
+    it('can be constructed multiple times without error (CREATE IF NOT EXISTS)', async () => {
+      const second = new VersionConfig(db);
+      await expect(second.ready).resolves.toBeUndefined();
     });
   });
 
@@ -110,8 +112,8 @@ describe('VersionConfig', () => {
       expect(min).toBe(DEFAULT_MIN_VERSIONS.obs);
     });
 
-    it('returns DB override when one is set', () => {
-      vc.setMinVersion('obs', '31.0');
+    it('returns DB override when one is set', async () => {
+      await vc.setMinVersion('obs', '31.0');
       expect(vc.getMinVersion('obs')).toBe('31.0');
     });
 
@@ -119,27 +121,27 @@ describe('VersionConfig', () => {
       expect(vc.getMinVersion('unknown_device_xyz')).toBe(null);
     });
 
-    it('DB override takes precedence over default', () => {
-      vc.setMinVersion('proPresenter', '7.99');
+    it('DB override takes precedence over default', async () => {
+      await vc.setMinVersion('proPresenter', '7.99');
       expect(vc.getMinVersion('proPresenter')).toBe('7.99');
       expect(vc.getMinVersion('proPresenter')).not.toBe(DEFAULT_MIN_VERSIONS.proPresenter);
     });
   });
 
   describe('setMinVersion()', () => {
-    it('inserts a new device type', () => {
-      vc.setMinVersion('custom_device', '5.0');
+    it('inserts a new device type', async () => {
+      await vc.setMinVersion('custom_device', '5.0');
       expect(vc.getMinVersion('custom_device')).toBe('5.0');
     });
 
-    it('updates an existing device type (upsert)', () => {
-      vc.setMinVersion('obs', '31.0');
-      vc.setMinVersion('obs', '32.0'); // update
+    it('updates an existing device type (upsert)', async () => {
+      await vc.setMinVersion('obs', '31.0');
+      await vc.setMinVersion('obs', '32.0'); // update
       expect(vc.getMinVersion('obs')).toBe('32.0');
     });
 
-    it('stores updated_at as ISO string', () => {
-      vc.setMinVersion('obs', '31.0');
+    it('stores updated_at as ISO string', async () => {
+      await vc.setMinVersion('obs', '31.0');
       const row = db.prepare('SELECT updated_at FROM version_requirements WHERE device_type = ?').get('obs');
       expect(row).toBeDefined();
       // Should be a valid ISO date string
@@ -156,9 +158,9 @@ describe('VersionConfig', () => {
       }
     });
 
-    it('merges DB overrides over defaults', () => {
-      vc.setMinVersion('obs', '99.0');
-      vc.setMinVersion('custom_device', '1.0');
+    it('merges DB overrides over defaults', async () => {
+      await vc.setMinVersion('obs', '99.0');
+      await vc.setMinVersion('custom_device', '1.0');
       const all = vc.getAllRequirements();
       expect(all.obs).toBe('99.0');
       expect(all.custom_device).toBe('1.0');
@@ -217,8 +219,8 @@ describe('VersionConfig', () => {
       expect(result.minimum).toBe(DEFAULT_MIN_VERSIONS.obs);
     });
 
-    it('respects DB override minimum when checking', () => {
-      vc.setMinVersion('obs', '35.0');
+    it('respects DB override minimum when checking', async () => {
+      await vc.setMinVersion('obs', '35.0');
       const result = vc.checkVersion('obs', '30.0'); // below new minimum
       expect(result.outdated).toBe(true);
       expect(result.minimum).toBe('35.0');

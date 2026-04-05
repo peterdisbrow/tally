@@ -7,13 +7,23 @@
 const { processOnboardingMessage, executeOnboardingAction, getSession } = require('../onboardingChat');
 
 module.exports = function setupChatRoutes(app, ctx) {
-  const { db, chatEngine, requireAdmin, requireChurchAppAuth,
+  const { db, queryClient, chatEngine, requireAdmin, requireChurchAppAuth,
           handleChatCommandMessage, rateLimit, log,
           churches, scheduleEngine } = ctx;
+  const hasQueryClient = queryClient
+    && typeof queryClient.queryOne === 'function'
+    && typeof queryClient.run === 'function';
+
+  async function getChurchById(churchId) {
+    if (hasQueryClient) {
+      return queryClient.queryOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
+    }
+    return db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+  }
 
   // Church-facing: TD sends a chat message from Electron app
   // Supports optional `attachment` field: { data: "base64...", mimeType: "image/jpeg", fileName: "patch.jpg" }
-  app.post('/api/church/chat', requireChurchAppAuth, rateLimit(20, 60_000), (req, res) => {
+  app.post('/api/church/chat', requireChurchAppAuth, rateLimit(20, 60_000), async (req, res) => {
     try {
       const { message, senderName, attachment, roomId } = req.body;
       // Allow empty message if there's an attachment
@@ -24,7 +34,7 @@ module.exports = function setupChatRoutes(app, ctx) {
       const displayMessage = attachment?.fileName
         ? `${trimmedMessage ? trimmedMessage + ' ' : ''}📎 ${attachment.fileName}`
         : trimmedMessage;
-      const saved = chatEngine.saveMessage({
+      const saved = await chatEngine.saveMessage({
         churchId: req.church.churchId,
         senderName: senderName || req.church.td_name || 'TD',
         senderRole: 'td',
@@ -44,9 +54,9 @@ module.exports = function setupChatRoutes(app, ctx) {
   });
 
   // Church-facing: TD polls for messages
-  app.get('/api/church/chat', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/chat', requireChurchAppAuth, async (req, res) => {
     try {
-      const messages = chatEngine.getMessages(req.church.churchId, {
+      const messages = await chatEngine.getMessages(req.church.churchId, {
         since: req.query.since || null,
         limit: parseInt(req.query.limit) || 50,
         latest: req.query.latest === 'true',
@@ -60,14 +70,14 @@ module.exports = function setupChatRoutes(app, ctx) {
   });
 
   // Admin-facing: Admin sends a chat message
-  app.post('/api/churches/:churchId/chat', requireAdmin, rateLimit(30, 60_000), (req, res) => {
+  app.post('/api/churches/:churchId/chat', requireAdmin, rateLimit(30, 60_000), async (req, res) => {
     try {
-      const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
+      const churchRow = await getChurchById(req.params.churchId);
       if (!churchRow) return res.status(404).json({ error: 'Church not found' });
       const { message, senderName } = req.body;
       if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
       const trimmedMessage = message.trim();
-      const saved = chatEngine.saveMessage({
+      const saved = await chatEngine.saveMessage({
         churchId: req.params.churchId,
         senderName: senderName || req.adminUser?.name || 'Admin',
         senderRole: 'admin',
@@ -86,9 +96,9 @@ module.exports = function setupChatRoutes(app, ctx) {
   });
 
   // Admin-facing: Admin polls for messages
-  app.get('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
+  app.get('/api/churches/:churchId/chat', requireAdmin, async (req, res) => {
     try {
-      const messages = chatEngine.getMessages(req.params.churchId, {
+      const messages = await chatEngine.getMessages(req.params.churchId, {
         since: req.query.since || null,
         limit: parseInt(req.query.limit) || 50,
         sessionId: req.query.sessionId || null,
@@ -110,7 +120,7 @@ module.exports = function setupChatRoutes(app, ctx) {
     }
     try {
       // Save user message
-      chatEngine.saveMessage({
+      await chatEngine.saveMessage({
         churchId: req.church.churchId,
         senderName: req.church.td_name || 'TD',
         senderRole: 'td',
@@ -119,11 +129,11 @@ module.exports = function setupChatRoutes(app, ctx) {
       });
 
       const result = await processOnboardingMessage(
-        db, req.church.churchId, message.trim(), scanResults || {}, chatEngine
+        hasQueryClient ? queryClient : db, req.church.churchId, message.trim(), scanResults || {}, chatEngine
       );
 
       // Save AI reply
-      chatEngine.saveMessage({
+      await chatEngine.saveMessage({
         churchId: req.church.churchId,
         senderName: 'TallyConnect',
         senderRole: 'system',
@@ -145,8 +155,8 @@ module.exports = function setupChatRoutes(app, ctx) {
       return res.status(400).json({ error: 'Action required' });
     }
     try {
-      const result = executeOnboardingAction(
-        db, req.church.churchId, action, churches || new Map(), scheduleEngine
+      const result = await executeOnboardingAction(
+        hasQueryClient ? queryClient : db, req.church.churchId, action, churches || new Map(), scheduleEngine
       );
       res.json(result);
     } catch (err) {
@@ -156,9 +166,9 @@ module.exports = function setupChatRoutes(app, ctx) {
   });
 
   // Get current onboarding state (for resume) — includes message history (#9)
-  app.get('/api/church/onboarding/state', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/onboarding/state', requireChurchAppAuth, async (req, res) => {
     try {
-      const session = getSession(db, req.church.churchId);
+      const session = await Promise.resolve(getSession(hasQueryClient ? queryClient : db, req.church.churchId));
       if (!session) {
         return res.json({ state: null, progress: null, messages: [] });
       }
@@ -166,7 +176,7 @@ module.exports = function setupChatRoutes(app, ctx) {
       // Return previous onboarding messages so the UI can rebuild the chat
       let messages = [];
       try {
-        const allMsgs = chatEngine.getMessages(req.church.churchId, { limit: 50 });
+        const allMsgs = await chatEngine.getMessages(req.church.churchId, { limit: 50 });
         messages = allMsgs
           .filter(m => m.source === 'onboarding')
           .map(m => ({

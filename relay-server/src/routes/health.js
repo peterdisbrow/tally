@@ -28,6 +28,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   const { churches, controllers, RELAY_VERSION, RELAY_BUILD, WebSocket } = ctx;
   // db is optional — when omitted (tests, early boot) DB checks report 'skipped'
   const db = ctx.db || null;
+  const queryClient = ctx.queryClient || null;
 
   // ─── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -48,6 +49,12 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   /** Quick SELECT 1 to confirm the database is readable. */
   function dbReadCheck() {
+    if (queryClient) {
+      const t0 = Date.now();
+      return queryClient.queryOne('SELECT 1 AS ok')
+        .then(() => ({ status: 'ok', latency_ms: Date.now() - t0 }))
+        .catch((e) => ({ status: 'error', error: e.message }));
+    }
     if (!db) return { status: 'skipped' };
     const t0 = Date.now();
     try {
@@ -110,8 +117,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   function detailedHealth(_req, res) {
     const connectedCount = countConnected();
-    const dbStatus       = dbReadCheck();
-    res.json({
+    const send = (dbStatus) => res.json({
       service:             'tally-relay',
       version:             RELAY_VERSION,
       build:               RELAY_BUILD,
@@ -125,6 +131,11 @@ module.exports = function setupHealthRoutes(app, ctx) {
       database:            dbStatus,
       churches:            churchSummary(),
     });
+    const maybeDbStatus = dbReadCheck();
+    if (maybeDbStatus && typeof maybeDbStatus.then === 'function') {
+      return maybeDbStatus.then(send);
+    }
+    return send(maybeDbStatus);
   }
 
   app.get('/api/health', healthRateLimit, detailedHealth);
@@ -138,11 +149,46 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   app.get('/health/deep', healthRateLimit, (_req, res) => {
     const connectedCount = countConnected();
-    const dbRead  = dbReadCheck();
+    const send = (dbRead, dbWrite) => {
+      const healthy = dbRead.status !== 'error' && dbWrite.status !== 'error';
+      // Use read status for overall health word (write 'skipped' shouldn't degrade)
+      const dbStatusForOverall = dbWrite.status === 'error' ? dbWrite : dbRead;
 
-    // DB write round-trip — INSERT + DELETE in a temp health probe table
-    let dbWrite = { status: 'skipped' };
-    if (db) {
+      res.status(healthy ? 200 : 503).json({
+        service:             'tally-relay',
+        version:             RELAY_VERSION,
+        build:               RELAY_BUILD,
+        uptime:              Math.floor(process.uptime()),
+        status:              overallStatus(connectedCount, dbStatusForOverall),
+        registeredChurches:  churches.size,
+        connectedChurches:   connectedCount,
+        controllers:         controllers.size,
+        totalMessagesRelayed: ctx.totalMessagesRelayed,
+        memoryUsage:         memUsage(),
+        database: {
+          read:  dbRead,
+          write: dbWrite,
+        },
+        churches: churchSummary(),
+      });
+    };
+
+    const runWriteCheck = async () => {
+      if (queryClient) {
+        try {
+          await queryClient.exec(
+            'CREATE TABLE IF NOT EXISTS _health_probe (id TEXT PRIMARY KEY, ts TEXT NOT NULL)'
+          );
+          const t0 = Date.now();
+          const probeId = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          await queryClient.run('INSERT INTO _health_probe(id, ts) VALUES (?, ?)', [probeId, new Date().toISOString()]);
+          await queryClient.run('DELETE FROM _health_probe WHERE id = ?', [probeId]);
+          return { status: 'ok', latency_ms: Date.now() - t0 };
+        } catch (e) {
+          return { status: 'error', error: e.message };
+        }
+      }
+      if (!db) return { status: 'skipped' };
       try {
         db.exec(
           `CREATE TABLE IF NOT EXISTS _health_probe (id INTEGER PRIMARY KEY, ts TEXT NOT NULL)`
@@ -152,33 +198,20 @@ module.exports = function setupHealthRoutes(app, ctx) {
         const del    = db.prepare(`DELETE FROM _health_probe WHERE id = ?`);
         const result = ins.run(new Date().toISOString());
         del.run(result.lastInsertRowid);
-        dbWrite = { status: 'ok', latency_ms: Date.now() - t0 };
+        return { status: 'ok', latency_ms: Date.now() - t0 };
       } catch (e) {
-        dbWrite = { status: 'error', error: e.message };
+        return { status: 'error', error: e.message };
       }
+    };
+
+    const maybeDbRead = dbReadCheck();
+    if (maybeDbRead && typeof maybeDbRead.then === 'function') {
+      return maybeDbRead
+        .then(async (dbRead) => send(dbRead, await runWriteCheck()))
+        .catch((error) => send({ status: 'error', error: error.message }, { status: 'skipped' }));
     }
 
-    const healthy = dbRead.status !== 'error' && dbWrite.status !== 'error';
-    // Use read status for overall health word (write 'skipped' shouldn't degrade)
-    const dbStatusForOverall = dbWrite.status === 'error' ? dbWrite : dbRead;
-
-    res.status(healthy ? 200 : 503).json({
-      service:             'tally-relay',
-      version:             RELAY_VERSION,
-      build:               RELAY_BUILD,
-      uptime:              Math.floor(process.uptime()),
-      status:              overallStatus(connectedCount, dbStatusForOverall),
-      registeredChurches:  churches.size,
-      connectedChurches:   connectedCount,
-      controllers:         controllers.size,
-      totalMessagesRelayed: ctx.totalMessagesRelayed,
-      memoryUsage:         memUsage(),
-      database: {
-        read:  dbRead,
-        write: dbWrite,
-      },
-      churches: churchSummary(),
-    });
+    return runWriteCheck().then((dbWrite) => send(maybeDbRead, dbWrite));
   });
 
   // ─── GET /api/status — machine-readable status for uptime monitors ───────────

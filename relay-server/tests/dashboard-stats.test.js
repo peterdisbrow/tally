@@ -165,8 +165,8 @@ describe('getDashboardStats', () => {
     try { db.close(); } catch {}
   });
 
-  it('returns empty stats when no sessions exist', () => {
-    const stats = getDashboardStats(db, CHURCH_ID, new Map());
+  it('returns empty stats when no sessions exist', async () => {
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map());
     expect(stats.thisWeek.services).toBe(0);
     expect(stats.thisWeek.alerts).toBe(0);
     expect(stats.thisWeek.autoRecoveries).toBe(0);
@@ -177,7 +177,7 @@ describe('getDashboardStats', () => {
     expect(stats.nextService).toBeNull();
   });
 
-  it('counts this week sessions correctly', () => {
+  it('counts this week sessions correctly', async () => {
     // "now" is a Wednesday
     const now = new Date('2025-03-12T14:00:00.000Z'); // Wednesday
     const thisWeekSunday = new Date('2025-03-09T09:00:00.000Z');
@@ -188,7 +188,7 @@ describe('getDashboardStats', () => {
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, stream_runtime_minutes, alert_count, auto_recovered_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run('s2', CHURCH_ID, thisWeekMonday.toISOString(), thisWeekMonday.toISOString(), 60, 55, 1, 1);
 
-    const stats = getDashboardStats(db, CHURCH_ID, new Map(), now);
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map(), now);
     expect(stats.thisWeek.services).toBe(2);
     expect(stats.thisWeek.alerts).toBe(3);
     expect(stats.thisWeek.autoRecoveries).toBe(2);
@@ -196,7 +196,7 @@ describe('getDashboardStats', () => {
     expect(stats.thisWeek.uptimePercent).toBe(90);
   });
 
-  it('computes alert trend correctly (up)', () => {
+  it('computes alert trend correctly (up)', async () => {
     const now = new Date('2025-03-12T14:00:00.000Z'); // Wednesday
     // Last week session (Sunday of prev week = March 2)
     const lastWeek = new Date('2025-03-03T09:00:00.000Z');
@@ -208,12 +208,12 @@ describe('getDashboardStats', () => {
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, alert_count) VALUES (?, ?, ?, ?, ?, ?)')
       .run('tw1', CHURCH_ID, thisWeek.toISOString(), thisWeek.toISOString(), 90, 4);
 
-    const stats = getDashboardStats(db, CHURCH_ID, new Map(), now);
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map(), now);
     expect(stats.trend.alertsTrending).toBe('up');
     expect(stats.trend.comparedToLastWeek).toBe('+3');
   });
 
-  it('computes alert trend correctly (down)', () => {
+  it('computes alert trend correctly (down)', async () => {
     const now = new Date('2025-03-12T14:00:00.000Z');
     const lastWeek = new Date('2025-03-03T09:00:00.000Z');
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, alert_count) VALUES (?, ?, ?, ?, ?, ?)')
@@ -223,12 +223,12 @@ describe('getDashboardStats', () => {
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, alert_count) VALUES (?, ?, ?, ?, ?, ?)')
       .run('tw1', CHURCH_ID, thisWeek.toISOString(), thisWeek.toISOString(), 90, 2);
 
-    const stats = getDashboardStats(db, CHURCH_ID, new Map(), now);
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map(), now);
     expect(stats.trend.alertsTrending).toBe('down');
     expect(stats.trend.comparedToLastWeek).toBe('-3');
   });
 
-  it('computes equipment status from runtime map', () => {
+  it('computes equipment status from runtime map', async () => {
     const churches = new Map();
     churches.set(CHURCH_ID, {
       status: {
@@ -239,14 +239,14 @@ describe('getDashboardStats', () => {
       },
     });
 
-    const stats = getDashboardStats(db, CHURCH_ID, churches);
+    const stats = await getDashboardStats(db, CHURCH_ID, churches);
     expect(stats.equipmentStatus.total).toBe(4);
     expect(stats.equipmentStatus.healthy).toBe(3);
     expect(stats.equipmentStatus.offline).toBe(1);
     expect(stats.equipmentStatus.warning).toBe(0);
   });
 
-  it('handles equipment with hyperdecks and PTZ cameras', () => {
+  it('handles equipment with hyperdecks and PTZ cameras', async () => {
     const churches = new Map();
     churches.set(CHURCH_ID, {
       status: {
@@ -256,34 +256,34 @@ describe('getDashboardStats', () => {
       },
     });
 
-    const stats = getDashboardStats(db, CHURCH_ID, churches);
+    const stats = await getDashboardStats(db, CHURCH_ID, churches);
     expect(stats.equipmentStatus.total).toBe(5); // atem + 2 hyperdecks + 2 ptz
     expect(stats.equipmentStatus.healthy).toBe(4);
     expect(stats.equipmentStatus.offline).toBe(1);
   });
 
-  it('returns null equipmentStatus totals when no runtime data', () => {
-    const stats = getDashboardStats(db, CHURCH_ID, new Map());
+  it('returns null equipmentStatus totals when no runtime data', async () => {
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map());
     expect(stats.equipmentStatus.total).toBe(0);
     expect(stats.equipmentStatus.healthy).toBe(0);
   });
 
-  it('returns uptime 100% when sessions exist but no stream data', () => {
+  it('returns uptime 100% when sessions exist but no stream data', async () => {
     const now = new Date('2025-03-12T14:00:00.000Z');
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, stream_runtime_minutes, alert_count) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run('s1', CHURCH_ID, '2025-03-09T09:00:00.000Z', '2025-03-09T10:30:00.000Z', 90, 0, 0);
 
-    const stats = getDashboardStats(db, CHURCH_ID, new Map(), now);
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map(), now);
     // duration > 0 but stream = 0, so uptime = 0%
     expect(stats.thisWeek.uptimePercent).toBe(0);
   });
 
-  it('does not count sessions from other churches', () => {
+  it('does not count sessions from other churches', async () => {
     const now = new Date('2025-03-12T14:00:00.000Z');
     db.prepare('INSERT INTO service_sessions (id, church_id, started_at, ended_at, duration_minutes, alert_count) VALUES (?, ?, ?, ?, ?, ?)')
       .run('s1', 'other-church', '2025-03-09T09:00:00.000Z', '2025-03-09T10:30:00.000Z', 90, 5);
 
-    const stats = getDashboardStats(db, CHURCH_ID, new Map(), now);
+    const stats = await getDashboardStats(db, CHURCH_ID, new Map(), now);
     expect(stats.thisWeek.services).toBe(0);
     expect(stats.thisWeek.alerts).toBe(0);
   });

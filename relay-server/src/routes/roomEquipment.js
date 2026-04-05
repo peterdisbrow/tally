@@ -67,27 +67,34 @@ function autoDetectRoles(equipment) {
 }
 
 function setupRoomEquipmentRoutes(app, ctx) {
-  const { db, requireChurchAppAuth, requireChurchWriteAccess, safeErrorMessage, log } = ctx;
+  const { db, queryClient, requireChurchAppAuth, requireChurchWriteAccess, safeErrorMessage, log } = ctx;
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qRun = (sql, params = []) => (
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
+  );
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
   /** Check that a room belongs to this church. */
-  function verifyRoomAccess(roomId, churchId) {
-    return db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+  async function verifyRoomAccess(roomId, churchId) {
+    return qOne('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL', [roomId, churchId]);
   }
 
   // ── GET /api/church/app/rooms/:roomId/equipment ──────────────────────────
 
-  app.get('/api/church/app/rooms/:roomId/equipment', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/app/rooms/:roomId/equipment', requireChurchAppAuth, async (req, res) => {
     try {
       const { roomId } = req.params;
       const churchId = req.church.churchId;
 
-      if (!verifyRoomAccess(roomId, churchId)) {
+      if (!await verifyRoomAccess(roomId, churchId)) {
         return res.status(404).json({ error: 'Room not found or not accessible' });
       }
 
-      const row = db.prepare('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?', [roomId]);
       if (!row) {
         return res.json({ equipment: {}, updatedAt: null });
       }
@@ -103,12 +110,12 @@ function setupRoomEquipmentRoutes(app, ctx) {
 
   // ── PUT /api/church/app/rooms/:roomId/equipment ──────────────────────────
 
-  app.put('/api/church/app/rooms/:roomId/equipment', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.put('/api/church/app/rooms/:roomId/equipment', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     try {
       const { roomId } = req.params;
       const churchId = req.church.churchId;
 
-      if (!verifyRoomAccess(roomId, churchId)) {
+      if (!await verifyRoomAccess(roomId, churchId)) {
         return res.status(404).json({ error: 'Room not found or not accessible' });
       }
 
@@ -118,14 +125,14 @@ function setupRoomEquipmentRoutes(app, ctx) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(`
+      await qRun(`
         INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(room_id) DO UPDATE SET
           equipment = excluded.equipment,
           updated_at = excluded.updated_at,
           updated_by = excluded.updated_by
-      `).run(roomId, churchId, JSON.stringify(equipment), now, churchId);
+      `, [roomId, churchId, JSON.stringify(equipment), now, churchId]);
 
       res.json({ ok: true, updatedAt: now });
     } catch (e) {
@@ -137,16 +144,16 @@ function setupRoomEquipmentRoutes(app, ctx) {
   // ── GET /api/church/app/rooms/:roomId/roles ─────────────────────────────
   // Returns current role assignments. Auto-populates defaults if none saved.
 
-  app.get('/api/church/app/rooms/:roomId/roles', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/app/rooms/:roomId/roles', requireChurchAppAuth, async (req, res) => {
     try {
       const { roomId } = req.params;
       const churchId = req.church.churchId;
 
-      if (!verifyRoomAccess(roomId, churchId)) {
+      if (!await verifyRoomAccess(roomId, churchId)) {
         return res.status(404).json({ error: 'Room not found or not accessible' });
       }
 
-      const row = db.prepare('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
       try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
 
@@ -169,12 +176,12 @@ function setupRoomEquipmentRoutes(app, ctx) {
   // ── PUT /api/church/app/rooms/:roomId/roles ─────────────────────────────
   // Save role assignments into the equipment JSON under _roles key.
 
-  app.put('/api/church/app/rooms/:roomId/roles', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.put('/api/church/app/rooms/:roomId/roles', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     try {
       const { roomId } = req.params;
       const churchId = req.church.churchId;
 
-      if (!verifyRoomAccess(roomId, churchId)) {
+      if (!await verifyRoomAccess(roomId, churchId)) {
         return res.status(404).json({ error: 'Room not found or not accessible' });
       }
 
@@ -191,21 +198,21 @@ function setupRoomEquipmentRoutes(app, ctx) {
       }
 
       // Read existing equipment, merge _roles in
-      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
       try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
 
       equipment._roles = roles;
       const now = new Date().toISOString();
 
-      db.prepare(`
+      await qRun(`
         INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(room_id) DO UPDATE SET
           equipment = excluded.equipment,
           updated_at = excluded.updated_at,
           updated_by = excluded.updated_by
-      `).run(roomId, churchId, JSON.stringify(equipment), now, churchId);
+      `, [roomId, churchId, JSON.stringify(equipment), now, churchId]);
 
       res.json({ ok: true, roles, updatedAt: now });
     } catch (e) {

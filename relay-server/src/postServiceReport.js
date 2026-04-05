@@ -13,27 +13,70 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+function isDuplicateColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate column name') || message.includes('already exists');
+}
 
 class PostServiceReport {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {import('better-sqlite3').Database|object} dbOrClient
    * @param {object} [opts]
    * @param {string} [opts.anthropicApiKey]
-   * @param {object} [opts.lifecycleEmails]  LifecycleEmails instance for delivery
+   * @param {object} [opts.lifecycleEmails] LifecycleEmails instance for delivery
    */
-  constructor(db, { anthropicApiKey, lifecycleEmails } = {}) {
-    this.db = db;
+  constructor(dbOrClient, { anthropicApiKey, lifecycleEmails } = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this.anthropicApiKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY || null;
     this.lifecycleEmails = lifecycleEmails || null;
-    this._ensureSchema();
+
+    if (this.db) {
+      this._ensureSchemaSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
   }
 
-  _ensureSchema() {
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[PostServiceReport] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureSchema();
+  }
+
+  _ensureSchemaSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS post_service_reports (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
         session_id TEXT,
+        room_id TEXT,
+        instance_name TEXT,
         created_at TEXT NOT NULL,
         duration_minutes INTEGER,
         uptime_pct REAL,
@@ -51,9 +94,180 @@ class PostServiceReport {
         report_html TEXT
       )
     `);
-    // Migration: add instance_name for room-based filtering
+
+    try { this.db.prepare('SELECT room_id FROM post_service_reports LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+
     try { this.db.prepare('SELECT instance_name FROM post_service_reports LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+  }
+
+  async _ensureSchema() {
+    const client = this._requireClient();
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS post_service_reports (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        session_id TEXT,
+        room_id TEXT,
+        instance_name TEXT,
+        created_at TEXT NOT NULL,
+        duration_minutes INTEGER,
+        uptime_pct REAL,
+        grade TEXT,
+        alert_count INTEGER DEFAULT 0,
+        auto_recovered_count INTEGER DEFAULT 0,
+        escalated_count INTEGER DEFAULT 0,
+        failover_count INTEGER DEFAULT 0,
+        peak_viewers INTEGER,
+        stream_runtime_minutes INTEGER DEFAULT 0,
+        device_health TEXT DEFAULT '{}',
+        failover_events TEXT DEFAULT '[]',
+        recommendations TEXT DEFAULT '[]',
+        ai_summary TEXT,
+        report_html TEXT
+      )
+    `);
+
+    try {
+      await client.queryOne('SELECT room_id FROM post_service_reports LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE post_service_reports ADD COLUMN room_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT instance_name FROM post_service_reports LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    await this.ready;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    await this.ready;
+    return this._requireClient().run(sql, params);
+  }
+
+  _getChurchId(church) {
+    return church?.churchId || church?.church_id || church?.churchid || null;
+  }
+
+  _getChurchName(church) {
+    return church?.name || church?.churchName || church?.church_name || 'Unknown Church';
+  }
+
+  _getLeadershipEmails(church) {
+    return church?.leadership_emails || church?.leadershipEmails || '';
+  }
+
+  _getSessionAlerts(churchId, sessionId) {
+    if (this.db) return this._getSessionAlertsSync(churchId, sessionId);
+    return this._getSessionAlertsAsync(churchId, sessionId);
+  }
+
+  _getSessionAlertsSync(churchId, sessionId) {
+    try {
+      if (sessionId) {
+        const rows = this.db.prepare(
+          'SELECT * FROM alerts WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC'
+        ).all(churchId, sessionId);
+        if (rows.length > 0) return rows;
+      }
+      const since = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+      return this.db.prepare(
+        'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? ORDER BY created_at ASC'
+      ).all(churchId, since);
+    } catch {
+      return [];
+    }
+  }
+
+  async _getSessionAlertsAsync(churchId, sessionId) {
+    try {
+      if (sessionId) {
+        const rows = await this._all(
+          'SELECT * FROM alerts WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC',
+          [churchId, sessionId]
+        );
+        if (rows.length > 0) return rows;
+      }
+      const since = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+      return await this._all(
+        'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? ORDER BY created_at ASC',
+        [churchId, since]
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  _getFailoverEvents(churchId, sessionId) {
+    if (this.db) return this._getFailoverEventsSync(churchId, sessionId);
+    return this._getFailoverEventsAsync(churchId, sessionId);
+  }
+
+  _getFailoverEventsSync(churchId, sessionId) {
+    try {
+      const alerts = this._getSessionAlertsSync(churchId, sessionId);
+      return alerts
+        .filter(a => a.alert_type && (
+          a.alert_type.includes('failover') ||
+          a.alert_type.includes('signal_loss') ||
+          a.alert_type.includes('black_screen') ||
+          a.alert_type === 'stream_offline'
+        ))
+        .map(a => ({
+          type: a.alert_type,
+          severity: a.severity,
+          timestamp: a.created_at,
+          autoRecovered: !!a.resolved,
+          context: (() => { try { return JSON.parse(a.context || '{}'); } catch { return {}; } })(),
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  async _getFailoverEventsAsync(churchId, sessionId) {
+    try {
+      const alerts = await this._getSessionAlertsAsync(churchId, sessionId);
+      return alerts
+        .filter(a => a.alert_type && (
+          a.alert_type.includes('failover') ||
+          a.alert_type.includes('signal_loss') ||
+          a.alert_type.includes('black_screen') ||
+          a.alert_type === 'stream_offline'
+        ))
+        .map(a => ({
+          type: a.alert_type,
+          severity: a.severity,
+          timestamp: a.created_at,
+          autoRecovered: !!a.resolved,
+          context: (() => { try { return JSON.parse(a.context || '{}'); } catch { return {}; } })(),
+        }));
+    } catch {
+      return [];
+    }
   }
 
   // ─── MAIN ENTRY POINT ──────────────────────────────────────────────────────
@@ -62,30 +276,27 @@ class PostServiceReport {
    * Generate and store a post-service report for a completed session.
    * Returns the report object.
    *
-   * @param {object} church   - DB church row
-   * @param {object} session  - Finalized session from SessionRecap.endSession()
+   * @param {object} church - DB church row
+   * @param {object} session - Finalized session from SessionRecap.endSession()
    * @returns {Promise<object>}
    */
   async generate(church, session) {
-    const churchId = church.churchId;
+    await this.ready;
+
+    const churchId = this._getChurchId(church);
     const sessionId = session.sessionId || null;
+    const roomId = session.roomId || session.room_id || null;
 
-    // Gather session alerts from DB
-    const alerts = this._getSessionAlerts(churchId, sessionId);
-    const failoverEvents = this._getFailoverEvents(churchId, sessionId);
+    const alerts = await this._getSessionAlerts(churchId, sessionId);
+    const failoverEvents = await this._getFailoverEvents(churchId, sessionId);
 
-    // Compute uptime percentage
     const duration = session.durationMinutes || 0;
     const streamRuntime = session.streamTotalMinutes || 0;
     const uptimePct = duration > 0 ? Math.min(100, Math.round((streamRuntime / duration) * 100)) : null;
 
-    // Device health: group alerts by device/type
     const deviceHealth = this._buildDeviceHealth(alerts);
-
-    // Rules-based recommendations
     const recommendations = this._buildRecommendations(session, alerts, failoverEvents);
 
-    // Optional AI summary
     let aiSummary = null;
     if (this.anthropicApiKey) {
       aiSummary = await this._generateAiSummary(church, session, alerts, failoverEvents, recommendations);
@@ -99,6 +310,7 @@ class PostServiceReport {
       id: uuidv4(),
       church_id: churchId,
       session_id: sessionId,
+      room_id: roomId,
       instance_name: session.instanceName || null,
       created_at: new Date().toISOString(),
       duration_minutes: duration,
@@ -117,74 +329,51 @@ class PostServiceReport {
       report_html: reportHtml,
     };
 
-    this.db.prepare(`
+    await this._run(`
       INSERT INTO post_service_reports
-        (id, church_id, session_id, instance_name, created_at, duration_minutes, uptime_pct, grade,
+        (id, church_id, session_id, room_id, instance_name, created_at, duration_minutes, uptime_pct, grade,
          alert_count, auto_recovered_count, escalated_count, failover_count,
          peak_viewers, stream_runtime_minutes, device_health, failover_events,
          recommendations, ai_summary, report_html)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      report.id, report.church_id, report.session_id, report.instance_name, report.created_at,
-      report.duration_minutes, report.uptime_pct, report.grade,
-      report.alert_count, report.auto_recovered_count, report.escalated_count,
-      report.failover_count, report.peak_viewers, report.stream_runtime_minutes,
-      report.device_health, report.failover_events, report.recommendations,
-      report.ai_summary, report.report_html
-    );
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      report.id,
+      report.church_id,
+      report.session_id,
+      report.room_id,
+      report.instance_name,
+      report.created_at,
+      report.duration_minutes,
+      report.uptime_pct,
+      report.grade,
+      report.alert_count,
+      report.auto_recovered_count,
+      report.escalated_count,
+      report.failover_count,
+      report.peak_viewers,
+      report.stream_runtime_minutes,
+      report.device_health,
+      report.failover_events,
+      report.recommendations,
+      report.ai_summary,
+      report.report_html,
+    ]);
 
     console.log(`[PostServiceReport] Generated report ${report.id} for ${churchId} (grade: ${report.grade})`);
 
-    // Email to leadership if configured
-    if (this.lifecycleEmails && church.leadership_emails) {
-      const emails = church.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
-      for (const email of emails) {
-        this._sendReportEmail(church, report, email).catch(err =>
-          console.error(`[PostServiceReport] Email error for ${email}:`, err.message)
-        );
+    if (this.lifecycleEmails) {
+      const leadershipEmails = this._getLeadershipEmails(church);
+      if (leadershipEmails) {
+        const emails = leadershipEmails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
+        for (const email of emails) {
+          this._sendReportEmail(church, report, email).catch(err =>
+            console.error(`[PostServiceReport] Email error for ${email}:`, err.message)
+          );
+        }
       }
     }
 
     return report;
-  }
-
-  // ─── DATA GATHERING ─────────────────────────────────────────────────────────
-
-  _getSessionAlerts(churchId, sessionId) {
-    try {
-      if (sessionId) {
-        const rows = this.db.prepare(
-          'SELECT * FROM alerts WHERE church_id = ? AND session_id = ? ORDER BY created_at ASC'
-        ).all(churchId, sessionId);
-        if (rows.length > 0) return rows;
-      }
-      // Fallback: last 4 hours of alerts
-      const since = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-      return this.db.prepare(
-        'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? ORDER BY created_at ASC'
-      ).all(churchId, since);
-    } catch { return []; }
-  }
-
-  _getFailoverEvents(churchId, sessionId) {
-    try {
-      // Look for failover-type alerts
-      const alerts = this._getSessionAlerts(churchId, sessionId);
-      return alerts
-        .filter(a => a.alert_type && (
-          a.alert_type.includes('failover') ||
-          a.alert_type.includes('signal_loss') ||
-          a.alert_type.includes('black_screen') ||
-          a.alert_type === 'stream_offline'
-        ))
-        .map(a => ({
-          type: a.alert_type,
-          severity: a.severity,
-          timestamp: a.created_at,
-          autoRecovered: !!a.resolved,
-          context: (() => { try { return JSON.parse(a.context || '{}'); } catch { return {}; } })(),
-        }));
-    } catch { return []; }
   }
 
   // ─── ANALYSIS ───────────────────────────────────────────────────────────────
@@ -295,7 +484,7 @@ class PostServiceReport {
 
     const prompt = `${buildBackgroundPrompt('post_service_report')}
 
-Church: ${church.name}
+Church: ${this._getChurchName(church)}
 Duration: ${session.durationMinutes} minutes
 Stream runtime: ${session.streamTotalMinutes} minutes
 Grade: ${session.grade}
@@ -342,11 +531,11 @@ Write the summary now:`;
     const dateStr = new Date(report.created_at).toLocaleDateString('en-US', {
       weekday: 'long', month: 'short', day: 'numeric',
     });
-    const subject = `Service Report — ${church.name} · ${dateStr}`;
+    const subject = `Service Report — ${this._getChurchName(church)} · ${dateStr}`;
     const emailType = `service-report-${report.id}`;
 
     return this.lifecycleEmails.sendEmail({
-      churchId: church.churchId,
+      churchId: this._getChurchId(church),
       emailType,
       to: toEmail,
       subject,
@@ -401,14 +590,14 @@ View full report in your church portal.`;
     }).join('');
 
     return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Service Report — ${church.name}</title></head>
+<html><head><meta charset="utf-8"><title>Service Report — ${this._getChurchName(church)}</title></head>
 <body style="font-family:system-ui,sans-serif;background:#f8fafc;margin:0;padding:24px">
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.1)">
 
   <div style="background:#09090B;padding:24px 28px;display:flex;align-items:center;justify-content:space-between">
     <div>
       <div style="color:#22c55e;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase">POST-SERVICE REPORT</div>
-      <div style="color:#F8FAFC;font-size:20px;font-weight:700;margin-top:4px">${church.name}</div>
+      <div style="color:#F8FAFC;font-size:20px;font-weight:700;margin-top:4px">${this._getChurchName(church)}</div>
       <div style="color:#64748B;font-size:13px;margin-top:2px">${dateStr}</div>
     </div>
     <div style="background:${gradeColor}22;border:2px solid ${gradeColor};border-radius:50%;width:56px;height:56px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:${gradeColor}">${grade}</div>

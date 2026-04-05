@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 const require = createRequire(import.meta.url);
 const jwt = require('jsonwebtoken');
 const express = require('express');
+const { SqliteQueryClient } = require('../src/db/queryClient');
 
 const JWT_SECRET = 'test-secret-key-for-unit-tests';
 const CHURCH_A_ID = 'church-aaa-111';
@@ -66,6 +67,8 @@ function createTestDb() {
       registration_code TEXT,
       audio_via_atem INTEGER DEFAULT 0,
       engineer_profile TEXT,
+      service_times TEXT DEFAULT '[]',
+      timezone TEXT DEFAULT 'UTC',
       campus_id TEXT,
       room_id TEXT,
       room_name TEXT
@@ -103,7 +106,17 @@ function createTestDb() {
       church_id TEXT NOT NULL,
       started_at TEXT,
       ended_at TEXT,
-      grade TEXT
+      grade TEXT,
+      instance_name TEXT,
+      peak_viewers REAL DEFAULT 0,
+      audio_silence_count INTEGER DEFAULT 0,
+      td_name TEXT,
+      duration_minutes REAL DEFAULT 0,
+      alert_count INTEGER DEFAULT 0,
+      auto_recovered_count INTEGER DEFAULT 0,
+      escalated_count INTEGER DEFAULT 0,
+      stream_ran INTEGER DEFAULT 0,
+      stream_runtime_minutes REAL DEFAULT 0
     )
   `);
   db.exec(`
@@ -229,8 +242,73 @@ function createTestDb() {
       event_type TEXT,
       timestamp TEXT,
       instance_name TEXT,
+      room_id TEXT,
       resolved INTEGER DEFAULT 0,
-      auto_resolved INTEGER DEFAULT 0
+      auto_resolved INTEGER DEFAULT 0,
+      details TEXT DEFAULT '{}'
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS viewer_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      church_id TEXT NOT NULL,
+      session_id TEXT,
+      total INTEGER DEFAULT 0,
+      youtube INTEGER DEFAULT 0,
+      facebook INTEGER DEFAULT 0,
+      vimeo INTEGER DEFAULT 0,
+      captured_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_triage_events (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      alert_type TEXT,
+      triage_severity TEXT,
+      triage_score REAL DEFAULT 0,
+      time_context TEXT,
+      room_id TEXT,
+      created_at TEXT NOT NULL,
+      details TEXT DEFAULT '{}',
+      resolution_id TEXT
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_resolutions (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      action_taken TEXT,
+      action_command TEXT,
+      success INTEGER DEFAULT 0,
+      duration_ms INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS post_service_reports (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      session_id TEXT,
+      instance_name TEXT,
+      uptime_pct REAL DEFAULT 0,
+      device_health TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      alert_count INTEGER DEFAULT 0,
+      auto_recovered_count INTEGER DEFAULT 0,
+      failover_count INTEGER DEFAULT 0,
+      duration_minutes REAL DEFAULT 0,
+      stream_runtime_minutes REAL DEFAULT 0,
+      recommendations TEXT DEFAULT '[]',
+      ai_summary TEXT DEFAULT ''
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS church_ai_settings (
+      church_id TEXT PRIMARY KEY,
+      ai_mode TEXT DEFAULT 'disabled'
     )
   `);
   db.exec(`
@@ -334,9 +412,20 @@ function buildApp() {
     getState: vi.fn().mockReturnValue({ state: 'HEALTHY', churchId: CHURCH_A_ID }),
   };
 
+  const aiTriageEngine = {
+    getRecentEvents: vi.fn().mockReturnValue([]),
+    getStats: vi.fn().mockReturnValue({}),
+    getChurchSettings: vi.fn().mockReturnValue({ ai_mode: 'disabled' }),
+    updateChurchSettings: vi.fn().mockImplementation((churchId, body) => ({ churchId, ...body })),
+    getServiceWindows: vi.fn().mockReturnValue([]),
+    getTimeContext: vi.fn().mockReturnValue({ context: 'off_hours' }),
+  };
+
   const { setupChurchPortal } = require('../src/churchPortal');
+  const queryClient = new SqliteQueryClient(db);
   setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
     signalFailover,
+    aiTriageEngine,
     billing: null,
     lifecycleEmails: null,
     preServiceCheck: null,
@@ -346,9 +435,10 @@ function buildApp() {
     scheduler: null,
     aiRateLimiter: null,
     guestTdMode: null,
+    queryClient,
   });
 
-  return { app, db, churches, signalFailover };
+  return { app, db, churches, signalFailover, aiTriageEngine };
 }
 
 /**
@@ -363,7 +453,7 @@ function request(app) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('Church Portal API', () => {
-  let app, db, churches, client, signalFailover;
+  let app, db, churches, client, signalFailover, aiTriageEngine;
   let tokenA, tokenB;
 
   beforeEach(() => {
@@ -372,6 +462,7 @@ describe('Church Portal API', () => {
     db = built.db;
     churches = built.churches;
     signalFailover = built.signalFailover;
+    aiTriageEngine = built.aiTriageEngine;
     client = request(app);
     tokenA = issueToken(CHURCH_A_ID);
     tokenB = issueToken(CHURCH_B_ID);
@@ -1398,6 +1489,115 @@ describe('Church Portal API', () => {
         body: { message: 'Hacking attempt', status: 'closed' },
       });
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Q. Support triage and reporting
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Support triage and reporting endpoints', () => {
+    it('POST /api/church/support/triage stores a run and can open a ticket', async () => {
+      const triageRes = await client.post('/api/church/support/triage', {
+        ...authHeaders(tokenA),
+        body: {
+          issueCategory: 'audio',
+          severity: 'P2',
+          summary: 'Front-of-house audio has been unstable',
+          timezone: 'America/New_York',
+          appVersion: '2.1.0',
+        },
+      });
+      expect(triageRes.status).toBe(201);
+      expect(triageRes.body.triageId).toBeTruthy();
+      expect(triageRes.body.checks).toEqual(expect.any(Array));
+
+      const triageRow = db.prepare('SELECT * FROM support_triage_runs WHERE id = ?').get(triageRes.body.triageId);
+      expect(triageRow).toBeTruthy();
+      expect(triageRow.issue_category).toBe('audio');
+
+      const ticketRes = await client.post('/api/church/support/tickets', {
+        ...authHeaders(tokenA),
+        body: { triageId: triageRes.body.triageId },
+      });
+      expect(ticketRes.status).toBe(201);
+      expect(ticketRes.body.ticketId).toBeTruthy();
+
+      const ticketRow = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(ticketRes.body.ticketId);
+      expect(ticketRow).toBeTruthy();
+      expect(ticketRow.triage_id).toBe(triageRes.body.triageId);
+    });
+
+    it('report endpoints return seeded analytics data through the shared client', async () => {
+      const now = new Date().toISOString();
+      db.prepare('UPDATE churches SET service_times = ?, timezone = ? WHERE churchId = ?')
+        .run(JSON.stringify([{ day: 'sunday', start: '09:00', end: '10:30', label: 'Morning Service' }]), 'America/New_York', CHURCH_A_ID);
+      const sessionInsert = db.prepare(`
+        INSERT INTO service_sessions (sessionId, church_id, started_at, ended_at, grade, instance_name, peak_viewers, audio_silence_count, td_name, duration_minutes, alert_count, auto_recovered_count, escalated_count, stream_ran, stream_runtime_minutes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('sess-analytics-1', CHURCH_A_ID, now, now, 'A', 'Main', 142, 1, 'TD Alpha', 60, 3, 2, 1, 1, 54);
+      db.prepare(`
+        INSERT INTO service_events (church_id, session_id, event_type, timestamp, instance_name, resolved, auto_resolved, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(CHURCH_A_ID, 'sess-analytics-1', 'stream_drop', now, 'Main', 1, 1, JSON.stringify({ source: 'test' }));
+      db.prepare(`
+        INSERT INTO post_service_reports (id, church_id, session_id, instance_name, uptime_pct, device_health, created_at, alert_count, auto_recovered_count, failover_count, duration_minutes, stream_runtime_minutes, recommendations, ai_summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('psr-1', CHURCH_A_ID, 'sess-analytics-1', 'Main', 97.5, JSON.stringify({ atem: 'healthy' }), now, 3, 2, 1, 60, 54, JSON.stringify(['Keep monitoring']), 'All good');
+      db.prepare(`
+        INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(CHURCH_A_ID, String(sessionInsert.lastInsertRowid), 142, 82, 40, 20, now);
+      db.prepare('INSERT INTO church_ai_settings (church_id, ai_mode) VALUES (?, ?) ON CONFLICT(church_id) DO UPDATE SET ai_mode = excluded.ai_mode')
+        .run(CHURCH_A_ID, 'enabled');
+      db.prepare(`
+        INSERT INTO ai_triage_events (id, church_id, alert_type, triage_severity, triage_score, time_context, room_id, created_at, details, resolution_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('triage-1', CHURCH_A_ID, 'audio_drop', 'high', 92, 'pre_service', 'room-1', now, JSON.stringify({ issue: 'audio' }), 'res-1');
+      db.prepare(`
+        INSERT INTO ai_triage_events (id, church_id, alert_type, triage_severity, triage_score, time_context, room_id, created_at, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('triage-2', CHURCH_A_ID, 'stream_down', 'medium', 75, 'in_service', 'room-1', now, JSON.stringify({ issue: 'stream' }));
+      db.prepare(`
+        INSERT INTO ai_resolutions (id, church_id, event_id, action_taken, action_command, success, duration_ms, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('res-1', CHURCH_A_ID, 'triage-1', 'restart-audio', 'restart_audio', 1, 120, 'Recovered', now);
+
+      const weekly = await client.get('/api/church/reports/weekly-summary?days=7', authHeaders(tokenA));
+      expect(weekly.status).toBe(200);
+      expect(weekly.body.sessions).toBe(1);
+      expect(weekly.body.totalAlerts).toBe(3);
+      expect(weekly.body.deviceUptime[0].device).toBe('Main');
+
+      const history = await client.get('/api/church/reports/event-history?days=7&limit=10', authHeaders(tokenA));
+      expect(history.status).toBe(200);
+      expect(history.body.events.length).toBeGreaterThan(0);
+      expect(history.body.pagination.total).toBeGreaterThan(0);
+
+      const serviceWindows = await client.get('/api/church/reports/service-windows?days=7', authHeaders(tokenA));
+      expect(serviceWindows.status).toBe(200);
+      expect(serviceWindows.body.serviceWindows).toHaveLength(1);
+      expect(serviceWindows.body.sessions[0].room).toBe('Main');
+
+      const analytics = await client.get('/api/church/analytics?days=7', authHeaders(tokenA));
+      expect(analytics.status).toBe(200);
+      expect(analytics.body.total_sessions).toBe(1);
+      expect(analytics.body.viewer_trend).toHaveLength(1);
+
+      const audience = await client.get('/api/church/analytics/audience?days=7', authHeaders(tokenA));
+      expect(audience.status).toBe(200);
+      expect(audience.body.session_viewers).toHaveLength(1);
+      expect(audience.body.platform_summary.peak_total).toBe(142);
+
+      const deviceHealth = await client.get('/api/church/reports/device-health?days=7', authHeaders(tokenA));
+      expect(deviceHealth.status).toBe(200);
+      expect(deviceHealth.body.devices.length).toBeGreaterThan(0);
+
+      const aiActivity = await client.get('/api/church/reports/ai-activity?days=7&limit=10', authHeaders(tokenA));
+      expect(aiActivity.status).toBe(200);
+      expect(aiActivity.body.aiEnabled).toBe(true);
+      expect(aiActivity.body.actions.length).toBeGreaterThan(0);
+      expect(aiActivity.body.pendingIssues.length).toBeGreaterThan(0);
     });
   });
 

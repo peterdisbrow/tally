@@ -2,8 +2,16 @@
  * Schedule Engine — Service window management per church
  */
 
+const { createQueryClient } = require('./db');
 const { createLogger } = require('./logger');
 const log = createLogger('ScheduleEngine');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
 
 /**
  * Get the current day-of-week (0=Sun) and minutes-since-midnight in a
@@ -42,18 +50,48 @@ function _getLocalDayMinutes(tz) {
 }
 
 class ScheduleEngine {
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this._windowState = new Map();   // churchId → boolean (was in window last poll?)
     this._openCallbacks = [];        // fn(churchId) — fired when window opens
     this._closeCallbacks = [];       // fn(churchId) — fired when window closes
     this._preServiceCallbacks = [];  // fn(churchId, nextService) — fired at T-30 before service
     this._preServiceSent = new Map(); // churchId::dayStart → true (dedup pre-service reminders)
     this._pollTimer = null;
-    this._ensureColumn();
+    this._churchConfigCache = new Map();
+
+    if (this.db) {
+      this._ensureColumnSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
   }
 
-  _ensureColumn() {
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[ScheduleEngine] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureColumn();
+    await this._loadCache();
+  }
+
+  _ensureColumnSync() {
     try {
       this.db.prepare("SELECT service_times FROM churches LIMIT 1").get();
     } catch {
@@ -61,19 +99,111 @@ class ScheduleEngine {
     }
   }
 
+  async _ensureColumn() {
+    const client = this._requireClient();
+    try {
+      await client.queryOne('SELECT service_times FROM churches LIMIT 1');
+    } catch {
+      await client.exec("ALTER TABLE churches ADD COLUMN service_times TEXT DEFAULT '[]'");
+    }
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    await this.ready;
+    return this._requireClient().run(sql, params);
+  }
+
+  _normalizeChurchRow(row = {}) {
+    return {
+      churchId: row.churchId || row.church_id || null,
+      serviceTimesRaw: row.service_times || '[]',
+      timezone: row.timezone || '',
+      churchType: row.church_type || '',
+      eventExpiresAt: row.event_expires_at || null,
+    };
+  }
+
+  _parseSchedule(serviceTimesRaw) {
+    if (!serviceTimesRaw) return [];
+    try { return JSON.parse(serviceTimesRaw); } catch { return []; }
+  }
+
+  _updateChurchCache(churchId, updates = {}) {
+    if (!churchId) return;
+    const existing = this._churchConfigCache.get(churchId) || {
+      churchId,
+      serviceTimesRaw: '[]',
+      timezone: '',
+      churchType: '',
+      eventExpiresAt: null,
+    };
+    const next = { ...existing, ...updates, churchId };
+    this._churchConfigCache.set(churchId, next);
+    return next;
+  }
+
+  async _loadCache() {
+    const rows = await this._requireClient().query(`
+      SELECT churchId AS "churchId", service_times, timezone, church_type, event_expires_at
+      FROM churches
+    `);
+    this._churchConfigCache.clear();
+    for (const row of rows) {
+      const normalized = this._normalizeChurchRow(row);
+      this._churchConfigCache.set(normalized.churchId, normalized);
+    }
+  }
+
+  _getChurchConfig(churchId) {
+    if (this.db) return null;
+    return this._churchConfigCache.get(churchId) || {
+      churchId,
+      serviceTimesRaw: '[]',
+      timezone: '',
+      churchType: '',
+      eventExpiresAt: null,
+    };
+  }
+
   setSchedule(churchId, serviceTimes) {
+    if (this.db) return this._setScheduleSync(churchId, serviceTimes);
+    return this._setScheduleAsync(churchId, serviceTimes);
+  }
+
+  _setScheduleSync(churchId, serviceTimes) {
     this.db.prepare("UPDATE churches SET service_times = ? WHERE churchId = ?")
       .run(JSON.stringify(serviceTimes), churchId);
   }
 
+  async _setScheduleAsync(churchId, serviceTimes) {
+    const serviceTimesRaw = JSON.stringify(serviceTimes);
+    this._updateChurchCache(churchId, { serviceTimesRaw });
+    await this.ready;
+    await this._run("UPDATE churches SET service_times = ? WHERE churchId = ?", [serviceTimesRaw, churchId]);
+  }
+
   getSchedule(churchId) {
+    if (!this.db) {
+      const config = this._getChurchConfig(churchId);
+      return this._parseSchedule(config.serviceTimesRaw);
+    }
     const row = this.db.prepare("SELECT service_times FROM churches WHERE churchId = ?").get(churchId);
     if (!row || !row.service_times) return [];
-    try { return JSON.parse(row.service_times); } catch { return []; }
+    return this._parseSchedule(row.service_times);
   }
 
   /** Fetch the church's IANA timezone (empty string if unknown). */
   _getTimezone(churchId) {
+    if (!this.db) {
+      return this._getChurchConfig(churchId).timezone || '';
+    }
     try {
       const row = this.db.prepare('SELECT timezone FROM churches WHERE churchId = ?').get(churchId);
       return row?.timezone || '';
@@ -83,11 +213,18 @@ class ScheduleEngine {
   isServiceWindow(churchId) {
     // Event churches treat their entire monitoring window as one service window
     try {
-      const row = this.db.prepare("SELECT church_type, event_expires_at FROM churches WHERE churchId = ?").get(churchId);
-      if (row && row.church_type === 'event') {
-        // Return true if the event hasn't expired yet
-        if (!row.event_expires_at) return true;
-        return new Date(row.event_expires_at) > new Date();
+      if (!this.db) {
+        const row = this._getChurchConfig(churchId);
+        if (row && row.churchType === 'event') {
+          if (!row.eventExpiresAt) return true;
+          return new Date(row.eventExpiresAt) > new Date();
+        }
+      } else {
+        const row = this.db.prepare("SELECT church_type, event_expires_at FROM churches WHERE churchId = ?").get(churchId);
+        if (row && row.church_type === 'event') {
+          if (!row.event_expires_at) return true;
+          return new Date(row.event_expires_at) > new Date();
+        }
       }
     } catch { /* column may not exist yet on very first run */ }
 
@@ -96,13 +233,22 @@ class ScheduleEngine {
 
     const tz = this._getTimezone(churchId);
     const { day, minutesNow } = _getLocalDayMinutes(tz);
+    const nowWeekMinutes = day * 24 * 60 + minutesNow;
     const BUFFER = 30;
+    const WEEK_MINUTES = 7 * 24 * 60;
 
     for (const s of schedule) {
-      if (s.day !== day) continue;
-      const start = s.startHour * 60 + (s.startMin || 0);
-      const end = start + (s.durationHours || 2) * 60;
-      if (minutesNow >= start - BUFFER && minutesNow <= end + BUFFER) return true;
+      const startOfDay = s.startHour * 60 + (s.startMin || 0);
+      const durationMinutes = (s.durationHours || 2) * 60;
+      const baseStart = s.day * 24 * 60 + startOfDay;
+
+      for (const offset of [-WEEK_MINUTES, 0, WEEK_MINUTES]) {
+        const start = baseStart + offset;
+        const end = start + durationMinutes;
+        if (nowWeekMinutes >= start - BUFFER && nowWeekMinutes <= end + BUFFER) {
+          return true;
+        }
+      }
     }
     return false;
   }
@@ -111,7 +257,7 @@ class ScheduleEngine {
 
   /**
    * Register a callback that fires whenever a service window opens.
-   * @param {function(churchId: string): void} fn
+   * @param {function(churchId: string): (void|Promise<void>)} fn
    */
   addWindowOpenCallback(fn) {
     this._openCallbacks.push(fn);
@@ -119,7 +265,7 @@ class ScheduleEngine {
 
   /**
    * Register a callback that fires whenever a service window closes.
-   * @param {function(churchId: string): void} fn
+   * @param {function(churchId: string): (void|Promise<void>)} fn
    */
   addWindowCloseCallback(fn) {
     this._closeCallbacks.push(fn);
@@ -127,10 +273,28 @@ class ScheduleEngine {
 
   /**
    * Register a callback that fires ~30 minutes before a service window opens.
-   * @param {function(churchId: string, nextService: object): void} fn
+   * @param {function(churchId: string, nextService: object): (void|Promise<void>)} fn
    */
   addPreServiceCallback(fn) {
     this._preServiceCallbacks.push(fn);
+  }
+
+  _invokeCallback(callback, args, errorContext) {
+    try {
+      Promise.resolve(callback(...args)).catch((e) => {
+        log.error(errorContext.message, {
+          event: errorContext.event,
+          churchId: errorContext.churchId,
+          error: e.message,
+        });
+      });
+    } catch (e) {
+      log.error(errorContext.message, {
+        event: errorContext.event,
+        churchId: errorContext.churchId,
+        error: e.message,
+      });
+    }
   }
 
   /**
@@ -138,14 +302,28 @@ class ScheduleEngine {
    * Fires onWindowOpen / onWindowClose callbacks on state changes.
    */
   startPolling() {
-    this._pollWindows(); // immediate check
-    this._pollTimer = setInterval(() => this._pollWindows(), 60 * 1000);
+    if (this.db) {
+      this._pollWindows();
+      this._pollTimer = setInterval(() => this._pollWindows(), 60 * 1000);
+      return;
+    }
+
+    Promise.resolve(this.ready).then(() => {
+      this._pollWindows();
+      this._pollTimer = setInterval(() => this._pollWindows(), 60 * 1000);
+    }).catch((e) => {
+      log.error('schedule polling start failed', { event: 'schedule_poll_start_error', error: e.message });
+    });
   }
 
   _pollWindows() {
     let churches;
     try {
-      churches = this.db.prepare('SELECT churchId FROM churches').all();
+      if (this.db) {
+        churches = this.db.prepare('SELECT churchId FROM churches').all();
+      } else {
+        churches = [...this._churchConfigCache.values()].map((row) => ({ churchId: row.churchId }));
+      }
     } catch (e) {
       log.error('poll error', { event: 'schedule_poll_error', error: e.message });
       return;
@@ -160,12 +338,20 @@ class ScheduleEngine {
         if (inWindow) {
           // Window just opened
           for (const fn of this._openCallbacks) {
-            try { fn(churchId); } catch (e) { log.error('onWindowOpen callback error', { event: 'window_open_error', churchId, error: e.message }); }
+            this._invokeCallback(fn, [churchId], {
+              message: 'onWindowOpen callback error',
+              event: 'window_open_error',
+              churchId,
+            });
           }
         } else {
           // Window just closed
           for (const fn of this._closeCallbacks) {
-            try { fn(churchId); } catch (e) { log.error('onWindowClose callback error', { event: 'window_close_error', churchId, error: e.message }); }
+            this._invokeCallback(fn, [churchId], {
+              message: 'onWindowClose callback error',
+              event: 'window_close_error',
+              churchId,
+            });
           }
         }
       } else {
@@ -180,7 +366,11 @@ class ScheduleEngine {
           if (!this._preServiceSent.has(dedupKey)) {
             this._preServiceSent.set(dedupKey, true);
             for (const fn of this._preServiceCallbacks) {
-              try { fn(churchId, next); } catch (e) { log.error('preService callback error', { event: 'pre_service_error', churchId, error: e.message }); }
+              this._invokeCallback(fn, [churchId, next], {
+                message: 'preService callback error',
+                event: 'pre_service_error',
+                churchId,
+              });
             }
             // Clean up old dedup entries (keep only current week)
             if (this._preServiceSent.size > 200) {

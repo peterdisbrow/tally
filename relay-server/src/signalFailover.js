@@ -45,13 +45,178 @@ class SignalFailover {
    * @param {object} autoRecovery — AutoRecovery instance (for dispatchCommand)
    * @param {object} db — better-sqlite3 database handle
    */
-  constructor(churches, alertEngine, autoRecovery, db) {
+  constructor(churches, alertEngine, autoRecovery, dbOrClient) {
     this.churches = churches;
     this.alertEngine = alertEngine;
     this.autoRecovery = autoRecovery;
-    this.db = db;
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient);
     this._states = new Map(); // compositeKey (churchId::instanceName) → per-instance failover state
     this._transitionListeners = []; // fn(churchId, from, to, trigger, snapshot, instanceName) — fire-and-forget
+    this._churchConfigCache = new Map();
+    this.ready = this.client ? this._init() : Promise.resolve();
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+    return null;
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[SignalFailover] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._loadConfigCache();
+  }
+
+  _normalizeChurchRow(row) {
+    if (!row) return null;
+
+    let action = null;
+    try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch { /* invalid JSON */ }
+
+    return {
+      churchId: row.churchId || row.church_id || null,
+      enabled: !!row.failover_enabled,
+      blackThresholdS: row.failover_black_threshold_s || DEFAULTS.blackThresholdS,
+      ackTimeoutS: row.failover_ack_timeout_s || DEFAULTS.ackTimeoutS,
+      action,
+      autoRecover: !!row.failover_auto_recover,
+      audioTrigger: !!row.failover_audio_trigger,
+      tdChatId: row.td_telegram_chat_id || null,
+      telegramBotToken: row.telegram_bot_token || null,
+    };
+  }
+
+  async _loadConfigCache() {
+    const rows = await this._queryChurchRows();
+
+    this._churchConfigCache.clear();
+    for (const row of rows) {
+      const normalized = this._normalizeChurchRow(row);
+      if (normalized?.churchId) {
+        this._churchConfigCache.set(normalized.churchId, normalized);
+      }
+    }
+  }
+
+  async refreshChurchConfig(churchId) {
+    if (!this.client) return;
+    const row = await this._queryChurchRow(churchId);
+
+    const normalized = this._normalizeChurchRow(row);
+    if (normalized?.churchId) {
+      this._churchConfigCache.set(normalized.churchId, normalized);
+    } else {
+      this._churchConfigCache.delete(churchId);
+    }
+  }
+
+  async _queryChurchRows() {
+    const client = this._requireClient();
+    try {
+      return await client.query(
+        `SELECT churchId AS "churchId",
+                failover_enabled,
+                failover_black_threshold_s,
+                failover_ack_timeout_s,
+                failover_action,
+                failover_auto_recover,
+                failover_audio_trigger,
+                td_telegram_chat_id,
+                telegram_bot_token
+           FROM churches`
+      );
+    } catch (error) {
+      if (!/telegram_bot_token|td_telegram_chat_id/i.test(String(error?.message || ''))) throw error;
+      try {
+        return await client.query(
+          `SELECT churchId AS "churchId",
+                  failover_enabled,
+                  failover_black_threshold_s,
+                  failover_ack_timeout_s,
+                  failover_action,
+                  failover_auto_recover,
+                  failover_audio_trigger,
+                  td_telegram_chat_id,
+                  NULL AS "telegram_bot_token"
+             FROM churches`
+        );
+      } catch (nestedError) {
+        if (!/td_telegram_chat_id/i.test(String(nestedError?.message || ''))) throw nestedError;
+        return client.query(
+          `SELECT churchId AS "churchId",
+                  failover_enabled,
+                  failover_black_threshold_s,
+                  failover_ack_timeout_s,
+                  failover_action,
+                  failover_auto_recover,
+                  failover_audio_trigger,
+                  NULL AS "td_telegram_chat_id",
+                  NULL AS "telegram_bot_token"
+             FROM churches`
+        );
+      }
+    }
+  }
+
+  async _queryChurchRow(churchId) {
+    const client = this._requireClient();
+    try {
+      return await client.queryOne(
+        `SELECT churchId AS "churchId",
+                failover_enabled,
+                failover_black_threshold_s,
+                failover_ack_timeout_s,
+                failover_action,
+                failover_auto_recover,
+                failover_audio_trigger,
+                td_telegram_chat_id,
+                telegram_bot_token
+           FROM churches
+          WHERE churchId = ?`,
+        [churchId]
+      );
+    } catch (error) {
+      if (!/telegram_bot_token|td_telegram_chat_id/i.test(String(error?.message || ''))) throw error;
+      try {
+        return await client.queryOne(
+          `SELECT churchId AS "churchId",
+                  failover_enabled,
+                  failover_black_threshold_s,
+                  failover_ack_timeout_s,
+                  failover_action,
+                  failover_auto_recover,
+                  failover_audio_trigger,
+                  td_telegram_chat_id,
+                  NULL AS "telegram_bot_token"
+             FROM churches
+            WHERE churchId = ?`,
+          [churchId]
+        );
+      } catch (nestedError) {
+        if (!/td_telegram_chat_id/i.test(String(nestedError?.message || ''))) throw nestedError;
+        return client.queryOne(
+          `SELECT churchId AS "churchId",
+                  failover_enabled,
+                  failover_black_threshold_s,
+                  failover_ack_timeout_s,
+                  failover_action,
+                  failover_auto_recover,
+                  failover_audio_trigger,
+                  NULL AS "td_telegram_chat_id",
+                  NULL AS "telegram_bot_token"
+             FROM churches
+            WHERE churchId = ?`,
+          [churchId]
+        );
+      }
+    }
   }
 
   /** Build composite key for per-instance state. Falls back to churchId for single-room. */
@@ -62,6 +227,19 @@ class SignalFailover {
   // ─── Per-church config from DB ──────────────────────────────────────────────
 
   _getConfig(churchId) {
+    if (!this.db) {
+      const row = this._churchConfigCache.get(churchId);
+      if (!row || !row.enabled || !row.action) return null;
+      return {
+        enabled: true,
+        blackThresholdS: row.blackThresholdS,
+        ackTimeoutS: row.ackTimeoutS,
+        action: row.action,
+        autoRecover: row.autoRecover,
+        audioTrigger: row.audioTrigger,
+      };
+    }
+
     try {
       const row = this.db.prepare(
         `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s,
@@ -84,6 +262,20 @@ class SignalFailover {
       };
     } catch (e) {
       console.warn('[SignalFailover] Failed to load config for church', churchId, ':', e.message);
+      return null;
+    }
+  }
+
+  _getChurchAlertContact(churchId) {
+    if (!this.db) {
+      return this._churchConfigCache.get(churchId) || null;
+    }
+
+    try {
+      return this.db.prepare(
+        'SELECT td_telegram_chat_id, telegram_bot_token FROM churches WHERE churchId = ?'
+      ).get(churchId) || null;
+    } catch {
       return null;
     }
   }
@@ -941,9 +1133,9 @@ class SignalFailover {
   async _sendAlert(church, alertType, message, instanceName) {
     try {
       // Send directly via Telegram (bypass full alert engine escalation — failover has its own)
-      const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
-      const botToken = dbChurch?.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN;
-      const tdChatId = dbChurch?.td_telegram_chat_id;
+      const dbChurch = this._getChurchAlertContact(church.churchId);
+      const botToken = dbChurch?.telegram_bot_token || dbChurch?.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+      const tdChatId = dbChurch?.td_telegram_chat_id || dbChurch?.tdChatId;
 
       if (botToken && tdChatId) {
         await this.alertEngine.sendTelegramMessage(tdChatId, botToken, message);

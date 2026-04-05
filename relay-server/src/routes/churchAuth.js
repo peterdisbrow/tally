@@ -8,12 +8,30 @@
 module.exports = function setupChurchAuthRoutes(app, ctx) {
   const { hasOpenSocket } = require('../runtimeSockets');
   const { db, churches, requireAdmin, requireChurchAppAuth, requireChurchWriteAccess, rateLimit,
+          queryClient,
           billing, hashPassword, verifyPassword, normalizeBillingInterval,
           issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
           sendOnboardingEmail, lifecycleEmails, broadcastToSSE,
-          stmtInsert, stmtFindByName, stmtUpdateRegistrationCode,
           jwt, JWT_SECRET, CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING,
           TRIAL_PERIOD_DAYS, uuidv4, safeErrorMessage, log } = ctx;
+
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qAll = (sql, params = []) => (
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
+  );
+  const qRun = (sql, params = []) => (
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
+  );
+  const normalizeChurchRow = (row) => {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  };
 
   // ─── ONBOARD (self-service signup) ───────────────────────────────────────────
 
@@ -42,13 +60,13 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       return res.status(400).json({ error: 'invalid billingInterval' });
     }
 
-    const existingByName = stmtFindByName.get(cleanName);
+    const existingByName = await qOne('SELECT * FROM churches WHERE name = ?', [cleanName]);
     if (existingByName) {
       const isPending = existingByName.billing_status === 'pending' || existingByName.billing_status === 'inactive';
       if (!isPending) return res.status(409).json({ error: `A church named "${cleanName}" already exists` });
     }
 
-    const existingByEmail = db.prepare('SELECT churchId, billing_status, billing_trial_ends FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const existingByEmail = await qOne('SELECT churchId, billing_status, billing_trial_ends FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (existingByEmail) {
       const isPending = existingByEmail.billing_status === 'pending' || existingByEmail.billing_status === 'inactive';
       if (!isPending) return res.status(409).json({ error: 'An account with this email already exists' });
@@ -58,16 +76,16 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       }
       const oldChurchId = existingByEmail.churchId;
       churches.delete(oldChurchId);
-      db.prepare('DELETE FROM billing_customers WHERE church_id = ?').run(oldChurchId);
-      db.prepare('DELETE FROM churches WHERE churchId = ?').run(oldChurchId);
+      await qRun('DELETE FROM billing_customers WHERE church_id = ?', [oldChurchId]);
+      await qRun('DELETE FROM churches WHERE churchId = ?', [oldChurchId]);
       log(`[Onboarding] Cleaned up abandoned signup for ${cleanEmail} (old churchId: ${oldChurchId})`);
     }
 
     if (existingByName) {
       const oldChurchId = existingByName.churchId;
       churches.delete(oldChurchId);
-      db.prepare('DELETE FROM billing_customers WHERE church_id = ?').run(oldChurchId);
-      db.prepare('DELETE FROM churches WHERE churchId = ?').run(oldChurchId);
+      await qRun('DELETE FROM billing_customers WHERE church_id = ?', [oldChurchId]);
+      await qRun('DELETE FROM churches WHERE churchId = ?', [oldChurchId]);
       log(`[Onboarding] Cleaned up abandoned signup for "${cleanName}" (old churchId: ${oldChurchId})`);
     }
 
@@ -79,36 +97,38 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const onboardStatus = billing.isEnabled() ? 'pending' : 'trialing';
     const trialEndsAt = new Date(Date.now() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    stmtInsert.run(churchId, cleanName, cleanEmail, connectionToken, registeredAt);
-    stmtUpdateRegistrationCode.run(registrationCode, churchId);
+    await qRun('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)', [
+      churchId, cleanName, cleanEmail, connectionToken, registeredAt,
+    ]);
+    await qRun('UPDATE churches SET registration_code = ? WHERE churchId = ?', [registrationCode, churchId]);
 
     const newReferralCode = generateRegistrationCode().toUpperCase();
     const crypto = require('crypto');
     const emailVerifyToken = crypto.randomBytes(32).toString('hex');
 
-    db.prepare(`
+    await qRun(`
       UPDATE churches
       SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, billing_interval = ?, tos_accepted_at = ?, referral_code = ?,
           email_verify_token = ?, email_verify_sent_at = ?, locale = ?
       WHERE churchId = ?
-    `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), cleanLocale, churchId);
+    `, [cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), cleanLocale, churchId]);
 
     // Track referral
     let referrerId = null;
     let referralWarning = null;
     if (cleanReferralCode) {
-      const referrer = db.prepare('SELECT churchId, name FROM churches WHERE referral_code = ? AND churchId != ?').get(cleanReferralCode, churchId);
+      const referrer = await qOne('SELECT churchId, name FROM churches WHERE referral_code = ? AND churchId != ?', [cleanReferralCode, churchId]);
       if (referrer) {
         referrerId = referrer.churchId;
-        db.prepare('UPDATE churches SET referred_by = ? WHERE churchId = ?').run(referrer.churchId, churchId);
+        await qRun('UPDATE churches SET referred_by = ? WHERE churchId = ?', [referrer.churchId, churchId]);
         try {
           // Prevent duplicate referral records for the same referred church
-          const existing = db.prepare('SELECT id FROM referrals WHERE referred_id = ? LIMIT 1').get(churchId);
+          const existing = await qOne('SELECT id FROM referrals WHERE referred_id = ? LIMIT 1', [churchId]);
           if (!existing) {
-            db.prepare(`
+            await qRun(`
               INSERT INTO referrals (id, referrer_id, referred_id, referred_name, status, created_at)
               VALUES (?, ?, ?, ?, 'pending', ?)
-            `).run(crypto.randomUUID(), referrer.churchId, churchId, cleanName, registeredAt);
+            `, [crypto.randomUUID(), referrer.churchId, churchId, cleanName, registeredAt]);
             log(`[Referral] ${cleanName} referred by ${referrer.name} (code: ${cleanReferralCode})`);
           }
         } catch (e) { log(`[Referral] Failed to record: ${e.message}`); }
@@ -193,10 +213,10 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // ─── REFERRAL CODE LOOKUP (public, rate-limited) ────────────────────────────
 
-  app.get('/api/referral/:code', rateLimit(20, 60_000), (req, res) => {
+  app.get('/api/referral/:code', rateLimit(20, 60_000), async (req, res) => {
     const code = String(req.params.code || '').trim().toUpperCase();
     if (!code || code.length < 4) return res.status(400).json({ error: 'Invalid code' });
-    const church = db.prepare('SELECT name FROM churches WHERE referral_code = ?').get(code);
+    const church = await qOne('SELECT name FROM churches WHERE referral_code = ?', [code]);
     if (!church) return res.json({ valid: false });
     res.json({ valid: true, referrerName: church.name });
   });
@@ -218,14 +238,14 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // ─── APP LOGIN ───────────────────────────────────────────────────────────────
 
-  app.post('/api/church/app/login', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/app/login', rateLimit(5, 15 * 60 * 1000), async (req, res) => {
     const { email, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !password) {
       return res.status(400).json({ error: 'email and password required' });
     }
 
-    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = normalizeChurchRow(await qOne('SELECT * FROM churches WHERE portal_email = ?', [cleanEmail]));
     if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -250,13 +270,13 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // POST /api/church/app/readonly-token — issues a read-only JWT for church staff
   // Requires full portal credentials; the resulting token rejects all write endpoints.
-  app.post('/api/church/app/readonly-token', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/app/readonly-token', rateLimit(5, 15 * 60 * 1000), async (req, res) => {
     const { email, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !password) {
       return res.status(400).json({ error: 'email and password required' });
     }
-    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = await qOne('SELECT * FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -269,12 +289,12 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // ─── CHURCH APP PROFILE ──────────────────────────────────────────────────────
 
-  app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/app/me', requireChurchAppAuth, async (req, res) => {
     const c = req.church;
     const runtime = churches.get(c.churchId);
     let tds = [];
     try {
-      tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1 ORDER BY registered_at ASC').all(c.churchId);
+      tds = await qAll('SELECT * FROM church_tds WHERE church_id = ? AND active = 1 ORDER BY registered_at ASC', [c.churchId]);
     } catch (e) { console.warn('[churchAuth] church_tds query failed (schema may vary):', e.message); }
     const { portal_password_hash, token, ...safe } = c;
     let notifications = {};
@@ -288,11 +308,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // GET /api/church/app/rooms — list available rooms for the desktop app
-  app.get('/api/church/app/rooms', requireChurchAppAuth, (req, res) => {
+  app.get('/api/church/app/rooms', requireChurchAppAuth, async (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const rooms = db.prepare('SELECT id, campus_id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC').all(churchId);
-      const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
+      const rooms = await qAll('SELECT id, campus_id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC', [churchId]);
+      const currentRoomId = (await qOne('SELECT room_id FROM churches WHERE churchId = ?', [churchId]))?.room_id || null;
       res.json({ rooms, currentRoomId });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -300,17 +320,17 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/church/app/room-assign — assign this desktop to a room
-  app.post('/api/church/app/room-assign', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.post('/api/church/app/room-assign', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
       if (roomId) {
-        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+        const room = await qOne('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL', [roomId, churchId]);
         if (!room) return res.status(404).json({ error: 'Room not found or not accessible by this church' });
-        db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
+        await qRun('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?', [roomId, room.name, churchId]);
         res.json({ ok: true, roomId, roomName: room.name });
       } else {
-        db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE churchId = ?').run(churchId);
+        await qRun('UPDATE churches SET room_id = NULL, room_name = NULL WHERE churchId = ?', [churchId]);
         res.json({ ok: true, roomId: null, roomName: null });
       }
     } catch (e) {
@@ -319,13 +339,13 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/church/app/rooms — create a new room from the desktop app
-  app.post('/api/church/app/rooms', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.post('/api/church/app/rooms', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     try {
       const churchId = req.church.churchId;
       const tier = String(req.church.billing_tier || 'connect').toLowerCase();
       const tierRoomLimits = { connect: 1, plus: 3, pro: 5, managed: 999, event: 1 };
       const maxRooms = tierRoomLimits[tier] || 1;
-      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(churchId)?.cnt || 0;
+      const currentCount = (await qOne('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL', [churchId]))?.cnt || 0;
       if (currentCount >= maxRooms) {
         return res.status(403).json({
           error: `Your ${tier.toUpperCase()} plan allows ${maxRooms} room${maxRooms === 1 ? '' : 's'}. Upgrade for more.`,
@@ -338,8 +358,9 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
       const id = uuidv4();
       const created_at = new Date().toISOString();
-      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id, churchId, name, description, created_at);
+      await qRun('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)', [
+        id, churchId, name, description, created_at,
+      ]);
       res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -347,7 +368,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/pf/report — Problem Finder analysis results
-  app.post('/api/pf/report', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.post('/api/pf/report', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     try {
       const churchId = req.church.churchId;
       const b = req.body || {};
@@ -370,15 +391,15 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const topActionsJson = JSON.stringify(Array.isArray(b.topActions) ? b.topActions : []);
       const createdAt = b.createdAt || new Date().toISOString();
 
-      db.prepare(`
+      await qRun(`
         INSERT OR REPLACE INTO problem_finder_reports
           (id, church_id, trigger_type, status, issue_count, auto_fixed_count, coverage_score,
            blocker_count, issues_json, blockers_json, auto_fixed_json, needs_attention_json,
            top_actions_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, churchId, triggerType, status, issueCount, autoFixedCount, coverageScore,
+      `, [id, churchId, triggerType, status, issueCount, autoFixedCount, coverageScore,
         blockerCount, issuesJson, blockersJson, autoFixedJson, needsAttentionJson,
-        topActionsJson, createdAt);
+        topActionsJson, createdAt]);
 
       broadcastToSSE({
         type: 'pf_report', churchId, status, issueCount, blockerCount, autoFixedCount, timestamp: createdAt,
@@ -393,7 +414,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // PUT /api/church/app/me — update profile
-  app.put('/api/church/app/me', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+  app.put('/api/church/app/me', requireChurchAppAuth, requireChurchWriteAccess, async (req, res) => {
     const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password, locale } = req.body;
     const churchId = req.church.churchId;
 
@@ -406,8 +427,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         return res.status(400).json({ error: 'Current password is incorrect' });
       }
       if (newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-      db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
-        .run(hashPassword(newPw), churchId);
+      await qRun('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?', [hashPassword(newPw), churchId]);
     }
 
     const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem', 'locale'];
@@ -415,7 +435,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const patch = {};
     if (email !== undefined) {
       const cleanNewEmail = email.trim().toLowerCase();
-      const existingEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ? AND churchId != ?').get(cleanNewEmail, churchId);
+      const existingEmail = await qOne('SELECT churchId FROM churches WHERE portal_email = ? AND churchId != ?', [cleanNewEmail, churchId]);
       if (existingEmail) {
         return res.status(409).json({ error: 'This email is already in use by another account' });
       }
@@ -441,7 +461,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
     if (Object.keys(safePatch).length) {
       const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
+      await qRun(`UPDATE churches SET ${sets} WHERE churchId = ?`, [...Object.values(safePatch), churchId]);
       if (safePatch.audio_via_atem !== undefined) {
         const runtime = churches.get(churchId);
         if (runtime) {
@@ -454,7 +474,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/church/app/reset-password
-  app.post('/api/church/app/reset-password', requireAdmin, (req, res) => {
+  app.post('/api/church/app/reset-password', requireAdmin, async (req, res) => {
     const { email, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !password) {
@@ -464,13 +484,12 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    const church = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const church = await qOne('SELECT churchId FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church) {
       return res.status(404).json({ error: 'No account found with that email' });
     }
 
-    db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
-      .run(hashPassword(password), church.churchId);
+    await qRun('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?', [hashPassword(password), church.churchId]);
 
     log(`[ResetPassword] Password updated for ${cleanEmail} (church ${church.churchId})`);
     res.json({ ok: true });

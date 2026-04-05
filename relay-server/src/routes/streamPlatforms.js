@@ -78,9 +78,11 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
   });
 
   // YouTube: disconnect
-  app.delete('/api/church/app/oauth/youtube', requireChurchAppAuth, (req, res) => {
-    streamOAuth.disconnectYouTube(req.church.churchId);
-    res.json({ disconnected: true });
+  app.delete('/api/church/app/oauth/youtube', requireChurchAppAuth, async (req, res) => {
+    try {
+      await streamOAuth.disconnectYouTube(req.church.churchId);
+      res.json({ disconnected: true });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // Facebook: exchange auth code for tokens + list pages
@@ -116,9 +118,11 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
   });
 
   // Facebook: disconnect
-  app.delete('/api/church/app/oauth/facebook', requireChurchAppAuth, (req, res) => {
-    streamOAuth.disconnectFacebook(req.church.churchId);
-    res.json({ disconnected: true });
+  app.delete('/api/church/app/oauth/facebook', requireChurchAppAuth, async (req, res) => {
+    try {
+      await streamOAuth.disconnectFacebook(req.church.churchId);
+      res.json({ disconnected: true });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // OAuth client IDs (public, non-secret — needed by Electron to build auth URLs)
@@ -130,12 +134,16 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
   });
 
   // Combined status (both platforms)
-  app.get('/api/church/app/oauth/status', requireChurchAppAuth, (req, res) => {
-    res.json(streamOAuth.getStatus(req.church.churchId));
+  app.get('/api/church/app/oauth/status', requireChurchAppAuth, async (req, res) => {
+    try {
+      res.json(await streamOAuth.getStatus(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // Combined stream keys
-  app.get('/api/church/app/oauth/stream-keys', requireChurchAppAuth, (req, res) => {
-    res.json(streamOAuth.getStreamKeys(req.church.churchId));
+  app.get('/api/church/app/oauth/stream-keys', requireChurchAppAuth, async (req, res) => {
+    try {
+      res.json(await streamOAuth.getStreamKeys(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 };

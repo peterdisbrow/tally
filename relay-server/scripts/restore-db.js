@@ -3,6 +3,7 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 const { restoreBackupSnapshot } = require('../src/dbBackup');
+const { resolveDatabaseConfig, assertSqliteDriver } = require('../src/db/config');
 
 function parseArgs(argv) {
   const args = { force: false };
@@ -21,7 +22,6 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const snapshotPath = path.resolve(args.snapshot || process.env.BACKUP_SNAPSHOT_PATH || '');
-const destinationPath = path.resolve(args.dest || process.env.DATABASE_PATH || './data/churches.db');
 const encryptionKey = process.env.BACKUP_ENCRYPTION_KEY || '';
 
 if (!snapshotPath || snapshotPath === path.resolve('')) {
@@ -35,6 +35,11 @@ if (!args.force && process.env.CONFIRM_RESTORE !== 'YES') {
 }
 
 try {
+  const databaseConfig = resolveDatabaseConfig(process.env);
+  const destinationPath = args.dest
+    ? path.resolve(args.dest)
+    : assertSqliteDriver(databaseConfig, 'Restore script').sqlitePath;
+
   const result = restoreBackupSnapshot({
     snapshotPath,
     destinationPath,

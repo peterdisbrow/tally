@@ -52,22 +52,33 @@ function safeJsonParse(value, fallback) {
  */
 module.exports = function setupSupportTicketRoutes(app, ctx) {
   const {
-    db, churches, requireAdminJwt, stmtGet, scheduleEngine,
+    db, queryClient, churches, requireAdminJwt, scheduleEngine,
     JWT_SECRET, RELAY_VERSION, SUPPORT_TRIAGE_WINDOW_HOURS, rateLimit,
     broadcastToSSE, lifecycleEmails,
   } = ctx;
+  const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
+  const qOne = (sql, params = []) => (
+    hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
+  );
+  const qAll = (sql, params = []) => (
+    hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
+  );
+  const qRun = (sql, params = []) => (
+    hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
+  );
 
-  function buildSupportDiagnostics(churchId, options = {}) {
+  async function buildSupportDiagnostics(churchId, options = {}) {
     const runtime = churches.get(churchId);
     const now = Date.now();
     const sinceIso = new Date(now - 15 * 60 * 1000).toISOString();
-    const recentAlerts = db.prepare(`
+    const recentAlertsRows = await qAll(`
       SELECT id, alert_type, severity, context, created_at, acknowledged_at, resolved
       FROM alerts
       WHERE church_id = ? AND created_at >= ?
       ORDER BY created_at DESC
       LIMIT 25
-    `).all(churchId, sinceIso).map((row) => ({
+    `, [churchId, sinceIso]);
+    const recentAlerts = recentAlertsRows.map((row) => ({
       id: row.id,
       alertType: row.alert_type,
       severity: row.severity,
@@ -161,20 +172,20 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     return { checks, triageResult };
   }
 
-  function requireSupportAccess(req, res, next) {
-    const authHeader = req.headers.authorization || '';
-    if (authHeader.startsWith('Bearer ')) {
-      try {
+  async function requireSupportAccess(req, res, next) {
+    try {
+      const authHeader = req.headers.authorization || '';
+      if (authHeader.startsWith('Bearer ')) {
         const payload = jwt.verify(authHeader.slice(7), JWT_SECRET);
         if (payload.type === 'church_app') {
-          const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(payload.churchId);
+          const church = await qOne('SELECT churchId, name FROM churches WHERE churchId = ?', [payload.churchId]);
           if (!church) return res.status(404).json({ error: 'Church not found' });
           req.supportActor = { type: 'church', churchId: church.churchId, name: church.name };
           return next();
         }
-      } catch {
-        // Continue to admin auth fallback
       }
+    } catch {
+      // Continue to admin auth fallback
     }
 
     return requireAdminJwt()(req, res, () => {
@@ -210,7 +221,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     const churchId = req.params.churchId || resolveSupportChurchId(req);
     if (!churchId) return res.status(400).json({ error: 'churchId required' });
 
-    const church = stmtGet.get(churchId);
+    const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
     // Enforce: church users can only request their own bundle
@@ -275,10 +286,10 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
         ? `church:${churchId}`
         : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
 
-      db.prepare(`
+      await qRun(`
         INSERT INTO diagnostic_bundles (id, churchId, bundle, requested_by, created_at)
         VALUES (?, ?, ?, ?, ?)
-      `).run(bundleId, churchId, JSON.stringify(bundleData), requestedBy, createdAt);
+      `, [bundleId, churchId, JSON.stringify(bundleData), requestedBy, createdAt]);
 
       return res.status(201).json({
         id: bundleId,
@@ -292,7 +303,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     }
   });
 
-  app.get('/api/church/:churchId/diagnostic-bundles', requireSupportAccess, (req, res) => {
+  app.get('/api/church/:churchId/diagnostic-bundles', requireSupportAccess, async (req, res) => {
     const churchId = req.params.churchId;
     if (!churchId) return res.status(400).json({ error: 'churchId required' });
 
@@ -301,16 +312,16 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const church = stmtGet.get(churchId);
+    const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
-    const rows = db.prepare(`
+    const rows = await qAll(`
       SELECT id, churchId, bundle, requested_by, created_at
       FROM diagnostic_bundles
       WHERE churchId = ?
       ORDER BY created_at DESC
       LIMIT 10
-    `).all(churchId);
+    `, [churchId]);
 
     return res.json(rows.map(row => ({
       id: row.id,
@@ -324,12 +335,12 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
 
   // ─── SUPPORT TRIAGE + TICKETS ────────────────────────────────────────────────
 
-  app.post('/api/support/triage', requireSupportAccess, (req, res) => {
+  app.post('/api/support/triage', requireSupportAccess, async (req, res) => {
     const churchId = resolveSupportChurchId(req);
     if (!churchId) {
       return res.status(400).json({ error: 'churchId required' });
     }
-    const church = stmtGet.get(churchId);
+    const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
     const issueCategory = normalizeSupportCategory(req.body?.issueCategory);
@@ -338,7 +349,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     const actor = req.supportActor?.type === 'church'
       ? `church:${churchId}`
       : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
-    const diagnostics = buildSupportDiagnostics(churchId, {
+    const diagnostics = await buildSupportDiagnostics(churchId, {
       issueCategory,
       severity,
       timezone: req.body?.timezone,
@@ -352,13 +363,13 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
 
     const triageId = uuidv4();
     const createdAt = new Date().toISOString();
-    db.prepare(`
+    await qRun(`
       INSERT INTO support_triage_runs (
         id, church_id, issue_category, severity, summary, triage_result,
         diagnostics_json, autofix_attempts_json, timezone, app_version, created_by, created_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       triageId,
       churchId,
       issueCategory,
@@ -370,8 +381,8 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       diagnostics.timezone || null,
       diagnostics.appVersion || null,
       actor,
-      createdAt
-    );
+      createdAt,
+    ]);
 
     res.status(201).json({
       triageId,
@@ -383,11 +394,11 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     });
   });
 
-  app.post('/api/support/tickets', requireSupportAccess, rateLimit(5, 60_000), (req, res) => {
+  app.post('/api/support/tickets', requireSupportAccess, rateLimit(5, 60_000), async (req, res) => {
     const churchId = resolveSupportChurchId(req);
     if (!churchId) return res.status(400).json({ error: 'churchId required' });
 
-    const church = stmtGet.get(churchId);
+    const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
     let severity = normalizeSupportSeverity(req.body?.severity);
@@ -404,7 +415,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
 
     let triageRow = null;
     if (triageId) {
-      triageRow = db.prepare('SELECT * FROM support_triage_runs WHERE id = ? AND church_id = ?').get(triageId, churchId);
+      triageRow = await qOne('SELECT * FROM support_triage_runs WHERE id = ? AND church_id = ?', [triageId, churchId]);
       if (!triageRow) return res.status(404).json({ error: 'triageId not found for church' });
       const triageAgeMs = Date.now() - new Date(triageRow.created_at).getTime();
       if (triageAgeMs > SUPPORT_TRIAGE_WINDOW_HOURS * 60 * 60 * 1000) {
@@ -424,15 +435,15 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     const ticketId = uuidv4();
     const diagnostics = triageRow
       ? safeJsonParse(triageRow.diagnostics_json, {})
-      : buildSupportDiagnostics(churchId, { issueCategory, severity });
+      : await buildSupportDiagnostics(churchId, { issueCategory, severity });
 
-    db.prepare(`
+    await qRun(`
       INSERT INTO support_tickets (
         id, church_id, triage_id, issue_category, severity, title, description,
         status, forced_bypass, diagnostics_json, created_by, created_at, updated_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       ticketId,
       churchId,
       triageId,
@@ -445,19 +456,19 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       JSON.stringify(diagnostics),
       actor,
       nowIso,
-      nowIso
-    );
+      nowIso,
+    ]);
 
-    db.prepare(`
+    await qRun(`
       INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(
+    `, [
       ticketId,
       description || 'Ticket opened',
       req.supportActor?.type === 'church' ? 'church' : 'admin',
       req.supportActor?.type === 'church' ? churchId : (req.supportActor?.adminUser?.id || ''),
-      nowIso
-    );
+      nowIso,
+    ]);
 
     res.status(201).json({
       ticketId,
@@ -472,7 +483,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     });
   });
 
-  app.get('/api/support/tickets', requireSupportAccess, (req, res) => {
+  app.get('/api/support/tickets', requireSupportAccess, async (req, res) => {
     const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 200));
     const status = req.query.status ? String(req.query.status).trim().toLowerCase() : null;
 
@@ -483,18 +494,18 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     if (req.supportActor?.type === 'church') {
       const churchId = req.supportActor.churchId;
       const rows = status
-        ? db.prepare(`
+        ? await qAll(`
             SELECT * FROM support_tickets
             WHERE church_id = ? AND status = ?
             ORDER BY datetime(updated_at) DESC
             LIMIT ?
-          `).all(churchId, status, limit)
-        : db.prepare(`
+          `, [churchId, status, limit])
+        : await qAll(`
             SELECT * FROM support_tickets
             WHERE church_id = ?
             ORDER BY datetime(updated_at) DESC
             LIMIT ?
-          `).all(churchId, limit);
+          `, [churchId, limit]);
 
       return res.json(rows.map((row) => ({
         ...row,
@@ -517,7 +528,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     query += ' ORDER BY datetime(updated_at) DESC LIMIT ?';
     params.push(limit);
 
-    const rows = db.prepare(query).all(...params);
+    const rows = await qAll(query, params);
     return res.json(rows.map((row) => ({
       ...row,
       forcedBypass: !!row.forced_bypass,
@@ -525,20 +536,20 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     })));
   });
 
-  app.get('/api/support/tickets/:ticketId', requireSupportAccess, (req, res) => {
-    const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
+  app.get('/api/support/tickets/:ticketId', requireSupportAccess, async (req, res) => {
+    const ticket = await qOne('SELECT * FROM support_tickets WHERE id = ?', [req.params.ticketId]);
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     if (req.supportActor?.type === 'church' && ticket.church_id !== req.supportActor.churchId) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
-    const updates = db.prepare(`
+    const updates = await qAll(`
       SELECT id, message, actor_type, actor_id, created_at
       FROM support_ticket_updates
       WHERE ticket_id = ?
       ORDER BY created_at ASC
-    `).all(ticket.id);
+    `, [ticket.id]);
 
     res.json({
       ...ticket,
@@ -548,8 +559,8 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     });
   });
 
-  app.post('/api/support/tickets/:ticketId/updates', requireSupportAccess, (req, res) => {
-    const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
+  app.post('/api/support/tickets/:ticketId/updates', requireSupportAccess, async (req, res) => {
+    const ticket = await qOne('SELECT * FROM support_tickets WHERE id = ?', [req.params.ticketId]);
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (req.supportActor?.type === 'church' && ticket.church_id !== req.supportActor.churchId) {
       return res.status(403).json({ error: 'forbidden' });
@@ -571,18 +582,18 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       nextStatus = requestedStatus;
     }
 
-    db.prepare(`
+    await qRun(`
       INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(
+    `, [
       ticket.id,
       message.slice(0, 4000),
       req.supportActor?.type === 'church' ? 'church' : 'admin',
       req.supportActor?.type === 'church' ? req.supportActor.churchId : (req.supportActor?.adminUser?.id || ''),
-      nowIso
-    );
+      nowIso,
+    ]);
 
-    db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(nextStatus, nowIso, ticket.id);
+    await qRun('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, nowIso, ticket.id]);
 
     // Notify the church via SSE push when admin adds an update
     if (broadcastToSSE && req.supportActor?.type !== 'church') {
@@ -598,8 +609,8 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     res.json({ ok: true, ticketId: ticket.id, status: nextStatus, updatedAt: nowIso });
   });
 
-  app.put('/api/support/tickets/:ticketId', requireSupportAccess, (req, res) => {
-    const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
+  app.put('/api/support/tickets/:ticketId', requireSupportAccess, async (req, res) => {
+    const ticket = await qOne('SELECT * FROM support_tickets WHERE id = ?', [req.params.ticketId]);
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     if (req.supportActor?.type === 'church') {
@@ -622,7 +633,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     patch.updated_at = new Date().toISOString();
     const columns = Object.keys(patch);
     const sets = columns.map((key) => `${key} = ?`).join(', ');
-    db.prepare(`UPDATE support_tickets SET ${sets} WHERE id = ?`).run(...columns.map((key) => patch[key]), ticket.id);
+    await qRun(`UPDATE support_tickets SET ${sets} WHERE id = ?`, [...columns.map((key) => patch[key]), ticket.id]);
 
     // Notify the church via SSE push on any admin metadata change
     if (broadcastToSSE) {

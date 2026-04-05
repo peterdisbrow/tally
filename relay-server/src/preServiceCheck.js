@@ -1,4 +1,34 @@
 const { getPrimarySocket, getSocketForInstance } = require('./runtimeSockets');
+const { createQueryClient } = require('./db');
+
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+const CREATE_PRESERVICE_CHECK_RESULTS_SQL = `
+  CREATE TABLE IF NOT EXISTS preservice_check_results (
+    id TEXT PRIMARY KEY,
+    church_id TEXT NOT NULL,
+    session_id TEXT,
+    pass INTEGER DEFAULT 0,
+    checks_json TEXT DEFAULT '[]',
+    trigger_type TEXT DEFAULT 'auto',
+    created_at TEXT NOT NULL
+  )
+`;
+
+const CHURCH_SELECT_SQL = `
+  SELECT churchId AS "churchId", name, service_times
+  FROM churches
+`;
+
+function isDuplicateColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate column name') || message.includes('already exists');
+}
 
 /**
  * Pre-Service Auto-Check
@@ -20,7 +50,8 @@ class PreServiceCheck {
   constructor({ db, scheduleEngine, churches, defaultBotToken, adminChatId, sessionRecap, versionConfig } = {}) {
     this.lastPreServiceCheckAt = new Map(); // compositeKey (churchId::instanceName) → timestamp (ms)
     this._timer = null;
-    this.db = db || null;
+    this.db = db && typeof db.prepare === 'function' ? db : null;
+    this.client = this._resolveClient(db);
     this.scheduleEngine = scheduleEngine || null;
     this.churches = churches || null;
     this.sessionRecap = sessionRecap || null;
@@ -30,10 +61,37 @@ class PreServiceCheck {
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
-    this._ensureTable();
-    // Restore last-check timestamps from DB so relay restarts don't re-fire
-    // checks that already ran within the dedup window.
-    this._restoreLastCheckTimes();
+    if (this.db) {
+      this._ensureTableSync();
+      // Restore last-check timestamps from DB so relay restarts don't re-fire
+      // checks that already ran within the dedup window.
+      this._restoreLastCheckTimes();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[PreServiceCheck] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTable();
+    await this._restoreLastCheckTimesAsync();
   }
 
   /**
@@ -63,19 +121,31 @@ class PreServiceCheck {
     }
   }
 
-  _ensureTable() {
+  async _restoreLastCheckTimesAsync() {
+    try {
+      const rows = await this._requireClient().query(
+        `SELECT church_id, MAX(created_at) AS last_at
+         FROM preservice_check_results
+         GROUP BY church_id`,
+        []
+      );
+      for (const row of rows) {
+        if (row.last_at) {
+          const ts = new Date(row.last_at).getTime();
+          if (!Number.isNaN(ts)) this.lastPreServiceCheckAt.set(row.church_id, ts);
+        }
+      }
+      if (rows.length > 0) {
+        console.log(`[PreServiceCheck] Restored last-check times for ${rows.length} church(es) from DB`);
+      }
+    } catch (e) {
+      console.warn('[PreServiceCheck] Could not restore last-check times:', e.message);
+    }
+  }
+
+  _ensureTableSync() {
     if (!this.db) return;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS preservice_check_results (
-        id TEXT PRIMARY KEY,
-        church_id TEXT NOT NULL,
-        session_id TEXT,
-        pass INTEGER DEFAULT 0,
-        checks_json TEXT DEFAULT '[]',
-        trigger_type TEXT DEFAULT 'auto',
-        created_at TEXT NOT NULL
-      )
-    `);
+    this.db.exec(CREATE_PRESERVICE_CHECK_RESULTS_SQL);
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
     } catch { /* already exists */ }
@@ -87,12 +157,45 @@ class PreServiceCheck {
     catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
   }
 
+  async _ensureTable() {
+    const client = this._requireClient();
+    await client.exec(CREATE_PRESERVICE_CHECK_RESULTS_SQL);
+    try {
+      await client.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
+    } catch { /* already exists */ }
+
+    try {
+      await client.queryOne('SELECT instance_name FROM preservice_check_results LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE preservice_check_results ADD COLUMN instance_name TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT room_id FROM preservice_check_results LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+  }
+
   /**
    * Get the latest pre-service check result for a church.
    * @param {string} churchId
    * @returns {object|null}
    */
   getLatestResult(churchId, instanceName) {
+    if (this.db) return this._getLatestResultSync(churchId, instanceName);
+    return this._getLatestResultAsync(churchId, instanceName);
+  }
+
+  _getLatestResultSync(churchId, instanceName) {
     try {
       let row;
       if (instanceName) {
@@ -107,6 +210,28 @@ class PreServiceCheck {
       if (!row) return null;
       return { ...row, checks: JSON.parse(row.checks_json || '[]') };
     } catch { return null; }
+  }
+
+  async _getLatestResultAsync(churchId, instanceName) {
+    try {
+      await this.ready;
+      let row;
+      if (instanceName) {
+        row = await this._requireClient().queryOne(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY created_at DESC LIMIT 1',
+          [churchId, instanceName]
+        );
+      } else {
+        row = await this._requireClient().queryOne(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1',
+          [churchId]
+        );
+      }
+      if (!row) return null;
+      return { ...row, checks: JSON.parse(row.checks_json || '[]') };
+    } catch {
+      return null;
+    }
   }
 
   _resolveRoomId(churchId, instanceName) {
@@ -148,8 +273,24 @@ class PreServiceCheck {
   // ─── INTERNALS ────────────────────────────────────────────────────────────
 
   _getSchedule(churchId) {
+    if (this.db) {
+      try {
+        const row = this.db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get(churchId);
+        if (!row || !row.service_times) return [];
+        return JSON.parse(row.service_times);
+      } catch { return []; }
+    }
+
+    return this._getScheduleAsync(churchId);
+  }
+
+  async _getScheduleAsync(churchId) {
     try {
-      const row = this.db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get(churchId);
+      await this.ready;
+      const row = await this._requireClient().queryOne(
+        'SELECT service_times FROM churches WHERE churchId = ?',
+        [churchId]
+      );
       if (!row || !row.service_times) return [];
       return JSON.parse(row.service_times);
     } catch { return []; }
@@ -160,11 +301,13 @@ class PreServiceCheck {
     const now = new Date();
     const day = now.getDay();
     const minutesNow = now.getHours() * 60 + now.getMinutes();
+    const nowWeekMinutes = day * 24 * 60 + minutesNow;
+    const WEEK_MINUTES = 7 * 24 * 60;
 
     for (const s of schedule) {
-      if (s.day !== day) continue;
       const startMin = s.startHour * 60 + (s.startMin || 0);
-      const minutesUntil = startMin - minutesNow;
+      let minutesUntil = s.day * 24 * 60 + startMin - nowWeekMinutes;
+      if (minutesUntil < 0) minutesUntil += WEEK_MINUTES;
       if (minutesUntil >= 25 && minutesUntil <= 35) {
         return { startHour: s.startHour, startMin: s.startMin || 0 };
       }
@@ -174,7 +317,10 @@ class PreServiceCheck {
 
   async _tick() {
     try {
-      const allChurches = this.db.prepare('SELECT * FROM churches').all();
+      await this.ready;
+      const allChurches = this.db
+        ? this.db.prepare(CHURCH_SELECT_SQL).all()
+        : await this._requireClient().query(CHURCH_SELECT_SQL, []);
       for (const church of allChurches) {
         await this._checkChurch(church).catch(e =>
           console.error(`[PreServiceCheck] Error for ${church.name}:`, e.message)
@@ -186,7 +332,7 @@ class PreServiceCheck {
   }
 
   async _checkChurch(church) {
-    const schedule = this._getSchedule(church.churchId);
+    const schedule = await this._getSchedule(church.churchId);
     const upcoming = this._serviceStartingIn25to35(schedule);
     if (!upcoming) return;
 
@@ -244,7 +390,7 @@ class PreServiceCheck {
     }
 
     // Persist result to DB for portal display
-    this._persistResult(church.churchId, result, 'auto');
+    await this._persistResult(church.churchId, result, 'auto');
 
     // Send via Telegram — use tallyBot if available, or raw API
     const botToken = this.defaultBotToken;
@@ -253,9 +399,16 @@ class PreServiceCheck {
     // Find TD chat IDs for this church
     let tds = [];
     try {
-      tds = this.db.prepare(
-        'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
-      ).all(church.churchId);
+      if (this.db) {
+        tds = this.db.prepare(
+          'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
+        ).all(church.churchId);
+      } else {
+        tds = await this._requireClient().query(
+          'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+          [church.churchId]
+        );
+      }
     } catch { /* table may not exist yet */ }
 
     const chatIds = tds.map(td => td.telegram_chat_id).filter(Boolean);
@@ -300,6 +453,11 @@ class PreServiceCheck {
    * @param {string} [instanceName] - instance name for room-based filtering
    */
   _persistResult(churchId, result, triggerType = 'auto', instanceName = null, roomId = null) {
+    if (this.db) return this._persistResultSync(churchId, result, triggerType, instanceName, roomId);
+    return this._persistResultAsync(churchId, result, triggerType, instanceName, roomId);
+  }
+
+  _persistResultSync(churchId, result, triggerType = 'auto', instanceName = null, roomId = null) {
     if (!this.db || !result) return;
     try {
       const crypto = require('crypto');
@@ -317,6 +475,32 @@ class PreServiceCheck {
     }
   }
 
+  async _persistResultAsync(churchId, result, triggerType = 'auto', instanceName = null, roomId = null) {
+    if (!result) return;
+    try {
+      await this.ready;
+      const crypto = require('crypto');
+      const sessionId = this.sessionRecap?.getActiveSessionId(churchId, instanceName) || null;
+      await this._requireClient().run(
+        `INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at, instance_name, room_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          crypto.randomUUID(),
+          churchId,
+          sessionId,
+          result.pass ? 1 : 0,
+          JSON.stringify(result.checks || []),
+          triggerType,
+          new Date().toISOString(),
+          instanceName,
+          roomId,
+        ]
+      );
+    } catch (e) {
+      console.error('[PreServiceCheck] DB persist error:', e.message);
+    }
+  }
+
   /**
    * Run a manual pre-service check for a church (triggered from portal).
    * @param {string} churchId
@@ -324,6 +508,7 @@ class PreServiceCheck {
    * @returns {Promise<object|null>} Check result
    */
   async runManualCheck(churchId, instanceName = null) {
+    await this.ready;
     const churchRuntime = this.churches?.get(churchId);
     const targetWs = getSocketForInstance(churchRuntime, instanceName);
     if (!targetWs) {
@@ -361,7 +546,7 @@ class PreServiceCheck {
       result.pass = result.pass && !result.checks.some(c => !c.pass);
     }
     const roomId = this._resolveRoomId(churchId, instanceName);
-    this._persistResult(churchId, result, 'manual', instanceName, roomId);
+    await this._persistResult(churchId, result, 'manual', instanceName, roomId);
     return result;
   }
 

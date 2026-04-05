@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AiRateLimiter } from '../src/aiRateLimiter.js';
 import Database from 'better-sqlite3';
+import { createQueryClient } from '../src/db/queryClient.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,23 @@ describe('Active Incident Bypass', () => {
     const result = limiter.checkDiagnosticLimit('church-1', 'connect');
     expect(result.allowed).toBe(true);
     expect(result.bypassed).toBeUndefined();
+  });
+
+  it('works when constructed with a query client', async () => {
+    const queryClient = createQueryClient({
+      config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+      sqliteDb: db,
+    });
+    limiter = new AiRateLimiter({ db: queryClient, signalFailover: mockSignalFailover('HEALTHY') });
+    await limiter.ready;
+
+    const result = await limiter.checkDiagnosticLimit('church-1', 'connect');
+    expect(result.allowed).toBe(true);
+
+    const month = limiter._getCurrentMonth();
+    const row = db.prepare('SELECT usage_count FROM ai_diagnostic_usage WHERE church_id = ? AND month = ?')
+      .get('church-1', month);
+    expect(row.usage_count).toBe(1);
   });
 });
 

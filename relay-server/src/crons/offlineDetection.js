@@ -11,9 +11,20 @@ const { WebSocket } = require('ws');
 
 module.exports = function setupOfflineDetection(ctx) {
   const { db, churches, scheduleEngine, alertEngine, eventMode, tallyBot, log, _intervals } = ctx;
+  const queryClient = ctx.queryClient || db?.queryClient || null;
+  const hasQueryClient = queryClient
+    && typeof queryClient.query === 'function'
+    && typeof queryClient.queryOne === 'function'
+    && typeof queryClient.run === 'function';
 
   function isInMaintenanceWindow(churchId) {
     const now = new Date().toISOString();
+    if (hasQueryClient) {
+      return queryClient.queryOne(
+        `SELECT id FROM maintenance_windows WHERE churchId = ? AND startTime <= ? AND endTime >= ? LIMIT 1`,
+        [churchId, now, now],
+      ).then(row => !!row);
+    }
     const row = db.prepare(
       `SELECT id FROM maintenance_windows WHERE churchId = ? AND startTime <= ? AND endTime >= ? LIMIT 1`
     ).get(churchId, now, now);
@@ -37,10 +48,7 @@ module.exports = function setupOfflineDetection(ctx) {
     return new Date().getHours(); // fallback: server local time
   }
 
-  function checkOfflineChurches() {
-    const now = Date.now();
-
-    const allChurches = db.prepare('SELECT * FROM churches').all();
+  function processRows(allChurches, now) {
     const botToken = process.env.ALERT_BOT_TOKEN;
     const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
@@ -48,7 +56,6 @@ module.exports = function setupOfflineDetection(ctx) {
       const church = churches.get(row.churchId);
       if (!church) continue;
       if (!church.lastHeartbeat) continue; // never connected — skip
-      if (isInMaintenanceWindow(row.churchId)) continue;
       if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
 
       const localHour = getChurchLocalHour(row.churchId);
@@ -66,7 +73,6 @@ module.exports = function setupOfflineDetection(ctx) {
       }
 
       if (offlineHours >= 24) {
-        // Critical: offline for 24+ hours
         if (!church._criticalOfflineAlertSent && botToken && adminChatId) {
           church._criticalOfflineAlertSent = true;
           const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
@@ -75,7 +81,6 @@ module.exports = function setupOfflineDetection(ctx) {
           log(`[OfflineDetection] 🔴 CRITICAL: ${row.name} offline 24h+`);
         }
       } else if (offlineHours >= 2 && !isNightTime) {
-        // Warning: offline 2+ hours outside of nighttime
         if (!church._offlineAlertSent && botToken && adminChatId) {
           church._offlineAlertSent = true;
           const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
@@ -87,10 +92,30 @@ module.exports = function setupOfflineDetection(ctx) {
     }
   }
 
+  function checkOfflineChurches() {
+    const now = Date.now();
+    if (hasQueryClient) {
+      return queryClient.query('SELECT * FROM churches')
+        .then(async (allChurches) => {
+          const filtered = [];
+          for (const row of allChurches) {
+            if (await isInMaintenanceWindow(row.churchId)) continue;
+            filtered.push(row);
+          }
+          processRows(filtered, now);
+        });
+    }
+
+    const allChurches = db.prepare('SELECT * FROM churches').all()
+      .filter(row => !isInMaintenanceWindow(row.churchId));
+    processRows(allChurches, now);
+    return Promise.resolve();
+  }
+
   /** Start the periodic check (every 10 minutes) */
   function start() {
     _intervals.push(setInterval(() => {
-      checkOfflineChurches();
+      Promise.resolve(checkOfflineChurches()).catch(e => console.error('[OfflineDetection] error:', e.message));
       // Event expiry also runs on its own 10-min loop (started in eventMode.start()),
       // but calling it here too ensures sync with the same cadence.
       eventMode.checkExpiry(tallyBot, churches).catch(e => console.error('[EventMode] expiry error:', e.message));

@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createRequire } from 'module';
+import { createQueryClient } from '../src/db/queryClient.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -63,6 +64,21 @@ describe('ViewerBaseline', () => {
   });
 
   describe('compute()', () => {
+    it('works when constructed with a query client', async () => {
+      const queryClient = createQueryClient({
+        config: { driver: 'sqlite', isSqlite: true, isPostgres: false, databaseUrl: '' },
+        sqliteDb: db,
+      });
+      baseline = new ViewerBaseline(queryClient);
+      await baseline.ready;
+
+      addSession(db, 's1', 'church_a', sundayWeeksAgo(1), 120);
+      const result = await baseline.compute('church_a', 0);
+
+      expect(result.expectedPeak).toBe(120);
+      expect(result.sampleCount).toBe(1);
+    });
+
     it('returns zero baseline when no sessions exist', () => {
       const result = baseline.compute('church_a', 0);
       expect(result).toEqual({

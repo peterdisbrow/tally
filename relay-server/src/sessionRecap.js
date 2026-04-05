@@ -4,19 +4,58 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
+function isDuplicateColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate column name') || message.includes('already exists');
+}
 
 class SessionRecap {
   /**
    * @param {import('better-sqlite3').Database} db
    */
-  constructor(db) {
-    this.db = db;
+  constructor(dbOrClient, options = {}) {
+    this.db = dbOrClient && typeof dbOrClient.prepare === 'function' ? dbOrClient : null;
+    this.client = this._resolveClient(dbOrClient, options);
     this.activeSessions = new Map(); // compositeKey (churchId::instanceName) → session object
     this._botToken = null;
     this._adminChatId = null;
-    this._ensureTable();
+    if (this.db) {
+      this._ensureTableSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient, options = {}) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: options.config || SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client) throw new Error('[SessionRecap] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTable();
   }
 
   _compositeKey(churchId, instanceName) {
@@ -71,7 +110,7 @@ class SessionRecap {
     this.resolveRoomId = typeof resolver === 'function' ? resolver : null;
   }
 
-  _ensureTable() {
+  _ensureTableSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS service_sessions (
         id TEXT PRIMARY KEY,
@@ -95,6 +134,71 @@ class SessionRecap {
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM service_sessions LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    // Migration: add room_id for room-based filtering
+    try { this.db.prepare('SELECT room_id FROM service_sessions LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+  }
+
+  async _ensureTable() {
+    const client = this._requireClient();
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS service_sessions (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_minutes INTEGER,
+        stream_ran INTEGER DEFAULT 0,
+        stream_runtime_minutes INTEGER DEFAULT 0,
+        recording_confirmed INTEGER DEFAULT 0,
+        alert_count INTEGER DEFAULT 0,
+        auto_recovered_count INTEGER DEFAULT 0,
+        escalated_count INTEGER DEFAULT 0,
+        audio_silence_count INTEGER DEFAULT 0,
+        peak_viewers INTEGER,
+        td_name TEXT,
+        grade TEXT,
+        notes TEXT
+      )
+    `);
+
+    try {
+      await client.queryOne('SELECT instance_name FROM service_sessions LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_sessions ADD COLUMN instance_name TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT room_id FROM service_sessions LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    await this.ready;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    await this.ready;
+    return this._requireClient().run(sql, params);
   }
 
   /**
@@ -112,6 +216,11 @@ class SessionRecap {
    * from DB rows with no `ended_at`.
    */
   recoverActiveSessions() {
+    if (this.db) return this._recoverActiveSessionsSync();
+    return this._recoverActiveSessionsAsync();
+  }
+
+  _recoverActiveSessionsSync() {
     try {
       const rows = this.db.prepare(
         'SELECT * FROM service_sessions WHERE ended_at IS NULL'
@@ -133,6 +242,48 @@ class SessionRecap {
           startedAt,
           tdName: row.td_name,
           instanceName: row.instance_name || null,
+          roomId: row.room_id || null,
+          alertTypes: {},
+          alertCount: row.alert_count || 0,
+          autoRecovered: row.auto_recovered_count || 0,
+          escalated: row.escalated_count || 0,
+          audioSilenceCount: row.audio_silence_count || 0,
+          peakViewers: row.peak_viewers || null,
+          streamStartedAt: row.stream_ran ? new Date() : null,
+          streamTotalMinutes: row.stream_runtime_minutes || 0,
+          streaming: !!row.stream_ran,
+          recordingConfirmed: !!row.recording_confirmed,
+        });
+        console.log(`[SessionRecap] Recovered active session for ${row.church_id} (started ${startedAt.toISOString()})`);
+      }
+      if (rows.length) console.log(`[SessionRecap] Recovered ${this.activeSessions.size} active session(s)`);
+    } catch (e) {
+      console.error('[SessionRecap] Session recovery error:', e.message);
+    }
+  }
+
+  async _recoverActiveSessionsAsync() {
+    try {
+      await this.ready;
+      const rows = await this._all('SELECT * FROM service_sessions WHERE ended_at IS NULL');
+      for (const row of rows) {
+        const startedAt = new Date(row.started_at);
+        if (Date.now() - startedAt.getTime() > 6 * 60 * 60 * 1000) {
+          await this._run(
+            'UPDATE service_sessions SET ended_at = ?, grade = ? WHERE id = ?',
+            [new Date().toISOString(), '⚠️ Interrupted (server restart)', row.id]
+          );
+          console.log(`[SessionRecap] Marked stale session ${row.id} as interrupted`);
+          continue;
+        }
+        const sessionKey = this._compositeKey(row.church_id, row.instance_name);
+        this.activeSessions.set(sessionKey, {
+          sessionId: row.id,
+          churchId: row.church_id,
+          startedAt,
+          tdName: row.td_name,
+          instanceName: row.instance_name || null,
+          roomId: row.room_id || null,
           alertTypes: {},
           alertCount: row.alert_count || 0,
           autoRecovered: row.auto_recovered_count || 0,
@@ -161,6 +312,11 @@ class SessionRecap {
    * @param {string|null} tdName  Name of the on-call TD
    */
   startSession(churchId, tdName, instanceName) {
+    if (this.db) return this._startSessionSync(churchId, tdName, instanceName);
+    return this._startSessionAsync(churchId, tdName, instanceName);
+  }
+
+  _startSessionSync(churchId, tdName, instanceName) {
     const sessionKey = this._compositeKey(churchId, instanceName);
     if (this.activeSessions.has(sessionKey)) {
       console.warn(`[SessionRecap] Session already active for ${sessionKey} — ending it first`);
@@ -189,6 +345,7 @@ class SessionRecap {
       startedAt,
       tdName: tdName || null,
       instanceName: instanceName || null,
+      roomId,
       alertTypes: {},         // alertType → count
       alertCount: 0,
       autoRecovered: 0,
@@ -197,6 +354,53 @@ class SessionRecap {
       peakViewers: null,
       streamStartedAt: null,  // Date when current streaming segment started
       streamTotalMinutes: 0,  // Accumulated runtime
+      streaming: false,
+      recordingConfirmed: false,
+    });
+
+    console.log(`[SessionRecap] Session started — church ${churchId} (TD: ${tdName || 'unknown'})`);
+  }
+
+  async _startSessionAsync(churchId, tdName, instanceName) {
+    await this.ready;
+    const sessionKey = this._compositeKey(churchId, instanceName);
+    if (this.activeSessions.has(sessionKey)) {
+      console.warn(`[SessionRecap] Session already active for ${sessionKey} — ending it first`);
+      await this.endSession(churchId, instanceName);
+    }
+
+    const sessionId = uuidv4();
+    const startedAt = new Date();
+
+    let roomId = null;
+    try {
+      roomId = this.resolveRoomId?.(churchId, instanceName) || null;
+      if (!roomId) {
+        const row = await this._one('SELECT room_id FROM churches WHERE churchId = ?', [churchId]);
+        roomId = row?.room_id || null;
+      }
+    } catch { /* non-fatal */ }
+
+    await this._run(
+      'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [sessionId, churchId, startedAt.toISOString(), tdName || null, instanceName || null, roomId]
+    );
+
+    this.activeSessions.set(sessionKey, {
+      sessionId,
+      churchId,
+      startedAt,
+      tdName: tdName || null,
+      instanceName: instanceName || null,
+      roomId,
+      alertTypes: {},
+      alertCount: 0,
+      autoRecovered: 0,
+      escalated: 0,
+      audioSilenceCount: 0,
+      peakViewers: null,
+      streamStartedAt: null,
+      streamTotalMinutes: 0,
       streaming: false,
       recordingConfirmed: false,
     });
@@ -219,21 +423,21 @@ class SessionRecap {
 
     const grade = this.gradeSession(session);
 
-    this.db.prepare(`
+    await this._run(`
       UPDATE service_sessions SET
         ended_at = ?,
         duration_minutes = ?,
         stream_runtime_minutes = ?,
         grade = ?
       WHERE id = ?
-    `).run(endedAt.toISOString(), durationMinutes, session.streamTotalMinutes, grade, session.sessionId);
+    `, [endedAt.toISOString(), durationMinutes, session.streamTotalMinutes, grade, session.sessionId]);
 
     const finalSession = { ...session, durationMinutes, endedAt, grade };
 
     // Send recap via Telegram
     let church = null;
     try {
-      church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
       if (church) {
         await this._sendRecap(church, finalSession);
       }
@@ -258,7 +462,10 @@ class SessionRecap {
     // Send first-service email if this is the first completed session
     try {
       if (this.lifecycleEmails && church) {
-        const sessionCount = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL').get(churchId);
+        const sessionCount = await this._one(
+          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL',
+          [churchId]
+        );
         if (sessionCount?.cnt === 1) {
           this.lifecycleEmails.sendFirstServiceCompleted(church, finalSession).catch(e => console.error('[SessionRecap] First service email failed:', e.message));
         }
@@ -281,7 +488,9 @@ class SessionRecap {
     // Write post-service memories (non-blocking, don't fail the session)
     try {
       if (this.churchMemory) {
-        this.churchMemory.writePostServiceMemories(churchId, finalSession);
+        Promise.resolve(this.churchMemory.writePostServiceMemories(churchId, finalSession)).catch((e) => {
+          console.error(`[SessionRecap] Memory write error for ${churchId}:`, e.message);
+        });
       }
     } catch (e) {
       console.error(`[SessionRecap] Memory write error for ${churchId}:`, e.message);
@@ -328,6 +537,11 @@ class SessionRecap {
    * @param {boolean} escalated      Was this escalated to the admin contact?
    */
   recordAlert(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
+    if (this.db) return this._recordAlertSync(churchId, alertType, autoRecovered, escalated, instanceName);
+    return this._recordAlertAsync(churchId, alertType, autoRecovered, escalated, instanceName);
+  }
+
+  _recordAlertSync(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
     const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session) return;
 
@@ -345,17 +559,53 @@ class SessionRecap {
     `).run(session.alertCount, session.autoRecovered, session.escalated, session.sessionId);
   }
 
+  async _recordAlertAsync(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
+    await this.ready;
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
+    if (!session) return;
+
+    session.alertCount++;
+    session.alertTypes[alertType] = (session.alertTypes[alertType] || 0) + 1;
+    if (autoRecovered) session.autoRecovered++;
+    if (escalated) session.escalated++;
+
+    await this._run(`
+      UPDATE service_sessions SET
+        alert_count = ?,
+        auto_recovered_count = ?,
+        escalated_count = ?
+      WHERE id = ?
+    `, [session.alertCount, session.autoRecovered, session.escalated, session.sessionId]);
+  }
+
   /**
    * Record an audio silence detection.
    * @param {string} churchId
    */
   recordAudioSilence(churchId, instanceName) {
+    if (this.db) return this._recordAudioSilenceSync(churchId, instanceName);
+    return this._recordAudioSilenceAsync(churchId, instanceName);
+  }
+
+  _recordAudioSilenceSync(churchId, instanceName) {
     const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session) return;
 
     session.audioSilenceCount++;
     this.db.prepare('UPDATE service_sessions SET audio_silence_count = ? WHERE id = ?')
       .run(session.audioSilenceCount, session.sessionId);
+  }
+
+  async _recordAudioSilenceAsync(churchId, instanceName) {
+    await this.ready;
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
+    if (!session) return;
+
+    session.audioSilenceCount++;
+    await this._run('UPDATE service_sessions SET audio_silence_count = ? WHERE id = ?', [
+      session.audioSilenceCount,
+      session.sessionId,
+    ]);
   }
 
   /**
@@ -370,6 +620,11 @@ class SessionRecap {
    * @param {boolean} streaming
    */
   recordStreamStatus(churchId, streaming, instanceName) {
+    if (this.db) return this._recordStreamStatusSync(churchId, streaming, instanceName);
+    return this._recordStreamStatusAsync(churchId, streaming, instanceName);
+  }
+
+  _recordStreamStatusSync(churchId, streaming, instanceName) {
     let session = this._findSessionEntry(churchId, instanceName)?.session;
 
     // Auto-create a session when a stream goes live outside a service window
@@ -398,12 +653,46 @@ class SessionRecap {
     }
   }
 
+  async _recordStreamStatusAsync(churchId, streaming, instanceName) {
+    await this.ready;
+    let session = this._findSessionEntry(churchId, instanceName)?.session;
+
+    if (!session && streaming) {
+      console.log(`[SessionRecap] Stream went live outside service window — auto-creating session for ${churchId}`);
+      await this._startSessionAsync(churchId, null, instanceName);
+      session = this._findSessionEntry(churchId, instanceName)?.session;
+    }
+
+    if (!session) return;
+
+    const wasStreaming = session.streaming;
+    session.streaming = streaming;
+
+    if (streaming && !wasStreaming) {
+      session.streamStartedAt = new Date();
+      await this._run('UPDATE service_sessions SET stream_ran = 1 WHERE id = ?', [session.sessionId]);
+    } else if (!streaming && wasStreaming && session.streamStartedAt) {
+      const runtimeMs = Date.now() - session.streamStartedAt.getTime();
+      session.streamTotalMinutes += Math.round(runtimeMs / 60000);
+      session.streamStartedAt = null;
+      await this._run('UPDATE service_sessions SET stream_runtime_minutes = ? WHERE id = ?', [
+        session.streamTotalMinutes,
+        session.sessionId,
+      ]);
+    }
+  }
+
   /**
    * Update peak viewer count (keeps highest value seen).
    * @param {string} churchId
    * @param {number} count
    */
   recordPeakViewers(churchId, count, instanceName) {
+    if (this.db) return this._recordPeakViewersSync(churchId, count, instanceName);
+    return this._recordPeakViewersAsync(churchId, count, instanceName);
+  }
+
+  _recordPeakViewersSync(churchId, count, instanceName) {
     const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session || typeof count !== 'number') return;
 
@@ -414,17 +703,45 @@ class SessionRecap {
     }
   }
 
+  async _recordPeakViewersAsync(churchId, count, instanceName) {
+    await this.ready;
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
+    if (!session || typeof count !== 'number') return;
+
+    if (session.peakViewers === null || count > session.peakViewers) {
+      session.peakViewers = count;
+      await this._run('UPDATE service_sessions SET peak_viewers = ? WHERE id = ?', [
+        count,
+        session.sessionId,
+      ]);
+    }
+  }
+
   /**
    * Mark recording as confirmed for this session.
    * @param {string} churchId
    */
   recordRecordingConfirmed(churchId, instanceName) {
+    if (this.db) return this._recordRecordingConfirmedSync(churchId, instanceName);
+    return this._recordRecordingConfirmedAsync(churchId, instanceName);
+  }
+
+  _recordRecordingConfirmedSync(churchId, instanceName) {
     const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session || session.recordingConfirmed) return;
 
     session.recordingConfirmed = true;
     this.db.prepare('UPDATE service_sessions SET recording_confirmed = 1 WHERE id = ?')
       .run(session.sessionId);
+  }
+
+  async _recordRecordingConfirmedAsync(churchId, instanceName) {
+    await this.ready;
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
+    if (!session || session.recordingConfirmed) return;
+
+    session.recordingConfirmed = true;
+    await this._run('UPDATE service_sessions SET recording_confirmed = 1 WHERE id = ?', [session.sessionId]);
   }
 
   // ─── GRADING ─────────────────────────────────────────────────────────────────
@@ -452,6 +769,15 @@ class SessionRecap {
    * @returns {string}
    */
   formatRecap(church, session) {
+    if (!this.db) {
+      throw new Error('[SessionRecap] formatRecap requires the sync DB path. Use _formatRecapAsync for query-backed sessions.');
+    }
+    const timeline = this._buildTimelineSync(session);
+    const viewersLine = this._getViewerLineSync(church, session);
+    return this._buildRecapText(church, session, viewersLine, timeline);
+  }
+
+  _buildRecapText(church, session, viewersLine, timeline = []) {
     const startDate = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt);
     const dayName = DAYS[startDate.getDay()];
     const timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -481,26 +807,6 @@ class SessionRecap {
       ? '✅ Clean'
       : `⚠️ ${session.audioSilenceCount} silence event${session.audioSilenceCount !== 1 ? 's' : ''} detected`;
 
-    let viewersLine = 'N/A';
-    if (session.peakViewers !== null && session.peakViewers !== undefined) {
-      viewersLine = `📊 Peak ${session.peakViewers}`;
-      // Add platform breakdown if viewer_snapshots are available
-      try {
-        const snap = this.db.prepare(`
-          SELECT MAX(youtube) AS yt, MAX(facebook) AS fb, MAX(vimeo) AS vim
-          FROM viewer_snapshots
-          WHERE session_id = ?
-        `).get(session.sessionId);
-        if (snap) {
-          const parts = [];
-          if (snap.yt != null) parts.push(`YT: ${snap.yt}`);
-          if (snap.fb != null) parts.push(`FB: ${snap.fb}`);
-          if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
-          if (parts.length) viewersLine += ` (${parts.join(', ')})`;
-        }
-      } catch { /* viewer_snapshots table may not exist */ }
-    }
-
     const tdLine = session.tdName ? `TD: ${session.tdName}` : null;
 
     const grade = session.grade || this.gradeSession(session);
@@ -518,9 +824,6 @@ class SessionRecap {
       tdLine,
       `Grade: ${grade}`,
     ].filter(l => l !== null && l !== undefined);
-
-    // ── Incident Timeline ──────────────────────────────────────────────────
-    const timeline = this._buildTimeline(session);
     if (timeline.length > 0) {
       lines.push('');
       lines.push('*Timeline:*');
@@ -542,12 +845,69 @@ class SessionRecap {
     return lines.join('\n');
   }
 
+  _getViewerLineSync(church, session) {
+    let viewersLine = 'N/A';
+    if (session.peakViewers !== null && session.peakViewers !== undefined) {
+      viewersLine = `📊 Peak ${session.peakViewers}`;
+      try {
+        const snap = this.db.prepare(`
+          SELECT MAX(youtube) AS yt, MAX(facebook) AS fb, MAX(vimeo) AS vim
+          FROM viewer_snapshots
+          WHERE session_id = ?
+        `).get(session.sessionId);
+        if (snap) {
+          const parts = [];
+          if (snap.yt != null) parts.push(`YT: ${snap.yt}`);
+          if (snap.fb != null) parts.push(`FB: ${snap.fb}`);
+          if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
+          if (parts.length) viewersLine += ` (${parts.join(', ')})`;
+        }
+      } catch { /* viewer_snapshots table may not exist */ }
+    }
+    return viewersLine;
+  }
+
+  async _getViewerLineAsync(session) {
+    let viewersLine = 'N/A';
+    if (session.peakViewers !== null && session.peakViewers !== undefined) {
+      viewersLine = `📊 Peak ${session.peakViewers}`;
+      try {
+        const snap = await this._one(`
+          SELECT MAX(youtube) AS yt, MAX(facebook) AS fb, MAX(vimeo) AS vim
+          FROM viewer_snapshots
+          WHERE session_id = ?
+        `, [session.sessionId]);
+        if (snap) {
+          const parts = [];
+          if (snap.yt != null) parts.push(`YT: ${snap.yt}`);
+          if (snap.fb != null) parts.push(`FB: ${snap.fb}`);
+          if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
+          if (parts.length) viewersLine += ` (${parts.join(', ')})`;
+        }
+      } catch { /* viewer_snapshots table may not exist */ }
+    }
+    return viewersLine;
+  }
+
+  async _formatRecapAsync(church, session) {
+    const [timeline, viewersLine] = await Promise.all([
+      this._buildTimelineAsync(session),
+      this._getViewerLineAsync(session),
+    ]);
+    return this._buildRecapText(church, session, viewersLine, timeline);
+  }
+
   /**
    * Build an incident timeline from service_events for this session.
    * @param {object} session
    * @returns {string[]} Formatted timeline entries
    */
   _buildTimeline(session) {
+    if (this.db) return this._buildTimelineSync(session);
+    throw new Error('[SessionRecap] _buildTimeline requires the sync DB path. Use _buildTimelineAsync for query-backed sessions.');
+  }
+
+  _buildTimelineSync(session) {
     const sessionId = session.sessionId;
     if (!sessionId) return [];
 
@@ -578,6 +938,37 @@ class SessionRecap {
     }
   }
 
+  async _buildTimelineAsync(session) {
+    const sessionId = session.sessionId;
+    if (!sessionId) return [];
+
+    try {
+      const events = await this._all(
+        'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC',
+        [sessionId]
+      );
+
+      if (!events.length) return [];
+
+      return events.map(e => {
+        const t = new Date(e.timestamp);
+        const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const type = (e.event_type || '').replace(/_/g, ' ');
+        const detail = e.details ? ` — ${typeof e.details === 'string' ? (e.details.length > 60 ? e.details.slice(0, 60) + '...' : e.details) : ''}` : '';
+
+        if (e.auto_resolved) {
+          return `${time}  🤖 ${type}${detail} (auto-fixed)`;
+        } else if (e.resolved) {
+          return `${time}  ✅ ${type}${detail} (resolved)`;
+        }
+        return `${time}  ⚠️ ${type}${detail}`;
+      });
+    } catch (e) {
+      console.error('[SessionRecap] Timeline build error:', e.message);
+      return [];
+    }
+  }
+
   // ─── TELEGRAM ────────────────────────────────────────────────────────────────
 
   async _sendRecap(church, session) {
@@ -587,7 +978,7 @@ class SessionRecap {
       return;
     }
 
-    let text = this.formatRecap(church, session);
+    let text = this.db ? this.formatRecap(church, session) : await this._formatRecapAsync(church, session);
 
     // Append AI recommendations for Pro+ tier churches
     const tier = church.billing_tier || 'connect';
@@ -628,9 +1019,10 @@ class SessionRecap {
     let engineerProfile = {};
     try { engineerProfile = JSON.parse(church.engineer_profile || '{}'); } catch {}
 
-    const timeline = this._buildTimeline(session);
+    const timeline = this.db ? this._buildTimelineSync(session) : await this._buildTimelineAsync(session);
 
     const { buildBackgroundPrompt } = require('./tally-engineer');
+    const recapContext = this.churchMemory ? await this.churchMemory.getRecapContext(church.churchId) : '';
 
     const prompt = `${buildBackgroundPrompt('session_recommendations')}
 
@@ -649,7 +1041,7 @@ Church profile:
 - Name: ${church.name}
 - Stream platform: ${engineerProfile.streamPlatform || 'unknown'}
 - Expected viewers: ${engineerProfile.expectedViewers || 'unknown'}
-- Operator level: ${engineerProfile.operatorLevel || 'unknown'}${this.churchMemory ? `\n\n${this.churchMemory.getRecapContext(church.churchId)}` : ''}`;
+- Operator level: ${engineerProfile.operatorLevel || 'unknown'}${recapContext ? `\n\n${recapContext}` : ''}`;
 
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {

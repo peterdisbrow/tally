@@ -201,6 +201,17 @@ describe('detectDrift', () => {
     expect(drifts.find(d => d.type === 'overtime')).toBeUndefined();
   });
 
+  it('fails soft when only a query-client/postgres handle is available', () => {
+    expect(detectDrift({}, 'church-1', { startedAt: new Date(), sessionId: 's1' })).toEqual({ drifts: [] });
+    expect(getServiceTimingStats({}, 'church-1', 4)).toEqual({
+      avgStartDelay: 0,
+      avgDuration: 0,
+      avgEndDelay: 0,
+      onTimePercent: 100,
+    });
+    expect(checkUpcomingConflicts({}, 'church-1')).toEqual([]);
+  });
+
   // ── overlap ────────────────────────────────────────────────────────────────
 
   it('detects overlap when a service starts before the previous one ended', () => {

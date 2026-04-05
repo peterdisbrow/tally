@@ -5,28 +5,44 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupStatusComponentRoutes(app, ctx) {
-  const { db, requireAdmin, runStatusChecks, lastStatusCheckAt } = ctx;
+  const { db, queryClient, requireAdmin, runStatusChecks, lastStatusCheckAt } = ctx;
+  const useQueryClient = queryClient
+    && typeof queryClient.query === 'function'
+    && typeof queryClient.queryOne === 'function';
 
-  app.get('/api/status/components', (_req, res) => {
-    const rows = db.prepare(`
-      SELECT component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at
-      FROM status_components
-      ORDER BY name ASC
-    `).all();
+  app.get('/api/status/components', async (_req, res) => {
+    const rows = useQueryClient
+      ? await queryClient.query(`
+        SELECT component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at
+        FROM status_components
+        ORDER BY name ASC
+      `)
+      : db.prepare(`
+        SELECT component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at
+        FROM status_components
+        ORDER BY name ASC
+      `).all();
     res.json({
       updatedAt: ctx.lastStatusCheckAt(),
       components: rows,
     });
   });
 
-  app.get('/api/status/incidents', (req, res) => {
+  app.get('/api/status/incidents', async (req, res) => {
     const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 200));
-    const rows = db.prepare(`
-      SELECT id, component_id, previous_state, new_state, message, started_at, resolved_at
-      FROM status_incidents
-      ORDER BY id DESC
-      LIMIT ?
-    `).all(limit);
+    const rows = useQueryClient
+      ? await queryClient.query(`
+        SELECT id, component_id, previous_state, new_state, message, started_at, resolved_at
+        FROM status_incidents
+        ORDER BY id DESC
+        LIMIT ?
+      `, [limit])
+      : db.prepare(`
+        SELECT id, component_id, previous_state, new_state, message, started_at, resolved_at
+        FROM status_incidents
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(limit);
     res.json(rows);
   });
 

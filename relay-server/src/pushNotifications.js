@@ -9,6 +9,7 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
+const { createQueryClient } = require('./db');
 
 // ─── NOTIFICATION CATEGORIES ────────────────────────────────────────────────
 // Maps to UNNotificationCategory identifiers on iOS
@@ -105,15 +106,23 @@ const SEVERITY_INTERRUPTION = {
   INFO: 'passive',
 };
 
+const SQLITE_FALLBACK_CONFIG = {
+  driver: 'sqlite',
+  isSqlite: true,
+  isPostgres: false,
+  databaseUrl: '',
+};
+
 class PushNotificationService {
   /**
    * @param {object} opts
-   * @param {object} opts.db - better-sqlite3 database instance
+   * @param {object} opts.db - better-sqlite3 database instance or shared query client
    * @param {object} [opts.firebaseApp] - Initialized firebase-admin app instance
    * @param {Function} [opts.log] - Logging function
    */
   constructor({ db, firebaseApp = null, log = console.log } = {}) {
-    this.db = db;
+    this.db = db && typeof db.prepare === 'function' ? db : null;
+    this.client = this._resolveClient(db);
     this.firebaseApp = firebaseApp;
     this.messaging = null;
     this.log = log;
@@ -129,12 +138,38 @@ class PushNotificationService {
       this.log('[Push] No Firebase app provided — push notifications disabled');
     }
 
-    this._ensureTables();
+    if (this.db) {
+      this._ensureTablesSync();
+      this.ready = Promise.resolve();
+    } else {
+      this.ready = this._init();
+    }
+  }
+
+  _resolveClient(dbOrClient) {
+    if (!dbOrClient) return null;
+    if (typeof dbOrClient.query === 'function' && typeof dbOrClient.exec === 'function') {
+      return dbOrClient;
+    }
+
+    return createQueryClient({
+      config: SQLITE_FALLBACK_CONFIG,
+      sqliteDb: dbOrClient,
+    });
+  }
+
+  _requireClient() {
+    if (!this.client && !this.db) throw new Error('[Push] Database client is not configured.');
+    return this.client;
+  }
+
+  async _init() {
+    await this._ensureTables();
   }
 
   // ─── DATABASE SETUP ─────────────────────────────────────────────────────────
 
-  _ensureTables() {
+  _ensureTablesSync() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS mobile_devices (
         id TEXT PRIMARY KEY,
@@ -176,6 +211,67 @@ class PushNotificationService {
     `);
   }
 
+  async _ensureTables() {
+    const client = this._requireClient();
+    const nowDefault = client.driver === 'postgres' ? 'CURRENT_TIMESTAMP' : "(datetime('now'))";
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS mobile_devices (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        user_id TEXT,
+        device_token TEXT NOT NULL,
+        platform TEXT DEFAULT 'ios',
+        device_name TEXT,
+        app_version TEXT,
+        last_seen TEXT,
+        created_at TEXT DEFAULT ${nowDefault},
+        FOREIGN KEY (church_id) REFERENCES churches(churchId)
+      )
+    `);
+
+    try { await client.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_devices_token ON mobile_devices(device_token)'); }
+    catch { /* already exists */ }
+
+    try { await client.exec('CREATE INDEX IF NOT EXISTS idx_mobile_devices_church ON mobile_devices(church_id)'); }
+    catch { /* already exists */ }
+
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS mobile_notification_prefs (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        user_id TEXT,
+        enabled INTEGER DEFAULT 1,
+        severity_threshold TEXT DEFAULT 'CRITICAL',
+        quiet_hours_start TEXT,
+        quiet_hours_end TEXT,
+        per_device_alerts TEXT DEFAULT '{}',
+        per_room_filtering TEXT DEFAULT '{}',
+        sound TEXT DEFAULT 'default',
+        service_reminders INTEGER DEFAULT 1,
+        updated_at TEXT DEFAULT ${nowDefault},
+        UNIQUE(church_id, user_id)
+      )
+    `);
+  }
+
+  async _one(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).get(...params) || null;
+    await this.ready;
+    return this._requireClient().queryOne(sql, params);
+  }
+
+  async _all(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).all(...params);
+    await this.ready;
+    return this._requireClient().query(sql, params);
+  }
+
+  async _run(sql, params = []) {
+    if (this.db) return this.db.prepare(sql).run(...params);
+    await this.ready;
+    return this._requireClient().run(sql, params);
+  }
+
   // ─── DEVICE REGISTRATION ──────────────────────────────────────────────────
 
   /**
@@ -190,6 +286,13 @@ class PushNotificationService {
    * @returns {{ deviceId: string, created: boolean }}
    */
   registerDevice({ churchId, userId = null, deviceToken, platform = 'ios', deviceName = null, appVersion = null }) {
+    if (this.db) {
+      return this._registerDeviceSync({ churchId, userId, deviceToken, platform, deviceName, appVersion });
+    }
+    return this._registerDeviceAsync({ churchId, userId, deviceToken, platform, deviceName, appVersion });
+  }
+
+  _registerDeviceSync({ churchId, userId = null, deviceToken, platform = 'ios', deviceName = null, appVersion = null }) {
     if (!churchId || !deviceToken) throw new Error('churchId and deviceToken required');
 
     // Check if this token is already registered (possibly for a different church — re-assign)
@@ -216,6 +319,32 @@ class PushNotificationService {
     return { deviceId: id, created: true };
   }
 
+  async _registerDeviceAsync({ churchId, userId = null, deviceToken, platform = 'ios', deviceName = null, appVersion = null }) {
+    await this.ready;
+    if (!churchId || !deviceToken) throw new Error('churchId and deviceToken required');
+
+    const existing = await this._one('SELECT id, church_id FROM mobile_devices WHERE device_token = ?', [deviceToken]);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      await this._run(`
+        UPDATE mobile_devices SET church_id = ?, user_id = ?, platform = ?, device_name = ?, app_version = ?, last_seen = ?
+        WHERE id = ?
+      `, [churchId, userId, platform, deviceName, appVersion, now, existing.id]);
+      this.log(`[Push] Device re-registered: ${existing.id} for church ${churchId}`);
+      return { deviceId: existing.id, created: false };
+    }
+
+    const id = uuidv4();
+    await this._run(`
+      INSERT INTO mobile_devices (id, church_id, user_id, device_token, platform, device_name, app_version, last_seen, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, churchId, userId, deviceToken, platform, deviceName, appVersion, now, now]);
+
+    this.log(`[Push] Device registered: ${id} (${platform}) for church ${churchId}`);
+    return { deviceId: id, created: true };
+  }
+
   /**
    * Unregister a device (on logout or token refresh).
    * @param {string} deviceToken
@@ -223,7 +352,21 @@ class PushNotificationService {
    * @returns {{ removed: boolean }}
    */
   unregisterDevice(deviceToken, churchId) {
+    if (this.db) return this._unregisterDeviceSync(deviceToken, churchId);
+    return this._unregisterDeviceAsync(deviceToken, churchId);
+  }
+
+  _unregisterDeviceSync(deviceToken, churchId) {
     const result = this.db.prepare('DELETE FROM mobile_devices WHERE device_token = ? AND church_id = ?').run(deviceToken, churchId);
+    if (result.changes > 0) {
+      this.log(`[Push] Device unregistered for church ${churchId}`);
+    }
+    return { removed: result.changes > 0 };
+  }
+
+  async _unregisterDeviceAsync(deviceToken, churchId) {
+    await this.ready;
+    const result = await this._run('DELETE FROM mobile_devices WHERE device_token = ? AND church_id = ?', [deviceToken, churchId]);
     if (result.changes > 0) {
       this.log(`[Push] Device unregistered for church ${churchId}`);
     }
@@ -234,15 +377,30 @@ class PushNotificationService {
    * Update the last_seen timestamp for a device (called on app launch / WebSocket connect).
    */
   touchDevice(deviceToken) {
+    if (this.db) return this._touchDeviceSync(deviceToken);
+    return this._touchDeviceAsync(deviceToken);
+  }
+
+  _touchDeviceSync(deviceToken) {
     this.db.prepare('UPDATE mobile_devices SET last_seen = ? WHERE device_token = ?')
       .run(new Date().toISOString(), deviceToken);
+  }
+
+  async _touchDeviceAsync(deviceToken) {
+    await this.ready;
+    await this._run('UPDATE mobile_devices SET last_seen = ? WHERE device_token = ?', [new Date().toISOString(), deviceToken]);
   }
 
   /**
    * Get all registered devices for a church.
    */
   getDevicesForChurch(churchId) {
-    return this.db.prepare('SELECT * FROM mobile_devices WHERE church_id = ? ORDER BY last_seen DESC').all(churchId);
+    if (this.db) return this.db.prepare('SELECT * FROM mobile_devices WHERE church_id = ? ORDER BY last_seen DESC').all(churchId);
+    return this._getDevicesForChurchAsync(churchId);
+  }
+
+  async _getDevicesForChurchAsync(churchId) {
+    return this._all('SELECT * FROM mobile_devices WHERE church_id = ? ORDER BY last_seen DESC', [churchId]);
   }
 
   // ─── NOTIFICATION PREFERENCES ─────────────────────────────────────────────
@@ -252,9 +410,45 @@ class PushNotificationService {
    * Returns defaults if no prefs exist.
    */
   getPrefs(churchId, userId = null) {
+    if (this.db) return this._getPrefsSync(churchId, userId);
+    return this._getPrefsAsync(churchId, userId);
+  }
+
+  _getPrefsSync(churchId, userId = null) {
     const row = this.db.prepare(
       'SELECT * FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))'
     ).get(churchId, userId, userId);
+
+    if (!row) {
+      return {
+        enabled: true,
+        severityThreshold: 'CRITICAL',
+        quietHoursStart: null,
+        quietHoursEnd: null,
+        perDeviceAlerts: {},
+        perRoomFiltering: {},
+        sound: 'default',
+        serviceReminders: true,
+      };
+    }
+
+    return {
+      enabled: !!row.enabled,
+      severityThreshold: row.severity_threshold || 'CRITICAL',
+      quietHoursStart: row.quiet_hours_start || null,
+      quietHoursEnd: row.quiet_hours_end || null,
+      perDeviceAlerts: _safeJsonParse(row.per_device_alerts, {}),
+      perRoomFiltering: _safeJsonParse(row.per_room_filtering, {}),
+      sound: row.sound || 'default',
+      serviceReminders: row.service_reminders !== 0,
+    };
+  }
+
+  async _getPrefsAsync(churchId, userId = null) {
+    const row = await this._one(
+      'SELECT * FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))',
+      [churchId, userId, userId]
+    );
 
     if (!row) {
       return {
@@ -285,6 +479,11 @@ class PushNotificationService {
    * Update notification preferences for a user at a church.
    */
   updatePrefs(churchId, userId = null, prefs = {}) {
+    if (this.db) return this._updatePrefsSync(churchId, userId, prefs);
+    return this._updatePrefsAsync(churchId, userId, prefs);
+  }
+
+  _updatePrefsSync(churchId, userId = null, prefs = {}) {
     const existing = this.db.prepare(
       'SELECT id FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))'
     ).get(churchId, userId, userId);
@@ -321,6 +520,45 @@ class PushNotificationService {
     return this.getPrefs(churchId, userId);
   }
 
+  async _updatePrefsAsync(churchId, userId = null, prefs = {}) {
+    await this.ready;
+    const existing = await this._one(
+      'SELECT id FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))',
+      [churchId, userId, userId]
+    );
+
+    const now = new Date().toISOString();
+    const enabled = prefs.enabled !== undefined ? (prefs.enabled ? 1 : 0) : 1;
+    const severityThreshold = prefs.severityThreshold || 'CRITICAL';
+    const quietHoursStart = prefs.quietHoursStart || null;
+    const quietHoursEnd = prefs.quietHoursEnd || null;
+    const perDeviceAlerts = JSON.stringify(prefs.perDeviceAlerts || {});
+    const perRoomFiltering = JSON.stringify(prefs.perRoomFiltering || {});
+    const sound = prefs.sound || 'default';
+    const serviceReminders = prefs.serviceReminders !== undefined ? (prefs.serviceReminders ? 1 : 0) : 1;
+
+    if (existing) {
+      await this._run(`
+        UPDATE mobile_notification_prefs
+        SET enabled = ?, severity_threshold = ?, quiet_hours_start = ?, quiet_hours_end = ?,
+            per_device_alerts = ?, per_room_filtering = ?, sound = ?, service_reminders = ?, updated_at = ?
+        WHERE id = ?
+      `, [enabled, severityThreshold, quietHoursStart, quietHoursEnd,
+        perDeviceAlerts, perRoomFiltering, sound, serviceReminders, now, existing.id]);
+    } else {
+      const id = uuidv4();
+      await this._run(`
+        INSERT INTO mobile_notification_prefs
+          (id, church_id, user_id, enabled, severity_threshold, quiet_hours_start, quiet_hours_end,
+           per_device_alerts, per_room_filtering, sound, service_reminders, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [id, churchId, userId, enabled, severityThreshold, quietHoursStart, quietHoursEnd,
+        perDeviceAlerts, perRoomFiltering, sound, serviceReminders, now]);
+    }
+
+    return this._getPrefsAsync(churchId, userId);
+  }
+
   // ─── ALERT DISPATCH ───────────────────────────────────────────────────────
 
   /**
@@ -332,11 +570,12 @@ class PushNotificationService {
    * @returns {Promise<{ sent: number, skipped: number, failed: number }>}
    */
   async sendAlert(churchId, alertEvent) {
+    await this.ready;
     const { alertType, severity, context = {}, diagnosis = {} } = alertEvent;
 
     if (severity === 'INFO') return { sent: 0, skipped: 0, failed: 0 };
 
-    const devices = this.getDevicesForChurch(churchId);
+    const devices = await this.getDevicesForChurch(churchId);
     if (!devices.length) return { sent: 0, skipped: 0, failed: 0 };
 
     const results = { sent: 0, skipped: 0, failed: 0 };
@@ -360,7 +599,7 @@ class PushNotificationService {
     }
 
     for (const [userId, userDevices] of userDeviceMap) {
-      const prefs = this.getPrefs(churchId, userId === '__church_default__' ? null : userId);
+      const prefs = await this.getPrefs(churchId, userId === '__church_default__' ? null : userId);
 
       // Check: enabled?
       if (!prefs.enabled) {
@@ -402,7 +641,7 @@ class PushNotificationService {
           this.log(`[Push] Failed to send to device ${device.id}: ${e.message}`);
           // Remove invalid tokens
           if (_isInvalidTokenError(e)) {
-            this.db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(device.id);
+            await this._run('DELETE FROM mobile_devices WHERE id = ?', [device.id]);
             this.log(`[Push] Removed invalid device token: ${device.id}`);
           }
           results.failed++;
@@ -423,7 +662,8 @@ class PushNotificationService {
    * Used for widget refresh, health score changes, non-urgent status.
    */
   async sendSilent(churchId, data = {}) {
-    const devices = this.getDevicesForChurch(churchId);
+    await this.ready;
+    const devices = await this.getDevicesForChurch(churchId);
     if (!devices.length || !this.messaging) return { sent: 0 };
 
     let sent = 0;
@@ -443,7 +683,7 @@ class PushNotificationService {
       };
       const response = await this.messaging.sendEachForMulticast(message);
       sent = response.successCount;
-      this._cleanupFailedTokens(response, devices);
+      await this._cleanupFailedTokens(response, devices);
     } catch (e) {
       this.log(`[Push] Silent notification failed for church ${churchId}: ${e.message}`);
     }
@@ -460,7 +700,8 @@ class PushNotificationService {
    * @param {object} serviceInfo - { name, startsAt, rundownSummary }
    */
   async sendServiceReminder(churchId, serviceInfo = {}) {
-    const devices = this.getDevicesForChurch(churchId);
+    await this.ready;
+    const devices = await this.getDevicesForChurch(churchId);
     if (!devices.length) return { sent: 0, skipped: 0 };
 
     const results = { sent: 0, skipped: 0 };
@@ -469,7 +710,7 @@ class PushNotificationService {
     const body = serviceInfo.rundownSummary || 'Tap to run pre-service check and review the rundown.';
 
     for (const device of devices) {
-      const prefs = this.getPrefs(churchId, device.user_id);
+      const prefs = await this.getPrefs(churchId, device.user_id);
       if (!prefs.enabled || !prefs.serviceReminders) {
         results.skipped++;
         continue;
@@ -492,7 +733,7 @@ class PushNotificationService {
       } catch (e) {
         this.log(`[Push] Service reminder failed for device ${device.id}: ${e.message}`);
         if (_isInvalidTokenError(e)) {
-          this.db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(device.id);
+          await this._run('DELETE FROM mobile_devices WHERE id = ?', [device.id]);
         }
       }
     }
@@ -568,25 +809,37 @@ class PushNotificationService {
   /**
    * Clean up tokens that FCM reports as invalid after a multicast send.
    */
-  _cleanupFailedTokens(response, devices) {
+  async _cleanupFailedTokens(response, devices) {
     if (!response.responses) return;
-    response.responses.forEach((resp, idx) => {
+    for (const [idx, resp] of response.responses.entries()) {
       if (!resp.success && resp.error && _isInvalidTokenError(resp.error)) {
         const device = devices[idx];
         if (device) {
-          this.db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(device.id);
+          await this._run('DELETE FROM mobile_devices WHERE id = ?', [device.id]);
           this.log(`[Push] Cleaned up invalid token: ${device.id}`);
         }
       }
-    });
+    }
   }
 
   /**
    * Get stats about registered devices and notification delivery.
    */
   getStats(churchId) {
+    if (this.db) return this._getStatsSync(churchId);
+    return this._getStatsAsync(churchId);
+  }
+
+  _getStatsSync(churchId) {
     const deviceCount = this.db.prepare('SELECT COUNT(*) as cnt FROM mobile_devices WHERE church_id = ?').get(churchId)?.cnt || 0;
     const platforms = this.db.prepare('SELECT platform, COUNT(*) as cnt FROM mobile_devices WHERE church_id = ? GROUP BY platform').all(churchId);
+    return { deviceCount, platforms };
+  }
+
+  async _getStatsAsync(churchId) {
+    await this.ready;
+    const deviceCount = (await this._one('SELECT COUNT(*) as cnt FROM mobile_devices WHERE church_id = ?', [churchId]))?.cnt || 0;
+    const platforms = await this._all('SELECT platform, COUNT(*) as cnt FROM mobile_devices WHERE church_id = ? GROUP BY platform', [churchId]);
     return { deviceCount, platforms };
   }
 }
