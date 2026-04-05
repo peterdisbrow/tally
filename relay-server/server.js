@@ -8,7 +8,9 @@
  *   PORT            (default 3000)
  *   ADMIN_API_KEY   Secret key for the internal admin skill
  *   JWT_SECRET      Secret for signing church tokens
+ *   DATABASE_DRIVER sqlite (default) or postgres (Postgres runtime pending)
  *   DATABASE_PATH   Path to SQLite DB (default ./data/churches.db)
+ *   DATABASE_URL    Future Postgres connection string (requires DATABASE_DRIVER=postgres)
  */
 
 const express = require('express');
@@ -20,10 +22,10 @@ const crypto = require('node:crypto');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
 
 const cookieParser = require('cookie-parser');
 const Sentry = require('@sentry/node');
+const { createAppDatabase } = require('./src/db');
 
 // ─── ERROR TRACKING ─────────────────────────────────────────────────────────
 if (process.env.SENTRY_DSN) {
@@ -252,7 +254,6 @@ if (!_isDevEnv) {
 if (_isDevEnv && (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me')) {
   console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars before deploying.\n');
 }
-const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
 // ─── CONNECTION LIMITS ───────────────────────────────────────────────────────
 const wsConnectionsByIp = new Map(); // IP -> count
@@ -496,14 +497,9 @@ Church Portal: ${portalUrl}
 Tally Connect — tallyconnect.app`;
 }
 
-// ─── SQLITE PERSISTENCE ──────────────────────────────────────────────────────
+// ─── DATABASE PERSISTENCE ────────────────────────────────────────────────────
 
-const dbDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
-
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
+const { db, queryClient } = createAppDatabase({ env: process.env, onInfo: log });
 db.exec(`
   CREATE TABLE IF NOT EXISTS churches (
     churchId TEXT PRIMARY KEY,
@@ -514,7 +510,7 @@ db.exec(`
   )
 `);
 
-const resellerSystem = new ResellerSystem(db);
+const resellerSystem = new ResellerSystem(queryClient);
 
 // ─── SCHEMA MIGRATIONS ───────────────────────────────────────────────────────
 // Run safe ALTER TABLE migrations for new columns — ignore "column already exists" errors
@@ -1135,14 +1131,14 @@ for (const col of ['slack_webhook_url', 'slack_channel']) {
 }
 
 // Preset library table
-const presetLibrary = new PresetLibrary(db);
+const presetLibrary = new PresetLibrary(queryClient);
 
 // ─── AUTOMATION ENGINES ──────────────────────────────────────────────────────
 
-const scheduleEngine = new ScheduleEngine(db);
-const billing = new BillingSystem(db);
-const onCallRotation = new OnCallRotation(db);
-const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
+const scheduleEngine = new ScheduleEngine(queryClient);
+const billing = new BillingSystem(queryClient);
+const onCallRotation = new OnCallRotation(queryClient);
+const alertEngine = new AlertEngine(queryClient, scheduleEngine, { onCallRotation });
 
 // ─── PUSH NOTIFICATIONS (mobile) ──────────────────────────────────────────────
 let firebaseApp = null;
@@ -1167,44 +1163,46 @@ try {
 } catch (e) {
   console.warn('[Server] Firebase Admin init failed (push notifications disabled):', e.message);
 }
-const pushNotifications = new PushNotificationService({ db, firebaseApp, log: console.log });
+const pushNotifications = new PushNotificationService({ db: queryClient, firebaseApp, log: console.log });
 alertEngine.setPushNotifications(pushNotifications);
 
-const versionConfig = new VersionConfig(db);
-const autoRecovery = new AutoRecovery(churches, alertEngine, db);
-const aiTriageEngine = new AITriageEngine(db, scheduleEngine, {
+const versionConfig = new VersionConfig(queryClient);
+const autoRecovery = new AutoRecovery(churches, alertEngine, queryClient);
+const aiTriageEngine = new AITriageEngine(queryClient, scheduleEngine, {
   churches,
   autoRecovery,
   broadcastToSSE: (data) => broadcastToSSE(data),
-  createTicket: ({ churchId, title, description, severity, issueCategory, aiTriageEventId }) => {
+  createTicket: async ({ churchId, title, description, severity, issueCategory, aiTriageEventId }) => {
     const ticketId = uuidv4();
     const now = new Date().toISOString();
     try {
-      db.prepare(`
+      await queryClient.run(`
         INSERT INTO support_tickets (id, church_id, triage_id, issue_category, severity, title, description, status, forced_bypass, diagnostics_json, created_by, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?, ?, ?)
-      `).run(ticketId, churchId, aiTriageEventId || null, issueCategory || 'other', severity || 'P3', title, description, '{}', 'ai_triage', now, now);
-      db.prepare(`INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at) VALUES (?, ?, 'system', 'ai_triage', ?)`)
-        .run(ticketId, description || 'AI Triage recommendation', now);
+      `, [ticketId, churchId, aiTriageEventId || null, issueCategory || 'other', severity || 'P3', title, description, '{}', 'ai_triage', now, now]);
+      await queryClient.run(
+        `INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at) VALUES (?, ?, 'system', 'ai_triage', ?)`,
+        [ticketId, description || 'AI Triage recommendation', now],
+      );
     } catch (e) { console.error('[AITriage] Ticket creation failed:', e.message); }
     return ticketId;
   },
 });
-const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, db);
+const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, queryClient);
 autoRecovery.signalFailover = signalFailover; // allow autoRecovery to defer to failover
-const weeklyDigest = new WeeklyDigest(db);
+const weeklyDigest = new WeeklyDigest(queryClient);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
-const rundownEngine = new RundownEngine(db);
+const rundownEngine = new RundownEngine(queryClient);
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
 weeklyDigest.startWeeklyTimer();
 
-const guestTdMode = new GuestTdMode(db, {
+const guestTdMode = new GuestTdMode(queryClient, {
   adminName: process.env.ADMIN_NAME || 'the administrator',
 });
 guestTdMode.startCleanupTimer();
 
 const monthlyReport = new MonthlyReport({
-  db,
+  db: queryClient,
   defaultBotToken: process.env.ALERT_BOT_TOKEN,
   adminChatId: process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID,
 });
@@ -1212,11 +1210,11 @@ monthlyReport.start();
 
 // ─── SESSION RECAP ────────────────────────────────────────────────────────────
 
-const churchMemory = new ChurchMemory(db);
+const churchMemory = new ChurchMemory(queryClient);
 weeklyDigest.churchMemory = churchMemory;
-const churchDocuments = new ChurchDocuments(db);
+const churchDocuments = new ChurchDocuments(queryClient);
 churchDocuments.setAiUsageLogger((opts) => logAiUsage({ churchId: opts.churchId || null, ...opts }));
-const sessionRecap = new SessionRecap(db);
+const sessionRecap = new SessionRecap(queryClient);
 sessionRecap.setRoomResolver((churchId, instanceName) => {
   if (!instanceName) return null;
   const runtime = churches.get(churchId);
@@ -1232,7 +1230,6 @@ sessionRecap.setNotificationConfig(
   process.env.ALERT_BOT_TOKEN,
   process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID
 );
-sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a restart
 aiTriageEngine.setSessionRecap(sessionRecap); // Let triage detect active streaming sessions
 
 // ─── PRE-SERVICE PUSH REMINDER (T-30 minutes) ────────────────────────────────
@@ -1264,11 +1261,11 @@ function getConnectedSessionInstances(churchId) {
   return Array.from(church.sockets.keys());
 }
 
-scheduleEngine.addWindowOpenCallback((churchId) => {
+scheduleEngine.addWindowOpenCallback(async (churchId) => {
   try {
-    const onCallTd = onCallRotation.getOnCallTD(churchId);
+    const onCallTd = await onCallRotation.getOnCallTD(churchId);
     for (const instanceName of getConnectedSessionInstances(churchId)) {
-      sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
+      await sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
     }
   } catch (e) {
     console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
@@ -1300,7 +1297,7 @@ scheduleEngine.startPolling();
 
 // ─── AUTOPILOT ───────────────────────────────────────────────────────────────
 
-const autoPilot = new AutoPilot(db, { scheduleEngine, sessionRecap, billing });
+const autoPilot = new AutoPilot(queryClient, { scheduleEngine, sessionRecap, billing });
 
 // Set command executor — sends commands to church clients via WebSocket
 autoPilot.setCommandExecutor(async (churchId, command, params, source) => {
@@ -1331,7 +1328,7 @@ _intervals.push(setInterval(() => {
 
 // ─── RUNDOWN SCHEDULER ───────────────────────────────────────────────────────
 
-const scheduler = new RundownScheduler(db, {
+const scheduler = new RundownScheduler(queryClient, {
   rundownEngine, scheduleEngine, billing, presetLibrary, autoPilot,
 });
 
@@ -1345,25 +1342,21 @@ scheduler.setCommandExecutor(async (churchId, command, params, source) => {
 
 // Hook service window transitions for auto-activate / deactivate
 scheduleEngine.addWindowOpenCallback((churchId) => {
-  try { scheduler.onServiceWindowOpen(churchId); } catch {}
+  Promise.resolve(scheduler.onServiceWindowOpen(churchId)).catch(() => {});
 });
 scheduleEngine.addWindowCloseCallback((churchId) => {
   try { scheduler.onServiceWindowClose(churchId); } catch {}
 });
 
-// Start the 15-second tick loop
-scheduler.start();
-console.log('[Server] ✓ Rundown Scheduler initialized');
-
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
-const chatEngine = new ChatEngine(db, { sessionRecap });
+const chatEngine = new ChatEngine(queryClient, { sessionRecap });
 ensureOnboardingTable(db);
 
 // ─── INCIDENT SUMMARIZER ─────────────────────────────────────────────────────
 
 const incidentSummarizer = new IncidentSummarizer({
-  db, churches, chatEngine, alertEngine, weeklyDigest, sessionRecap, signalFailover,
+  db: queryClient, churches, chatEngine, alertEngine, weeklyDigest, sessionRecap, signalFailover,
 });
 incidentSummarizer.setAiUsageLogger(logAiUsage);
 
@@ -1391,7 +1384,7 @@ console.log('[Server] ✓ Incident Summarizer initialized');
 
 // ─── AI RATE LIMITER ─────────────────────────────────────────────────────────
 
-const aiRateLimiter = new AiRateLimiter({ db, signalFailover });
+const aiRateLimiter = new AiRateLimiter({ db: queryClient, signalFailover });
 aiRateLimiter.setAiUsageLogger(logAiUsage);
 
 // Hook incident bypass into ai-parser's per-hour rate limiter
@@ -1404,41 +1397,49 @@ console.log('[Server] ✓ AI Rate Limiter initialized');
 
 // ─── PLANNING CENTER ──────────────────────────────────────────────────────────
 
-const planningCenter = new PlanningCenter(db);
+const planningCenter = new PlanningCenter(queryClient);
 planningCenter.setScheduleEngine(scheduleEngine);
-planningCenter.start();
 
 // ─── STREAM PLATFORM OAUTH ──────────────────────────────────────────────────
 
-const streamOAuth = new StreamPlatformOAuth(db);
+const streamOAuth = new StreamPlatformOAuth(queryClient);
 streamOAuth.start();
 
 // ─── TRIAL EXPIRATION CRON ────────────────────────────────────────────────────
 // Every hour, check for expired trials and deactivate them.
 
-function checkExpiredTrials() {
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+async function checkExpiredTrials() {
   try {
     const now = new Date().toISOString();
-    const expired = db.prepare(`
+    const expired = await queryClient.query(`
       SELECT churchId, name, billing_trial_ends
       FROM churches
       WHERE billing_status = 'trialing'
         AND billing_trial_ends IS NOT NULL
         AND billing_trial_ends < ?
-    `).all(now);
+    `, [now]);
 
     for (const church of expired) {
-      db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
-        .run('trial_expired', church.churchId);
+      await queryClient.run(
+        'UPDATE churches SET billing_status = ? WHERE churchId = ?',
+        ['trial_expired', church.churchId],
+      );
       // Also update billing_customers if a record exists
-      db.prepare(`UPDATE billing_customers SET status = 'trial_expired', updated_at = ? WHERE church_id = ?`)
-        .run(now, church.churchId);
+      await queryClient.run(
+        `UPDATE billing_customers SET status = 'trial_expired', updated_at = ? WHERE church_id = ?`,
+        [now, church.churchId],
+      );
 
       log(`[TrialExpiry] Trial expired for "${church.name}" (${church.churchId}) — trial ended ${church.billing_trial_ends}`);
 
       // Send trial-expired email (non-blocking)
       if (lifecycleEmails) {
-        const fullChurch = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(church.churchId);
+        const fullChurch = await queryClient.queryOne(
+          'SELECT churchId, name, portal_email FROM churches WHERE churchId = ?',
+          [church.churchId],
+        );
         if (fullChurch) lifecycleEmails.sendTrialExpired(fullChurch).catch(e => logError('[TrialExpiry] Failed to send trial-expired email to ' + fullChurch.portal_email + ': ' + e.message));
       }
 
@@ -1462,21 +1463,27 @@ function checkExpiredTrials() {
 
 // ─── GRACE PERIOD ENFORCEMENT ─────────────────────────────────────────────
 // Deactivate churches whose payment grace period has expired.
-function enforceGracePeriods() {
+async function enforceGracePeriods() {
   try {
     const now = new Date().toISOString();
-    const expired = db.prepare(`
+    const expired = await queryClient.query(`
       SELECT bc.church_id, bc.grace_ends_at, c.name
       FROM billing_customers bc
       LEFT JOIN churches c ON c.churchId = bc.church_id
       WHERE bc.status = 'past_due'
         AND bc.grace_ends_at IS NOT NULL
         AND bc.grace_ends_at < ?
-    `).all(now);
+    `, [now]);
 
     for (const row of expired) {
-      db.prepare("UPDATE billing_customers SET status = 'inactive', updated_at = ? WHERE church_id = ?").run(now, row.church_id);
-      db.prepare("UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?").run(row.church_id);
+      await queryClient.run(
+        "UPDATE billing_customers SET status = 'inactive', updated_at = ? WHERE church_id = ?",
+        [now, row.church_id],
+      );
+      await queryClient.run(
+        "UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?",
+        [row.church_id],
+      );
 
       // Disconnect client
       const runtime = churches.get(row.church_id);
@@ -1490,7 +1497,10 @@ function enforceGracePeriods() {
 
       // Send grace-expired email
       if (lifecycleEmails) {
-        const church = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(row.church_id);
+        const church = await queryClient.queryOne(
+          'SELECT churchId, name, portal_email FROM churches WHERE churchId = ?',
+          [row.church_id],
+        );
         if (church) lifecycleEmails.sendGraceExpired(church).catch(e => logError('[GracePeriod] Failed to send grace-expired email to ' + church.portal_email + ': ' + e.message));
       }
     }
@@ -1507,57 +1517,61 @@ function enforceGracePeriods() {
 // Automated email sequences: setup nudge, first-sunday prep, check-in,
 // trial warnings, trial expired, payment failed, weekly digest.
 
-const lifecycleEmails = new LifecycleEmails(db, {
+const lifecycleEmails = new LifecycleEmails(queryClient, {
   resendApiKey: RESEND_API_KEY,
   fromEmail: FROM_EMAIL,
   appUrl: APP_URL,
 });
 
-// Run immediately on startup, then every hour
-checkExpiredTrials();
-enforceGracePeriods();
-_intervals.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
-_intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
-
 // ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
-chatEngine.pruneOldMessages(30); // run on startup
-_intervals.push(setInterval(() => chatEngine.pruneOldMessages(30), 24 * 60 * 60 * 1000));
+chatEngine.pruneOldMessages(30).catch((e) => {
+  console.error('[ChatEngine] Initial prune failed:', e.message);
+});
+_intervals.push(setInterval(() => {
+  chatEngine.pruneOldMessages(30).catch((e) => {
+    console.error('[ChatEngine] Scheduled prune failed:', e.message);
+  });
+}, 24 * 60 * 60 * 1000));
 
 // ─── VIEWER SNAPSHOTS PRUNING (daily, 90-day retention) ──────────────────────
-try {
-  const pruned = db.prepare("DELETE FROM viewer_snapshots WHERE captured_at < datetime('now', '-90 days')").run();
-  if (pruned.changes > 0) log(`[ViewerSnapshots] Pruned ${pruned.changes} snapshots older than 90 days`);
-} catch { /* table may not exist yet */ }
-_intervals.push(setInterval(() => {
+async function pruneRowsOlderThan({ table, col, cutoffIso, label }) {
   try {
-    const pruned = db.prepare("DELETE FROM viewer_snapshots WHERE captured_at < datetime('now', '-90 days')").run();
-    if (pruned.changes > 0) log(`[ViewerSnapshots] Pruned ${pruned.changes} snapshots older than 90 days`);
+    const pruned = await queryClient.run(
+      `DELETE FROM ${table} WHERE ${col} < ?`,
+      [cutoffIso],
+    );
+    if (pruned.changes > 0) log(`[${label}] Pruned ${pruned.changes} rows older than ${cutoffIso}`);
+    return pruned.changes || 0;
   } catch { /* ignore */ }
-}, 24 * 60 * 60 * 1000));
+  return 0;
+}
 
-// ─── AUDIT LOG PRUNING (daily, 90-day retention) ─────────────────────────────
-try {
-  const pruned = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
-  if (pruned.changes > 0) log(`[AuditLog] Pruned ${pruned.changes} entries older than 90 days`);
-} catch { /* table may not exist yet */ }
-_intervals.push(setInterval(() => {
-  try {
-    const pruned = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
-    if (pruned.changes > 0) log(`[AuditLog] Pruned ${pruned.changes} entries older than 90 days`);
-  } catch { /* ignore */ }
-  try { aiTriageEngine.cleanup(90); } catch { /* ignore */ }
-}, 24 * 60 * 60 * 1000));
+async function pruneViewerSnapshots() {
+  return pruneRowsOlderThan({
+    table: 'viewer_snapshots',
+    col: 'captured_at',
+    cutoffIso: new Date(Date.now() - 90 * MS_PER_DAY).toISOString(),
+    label: 'ViewerSnapshots',
+  });
+}
 
-try {
-  const pruned = db.prepare("DELETE FROM ai_chat_log WHERE timestamp < datetime('now', '-90 days')").run();
-  if (pruned.changes > 0) log(`[AiChatLog] Pruned ${pruned.changes} entries older than 90 days`);
-} catch { /* table may not exist yet */ }
-_intervals.push(setInterval(() => {
-  try {
-    const pruned = db.prepare("DELETE FROM ai_chat_log WHERE timestamp < datetime('now', '-90 days')").run();
-    if (pruned.changes > 0) log(`[AiChatLog] Pruned ${pruned.changes} entries older than 90 days`);
-  } catch { /* ignore */ }
-}, 24 * 60 * 60 * 1000));
+async function pruneAuditLog() {
+  return pruneRowsOlderThan({
+    table: 'audit_log',
+    col: 'created_at',
+    cutoffIso: new Date(Date.now() - 90 * MS_PER_DAY).toISOString(),
+    label: 'AuditLog',
+  });
+}
+
+async function pruneAiChatLog() {
+  return pruneRowsOlderThan({
+    table: 'ai_chat_log',
+    col: 'timestamp',
+    cutoffIso: new Date(Date.now() - 90 * MS_PER_DAY).toISOString(),
+    label: 'AiChatLog',
+  });
+}
 
 // ─── DATA RETENTION PRUNING (daily, multiple tables) ─────────────────────────
 // These tables were previously growing unbounded and are the likely cause of
@@ -1587,20 +1601,25 @@ const _retentionRules = [
   { table: 'ai_diagnostic_usage',     col: 'month',       days: 365, label: 'AIDiagUsage', monthCol: true },
 ];
 
-function runDataRetention() {
+async function runDataRetention() {
   let totalPruned = 0;
   for (const rule of _retentionRules) {
     try {
       let result;
       if (rule.monthCol) {
         // month column stores 'YYYY-MM' strings
-        const cutoff = new Date(Date.now() - rule.days * 86400000);
+        const cutoff = new Date(Date.now() - rule.days * MS_PER_DAY);
         const cutoffMonth = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}`;
-        result = db.prepare(`DELETE FROM ${rule.table} WHERE ${rule.col} < ?`).run(cutoffMonth);
+        result = await queryClient.run(
+          `DELETE FROM ${rule.table} WHERE ${rule.col} < ?`,
+          [cutoffMonth],
+        );
       } else {
-        result = db.prepare(
-          `DELETE FROM ${rule.table} WHERE ${rule.col} < datetime('now', '-${rule.days} days')`
-        ).run();
+        const cutoffIso = new Date(Date.now() - rule.days * MS_PER_DAY).toISOString();
+        result = await queryClient.run(
+          `DELETE FROM ${rule.table} WHERE ${rule.col} < ?`,
+          [cutoffIso],
+        );
       }
       if (result.changes > 0) {
         log(`[DataRetention] ${rule.label}: pruned ${result.changes} rows older than ${rule.days} days`);
@@ -1609,7 +1628,7 @@ function runDataRetention() {
     } catch { /* table may not exist yet */ }
   }
   // After large prunes, checkpoint WAL and reclaim disk space
-  if (totalPruned > 0) {
+  if (totalPruned > 0 && queryClient.driver === 'sqlite') {
     try {
       db.pragma('wal_checkpoint(TRUNCATE)');
       log(`[DataRetention] WAL checkpoint complete`);
@@ -1618,32 +1637,69 @@ function runDataRetention() {
   return totalPruned;
 }
 
-// Run on startup (immediate disk recovery)
-const _startupPruned = runDataRetention();
-if (_startupPruned > 100) {
-  // Only VACUUM after significant prunes to avoid blocking on small cleanups
+async function runDailyMaintenance() {
+  await pruneViewerSnapshots();
+  await pruneAuditLog();
+  await pruneAiChatLog();
   try {
-    db.exec('VACUUM');
-    log(`[DataRetention] VACUUM complete after pruning ${_startupPruned} rows`);
-  } catch (e) { log(`[DataRetention] VACUUM skipped: ${e.message}`); }
+    await Promise.resolve(aiTriageEngine.cleanup(90));
+  } catch { /* ignore */ }
 }
 
-// Run daily
-_intervals.push(setInterval(() => runDataRetention(), 24 * 60 * 60 * 1000));
+const startupMaintenance = (async () => {
+  await checkExpiredTrials();
+  await enforceGracePeriods();
+  await runDailyMaintenance();
+  const startupPruned = await runDataRetention();
+  if (startupPruned > 100 && queryClient.driver === 'sqlite') {
+    // Only VACUUM after significant prunes to avoid blocking on small cleanups
+    try {
+      db.exec('VACUUM');
+      log(`[DataRetention] VACUUM complete after pruning ${startupPruned} rows`);
+    } catch (e) { log(`[DataRetention] VACUUM skipped: ${e.message}`); }
+  }
+})().catch((e) => {
+  console.error('[StartupMaintenance] Error:', e.message);
+});
+
+// Run on schedule after startup
+_intervals.push(setInterval(() => {
+  checkExpiredTrials().catch((e) => {
+    console.error('[TrialExpiry] Scheduled check failed:', e.message);
+  });
+}, 60 * 60 * 1000));
+_intervals.push(setInterval(() => {
+  enforceGracePeriods().catch((e) => {
+    console.error('[GracePeriod] Scheduled enforcement failed:', e.message);
+  });
+}, 60 * 60 * 1000));
+_intervals.push(setInterval(() => {
+  runDailyMaintenance().catch((e) => {
+    console.error('[DailyMaintenance] Scheduled run failed:', e.message);
+  });
+}, 24 * 60 * 60 * 1000));
+_intervals.push(setInterval(() => {
+  runDataRetention().catch((e) => {
+    console.error('[DataRetention] Scheduled run failed:', e.message);
+  });
+}, 24 * 60 * 60 * 1000));
 
 // Weekly WAL checkpoint (even without prunes, keeps WAL file from growing)
-_intervals.push(setInterval(() => {
-  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
-}, 7 * 24 * 60 * 60 * 1000));
+if (queryClient.driver === 'sqlite') {
+  _intervals.push(setInterval(() => {
+    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
+  }, 7 * 24 * 60 * 60 * 1000));
+}
 
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);
 alertEngine.setLifecycleEmails(lifecycleEmails);
-sessionRecap.setPostServiceReport(new PostServiceReport(db, {
+const postServiceReport = new PostServiceReport(queryClient, {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   lifecycleEmails,
-}));
+});
+sessionRecap.setPostServiceReport(postServiceReport);
 
 // Run lifecycle email checks every hour
 _intervals.push(setInterval(() => {
@@ -1782,7 +1838,7 @@ setupBroadcastMonitor(db, { churches }, alertEngine, (churchId) => {
 
 // ─── EVENT MODE & RESELLER SYSTEM ────────────────────────────────────────────
 
-const eventMode = new EventMode(db);
+const eventMode = new EventMode(queryClient);
 eventMode.start(tallyBot, churches);
 
 // Wire resellerSystem into alertEngine for white-label brand names
@@ -1794,7 +1850,7 @@ setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET, lifecycleE
 
 // Pre-service check — created before portal so portal can trigger manual checks
 preServiceCheck = new PreServiceCheck({
-  db,
+  db: queryClient,
   scheduleEngine,
   churches,
   defaultBotToken: process.env.ALERT_BOT_TOKEN,
@@ -1802,10 +1858,9 @@ preServiceCheck = new PreServiceCheck({
   sessionRecap,
   versionConfig,
 });
-preServiceCheck.start();
 
 // ─── PRE-SERVICE RUNDOWN ORCHESTRATOR ─────────────────────────────────────────
-const viewerBaseline = new ViewerBaseline(db);
+const viewerBaseline = new ViewerBaseline(queryClient);
 const preServiceRundown = new PreServiceRundown({
   db,
   scheduleEngine,
@@ -1834,23 +1889,25 @@ scheduleEngine.addWindowCloseCallback((churchId) => {
 _intervals.push(setInterval(() => {
   const now = new Date();
   if (now.getDay() === 0 && now.getHours() === 2 && now.getMinutes() === 0) {
-    viewerBaseline.recomputeAll();
+    Promise.resolve(viewerBaseline.recomputeAll()).catch((e) => {
+      console.error('[ViewerBaseline] Weekly recompute failed:', e.message);
+    });
   }
 }, 60 * 1000));
 console.log('[Server] ✓ Pre-Service Rundown orchestrator initialized');
 
 // ─── PRE-SERVICE BRIEFING (posted when service window opens) ────────────────
 // Registered after preServiceCheck so getLatestResult() is available
-scheduleEngine.addWindowOpenCallback((churchId) => {
+scheduleEngine.addWindowOpenCallback(async (churchId) => {
   try {
     const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
     if (!church) return;
-    const onCallTd = onCallRotation.getOnCallTD(churchId);
-    const briefing = churchMemory.getPreServiceBriefing(churchId);
+    const onCallTd = await onCallRotation.getOnCallTD(churchId);
+    const briefing = await churchMemory.getPreServiceBriefing(churchId);
     const lastSession = db.prepare(
       'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1'
     ).get(churchId);
-    const preCheck = preServiceCheck ? preServiceCheck.getLatestResult(churchId) : null;
+    const preCheck = preServiceCheck ? await preServiceCheck.getLatestResult(churchId) : null;
 
     const lines = [`📋 Pre-Service Briefing — ${church.name}`];
     if (onCallTd?.name) lines.push(`TD on call: ${onCallTd.name}`);
@@ -1896,7 +1953,7 @@ const patternWarningState = new Map(); // churchId → { timer, firedWarnings: S
 
 scheduleEngine.addWindowOpenCallback((churchId) => {
   try {
-    const warningTimer = setInterval(() => {
+    const warningTimer = setInterval(async () => {
       try {
         if (!sessionRecap.activeSessions.has(churchId)) {
           clearInterval(warningTimer);
@@ -1905,7 +1962,7 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
         }
         const now = new Date();
         const currentMinute = now.getHours() * 60 + now.getMinutes();
-        const warnings = churchMemory.getTimedWarnings(churchId);
+        const warnings = await churchMemory.getTimedWarnings(churchId);
         const state = patternWarningState.get(churchId);
         if (!state) return;
 
@@ -2070,7 +2127,7 @@ app.get('/api/church/app/status/stream', requireChurchAppAuth, (req, res) => {
 console.log('[Server] ✓ Church App Status SSE stream registered');
 
 // Reseller Portal — self-service login for integrators/resellers
-setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
+setupResellerPortal(app, queryClient, churches, resellerSystem, JWT_SECRET, requireAdmin);
 console.log('[Server] ✓ Reseller Portal routes registered');
 
 // Public status page
@@ -2290,35 +2347,38 @@ async function timedFetch(url, options = {}) {
   }
 }
 
-function upsertStatusComponent({ componentId, name, state, latencyMs = null, detail = '' }) {
+async function upsertStatusComponent({ componentId, name, state, latencyMs = null, detail = '' }) {
   if (!STATUS_STATES.includes(state)) state = 'degraded';
   const nowIso = new Date().toISOString();
-  const previous = db.prepare('SELECT state FROM status_components WHERE component_id = ?').get(componentId);
+  const previous = await queryClient.queryOne(
+    'SELECT state, last_changed_at FROM status_components WHERE component_id = ?',
+    [componentId],
+  );
 
   if (!previous) {
-    db.prepare(`
+    await queryClient.run(`
       INSERT INTO status_components (component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(componentId, name, state, latencyMs, detail, nowIso, nowIso);
+    `, [componentId, name, state, latencyMs, detail, nowIso, nowIso]);
     if (state !== 'operational') {
-      db.prepare(`
+      await queryClient.run(`
         INSERT INTO status_incidents (component_id, previous_state, new_state, message, started_at)
         VALUES (?, ?, ?, ?, ?)
-      `).run(componentId, 'unknown', state, detail, nowIso);
+      `, [componentId, 'unknown', state, detail, nowIso]);
     }
     return;
   }
 
   const changed = previous.state !== state;
-  db.prepare(`
+  await queryClient.run(`
     UPDATE status_components
     SET name = ?, state = ?, latency_ms = ?, detail = ?, last_checked_at = ?, last_changed_at = ?
     WHERE component_id = ?
-  `).run(name, state, latencyMs, detail, nowIso, changed ? nowIso : db.prepare('SELECT last_changed_at FROM status_components WHERE component_id = ?').pluck().get(componentId), componentId);
+  `, [name, state, latencyMs, detail, nowIso, changed ? nowIso : previous.last_changed_at, componentId]);
 
   if (!changed) return;
 
-  db.prepare(`
+  await queryClient.run(`
     UPDATE status_incidents
     SET resolved_at = ?
     WHERE id = (
@@ -2327,13 +2387,13 @@ function upsertStatusComponent({ componentId, name, state, latencyMs = null, det
       ORDER BY id DESC
       LIMIT 1
     )
-  `).run(nowIso, componentId);
+  `, [nowIso, componentId]);
 
   if (state !== 'operational') {
-    db.prepare(`
+    await queryClient.run(`
       INSERT INTO status_incidents (component_id, previous_state, new_state, message, started_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(componentId, previous.state, state, detail, nowIso);
+    `, [componentId, previous.state, state, detail, nowIso]);
   }
 }
 
@@ -2549,7 +2609,7 @@ async function runStatusChecks() {
     });
 
     for (const check of checks) {
-      upsertStatusComponent({
+      await upsertStatusComponent({
         componentId: check.componentId,
         name: check.name,
         state: check.result.state,
@@ -2795,13 +2855,13 @@ console.log('[Server] ✓ Support ticket routes registered');
 
 // Status components & incidents (extracted)
 require('./src/routes/statusComponents')(app, {
-  db, requireAdmin, runStatusChecks,
+  db, queryClient, requireAdmin, runStatusChecks,
   lastStatusCheckAt: () => lastStatusCheckAt,
 });
 
 // ─── EXTRACTED ROUTE MODULES ───────────────────────────────────────────────
 const routeCtx = {
-  db, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth, requireChurchWriteAccess,
+  db, queryClient, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth, requireChurchWriteAccess,
   requireChurchOrAdmin, requireReseller, requireFeature, rateLimit,
   billing, hashPassword, verifyPassword, normalizeBillingInterval,
   issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
@@ -2811,7 +2871,7 @@ const routeCtx = {
   stmtGet, stmtInsert, stmtDelete, stmtFindByName, stmtUpdateRegistrationCode,
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap, aiTriageEngine,
-  monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
+  monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler, signalFailover,
   guestTdMode, chatEngine, pushNotifications,
   logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
@@ -2991,7 +3051,7 @@ async function callDiagnosticAI(churchId, question, roomCtx = {}) {
     planningCenter,
   });
 
-  const conversationHistory = chatEngine.getRecentConversation(churchId);
+  const conversationHistory = await chatEngine.getRecentConversation(churchId);
 
   // Use unified diagnostic prompt from tally-engineer.js + full diagnostic context
   const systemPrompt = buildDiagnosticPrompt()
@@ -3118,15 +3178,18 @@ async function _callHaikuDiagnosticFallback(churchId, question, conversationHist
 }
 
 function postSystemChatMessage(churchId, message, roomId) {
-  const saved = chatEngine.saveMessage({
+  chatEngine.saveMessage({
     churchId,
     senderName: 'Tally',
     senderRole: 'system',
     source: 'system',
     message,
     roomId: roomId || null,
+  }).then((saved) => {
+    chatEngine.broadcastChat(saved);
+  }).catch((e) => {
+    console.error('[ChatEngine] System message save failed:', e.message);
   });
-  chatEngine.broadcastChat(saved);
 }
 
 async function executeChurchCommandWithResult(churchId, command, params = {}, roomId) {
@@ -3396,14 +3459,14 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
       postSystemChatMessage(churchId, 'What should I remember? Example: "Remember the pastor likes a tight shot during prayer"');
       return;
     }
-    churchMemory.saveUserNote(churchId, noteText);
+    await churchMemory.saveUserNote(churchId, noteText);
     postSystemChatMessage(churchId, "Got it — I'll remember that.");
     return;
   }
 
   // ─── "What do you remember?" handler ─────────────────────────────────────
   if (/^(what do you remember|what do you know|show notes|list notes|my notes)/i.test(lowerMsg)) {
-    const notes = churchMemory.getUserNotes(churchId);
+    const notes = await churchMemory.getUserNotes(churchId);
     if (!notes.length) {
       postSystemChatMessage(churchId, 'I don\'t have any saved notes yet. Say "remember [something]" to teach me.');
       return;
@@ -3417,11 +3480,14 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   if (/^(forget|delete note|remove note)\s+(\d+)/i.test(lowerMsg)) {
     const match = lowerMsg.match(/(\d+)/);
     const idx = parseInt(match[1]) - 1;
-    const notes = churchMemory.getUserNotes(churchId);
+    const notes = await churchMemory.getUserNotes(churchId);
     if (idx >= 0 && idx < notes.length) {
-      db.prepare('UPDATE church_memory SET active = 0 WHERE id = ?').run(notes[idx].id);
-      churchMemory._rebuildSummary(churchId);
-      postSystemChatMessage(churchId, `Forgot: "${notes[idx].summary}"`);
+      const archived = await churchMemory.archiveMemory(churchId, notes[idx].id);
+      if (archived) {
+        postSystemChatMessage(churchId, `Forgot: "${notes[idx].summary}"`);
+      } else {
+        postSystemChatMessage(churchId, 'I could not forget that note right now. Please try again.');
+      }
     } else {
       postSystemChatMessage(churchId, 'Note number not found. Say "what do you remember" to see the list.');
     }
@@ -3476,8 +3542,8 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
 
   // ─── "List documents" handler ────────────────────────────────────────────
   if (/^(list doc|my doc|what doc|show doc)/i.test(lowerMsg)) {
-    if (typeof churchDocuments !== 'undefined' && churchDocuments) {
-      const docs = churchDocuments.listDocuments(churchId);
+      if (typeof churchDocuments !== 'undefined' && churchDocuments) {
+      const docs = await churchDocuments.listDocuments(churchId);
       if (!docs.length) {
         postSystemChatMessage(churchId, 'No documents uploaded yet. Attach a PDF, TXT, or CSV in chat to upload.');
         return;
@@ -3519,7 +3585,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     // Category 2: Monthly Sonnet diagnostic limit
     const churchRow_d = stmtGet.get(churchId);
     const tier_d = churchRow_d?.billing_tier || 'connect';
-    const limitCheck = aiRateLimiter.checkDiagnosticLimit(churchId, tier_d);
+    const limitCheck = await aiRateLimiter.checkDiagnosticLimit(churchId, tier_d);
 
     if (!limitCheck.allowed) {
       const resetStr = limitCheck.resetDate || '1st of next month';
@@ -3540,7 +3606,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   if (classification.intent === 'ambiguous') {
     const churchRow_a = stmtGet.get(churchId);
     const tier_a = churchRow_a?.billing_tier || 'connect';
-    const limitCheck_a = aiRateLimiter.checkDiagnosticLimit(churchId, tier_a);
+    const limitCheck_a = await aiRateLimiter.checkDiagnosticLimit(churchId, tier_a);
 
     if (limitCheck_a.allowed) {
       console.log(`[Router] Ambiguous → direct Sonnet for: "${rawMessage.slice(0, 50)}"`);
@@ -3625,13 +3691,13 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     return;
   }
 
-  const conversationHistory = chatEngine.getRecentConversation(churchId, { roomId });
+  const conversationHistory = await chatEngine.getRecentConversation(churchId, { roomId });
   const churchRow = stmtGet.get(churchId);
   let engineerProfile = {};
   try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
   // Inject document context if knowledge base is active
   const docContext = (typeof churchDocuments !== 'undefined' && churchDocuments)
-    ? churchDocuments.getDocumentContext(churchId, intent.prompt)
+    ? await churchDocuments.getDocumentContext(churchId, intent.prompt)
     : '';
   // Build diagnostic context for Sonnet (only used if question is diagnostic)
   let diagnosticCtx = '';
@@ -3793,7 +3859,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     }
 
     const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {}, roomId);
-    churchMemory.recordCommandOutcome(churchId, step.command, executed.ok, 'user_request');
+    await churchMemory.recordCommandOutcome(churchId, step.command, executed.ok, 'user_request');
     if (!executed.ok) {
       postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`, roomId);
       return;
@@ -4089,9 +4155,18 @@ const _wsHandlers = createWebSocketHandlers({
       .catch(e => console.error('[Scheduler] Equipment state change error:', e.message));
     // Feed session recap with live stream/recording state
     if (msg.status) {
-      if (hasStreamSignal(msg.status)) sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status));
-      if (msg.status.obs?.viewers !== undefined) sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
-      if (isRecordingActive(msg.status)) sessionRecap.recordRecordingConfirmed(church.churchId);
+      if (hasStreamSignal(msg.status)) {
+        Promise.resolve(sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status)))
+          .catch(e => console.error('[SessionRecap] Stream status error:', e.message));
+      }
+      if (msg.status.obs?.viewers !== undefined) {
+        Promise.resolve(sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers))
+          .catch(e => console.error('[SessionRecap] Peak viewers error:', e.message));
+      }
+      if (isRecordingActive(msg.status)) {
+        Promise.resolve(sessionRecap.recordRecordingConfirmed(church.churchId))
+          .catch(e => console.error('[SessionRecap] Recording confirm error:', e.message));
+      }
     }
     signalFailover.onStatusUpdate(church.churchId, church.status, statusEvent?.instance || null);
     // Send delta updates to mobile WebSocket clients
@@ -4104,7 +4179,10 @@ const _wsHandlers = createWebSocketHandlers({
       const alertInstanceName = alertEvent?.instance || null;
       const alertRoomId = alertEvent?.roomId || null;
 
-      if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
+      if (msg.alertType === 'audio_silence') {
+        Promise.resolve(sessionRecap.recordAudioSilence(church.churchId))
+          .catch(e => console.error('[SessionRecap] Audio silence error:', e.message));
+      }
       // Forward alert to mobile WebSocket clients
       _mobileWsHandler.sendAlertToMobile(church.churchId, {
         alertType: msg.alertType,
@@ -4122,20 +4200,20 @@ const _wsHandlers = createWebSocketHandlers({
       (async () => {
         try {
           const activeSessionId = sessionRecap.getActiveSessionId(church.churchId);
-          const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message, activeSessionId);
+          const eventId = await weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message, activeSessionId);
           const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
           if (recovery.attempted && recovery.success) {
-            weeklyDigest.resolveEvent(eventId, true);
-            sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
-            if (recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
+            await weeklyDigest.resolveEvent(eventId, true);
+            await sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
+            if (recovery.command) await churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
             log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
           } else {
-            if (recovery.attempted && recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
+            if (recovery.attempted && recovery.command) await churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
             const dbChurch = stmtGet.get(church.churchId);
             const recoveryInfo = recovery.attempted ? recovery : null;
             const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status, _instanceName: alertInstanceName, _roomId: alertRoomId }, activeSessionId, recoveryInfo);
             const escalated = alertResult && alertResult.severity === 'EMERGENCY';
-            sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
+            await sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
           }
           // ── AI Triage: score and process every alert ──
           aiTriageEngine.processAlert(
@@ -4160,9 +4238,11 @@ const _wsHandlers = createWebSocketHandlers({
   onCommandResult(church, cmdResultMsg) {
     if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
     if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
+    // church-client sends { id, result, error } — use id first, fall back to
+    // messageId in case future payloads use the other field name.
     _mobileWsHandler.broadcastToMobile(church.churchId, {
       type: 'command_result',
-      messageId: cmdResultMsg.messageId,
+      messageId: cmdResultMsg.id || cmdResultMsg.messageId,
       result: cmdResultMsg.result,
       error: cmdResultMsg.error,
     });
@@ -4192,7 +4272,10 @@ const _wsHandlers = createWebSocketHandlers({
         } catch (e) {
           console.error('[ViewerSnapshot] Insert failed:', e.message);
         }
-        if (total > 0) sessionRecap.recordPeakViewers(church.churchId, total);
+        if (total > 0) {
+          Promise.resolve(sessionRecap.recordPeakViewers(church.churchId, total))
+            .catch(e => console.error('[SessionRecap] Peak viewers error:', e.message));
+        }
         broadcastToControllers({ type: 'viewer_update', churchId: church.churchId, name: church.name, total, breakdown, timestamp: msg.timestamp });
         broadcastToPortal(church.churchId, { type: 'viewer_update', total, breakdown, timestamp: msg.timestamp });
         break;
@@ -4206,8 +4289,17 @@ const _wsHandlers = createWebSocketHandlers({
       case 'chat': {
         if (!msg.message || !msg.message.trim()) break;
         if (msg.message.length > 2000) msg.message = msg.message.slice(0, 2000);
-        const saved = chatEngine.saveMessage({ churchId: church.churchId, senderName: msg.senderName || church.td_name || 'TD', senderRole: msg.senderRole || 'td', source: 'app', message: msg.message.trim() });
-        chatEngine.broadcastChat(saved);
+        chatEngine.saveMessage({
+          churchId: church.churchId,
+          senderName: msg.senderName || church.td_name || 'TD',
+          senderRole: msg.senderRole || 'td',
+          source: 'app',
+          message: msg.message.trim(),
+        }).then((saved) => {
+          chatEngine.broadcastChat(saved);
+        }).catch((e) => {
+          console.error('[ChatEngine] Church chat save failed:', e.message);
+        });
         break;
       }
       case 'preview_frame': {
@@ -4224,8 +4316,13 @@ const _wsHandlers = createWebSocketHandlers({
   onControllerMessage(ws, msg) {
     // Chat from controller (admin dashboard WebSocket)
     if (msg.type === 'chat' && msg.churchId && msg.message) {
-      const saved = chatEngine.saveMessage({ churchId: msg.churchId, senderName: msg.senderName || 'Admin', senderRole: 'admin', source: 'dashboard', message: msg.message.trim() });
-      chatEngine.broadcastChat(saved);
+      chatEngine.saveMessage({ churchId: msg.churchId, senderName: msg.senderName || 'Admin', senderRole: 'admin', source: 'dashboard', message: msg.message.trim() })
+        .then((saved) => {
+          chatEngine.broadcastChat(saved);
+        })
+        .catch((e) => {
+          console.error('[ChatEngine] Controller chat save failed:', e.message);
+        });
     }
   },
   onControllerConnected() {
@@ -5126,24 +5223,74 @@ if (process.env.SENTRY_DSN) {
 
 // ─── START ────────────────────────────────────────────────────────────────────
 
-// Start RTMP ingest server if enabled
-const RTMP_ENABLED = (process.env.RTMP_ENABLED || 'false') === 'true';
-if (RTMP_ENABLED) {
-  try {
-    initRtmpIngest(db, broadcastToSSE);
-  } catch (e) {
-    console.error(`[RTMP] Failed to start RTMP ingest server: ${e.message}`);
+async function startServer() {
+  await Promise.all([
+    resellerSystem.ready,
+    versionConfig.ready,
+    presetLibrary.ready,
+    eventMode.ready,
+    guestTdMode.ready,
+    onCallRotation.ready,
+    scheduleEngine.ready,
+    billing.ready,
+    churchMemory.ready,
+    churchDocuments.ready,
+    weeklyDigest.ready,
+    postServiceReport.ready,
+    sessionRecap.ready,
+    monthlyReport.ready,
+    rundownEngine.ready,
+    autoPilot.ready,
+    scheduler.ready,
+    chatEngine.ready,
+    aiTriageEngine.ready,
+    aiRateLimiter.ready,
+    incidentSummarizer.ready,
+    planningCenter.ready,
+    lifecycleEmails.ready,
+    preServiceCheck.ready,
+    viewerBaseline.ready,
+    streamOAuth.ready,
+    pushNotifications.ready,
+    alertEngine.ready,
+    signalFailover.ready,
+  ]);
+  await startupMaintenance;
+  await sessionRecap.recoverActiveSessions();
+  scheduler.start();
+  console.log('[Server] ✓ Rundown Scheduler initialized');
+  planningCenter.start();
+  console.log('[Server] ✓ Planning Center initialized');
+  preServiceCheck.start();
+
+  // Start RTMP ingest server if enabled
+  const RTMP_ENABLED = (process.env.RTMP_ENABLED || 'false') === 'true';
+  if (RTMP_ENABLED) {
+    try {
+      initRtmpIngest(db, broadcastToSSE);
+    } catch (e) {
+      console.error(`[RTMP] Failed to start RTMP ingest server: ${e.message}`);
+    }
+  } else {
+    console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
   }
-} else {
-  console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
+
+  server.listen(PORT, () => {
+    log(`Tally Relay running on port ${PORT}`);
+    log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
+    runStatusChecks().catch((e) => {
+      console.error('[StatusChecks] initial run failed:', e.message);
+    });
+  });
 }
 
-server.listen(PORT, () => {
-  log(`Tally Relay running on port ${PORT}`);
-  log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
-  runStatusChecks().catch((e) => {
-    console.error('[StatusChecks] initial run failed:', e.message);
+startServer().catch((error) => {
+  logError('Startup failed', {
+    event: 'startup_failed',
+    error: error?.message,
+    stack: error?.stack,
   });
+  process.exit(1);
 });
 
 // ─── GRACEFUL SHUTDOWN ─────────────────────────────────────────────────────────

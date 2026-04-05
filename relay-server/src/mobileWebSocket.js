@@ -120,7 +120,9 @@ function createMobileWebSocketHandler({
     // Touch device token if provided
     const deviceToken = url.searchParams.get('deviceToken');
     if (deviceToken && pushNotifications) {
-      pushNotifications.touchDevice(deviceToken);
+      Promise.resolve(pushNotifications.touchDevice(deviceToken)).catch((e) => {
+        log(`[MobileWS] Failed to touch device token: ${e.message}`);
+      });
     }
 
     // Send initial state
@@ -191,12 +193,15 @@ function createMobileWebSocketHandler({
             break;
           }
 
-          // Build the command payload matching what controllers send
+          // Build the command payload matching what controllers send.
+          // The church-client extracts `id` (not `messageId`) from the message,
+          // so we must send both fields so the result round-trip works.
           const cmdPayload = {
             type: 'command',
             command: msg.command,
             params: msg.params || {},
-            messageId: msg.messageId,
+            id: msg.messageId,        // church-client uses msg.id in executeCommand
+            messageId: msg.messageId, // keep for any listener that uses messageId
           };
 
           // If roomId is specified, find the instance serving that room
