@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   oauthStatus: () => ipcRenderer.invoke('oauth-status'),
   oauthStreamKeys: () => ipcRenderer.invoke('oauth-stream-keys'),
   onOauthUpdate: (cb) => ipcRenderer.on('oauth-update', (_, data) => cb(data)),
+  // Planning Center OAuth
+  pcoConnect: () => ipcRenderer.invoke('pco-connect'),
+  pcoDisconnect: () => ipcRenderer.invoke('pco-disconnect'),
+  pcoStatus: () => ipcRenderer.invoke('pco-status'),
   // Pre-Service Status (readiness widget)
   getPreServiceStatus: () => ipcRenderer.invoke('preservice-status'),
   // Session Recap

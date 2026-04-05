@@ -29,7 +29,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupPlanningCenterRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireChurchOrAdmin, requireFeature, planningCenter, safeErrorMessage } = ctx;
+  const { db, churches, requireAdmin, requireChurchOrAdmin, requireChurchAppAuth, requireFeature, planningCenter, safeErrorMessage } = ctx;
 
   const PCO_REDIRECT_URI = process.env.PCO_REDIRECT_URI || 'https://relay.tallyconnect.com/api/admin/pco/callback';
 
@@ -125,6 +125,56 @@ module.exports = function setupPlanningCenterRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── CHURCH APP ENDPOINTS (Electron desktop app, Bearer token auth) ─────────
+
+  /**
+   * GET /api/church/app/pco/auth-url
+   * Generate PCO OAuth URL for the Electron desktop app.
+   * Uses churchId from the church_app token (no query param needed).
+   */
+  app.get('/api/church/app/pco/auth-url', requireChurchAppAuth, (req, res) => {
+    const churchId = req.church.churchId;
+    try {
+      const { authUrl, state } = planningCenter.generateOAuthUrl(churchId, PCO_REDIRECT_URI);
+      res.json({ authUrl, state });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  /**
+   * GET /api/church/app/pco/status
+   * Get PCO connection status for the Electron desktop app.
+   */
+  app.get('/api/church/app/pco/status', requireChurchAppAuth, (req, res) => {
+    const churchId = req.church.churchId;
+    try {
+      const status = planningCenter.getStatus(churchId);
+      res.json(status);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  /**
+   * POST /api/church/app/pco/disconnect
+   * Disconnect PCO from the Electron desktop app.
+   */
+  app.post('/api/church/app/pco/disconnect', requireChurchAppAuth, async (req, res) => {
+    const churchId = req.church.churchId;
+    try {
+      const result = await planningCenter.disconnect(churchId);
+
+      if (ctx.broadcastToSSE) {
+        ctx.broadcastToSSE(churchId, { type: 'pco:disconnected' });
+      }
+
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
 
   // ─── STATUS & CONFIG ─────────────────────────────────────────────────────────
 

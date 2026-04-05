@@ -204,6 +204,63 @@ async function selectFacebookPage(pageId) {
   return result;
 }
 
+// ─── PLANNING CENTER OAUTH (relay handles full exchange) ────────────────────
+
+/**
+ * Start Planning Center OAuth flow.
+ * Opens browser → user approves → relay callback handles token exchange.
+ * Electron polls status endpoint until connected.
+ * @returns {Promise<{success, orgName?, error?}>}
+ */
+async function startPlanningCenterOAuth() {
+  // Get auth URL from relay (relay generates PKCE challenge + state)
+  let authData;
+  try {
+    authData = await _relayGet('/api/church/app/pco/auth-url');
+  } catch {
+    return { success: false, error: 'Could not reach relay server' };
+  }
+
+  if (!authData?.authUrl) {
+    return { success: false, error: authData?.error || 'Planning Center OAuth not configured on relay server' };
+  }
+
+  shell.openExternal(authData.authUrl);
+
+  // Poll status endpoint until connected (relay callback stores tokens server-side)
+  const maxPolls = 150; // 2s × 150 = 5 minutes
+  for (let i = 0; i < maxPolls; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const status = await _relayGet('/api/church/app/pco/status');
+      if (status?.connected && status?.authType === 'oauth') {
+        _notifyRenderer('planningCenter', 'connected');
+        return { success: true, orgName: status.orgName || null };
+      }
+    } catch { /* keep polling */ }
+  }
+
+  return { success: false, error: 'Planning Center OAuth timed out (5 min)' };
+}
+
+/**
+ * Disconnect Planning Center.
+ * @returns {Promise<{disconnected: boolean}>}
+ */
+async function disconnectPlanningCenter() {
+  const result = await _relayPost('/api/church/app/pco/disconnect');
+  _notifyRenderer('planningCenter', 'disconnected');
+  return result;
+}
+
+/**
+ * Get Planning Center connection status.
+ * @returns {Promise<{connected, authType, orgName?, ...}>}
+ */
+async function getPlanningCenterStatus() {
+  return _relayGet('/api/church/app/pco/status');
+}
+
 // ─── DISCONNECT ──────────────────────────────────────────────────────────────
 
 async function listFacebookPages() {
@@ -272,4 +329,7 @@ module.exports = {
   disconnectPlatform,
   getOAuthStatus,
   getStreamKeys,
+  startPlanningCenterOAuth,
+  disconnectPlanningCenter,
+  getPlanningCenterStatus,
 };

@@ -3703,7 +3703,7 @@ async function switchTab(name) {
   });
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
-  if (name === 'devices') { loadEquipment(); updateOAuthUI(); }
+  if (name === 'devices') { loadEquipment(); updateOAuthUI(); updatePcoUI(); }
   // Clear issue badge when user views the Dashboard tab
   if (name === 'dashboard') {
     _pfAutoRunIssueCount = 0;
@@ -4359,9 +4359,78 @@ async function updateOAuthUI() {
   } catch { /* relay may be unreachable */ }
 }
 
+// ─── PLANNING CENTER OAUTH UI ─────────────────────────────────────────────
+
+async function connectPlanningCenter() {
+  const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
+  const btn = document.getElementById(isSimple ? 'btn-oauth-pco-simple' : 'btn-oauth-pco');
+  const status = document.getElementById(isSimple ? 'oauth-pco-status-simple' : 'oauth-pco-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
+  if (status) { status.textContent = 'Opening browser...'; status.style.color = 'var(--yellow)'; }
+  try {
+    const result = await api.pcoConnect();
+    if (result.success) {
+      updatePcoUI();
+    } else {
+      if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = 'var(--red, #f44)'; }
+      if (btn) btn.textContent = isSimple ? 'Connect' : 'Connect Planning Center';
+    }
+  } catch (e) {
+    if (status) { status.textContent = e.message; status.style.color = 'var(--red, #f44)'; }
+    if (btn) btn.textContent = isSimple ? 'Connect' : 'Connect Planning Center';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function disconnectPlanningCenter() {
+  if (!(await asyncConfirm('Disconnect Planning Center? Service sync will stop.'))) return;
+  await api.pcoDisconnect();
+  updatePcoUI();
+}
+
+async function updatePcoUI() {
+  try {
+    const status = await api.pcoStatus();
+
+    const pcoStatus = document.getElementById('oauth-pco-status');
+    const pcoBtn = document.getElementById('btn-oauth-pco');
+    if (status?.connected) {
+      const name = status.orgName || 'Connected';
+      pcoStatus.textContent = name;
+      pcoStatus.style.color = 'var(--green)';
+      pcoBtn.textContent = 'Disconnect';
+      pcoBtn.className = 'btn-oauth connected';
+      pcoBtn.onclick = disconnectPlanningCenter;
+    } else {
+      pcoStatus.textContent = 'Not connected';
+      pcoStatus.style.color = 'var(--muted)';
+      pcoBtn.textContent = 'Connect Planning Center';
+      pcoBtn.className = 'btn-oauth';
+      pcoBtn.onclick = connectPlanningCenter;
+    }
+    // Sync to simple mode
+    const pcoSimple = document.getElementById('oauth-pco-status-simple');
+    const pcoBtnSimple = document.getElementById('btn-oauth-pco-simple');
+    if (pcoSimple) { pcoSimple.textContent = pcoStatus.textContent; pcoSimple.style.color = pcoStatus.style.color; }
+    if (pcoBtnSimple) {
+      if (status?.connected) {
+        pcoBtnSimple.textContent = 'Disconnect';
+        pcoBtnSimple.className = 'btn-oauth connected';
+        pcoBtnSimple.onclick = disconnectPlanningCenter;
+      } else {
+        pcoBtnSimple.textContent = 'Connect';
+        pcoBtnSimple.className = 'btn-oauth';
+        pcoBtnSimple.onclick = connectPlanningCenter;
+      }
+    }
+  } catch { /* relay may be unreachable */ }
+}
+
 // Listen for OAuth updates from main process
 api.onOauthUpdate?.((data) => {
   updateOAuthUI();
+  if (data?.platform === 'planningCenter') updatePcoUI();
 });
 
 async function testEquip(type) {

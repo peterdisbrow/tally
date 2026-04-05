@@ -729,6 +729,17 @@
         <button class="btn-oauth" style="margin-top:8px;" onclick="selectFbPage()">Use This Page</button>
       </div>
 
+      <div class="section-label" style="margin:16px 0 8px;">INTEGRATIONS <span style="font-size:9px; color:var(--dim); font-weight:400; font-family:var(--mono); text-transform:none;">— service planning &amp; scheduling</span></div>
+      <!-- Planning Center OAuth (Simple) -->
+      <div class="oauth-row" id="oauth-pco-row-simple">
+        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+          <span style="font-size:14px;">&#9734;</span>
+          <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">Planning Center</span>
+          <span class="oauth-status" id="oauth-pco-status-simple" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+        </div>
+        <button class="btn-oauth" id="btn-oauth-pco-simple" onclick="connectPlanningCenter()">Connect</button>
+      </div>
+
       <div style="margin-top:16px; text-align:center;">
         <a class="portal-link" href="#" onclick="setEquipMode('advanced'); return false;">Need more options? Switch to Advanced →</a>
       </div>
@@ -801,6 +812,19 @@
             <label style="font-size:11px; color:var(--muted);">Select your Facebook Page:</label>
             <select id="fb-page-select" style="width:100%; margin-top:4px; padding:6px; background:var(--bg); color:var(--white); border:1px solid var(--border); border-radius:4px; font-family:var(--font); font-size:12px;"></select>
             <button class="btn-oauth" style="margin-top:8px;" onclick="selectFbPage()">Use This Page</button>
+          </div>
+
+          <!-- Planning Center OAuth -->
+          <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border);">
+            <div class="equip-detail" style="margin-bottom:12px;">Connect Planning Center to auto-sync service plans and schedules.</div>
+            <div class="oauth-row" id="oauth-pco-row">
+              <div style="display:flex; align-items:center; gap:8px; flex:1;">
+                <span style="font-size:14px;">&#9734;</span>
+                <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">Planning Center</span>
+                <span class="oauth-status" id="oauth-pco-status" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+              </div>
+              <button class="btn-oauth" id="btn-oauth-pco" onclick="connectPlanningCenter()">Connect Planning Center</button>
+            </div>
           </div>
 
           <!-- Manual entry (collapsed) -->

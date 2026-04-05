@@ -1794,6 +1794,12 @@ ipcMain.handle('oauth-facebook-disconnect', () => oauthFlow.disconnectPlatform('
 ipcMain.handle('oauth-status', () => oauthFlow.getOAuthStatus());
 ipcMain.handle('oauth-stream-keys', () => oauthFlow.getStreamKeys());
 
+// ─── PLANNING CENTER OAUTH IPC ───────────────────────────────────────────────
+
+ipcMain.handle('pco-connect', () => oauthFlow.startPlanningCenterOAuth());
+ipcMain.handle('pco-disconnect', () => oauthFlow.disconnectPlanningCenter());
+ipcMain.handle('pco-status', () => oauthFlow.getPlanningCenterStatus());
+
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
 const { discoverDevices, listAvailableInterfaces } = require('./networkScanner');
