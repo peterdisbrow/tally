@@ -758,7 +758,7 @@ const churchRuntimeReady = (async () => {
   for (const row of rows) {
     let registrationCode = row.registration_code || null;
     if (!registrationCode) {
-      registrationCode = generateRegistrationCode();
+      registrationCode = await generateRegistrationCode();
       await queryClient.run('UPDATE churches SET registration_code = ? WHERE churchId = ?', [registrationCode, row.churchId]);
     }
 
@@ -2327,8 +2327,8 @@ require('./src/routes/health')(app, {
 
 // Shared auth utilities (single source of truth — also used by churchPortal.js)
 const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./src/auth');
-function generateRegistrationCode() {
-  return _genRegCode(db);
+async function generateRegistrationCode() {
+  return _genRegCode(queryClient || db);
 }
 
 function issueChurchAppToken(churchId, name, { readonly = false } = {}) {
@@ -2839,7 +2839,7 @@ app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), async (r
   const churchId = (req.body.churchId && typeof req.body.churchId === 'string') ? req.body.churchId : uuidv4();
   const token = (req.body.token && typeof req.body.token === 'string') ? req.body.token : jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
   const registeredAt = new Date().toISOString();
-  const registrationCode = generateRegistrationCode();
+  const registrationCode = await generateRegistrationCode();
 
   // Compute trial end date if status is trialing
   const finalStatus = normalizedStatus || 'active';

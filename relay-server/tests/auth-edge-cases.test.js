@@ -165,4 +165,23 @@ describe('generateRegistrationCode', () => {
     expect(codes.size).toBe(20);
     db.close();
   });
+
+  it('supports async query clients used by Postgres runtime', async () => {
+    const seen = new Set(['ABCDEF']);
+    const queryClient = {
+      async queryOne(_sql, [registrationCode, referralCode]) {
+        return seen.has(registrationCode) || seen.has(referralCode) ? { exists: 1 } : null;
+      },
+    };
+
+    const crypto = require('crypto');
+    const collisionCode = Buffer.from([0xAB, 0xCD, 0xEF]);
+    const freshCode = Buffer.from([0x12, 0x34, 0x56]);
+    vi.spyOn(crypto, 'randomBytes').mockReturnValueOnce(collisionCode).mockReturnValueOnce(freshCode);
+
+    const code = await generateRegistrationCode(queryClient);
+    expect(code).toBe('123456');
+
+    vi.restoreAllMocks();
+  });
 });

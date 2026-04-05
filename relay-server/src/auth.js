@@ -32,19 +32,46 @@ function verifyPassword(password, stored) {
   }
 }
 
-/**
- * Generate a unique 6-character uppercase hex registration code.
- * Retries if the code already exists in the DB.
- * @param {import('better-sqlite3').Database} db
- */
-function generateRegistrationCode(db) {
+function generateRandomRegistrationCode() {
+  return crypto.randomBytes(3).toString('hex').toUpperCase();
+}
+
+function generateRegistrationCodeSync(db) {
   let code;
   do {
-    code = crypto.randomBytes(3).toString('hex').toUpperCase();
+    code = generateRandomRegistrationCode();
   } while (
     db.prepare('SELECT 1 FROM churches WHERE registration_code = ? OR referral_code = ?').get(code, code)
   );
   return code;
+}
+
+async function generateRegistrationCodeAsync(queryClient) {
+  let code;
+  do {
+    code = generateRandomRegistrationCode();
+  } while (
+    await queryClient.queryOne(
+      'SELECT 1 FROM churches WHERE registration_code = ? OR referral_code = ?',
+      [code, code]
+    )
+  );
+  return code;
+}
+
+/**
+ * Generate a unique 6-character uppercase hex registration code.
+ * Retries if the code already exists in the DB.
+ * Supports both sync `better-sqlite3` databases and async query clients.
+ */
+function generateRegistrationCode(dbOrClient) {
+  if (dbOrClient?.queryOne) {
+    return generateRegistrationCodeAsync(dbOrClient);
+  }
+  if (dbOrClient?.prepare) {
+    return generateRegistrationCodeSync(dbOrClient);
+  }
+  throw new Error('generateRegistrationCode requires a database handle or query client');
 }
 
 module.exports = { hashPassword, verifyPassword, generateRegistrationCode };

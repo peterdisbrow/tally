@@ -92,7 +92,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const churchId = uuidv4();
     const connectionToken = jwt.sign({ churchId, name: cleanName }, JWT_SECRET, { expiresIn: '365d' });
     const registeredAt = new Date().toISOString();
-    const registrationCode = generateRegistrationCode();
+    const registrationCode = await generateRegistrationCode();
 
     const onboardStatus = billing.isEnabled() ? 'pending' : 'trialing';
     const trialEndsAt = new Date(Date.now() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -102,7 +102,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     ]);
     await qRun('UPDATE churches SET registration_code = ? WHERE churchId = ?', [registrationCode, churchId]);
 
-    const newReferralCode = generateRegistrationCode().toUpperCase();
+    const newReferralCode = (await generateRegistrationCode()).toUpperCase();
     const crypto = require('crypto');
     const emailVerifyToken = crypto.randomBytes(32).toString('hex');
 
