@@ -1012,6 +1012,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'reports') loadReports();
       if (id === 'connections') loadConnections();
       if (id === 'ai-triage') loadAiTriagePage();
+      if (id === 'rundown') loadRundownPage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
 
@@ -7305,6 +7306,254 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     })();
     loadBilling(); // populates billing banner on all pages
 
+    // ── Live Rundown ────────────────────────────────────────────────────────────
+    var _rundownState = null;
+
+    function loadRundownPage() {
+      api('GET', '/api/churches/' + churchId + '/live-rundown/state').then(function(data) {
+        if (data && data.active) {
+          _rundownState = data;
+          renderRundownActive(data);
+        } else {
+          _rundownState = null;
+          renderRundownInactive();
+        }
+      }).catch(function() { renderRundownInactive(); });
+    }
+
+    function renderRundownInactive() {
+      var noSession = document.getElementById('rundown-no-session');
+      var active = document.getElementById('rundown-active');
+      var delta = document.getElementById('rundown-schedule-delta');
+      if (noSession) noSession.style.display = '';
+      if (active) active.style.display = 'none';
+      if (delta) delta.style.display = 'none';
+    }
+
+    function renderRundownActive(state) {
+      var noSession = document.getElementById('rundown-no-session');
+      var active = document.getElementById('rundown-active');
+      if (noSession) noSession.style.display = 'none';
+      if (active) active.style.display = '';
+
+      // Plan title + meta
+      var titleEl = document.getElementById('rundown-plan-title');
+      var callerEl = document.getElementById('rundown-caller');
+      var elapsedEl = document.getElementById('rundown-elapsed');
+      var progressEl = document.getElementById('rundown-progress');
+      if (titleEl) titleEl.textContent = state.planTitle || 'Service';
+      if (callerEl) callerEl.textContent = 'TD: ' + (state.callerName || 'Unknown');
+      if (elapsedEl) elapsedEl.textContent = formatRundownDuration(state.totalElapsed || 0) + ' elapsed';
+      if (progressEl) progressEl.textContent = (state.currentIndex + 1) + ' / ' + state.totalItems;
+
+      // Countdown hero
+      var ci = state.currentItem;
+      var heroEl = document.getElementById('rundown-countdown-hero');
+      var currentTitle = document.getElementById('rundown-current-title');
+      var timerEl = document.getElementById('rundown-timer');
+      var timerLabel = document.getElementById('rundown-timer-label');
+      if (currentTitle) currentTitle.textContent = ci ? ci.title : '';
+      if (ci && ci.remainingSeconds !== null && ci.remainingSeconds !== undefined) {
+        if (ci.isOvertime) {
+          if (timerEl) { timerEl.textContent = '+' + formatRundownTimer(ci.overtimeSeconds); timerEl.style.color = '#FF5252'; }
+          if (timerLabel) timerLabel.textContent = 'OVERTIME';
+          if (heroEl) heroEl.style.borderColor = 'rgba(239,68,68,0.4)';
+        } else if (ci.isWarning) {
+          if (timerEl) { timerEl.textContent = formatRundownTimer(ci.remainingSeconds); timerEl.style.color = '#FFA726'; }
+          if (timerLabel) timerLabel.textContent = 'REMAINING';
+          if (heroEl) heroEl.style.borderColor = 'rgba(255,167,38,0.4)';
+        } else {
+          if (timerEl) { timerEl.textContent = formatRundownTimer(ci.remainingSeconds); timerEl.style.color = '#00E676'; }
+          if (timerLabel) timerLabel.textContent = 'REMAINING';
+          if (heroEl) heroEl.style.borderColor = '';
+        }
+      } else {
+        if (timerEl) { timerEl.textContent = formatRundownTimer(ci ? ci.elapsedSeconds : 0); timerEl.style.color = '#8B9DAF'; }
+        if (timerLabel) timerLabel.textContent = 'ELAPSED';
+        if (heroEl) heroEl.style.borderColor = '';
+      }
+
+      // Schedule delta badge
+      var deltaEl = document.getElementById('rundown-schedule-delta');
+      if (deltaEl && state.scheduleDelta) {
+        deltaEl.style.display = '';
+        deltaEl.textContent = state.scheduleDelta.label;
+        if (state.scheduleDelta.isOnTime) {
+          deltaEl.style.background = 'rgba(0,230,118,0.1)'; deltaEl.style.color = '#00E676';
+        } else if (state.scheduleDelta.isBehind) {
+          deltaEl.style.background = 'rgba(239,68,68,0.1)'; deltaEl.style.color = '#FF5252';
+        } else {
+          deltaEl.style.background = 'rgba(33,150,243,0.1)'; deltaEl.style.color = '#42A5F5';
+        }
+      }
+
+      // Item list
+      renderRundownItems(state);
+    }
+
+    function renderRundownItems(state) {
+      var container = document.getElementById('rundown-items-list');
+      if (!container) return;
+      var items = state.items || [];
+      var html = '';
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var isCurrent = item.status === 'current';
+        var isCompleted = item.status === 'completed';
+        var isHeader = item.itemType === 'header';
+
+        if (isHeader) {
+          html += '<div style="padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#00E676;margin-top:8px">' + escapeHtml(item.title) + '</div>';
+          continue;
+        }
+
+        var bg = isCurrent ? 'rgba(0,230,118,0.08)' : isCompleted ? 'rgba(0,0,0,0.15)' : 'transparent';
+        var border = isCurrent ? '1px solid rgba(0,230,118,0.3)' : '1px solid transparent';
+        var opacity = isCompleted ? '0.6' : '1';
+        var leftBar = isCurrent ? 'border-left:3px solid #00E676;' : 'border-left:3px solid transparent;';
+
+        html += '<div style="display:flex;align-items:center;padding:10px 12px;border-radius:8px;background:' + bg + ';border:' + border + ';opacity:' + opacity + ';' + leftBar + 'transition:all 0.3s">';
+
+        // Index number
+        html += '<div style="width:28px;font-size:12px;color:' + (isCurrent ? '#00E676' : '#556270') + ';font-weight:700;flex-shrink:0">' + (i + 1) + '</div>';
+
+        // Item type icon
+        var iconColor = isCurrent ? '#00E676' : '#556270';
+        if (item.itemType === 'song') iconColor = isCurrent ? '#00E676' : '#42A5F5';
+        html += '<div style="width:20px;flex-shrink:0;text-align:center;margin-right:8px;color:' + iconColor + '">';
+        if (item.itemType === 'song') html += SVG.music || '&#9835;';
+        else if (item.itemType === 'media') html += SVG.video || '&#9654;';
+        else html += SVG.document || '&#9679;';
+        html += '</div>';
+
+        // Title + meta
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div style="font-size:14px;font-weight:' + (isCurrent ? '700' : '500') + ';color:' + (isCurrent ? '#F0F2F4' : isCompleted ? '#8B9DAF' : '#B0BEC5') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.title) + '</div>';
+        if (item.songTitle && item.songTitle !== item.title) {
+          html += '<div style="font-size:11px;color:#556270;margin-top:1px">' + escapeHtml(item.songTitle) + '</div>';
+        }
+        html += '</div>';
+
+        // Duration / timing
+        html += '<div style="flex-shrink:0;text-align:right;margin-left:8px">';
+        if (isCompleted && item.actualDuration != null) {
+          var planned = item.lengthSeconds || 0;
+          var delta = Math.round(item.actualDuration - planned);
+          html += '<div style="font-size:12px;color:#556270">' + formatRundownTimer(Math.round(item.actualDuration)) + '</div>';
+          if (planned > 0 && Math.abs(delta) >= 5) {
+            var dColor = delta > 0 ? '#FF5252' : '#42A5F5';
+            html += '<div style="font-size:10px;color:' + dColor + '">' + (delta > 0 ? '+' : '') + delta + 's</div>';
+          }
+        } else if (item.lengthSeconds > 0) {
+          html += '<div style="font-size:12px;color:#556270">' + formatRundownTimer(item.lengthSeconds) + '</div>';
+        }
+        html += '</div>';
+
+        html += '</div>';
+      }
+      container.innerHTML = html;
+
+      // Auto-scroll to current item
+      if (state.currentIndex >= 0) {
+        var allItems = container.children;
+        var currentEl = allItems[state.currentIndex];
+        if (currentEl) {
+          currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    function formatRundownTimer(seconds) {
+      if (seconds == null || seconds < 0) seconds = 0;
+      var m = Math.floor(seconds / 60);
+      var s = seconds % 60;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function formatRundownDuration(seconds) {
+      if (seconds < 60) return seconds + 's';
+      var m = Math.floor(seconds / 60);
+      var s = seconds % 60;
+      return s > 0 ? m + 'm ' + s + 's' : m + 'm';
+    }
+
+    // Handle rundown WebSocket messages from SSE stream
+    function handleRundownSSE(data) {
+      if (data.type === 'rundown_state' || data.type === 'rundown_position') {
+        _rundownState = data;
+        if (document.getElementById('page-rundown').classList.contains('active')) {
+          renderRundownActive(data);
+        }
+        // Update sidebar indicator
+        var indicator = document.getElementById('td-session-indicator');
+        if (indicator) { indicator.style.display = ''; indicator.textContent = 'LIVE: ' + (data.planTitle || 'Rundown'); }
+      } else if (data.type === 'rundown_tick') {
+        if (!_rundownState) return;
+        // Patch current state with tick data
+        if (_rundownState.currentItem) {
+          _rundownState.currentItem.elapsedSeconds = data.elapsedSeconds;
+          _rundownState.currentItem.remainingSeconds = data.remainingSeconds;
+          _rundownState.currentItem.isOvertime = data.isOvertime;
+          _rundownState.currentItem.overtimeSeconds = data.overtimeSeconds;
+          _rundownState.currentItem.isWarning = data.isWarning;
+        }
+        _rundownState.scheduleDelta = data.scheduleDelta;
+        _rundownState.totalElapsed = data.totalElapsed;
+        if (document.getElementById('page-rundown').classList.contains('active')) {
+          // Only update timer + delta, not full re-render (performance)
+          updateRundownTimerOnly(_rundownState);
+        }
+      } else if (data.type === 'rundown_ended') {
+        _rundownState = null;
+        if (document.getElementById('page-rundown').classList.contains('active')) {
+          renderRundownInactive();
+        }
+        var indicator = document.getElementById('td-session-indicator');
+        if (indicator) indicator.style.display = 'none';
+      }
+    }
+
+    function updateRundownTimerOnly(state) {
+      var ci = state.currentItem;
+      var timerEl = document.getElementById('rundown-timer');
+      var timerLabel = document.getElementById('rundown-timer-label');
+      var heroEl = document.getElementById('rundown-countdown-hero');
+      var elapsedEl = document.getElementById('rundown-elapsed');
+      if (elapsedEl) elapsedEl.textContent = formatRundownDuration(state.totalElapsed || 0) + ' elapsed';
+      if (ci && ci.remainingSeconds !== null && ci.remainingSeconds !== undefined) {
+        if (ci.isOvertime) {
+          if (timerEl) { timerEl.textContent = '+' + formatRundownTimer(ci.overtimeSeconds); timerEl.style.color = '#FF5252'; }
+          if (timerLabel) timerLabel.textContent = 'OVERTIME';
+          if (heroEl) heroEl.style.borderColor = 'rgba(239,68,68,0.4)';
+        } else if (ci.isWarning) {
+          if (timerEl) { timerEl.textContent = formatRundownTimer(ci.remainingSeconds); timerEl.style.color = '#FFA726'; }
+          if (timerLabel) timerLabel.textContent = 'REMAINING';
+          if (heroEl) heroEl.style.borderColor = 'rgba(255,167,38,0.4)';
+        } else {
+          if (timerEl) { timerEl.textContent = formatRundownTimer(ci.remainingSeconds); timerEl.style.color = '#00E676'; }
+          if (timerLabel) timerLabel.textContent = 'REMAINING';
+          if (heroEl) heroEl.style.borderColor = '';
+        }
+      } else {
+        if (timerEl) { timerEl.textContent = formatRundownTimer(ci ? ci.elapsedSeconds : 0); timerEl.style.color = '#8B9DAF'; }
+        if (timerLabel) timerLabel.textContent = 'ELAPSED';
+        if (heroEl) heroEl.style.borderColor = '';
+      }
+      // Schedule delta
+      var deltaEl = document.getElementById('rundown-schedule-delta');
+      if (deltaEl && state.scheduleDelta) {
+        deltaEl.style.display = '';
+        deltaEl.textContent = state.scheduleDelta.label;
+        if (state.scheduleDelta.isOnTime) {
+          deltaEl.style.background = 'rgba(0,230,118,0.1)'; deltaEl.style.color = '#00E676';
+        } else if (state.scheduleDelta.isBehind) {
+          deltaEl.style.background = 'rgba(239,68,68,0.1)'; deltaEl.style.color = '#FF5252';
+        } else {
+          deltaEl.style.background = 'rgba(33,150,243,0.1)'; deltaEl.style.color = '#42A5F5';
+        }
+      }
+    }
+
     // ── Real-time status push via SSE ─────────────────────────────────────────
     // Connect to the server-sent event stream for this church. When the server
     // pushes a status_update we patch the equipment table live, so the worship
@@ -7384,6 +7633,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                   }).join('');
                 }
               }
+            } else if (data.type && data.type.indexOf('rundown_') === 0) {
+              handleRundownSSE(data);
             } else if (data.type === 'disconnected') {
               var dot2 = document.getElementById('stat-status-dot');
               var txt2 = document.getElementById('stat-status-text');

@@ -178,6 +178,7 @@ const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
+const { LiveRundownManager } = require('./src/liveRundown');
 const { RundownScheduler } = require('./src/scheduler');
 const { PushNotificationService } = require('./src/pushNotifications');
 const { createMobileWebSocketHandler } = require('./src/mobileWebSocket');
@@ -1279,6 +1280,17 @@ autoRecovery.signalFailover = signalFailover; // allow autoRecovery to defer to 
 const weeklyDigest = new WeeklyDigest(queryClient);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
 const rundownEngine = new RundownEngine(queryClient);
+
+// Live Rundown — PCO-backed show-calling with countdown timers.
+// Broadcast functions are deferred because the WebSocket handlers aren't created yet.
+let _liveRundownBroadcastMobile = () => {};
+let _liveRundownBroadcastPortal = () => {};
+const liveRundown = new LiveRundownManager({
+  broadcastToMobile: (churchId, msg) => _liveRundownBroadcastMobile(churchId, msg),
+  broadcastToPortal: (churchId, msg) => _liveRundownBroadcastPortal(churchId, msg),
+  log,
+});
+
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
 
 const guestTdMode = new GuestTdMode(queryClient, {
@@ -2997,7 +3009,7 @@ const routeCtx = {
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap, aiTriageEngine,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler, signalFailover,
-  guestTdMode, chatEngine, pushNotifications,
+  guestTdMode, chatEngine, pushNotifications, liveRundown,
   logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
@@ -3010,6 +3022,7 @@ require('./src/routes/billing')(app, routeCtx);
 require('./src/routes/adminChurches')(app, routeCtx);
 require('./src/routes/sessions')(app, routeCtx);
 require('./src/routes/planningCenter')(app, routeCtx);
+require('./src/routes/liveRundown')(app, routeCtx);
 require('./src/routes/streamPlatforms')(app, routeCtx);
 require('./src/routes/reseller')(app, routeCtx);
 require('./src/routes/automation')(app, routeCtx);
@@ -4523,6 +4536,58 @@ const _wsHandlers = createWebSocketHandlers({
   },
 });
 
+// ─── LIVE RUNDOWN WEBSOCKET MESSAGE HANDLER ────────────────────────────────────
+// Handles rundown_start/advance/back/goto/end/get_state from mobile & portal WS.
+function _handleRundownWsMessage(churchId, msg, ws) {
+  const _send = (data) => {
+    if (ws?.readyState === 1) {
+      try { ws.send(JSON.stringify(data)); } catch {}
+    }
+  };
+
+  switch (msg.type) {
+    case 'rundown_start': {
+      if (!msg.planId) {
+        _send({ type: 'rundown_error', error: 'planId is required', messageId: msg.messageId });
+        break;
+      }
+      const plan = planningCenter.getCachedPlan(msg.planId);
+      if (!plan || plan.churchId !== churchId) {
+        _send({ type: 'rundown_error', error: 'Plan not found', messageId: msg.messageId });
+        break;
+      }
+      const state = liveRundown.startSession(churchId, plan, msg.callerName || 'TD');
+      _send({ type: 'rundown_state', messageId: msg.messageId, ...state });
+      break;
+    }
+    case 'rundown_advance': {
+      const state = liveRundown.advance(churchId);
+      if (!state) _send({ type: 'rundown_error', error: 'Cannot advance', messageId: msg.messageId });
+      break;
+    }
+    case 'rundown_back': {
+      const state = liveRundown.back(churchId);
+      if (!state) _send({ type: 'rundown_error', error: 'Cannot go back', messageId: msg.messageId });
+      break;
+    }
+    case 'rundown_goto': {
+      const state = liveRundown.goTo(churchId, msg.index);
+      if (!state) _send({ type: 'rundown_error', error: 'Invalid index', messageId: msg.messageId });
+      break;
+    }
+    case 'rundown_end': {
+      const summary = liveRundown.endSession(churchId);
+      if (!summary) _send({ type: 'rundown_error', error: 'No active session', messageId: msg.messageId });
+      break;
+    }
+    case 'rundown_get_state': {
+      const state = liveRundown.getState(churchId);
+      _send({ type: 'rundown_state', messageId: msg.messageId, active: !!state, ...(state || {}) });
+      break;
+    }
+  }
+}
+
 // ─── MOBILE WEBSOCKET HANDLER ─────────────────────────────────────────────────
 const _mobileWsHandler = createMobileWebSocketHandler({
   churches,
@@ -4532,7 +4597,12 @@ const _mobileWsHandler = createMobileWebSocketHandler({
   pushNotifications,
   log,
   checkCommandRateLimit,
+  onRundownMessage: _handleRundownWsMessage,
 });
+
+// Wire up deferred broadcast functions for LiveRundownManager
+_liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
+_liveRundownBroadcastPortal = (churchId, msg) => broadcastToPortal(churchId, msg);
 
 wss.on('connection', (ws, req) => {
   // Clear pong-timeout when client responds to a heartbeat ping
@@ -4593,6 +4663,12 @@ function handlePortalWsConnection(ws, url) {
     lastSeen: church ? church.lastSeen : null,
   });
 
+  // Send active rundown state if a session is in progress
+  if (liveRundown.hasSession(churchId)) {
+    const rundownState = liveRundown.getState(churchId);
+    if (rundownState) safeSend(ws, { type: 'rundown_state', active: true, ...rundownState });
+  }
+
   if (!portalWsClients.has(churchId)) portalWsClients.set(churchId, new Set());
   portalWsClients.get(churchId).add(ws);
 
@@ -4627,6 +4703,9 @@ function handlePortalWsConnection(ws, url) {
             }
           }
         }
+      } else if (msg.type?.startsWith('rundown_')) {
+        // Route live rundown messages from portal
+        _handleRundownWsMessage(churchId, msg, ws);
       }
     } catch { /* Malformed JSON */ }
   });
