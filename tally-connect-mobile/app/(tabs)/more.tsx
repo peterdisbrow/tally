@@ -428,6 +428,7 @@ export default function MoreScreen() {
                 style: 'destructive',
                 onPress: () => {
                   useChatStore.getState().clearMessages();
+                  useStatusStore.setState({ activeRoomId: null });
                   router.replace('/room-picker');
                 },
               },
