@@ -186,6 +186,7 @@ function createDb() {
     CREATE TABLE rooms (
       id TEXT PRIMARY KEY,
       campus_id TEXT NOT NULL,
+      church_id TEXT,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       created_at TEXT NOT NULL,
@@ -271,8 +272,8 @@ function seedChurch(db, opts = {}) {
 }
 
 function seedRoom(db, opts = {}) {
-  db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at, deleted_at, stream_key) VALUES (?, ?, ?, ?, ?, NULL, ?)')
-    .run(opts.roomId, opts.churchId, opts.name || 'Main', opts.description || '', opts.createdAt || new Date().toISOString(), opts.streamKey || 'sk-main');
+  db.prepare('INSERT INTO rooms (id, campus_id, church_id, name, description, created_at, deleted_at, stream_key) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
+    .run(opts.roomId, opts.churchId, opts.churchId, opts.name || 'Main', opts.description || '', opts.createdAt || new Date().toISOString(), opts.streamKey || 'sk-main');
 }
 
 function seedTd(db, opts = {}) {

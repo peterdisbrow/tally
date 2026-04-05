@@ -81,6 +81,8 @@ function createWebSocketHandlers({
   broadcastToPortal = () => {},  // (churchId, data) => void
   streamOAuth       = null,      // StreamPlatformOAuth instance for CDN verification
   deltaTracker      = null,
+  getChurchList     = null,
+  sendRemoteCommand = async () => false,
 
   // ─── WebSocket-level ping intervals (keepalive through reverse proxies) ───
   // Interval in ms between WS-level pings. Set to 0 to disable.
@@ -94,10 +96,12 @@ function createWebSocketHandlers({
   // Use these in production to attach subsystem side-effects without embedding
   // heavy dependencies inside the routing layer.
   //
-  // (church, ws) — fired after a successful church WebSocket connection
+  // (church, ws, connectedEvent) — fired after a successful church WebSocket connection
   onChurchConnected    = () => {},
-  // (church) — fired after a church WebSocket closes
+  // (church, disconnectEvent) — fired after a church WebSocket closes
   onChurchDisconnected = () => {},
+  // (church, instanceDisconnectEvent) — fired when one room/instance disconnects
+  onInstanceDisconnected = () => {},
   // (ws) — fired after a controller successfully connects
   onControllerConnected    = () => {},
   // (ws) — fired after a controller disconnects
@@ -285,9 +289,6 @@ function createWebSocketHandlers({
     // Deliver queued messages from while the church was offline
     drainQueue(church.churchId, ws);
 
-    // Fire the post-connect hook (onboarding tracking, branding, portal broadcast)
-    onChurchConnected(church, ws);
-
     // WebSocket-level ping every wsPingIntervalMs to keep alive through reverse proxies
     const wsPingInterval = wsPingIntervalMs > 0
       ? setInterval(() => { if (ws.readyState === wsOpen) ws.ping(); }, wsPingIntervalMs)
@@ -305,6 +306,8 @@ function createWebSocketHandlers({
       status:    church.status,
       roomInstanceMap: church.roomInstanceMap || {},
     };
+    // Fire the post-connect hook (onboarding tracking, branding, portal broadcast)
+    onChurchConnected(church, ws, connectedEvent);
     broadcastToControllers(connectedEvent);
     broadcastToSSE(connectedEvent);
 
@@ -366,6 +369,7 @@ function createWebSocketHandlers({
           instanceStatus: church.instanceStatus,
           roomInstanceMap: church.roomInstanceMap,
         });
+        onInstanceDisconnected(church, instanceDisconnectEvent);
       }
 
       // Update church.ws to another open socket (or null)
@@ -402,6 +406,7 @@ function createWebSocketHandlers({
           type:      'church_disconnected',
           churchId:  church.churchId,
           name:      church.name,
+          instance,
           connected: false,
           status:    church.status,
         };
@@ -409,7 +414,7 @@ function createWebSocketHandlers({
         broadcastToSSE(disconnectEvent);
         broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
         deltaTracker?.clearChurch?.(church.churchId);
-        onChurchDisconnected(church);
+        onChurchDisconnected(church, disconnectEvent);
       }
     });
 
@@ -709,7 +714,9 @@ function createWebSocketHandlers({
     controllers.add(ws);
 
     // Send the current church list so the controller can populate its UI
-    const churchList = Array.from(churches.values()).map(c => ({
+    const churchList = typeof getChurchList === 'function'
+      ? getChurchList()
+      : Array.from(churches.values()).map(c => ({
       churchId:  c.churchId,
       name:      c.name,
       connected: hasOpenSocket(c),
@@ -763,16 +770,24 @@ function createWebSocketHandlers({
         safeSend(ws, { type: 'error', error: 'Rate limit exceeded', churchId: msg.churchId });
         return;
       }
+      let hadLocalDelivery = false;
       const church = churches.get(msg.churchId);
-      if (!church) {
-        safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
-      } else if (msg.instance && church.sockets?.get(msg.instance)?.readyState === wsOpen) {
+      if (church && msg.instance && church.sockets?.get(msg.instance)?.readyState === wsOpen) {
         // Target a specific instance if requested
         safeSend(church.sockets.get(msg.instance), msg);
-      } else if (hasOpenSocket(church)) {
+        hadLocalDelivery = true;
+      } else if (church && hasOpenSocket(church)) {
         // Broadcast to ALL connected instances — each agent handles only its own devices
         sendToAllInstances(church, msg);
-      } else {
+        hadLocalDelivery = true;
+      }
+
+      const forwardedRemote = await sendRemoteCommand(msg, {
+        hadLocalDelivery,
+        controllerSocket: ws,
+      });
+
+      if (!hadLocalDelivery && !forwardedRemote) {
         safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
       }
     }

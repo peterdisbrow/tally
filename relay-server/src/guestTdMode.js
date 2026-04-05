@@ -18,7 +18,8 @@ const { createQueryClient } = require('./db');
 
 const GUEST_TOKEN_SELECT = `
   token,
-  churchId AS "churchId",
+  COALESCE(church_id, churchId) AS "churchId",
+  COALESCE(church_id, churchId) AS "church_id",
   name,
   createdAt AS "createdAt",
   expiresAt AS "expiresAt",
@@ -65,6 +66,7 @@ class GuestTdMode {
     await this.client.exec(`
       CREATE TABLE IF NOT EXISTS guest_tokens (
         token TEXT PRIMARY KEY,
+        church_id TEXT,
         churchId TEXT NOT NULL,
         name TEXT NOT NULL,
         createdAt TEXT NOT NULL,
@@ -72,6 +74,17 @@ class GuestTdMode {
         usedByChat TEXT DEFAULT ''
       )
     `);
+    try {
+      await this.client.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT');
+    } catch { /* already exists */ }
+    try {
+      await this.client.run(`
+        UPDATE guest_tokens
+        SET church_id = churchId
+        WHERE (church_id IS NULL OR church_id = '')
+          AND churchId IS NOT NULL
+      `);
+    } catch {}
 
     // Migration: clean up orphaned portal tokens (gtd_ prefix) that used an incompatible schema.
     try {
@@ -133,9 +146,9 @@ class GuestTdMode {
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     await this.client.run(
-      `INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat)
-       VALUES (?, ?, ?, ?, ?, '')`,
-      [token, churchId, `${churchName} Guest`, now.toISOString(), expiresAt.toISOString()]
+      `INSERT INTO guest_tokens (token, church_id, churchId, name, createdAt, expiresAt, usedByChat)
+       VALUES (?, ?, ?, ?, ?, ?, '')`,
+      [token, churchId, churchId, `${churchName} Guest`, now.toISOString(), expiresAt.toISOString()]
     );
 
     const expiresFormatted = expiresAt.toLocaleString('en-US', {
@@ -303,8 +316,8 @@ class GuestTdMode {
     const name = label || `${churchName} Guest`;
 
     await this.client.run(
-      'INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?)',
-      [token, churchId, name, now.toISOString(), expiresAt.toISOString(), '']
+      'INSERT INTO guest_tokens (token, church_id, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [token, churchId, churchId, name, now.toISOString(), expiresAt.toISOString(), '']
     );
 
     console.log(`[GuestTdMode] Generated token ${token.slice(0, 4)}**** for ${churchName} (${expiresInHours}h)`);

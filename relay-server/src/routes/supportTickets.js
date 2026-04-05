@@ -210,12 +210,15 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS diagnostic_bundles (
       id TEXT PRIMARY KEY,
+      church_id TEXT,
       churchId TEXT NOT NULL,
       bundle TEXT NOT NULL,
       requested_by TEXT NOT NULL,
       created_at TEXT NOT NULL
     )
   `);
+  try { db.exec('ALTER TABLE diagnostic_bundles ADD COLUMN church_id TEXT'); } catch { /* already exists */ }
+  try { db.exec('UPDATE diagnostic_bundles SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch { /* ignore */ }
 
   app.post('/api/church/:churchId/diagnostic-bundle', requireSupportAccess, async (req, res) => {
     const churchId = req.params.churchId || resolveSupportChurchId(req);
@@ -287,9 +290,9 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
         : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
 
       await qRun(`
-        INSERT INTO diagnostic_bundles (id, churchId, bundle, requested_by, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `, [bundleId, churchId, JSON.stringify(bundleData), requestedBy, createdAt]);
+        INSERT INTO diagnostic_bundles (id, church_id, churchId, bundle, requested_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [bundleId, churchId, churchId, JSON.stringify(bundleData), requestedBy, createdAt]);
 
       return res.status(201).json({
         id: bundleId,
@@ -316,9 +319,9 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
     const rows = await qAll(`
-      SELECT id, churchId, bundle, requested_by, created_at
+      SELECT id, COALESCE(church_id, churchId) AS "churchId", bundle, requested_by, created_at
       FROM diagnostic_bundles
-      WHERE churchId = ?
+      WHERE COALESCE(church_id, churchId) = ?
       ORDER BY created_at DESC
       LIMIT 10
     `, [churchId]);

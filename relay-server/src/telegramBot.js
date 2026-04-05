@@ -892,6 +892,31 @@ class TallyBot {
     return this._churchesByCode.get(String(code).toUpperCase()) || null;
   }
 
+  async _findChurchById(churchId) {
+    const cached = this._getChurchById(churchId);
+    if (cached || !churchId) return cached;
+
+    try {
+      const row = await this._queryOne('SELECT * FROM churches WHERE churchId = ?', [String(churchId)]);
+      return this._cacheChurchRow(row);
+    } catch {
+      return null;
+    }
+  }
+
+  async _findChurchByCode(code) {
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    const cached = this._getChurchByCode(normalizedCode);
+    if (cached || !normalizedCode) return cached;
+
+    try {
+      const row = await this._queryOne('SELECT * FROM churches WHERE UPPER(registration_code) = ?', [normalizedCode]);
+      return this._cacheChurchRow(row);
+    } catch {
+      return null;
+    }
+  }
+
   _getTdByUserId(userId) {
     if (userId == null) return null;
     return this._tdsByUserId.get(String(userId)) || null;
@@ -900,6 +925,25 @@ class TallyBot {
   _getTdByChatId(chatId) {
     if (chatId == null) return null;
     return this._tdsByChatId.get(String(chatId)) || null;
+  }
+
+  async _findTdByUserId(userId) {
+    const cached = this._getTdByUserId(userId);
+    if (cached || userId == null) return cached;
+
+    if (!this.queryClient && this._stmtFindTD?.get) {
+      return this._cacheTdRow(this._stmtFindTD.get(String(userId)) || null);
+    }
+
+    try {
+      const row = await this._queryOne(
+        `SELECT * FROM church_tds WHERE telegram_user_id = ? AND ${this._activePredicate()}`,
+        [String(userId)],
+      );
+      return this._cacheTdRow(row);
+    } catch {
+      return null;
+    }
   }
 
   _getRoomById(roomId) {
@@ -985,9 +1029,9 @@ class TallyBot {
     const text = msg.text.trim();
 
     // Process async — don't block Telegram's webhook timeout
-    this._processMessage(userId, chatId, text, msg.from).catch(err => {
+    return this._processMessage(userId, chatId, text, msg.from).catch(err => {
       console.error('[TallyBot] Error processing message:', err.message);
-      this.sendMessage(chatId, '❌ Something went wrong. Try again.').catch(e => console.error('[TallyBot] Failed to send error reply to', chatId, ':', e.message));
+      return this.sendMessage(chatId, '❌ Something went wrong. Try again.').catch(e => console.error('[TallyBot] Failed to send error reply to', chatId, ':', e.message));
     });
   }
 
@@ -1021,6 +1065,16 @@ class TallyBot {
   }
 
   async _processMessage(userId, chatId, text, from) {
+    let registeredTdLoaded = false;
+    let registeredTd = null;
+    const getRegisteredTd = async () => {
+      if (!registeredTdLoaded) {
+        registeredTd = await this._findTdByUserId(userId);
+        registeredTdLoaded = true;
+      }
+      return registeredTd;
+    };
+
     // 1. /start command — also handles deep links (/start reg_CODE)
     if (text === '/start' || text.startsWith('/start ')) {
       const param = text.slice(6).trim(); // everything after "/start "
@@ -1029,12 +1083,13 @@ class TallyBot {
         const code = param.slice(4).toUpperCase();
         return this._handleRegister(userId, chatId, `/register ${code}`, from);
       }
-      const brandName = this._getBrandNameForUser(userId);
+      const td = await getRegisteredTd();
+      if (td?.church_id) await this._findChurchById(td.church_id);
+      const brandName = this._getBrandName(td?.church_id || null);
       const poweredBy = brandName !== 'Tally' ? `\n\n_Powered by Tally_` : '';
       // Detect locale from already-registered church (if user is re-starting)
       let locale = 'en';
       try {
-        const td = this._getTdByUserId(userId);
         if (td) {
           const ch = this._getChurchById(td.church_id);
           locale = churchLocale(ch);
@@ -1054,7 +1109,9 @@ class TallyBot {
     // 3. /help — role-aware
     if (text === '/help' || text.toLowerCase() === 'help' || text.toLowerCase() === 'help td') {
       const showFullTd = text.toLowerCase() === 'help td';
-      const brandName = this._getBrandNameForUser(userId);
+      const tdRow = await getRegisteredTd();
+      if (tdRow?.church_id) await this._findChurchById(tdRow.church_id);
+      const brandName = this._getBrandName(tdRow?.church_id || null);
 
       // Admin sees admin command reference (or TD reference if they ask for it)
       if (chatId === this.adminChatId) {
@@ -1063,7 +1120,6 @@ class TallyBot {
       }
 
       // Registered TD sees full command reference
-      const tdRow = this._getTdByUserId(userId);
       if (tdRow) {
         return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
       }
@@ -1102,9 +1158,9 @@ class TallyBot {
 
     // 3e. /status — quick system health overview for the registered church
     if (text === '/status') {
-      const tdRow = this._getTdByUserId(userId);
+      const tdRow = await getRegisteredTd();
       if (tdRow) {
-        const church = this._getChurchById(tdRow.church_id);
+        const church = await this._findChurchById(tdRow.church_id);
         if (church) return this._sendStatus(church, chatId);
       }
       // Guest TD path
@@ -1172,9 +1228,9 @@ class TallyBot {
     }
 
     // 6. Check if registered TD
-    const td = this._getTdByUserId(userId);
+    const td = await getRegisteredTd();
     if (td) {
-      const church = this._getChurchById(td.church_id);
+      const church = await this._findChurchById(td.church_id);
       if (church) {
         const accessLevel = td.access_level || 'operator';
         return this.handleTDCommand(church, chatId, text, { accessLevel });
@@ -1231,7 +1287,7 @@ class TallyBot {
     }
 
     // Regular church registration code (6-char hex)
-    const church = this._getChurchByCode(code);
+    const church = await this._findChurchByCode(code);
     if (!church) {
       // Try to detect locale from the code pattern (not possible without church) — use 'en'
       return this.sendMessage(chatId, bt('register.invalid_code', 'en'));

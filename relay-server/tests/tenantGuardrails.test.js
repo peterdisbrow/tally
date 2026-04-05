@@ -3,14 +3,17 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
+  ensureCanonicalTenantColumns,
   getTenantIdFromRow,
   ensureTenantGuardrails,
 } = require('../src/db/tenantGuardrails');
 
 function makeQueryClient({ present = {}, failingIndexes = new Set() } = {}) {
   const execCalls = [];
+  const runCalls = [];
   return {
     execCalls,
+    runCalls,
     async queryOne(sql) {
       const match = sql.match(/SELECT\s+("?[\w]+"?)\s+FROM\s+("?[\w]+"?)/i);
       const column = match?.[1]?.replace(/"/g, '');
@@ -27,6 +30,10 @@ function makeQueryClient({ present = {}, failingIndexes = new Set() } = {}) {
           throw new Error(`failed to create ${failingIndex}`);
         }
       }
+    },
+    async run(sql) {
+      runCalls.push(sql.replace(/\s+/g, ' ').trim());
+      return { changes: 1 };
     },
   };
 }
@@ -47,11 +54,40 @@ describe('getTenantIdFromRow', () => {
 });
 
 describe('ensureTenantGuardrails', () => {
+  it('adds canonical church_id columns for legacy tables before enforcing indexes', async () => {
+    const queryClient = makeQueryClient({
+      present: {
+        'rooms.campus_id': true,
+        'guest_tokens.churchId': true,
+      },
+    });
+
+    const results = await ensureCanonicalTenantColumns(queryClient, {
+      definitions: [
+        { table: 'rooms', column: 'church_id', legacyAlias: 'campus_id' },
+        { table: 'guest_tokens', column: 'church_id', legacyAlias: 'churchId' },
+      ],
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({ table: 'rooms', status: 'canonical_added' }),
+      expect.objectContaining({ table: 'guest_tokens', status: 'canonical_added' }),
+    ]);
+    expect(queryClient.execCalls).toEqual([
+      'ALTER TABLE rooms ADD COLUMN church_id TEXT',
+      'ALTER TABLE guest_tokens ADD COLUMN church_id TEXT',
+    ]);
+    expect(queryClient.runCalls).toEqual([
+      "UPDATE rooms SET church_id = campus_id WHERE (church_id IS NULL OR church_id = '') AND campus_id IS NOT NULL",
+      "UPDATE guest_tokens SET church_id = churchId WHERE (church_id IS NULL OR church_id = '') AND churchId IS NOT NULL",
+    ]);
+  });
+
   it('creates indexes for present tenant columns and warns on legacy or missing ones', async () => {
     const queryClient = makeQueryClient({
       present: {
         'alerts.church_id': true,
-        'rooms.campus_id': true,
+        'rooms.church_id': true,
       },
     });
     const warnings = [];
@@ -61,19 +97,19 @@ describe('ensureTenantGuardrails', () => {
       logger,
       definitions: [
         { table: 'alerts', column: 'church_id', index: 'idx_alerts_church_id' },
-        { table: 'rooms', column: 'campus_id', index: 'idx_rooms_campus_id', legacyAlias: 'church_id' },
+        { table: 'rooms', column: 'church_id', index: 'idx_rooms_church_id', legacyAlias: 'campus_id' },
         { table: 'viewer_snapshots', column: 'church_id', index: 'idx_viewer_snapshots_church_id' },
       ],
     });
 
     expect(results).toEqual([
       expect.objectContaining({ table: 'alerts', status: 'ok' }),
-      expect.objectContaining({ table: 'rooms', status: 'ok', legacyAlias: 'church_id' }),
+      expect.objectContaining({ table: 'rooms', status: 'ok', legacyAlias: 'campus_id' }),
       expect.objectContaining({ table: 'viewer_snapshots', status: 'missing' }),
     ]);
     expect(queryClient.execCalls).toEqual([
       'CREATE INDEX IF NOT EXISTS idx_alerts_church_id ON alerts(church_id)',
-      'CREATE INDEX IF NOT EXISTS idx_rooms_campus_id ON rooms(campus_id)',
+      'CREATE INDEX IF NOT EXISTS idx_rooms_church_id ON rooms(church_id)',
     ]);
     expect(warnings.some((warning) => warning.includes('viewer_snapshots.church_id'))).toBe(true);
     expect(warnings.some((warning) => warning.includes('rooms.campus_id'))).toBe(true);

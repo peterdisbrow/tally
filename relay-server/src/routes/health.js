@@ -29,11 +29,96 @@ module.exports = function setupHealthRoutes(app, ctx) {
   // db is optional — when omitted (tests, early boot) DB checks report 'skipped'
   const db = ctx.db || null;
   const queryClient = ctx.queryClient || null;
+  const runtimeMetrics = ctx.runtimeMetrics || null;
+  const runtimeCoordinator = ctx.runtimeCoordinator || null;
+  const messageQueues = ctx.messageQueues || null;
+  const getPreviewCacheSummary = typeof ctx.getPreviewCacheSummary === 'function'
+    ? ctx.getPreviewCacheSummary
+    : () => ({ cachedChurches: 0, newestAgeMs: 0, oldestAgeMs: 0 });
+  const listObservedChurches = typeof ctx.listObservedChurches === 'function'
+    ? ctx.listObservedChurches
+    : () => Array.from(churches.values());
 
   // ─── Shared helpers ─────────────────────────────────────────────────────────
 
+  function controllerSockets() {
+    if (!controllers) return [];
+    if (typeof controllers.values === 'function') return Array.from(controllers.values());
+    return Array.from(controllers);
+  }
+
+  function isConnected(church) {
+    if (!church) return false;
+    if (typeof church.connected === 'boolean') return church.connected;
+    return !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
+  }
+
   function countConnected() {
-    return Array.from(churches.values()).filter(c => !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN))).length;
+    return listObservedChurches().filter(isConnected).length;
+  }
+
+  function countOpenChurchInstances() {
+    return listObservedChurches().reduce((total, church) => {
+      if (Array.isArray(church.instances)) return total + church.instances.length;
+      if (church.sockets?.size) {
+        let count = 0;
+        for (const socket of church.sockets.values()) {
+          if (socket?.readyState === WebSocket.OPEN) count++;
+        }
+        return total + count;
+      }
+      return total + (church.ws?.readyState === WebSocket.OPEN ? 1 : 0);
+    }, 0);
+  }
+
+  function countPreviewSubscriptions() {
+    let count = 0;
+    for (const ws of controllerSockets()) {
+      if (ws?._previewSubscriptions instanceof Set) count += ws._previewSubscriptions.size;
+    }
+    return count;
+  }
+
+  function queueSummary() {
+    if (!messageQueues?.values) return { queuedChurches: 0, queuedMessages: 0 };
+    let queuedMessages = 0;
+    let queuedChurches = 0;
+    for (const queue of messageQueues.values()) {
+      if (!Array.isArray(queue) || queue.length === 0) continue;
+      queuedChurches++;
+      queuedMessages += queue.length;
+    }
+    return { queuedChurches, queuedMessages };
+  }
+
+  function realtimeSummary() {
+    const windowSeconds = 60;
+    const metricsSnapshot = runtimeMetrics?.snapshot?.(windowSeconds) || {
+      windowSeconds,
+      counters: {},
+      ratesPerSecond: {},
+      totals: {},
+    };
+    const eventLoop = runtimeMetrics?.eventLoopSnapshot?.() || null;
+    return {
+      eventLoop,
+      sockets: {
+        connectedChurches: countConnected(),
+        connectedChurchInstances: countOpenChurchInstances(),
+        controllerConnections: controllers.size || 0,
+        previewSubscriptions: countPreviewSubscriptions(),
+      },
+      queues: queueSummary(),
+      previewCache: getPreviewCacheSummary(),
+      rates1m: metricsSnapshot.ratesPerSecond,
+      counters1m: metricsSnapshot.counters,
+      totals: metricsSnapshot.totals,
+      coordination: {
+        enabled: !!runtimeCoordinator?.enabled,
+        instanceId: runtimeCoordinator?.instanceId || null,
+        channel: runtimeCoordinator?.publishChannel || null,
+      },
+    };
   }
 
   /** Memory usage in human-readable MB, rounded to one decimal place. */
@@ -70,9 +155,9 @@ module.exports = function setupHealthRoutes(app, ctx) {
    * Only includes name + operational fields — no tokens or internal IDs.
    */
   function churchSummary() {
-    return Array.from(churches.values()).map(c => ({
+    return listObservedChurches().map(c => ({
       name:           c.name,
-      connected:      !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
+      connected:      isConnected(c),
       lastSeen:       c.lastSeen       || null,
       disconnectedAt: c.disconnectedAt || null,
     }));
@@ -86,7 +171,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
    */
   function overallStatus(connectedCount, dbStatus) {
     if (dbStatus.status === 'error') return 'unhealthy';
-    const registered = churches.size;
+    const registered = listObservedChurches().length;
     if (registered === 0) return 'healthy';
     const ratio = connectedCount / registered;
     if (ratio === 0) return 'unhealthy';
@@ -100,7 +185,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
     res.json({
       service:     'tally-relay',
       version:     RELAY_VERSION,
-      churches:    churches.size,
+      churches:    listObservedChurches().length,
       controllers: controllers.size,
     });
   });
@@ -123,12 +208,13 @@ module.exports = function setupHealthRoutes(app, ctx) {
       build:               RELAY_BUILD,
       uptime:              Math.floor(process.uptime()),
       status:              overallStatus(connectedCount, dbStatus),
-      registeredChurches:  churches.size,
+      registeredChurches:  listObservedChurches().length,
       connectedChurches:   connectedCount,
       controllers:         controllers.size,
       totalMessagesRelayed: ctx.totalMessagesRelayed,
       memoryUsage:         memUsage(),
       database:            dbStatus,
+      realtime:            realtimeSummary(),
       churches:            churchSummary(),
     });
     const maybeDbStatus = dbReadCheck();
@@ -160,7 +246,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
         build:               RELAY_BUILD,
         uptime:              Math.floor(process.uptime()),
         status:              overallStatus(connectedCount, dbStatusForOverall),
-        registeredChurches:  churches.size,
+        registeredChurches:  listObservedChurches().length,
         connectedChurches:   connectedCount,
         controllers:         controllers.size,
         totalMessagesRelayed: ctx.totalMessagesRelayed,
@@ -169,6 +255,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
           read:  dbRead,
           write: dbWrite,
         },
+        realtime: realtimeSummary(),
         churches: churchSummary(),
       });
     };

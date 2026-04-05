@@ -103,6 +103,15 @@ function getCookieHeader(setCookieHeaders, cookieName) {
 function connectWS(path) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://localhost:${TEST_PORT}${path}`);
+    const queue = { pending: [], waiters: [] };
+    ws._queue = queue;
+    ws.on('message', (data) => {
+      if (queue.waiters.length > 0) {
+        queue.waiters.shift()(data);
+      } else {
+        queue.pending.push(data);
+      }
+    });
     const timer = setTimeout(() => reject(new Error('WS connect timeout')), 5000);
     ws.on('open', () => {
       clearTimeout(timer);
@@ -116,16 +125,29 @@ function connectWS(path) {
 }
 
 function waitForMessage(ws, timeoutMs = 5000) {
+  const queue = ws._queue;
+  if (queue?.pending.length > 0) {
+    return Promise.resolve(JSON.parse(queue.pending.shift().toString()));
+  }
   return new Promise((resolve, reject) => {
     const onMessage = (data) => {
       clearTimeout(timer);
       resolve(JSON.parse(data.toString()));
     };
     const timer = setTimeout(() => {
-      ws.off('message', onMessage);
+      if (queue) {
+        const idx = queue.waiters.indexOf(onMessage);
+        if (idx !== -1) queue.waiters.splice(idx, 1);
+      } else {
+        ws.off('message', onMessage);
+      }
       reject(new Error('WS message timeout'));
     }, timeoutMs);
-    ws.once('message', onMessage);
+    if (queue) {
+      queue.waiters.push(onMessage);
+    } else {
+      ws.once('message', onMessage);
+    }
   });
 }
 
@@ -461,13 +483,37 @@ async function runTests() {
   });
 
   // 26. Preview frame forwarded
-  await test('Preview frame forwarded to controller', async () => {
+  await test('Preview frame forwarded only to subscribed controller', async () => {
+    const passiveControllerWS = await connectWS(`/controller?apikey=${API_KEY}`);
+    const passiveHello = await waitForMessage(passiveControllerWS);
+    assert.strictEqual(passiveHello.type, 'church_list');
+
+    const ackPromise = waitForMessage(controllerWS);
+    controllerWS.send(JSON.stringify({ type: 'preview_subscribe', churchId }));
+    const subscriptionAck = await ackPromise;
+    assert.strictEqual(subscriptionAck.type, 'preview_subscription');
+    assert.strictEqual(subscriptionAck.churchId, churchId);
+    assert.strictEqual(subscriptionAck.subscribed, true);
+
     const frame = { type: 'preview_frame', timestamp: new Date().toISOString(), width: 720, height: 405, format: 'jpeg', data: 'dGVzdA==' };
+    const passiveReceived = waitForMessage(passiveControllerWS, 1000)
+      .then(() => true)
+      .catch((err) => {
+        if (err.message === 'WS message timeout') return false;
+        throw err;
+      });
+    const subscribedReceived = waitForMessage(controllerWS);
     churchWS.send(JSON.stringify(frame));
-    const msg = await waitForMessage(controllerWS);
+    const msg = await subscribedReceived;
     assert.strictEqual(msg.type, 'preview_frame');
     assert.strictEqual(msg.churchId, churchId);
     assert.strictEqual(msg.data, 'dGVzdA==');
+    assert.strictEqual(await passiveReceived, false);
+
+    await new Promise((resolve) => {
+      passiveControllerWS.once('close', resolve);
+      passiveControllerWS.close();
+    });
   });
 
   // 27. Oversized preview frame rejected

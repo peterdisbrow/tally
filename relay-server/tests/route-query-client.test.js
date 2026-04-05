@@ -61,6 +61,7 @@ function createDb() {
     CREATE TABLE rooms (
       id TEXT PRIMARY KEY,
       campus_id TEXT NOT NULL,
+      church_id TEXT,
       name TEXT NOT NULL,
       description TEXT,
       deleted_at TEXT
@@ -239,8 +240,8 @@ function seedChurch(db, opts = {}) {
 
 function seedRoom(db, opts = {}) {
   const roomId = opts.roomId || uuidv4();
-  db.prepare('INSERT INTO rooms (id, campus_id, name, description, deleted_at) VALUES (?, ?, ?, ?, NULL)')
-    .run(roomId, opts.churchId, opts.name || 'Main Room', opts.description || 'Main sanctuary');
+  db.prepare('INSERT INTO rooms (id, campus_id, church_id, name, description, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)')
+    .run(roomId, opts.churchId, opts.churchId, opts.name || 'Main Room', opts.description || 'Main sanctuary');
   return roomId;
 }
 

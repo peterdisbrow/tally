@@ -358,8 +358,8 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
       const id = uuidv4();
       const created_at = new Date().toISOString();
-      await qRun('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)', [
-        id, churchId, name, description, created_at,
+      await qRun('INSERT INTO rooms (id, campus_id, church_id, name, description, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+        id, churchId, churchId, name, description, created_at,
       ]);
       res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at });
     } catch (e) {

@@ -14,10 +14,12 @@ const TENANT_SCOPED_TABLES = [
   { table: 'ai_usage_log', column: 'church_id', index: 'idx_ai_usage_church' },
   { table: 'ai_chat_log', column: 'church_id', index: 'idx_ai_chat_log_church' },
   { table: 'viewer_snapshots', column: 'church_id', index: 'idx_viewer_snaps_church' },
-  { table: 'rooms', column: 'campus_id', index: 'idx_rooms_campus_id', legacyAlias: 'church_id' },
-  { table: 'guest_tokens', column: 'churchId', index: 'idx_guest_tokens_church_id', legacyAlias: 'church_id' },
-  { table: 'diagnostic_bundles', column: 'churchId', index: 'idx_diagnostic_bundles_church', legacyAlias: 'church_id' },
+  { table: 'rooms', column: 'church_id', index: 'idx_rooms_church_id', legacyAlias: 'campus_id' },
+  { table: 'guest_tokens', column: 'church_id', index: 'idx_guest_tokens_church_id', legacyAlias: 'churchId' },
+  { table: 'diagnostic_bundles', column: 'church_id', index: 'idx_diagnostic_bundles_church', legacyAlias: 'churchId' },
 ];
+
+const CANONICAL_TENANT_COLUMNS = TENANT_SCOPED_TABLES.filter((definition) => definition.legacyAlias);
 
 function getTenantIdFromRow(row) {
   if (!row || typeof row !== 'object') return null;
@@ -34,6 +36,49 @@ async function canSelectTenantColumn(queryClient, table, column) {
     if (/no such column|column .* does not exist/i.test(message)) return false;
     throw error;
   }
+}
+
+async function ensureCanonicalTenantColumns(queryClient, {
+  logger = console,
+  definitions = CANONICAL_TENANT_COLUMNS,
+} = {}) {
+  const results = [];
+
+  for (const definition of definitions) {
+    const legacyPresent = await canSelectTenantColumn(queryClient, definition.table, definition.legacyAlias);
+    if (!legacyPresent) {
+      results.push({ ...definition, status: 'legacy_missing' });
+      continue;
+    }
+
+    const canonicalPresent = await canSelectTenantColumn(queryClient, definition.table, definition.column);
+    if (!canonicalPresent) {
+      try {
+        await queryClient.exec(`ALTER TABLE ${definition.table} ADD COLUMN ${definition.column} TEXT`);
+      } catch (error) {
+        if (!/duplicate column|already exists/i.test(String(error?.message || ''))) throw error;
+      }
+    }
+
+    await queryClient.run(`
+      UPDATE ${definition.table}
+      SET ${definition.column} = ${definition.legacyAlias}
+      WHERE (${definition.column} IS NULL OR ${definition.column} = '')
+        AND ${definition.legacyAlias} IS NOT NULL
+    `);
+
+    results.push({
+      ...definition,
+      status: canonicalPresent ? 'canonical_present' : 'canonical_added',
+    });
+  }
+
+  const migrated = results.filter((result) => result.status === 'canonical_added');
+  if (migrated.length > 0) {
+    logger.log?.(`[tenantGuardrails] Added canonical church_id columns on ${migrated.length} legacy table(s): ${migrated.map((item) => item.table).join(', ')}`);
+  }
+
+  return results;
 }
 
 async function ensureTenantGuardrails(queryClient, {
@@ -70,14 +115,16 @@ async function ensureTenantGuardrails(queryClient, {
   }
 
   if (legacy.length > 0) {
-    logger.warn?.(`[tenantGuardrails] Legacy tenant columns still active: ${legacy.map((item) => `${item.table}.${item.column}`).join(', ')}`);
+    logger.warn?.(`[tenantGuardrails] Legacy tenant columns still active: ${legacy.map((item) => `${item.table}.${item.legacyAlias || item.column}`).join(', ')}`);
   }
 
   return results;
 }
 
 module.exports = {
+  CANONICAL_TENANT_COLUMNS,
   TENANT_SCOPED_TABLES,
   getTenantIdFromRow,
+  ensureCanonicalTenantColumns,
   ensureTenantGuardrails,
 };

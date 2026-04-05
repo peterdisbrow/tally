@@ -777,12 +777,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   db.exec(`
     CREATE TABLE IF NOT EXISTS guest_tokens (
       token      TEXT PRIMARY KEY,
+      church_id  TEXT,
       churchId   TEXT NOT NULL,
       label      TEXT,
       createdAt  TEXT NOT NULL,
       expiresAt  TEXT
     )
   `);
+  try { db.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT'); } catch { /* already exists */ }
+  try { db.exec('UPDATE guest_tokens SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch { /* ignore */ }
 
   // Support triage/ticket tables (created in relay too; repeated here for module resilience)
   db.exec(`
@@ -1878,8 +1881,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const id = crypto.randomUUID();
       const created_at = new Date().toISOString();
       const stream_key = crypto.randomBytes(16).toString('hex');
-      await qRun('INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, ?, ?, ?, ?)', [
-        id, churchId, name, description, created_at, stream_key,
+      await qRun('INSERT INTO rooms (id, campus_id, church_id, name, description, created_at, stream_key) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+        id, churchId, churchId, name, description, created_at, stream_key,
       ]);
       onRoomCreated(churchId, id);
       res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at, streamKey: stream_key });
@@ -3731,7 +3734,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         { table: 'td_room_assignments', column: 'church_id' },
         { table: 'church_schedules', column: 'church_id' },
         { table: 'church_reviews', column: 'church_id' },
-        { table: 'guest_tokens', column: 'churchId' },
+        { table: 'guest_tokens', column: 'church_id' },
         { table: 'maintenance_windows', column: 'churchId' },
         { table: 'email_sends', column: 'church_id' },
         { table: 'referrals', column: 'referrer_id' },

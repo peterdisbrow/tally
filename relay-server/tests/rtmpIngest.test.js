@@ -57,6 +57,7 @@ function makeQueryClient() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       campus_id TEXT NOT NULL,
+      church_id TEXT,
       stream_key TEXT NOT NULL,
       deleted_at TEXT
     );
@@ -65,8 +66,8 @@ function makeQueryClient() {
     'INSERT INTO churches (churchId, name, ingest_stream_key) VALUES (?, ?, ?)'
   ).run('church-1', 'Grace Church', 'church-key');
   sqlite.prepare(
-    'INSERT INTO rooms (id, name, campus_id, stream_key, deleted_at) VALUES (?, ?, ?, ?, NULL)'
-  ).run('room-1', 'Main Room', 'church-1', 'room-key');
+    'INSERT INTO rooms (id, name, campus_id, church_id, stream_key, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)'
+  ).run('room-1', 'Main Room', 'church-1', 'church-1', 'room-key');
 
   const queryClient = createQueryClient({ config: SQLITE_CONFIG, sqliteDb: sqlite });
   return { sqlite, queryClient };

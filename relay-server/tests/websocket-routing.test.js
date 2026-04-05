@@ -768,6 +768,34 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await closeWs(ctrl);
     });
 
+    it('publishes a remote command when the church is not local but runtime coordination is enabled', async () => {
+      const forwarded = [];
+      const server2 = await buildTestServer({
+        sendRemoteCommand: async (msg, meta) => {
+          forwarded.push({ msg, meta });
+          return true;
+        },
+      });
+
+      const ctrl = await connect(`${server2.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      send(ctrl, { type: 'command', churchId: 'ghost-church', command: 'obs.start', params: {} });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(forwarded).toHaveLength(1);
+      expect(forwarded[0].msg).toMatchObject({
+        type: 'command',
+        churchId: 'ghost-church',
+        command: 'obs.start',
+      });
+      expect(forwarded[0].meta.hadLocalDelivery).toBe(false);
+      expect(ctrl._q.pending).toEqual([]);
+
+      await closeWs(ctrl);
+      await server2.close();
+    });
+
     it('returns error when rate limit is exceeded', async () => {
       const server2 = await buildTestServer({
         checkCommandRateLimit: async () => ({ ok: false }),

@@ -15,3 +15,7 @@ package-lock.json
 !relay-server/package-lock.json
 !relay-server/admin/package-lock.json
 problem-finder-lab/
+mockup-*.html
+TallyPortalMockup.jsx
+relay-server/public/portal/mockup*
+CODEX-*.md

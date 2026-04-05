@@ -14,6 +14,13 @@ let _getMainWindow = () => null;
 
 // Module-level state (moved from main.js)
 let previewControllerSocket = null;
+let previewFetchState = {
+  sessionId: 0,
+  churchId: null,
+  lastDeliveredFrameId: null,
+  pending: null,
+  inFlight: false,
+};
 
 /**
  * Wire external dependencies that live in main.js.
@@ -171,6 +178,91 @@ async function testConnection({ url, token } = {}) {
 
 // ─── Preview controller ───────────────────────────────────────────────────────
 
+function sendPreviewSubscription(socket, type, churchId) {
+  if (!socket || !churchId) return;
+  if (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) return;
+  socket.send(JSON.stringify({ type, churchId }));
+}
+
+function resetPreviewFetchState(churchId = null) {
+  previewFetchState = {
+    sessionId: previewFetchState.sessionId + 1,
+    churchId,
+    lastDeliveredFrameId: null,
+    pending: null,
+    inFlight: false,
+  };
+  return previewFetchState.sessionId;
+}
+
+async function fetchLatestPreviewFrame({ relay, adminKey, churchId, knownFrameId }) {
+  const base = relayHttpUrl(relay).replace(/\/+$/, '');
+  const headers = { 'x-api-key': adminKey };
+  if (previewFetchState.lastDeliveredFrameId) {
+    headers['if-none-match'] = previewFetchState.lastDeliveredFrameId;
+  } else if (knownFrameId) {
+    headers['if-none-match'] = knownFrameId;
+  }
+
+  const resp = await fetch(`${base}/api/admin/churches/${encodeURIComponent(churchId)}/preview/latest`, {
+    headers,
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (resp.status === 304) return null;
+  if (!resp.ok) {
+    throw new Error(`Preview fetch failed (${resp.status})`);
+  }
+
+  return resp.json();
+}
+
+async function drainPreviewFetchQueue({ relay, adminKey, churchId, mainWindow, sessionId }) {
+  if (previewFetchState.inFlight) return;
+  previewFetchState.inFlight = true;
+  try {
+    while (previewFetchState.pending) {
+      const next = previewFetchState.pending;
+      previewFetchState.pending = null;
+
+      let frame = null;
+      try {
+        frame = await fetchLatestPreviewFrame({ relay, adminKey, churchId, knownFrameId: next.frameId });
+      } catch (err) {
+        if (sessionId !== previewFetchState.sessionId || previewFetchState.churchId !== churchId) return;
+        mainWindow?.webContents?.send?.('log', `[Preview] fetch failed: ${err.message || err}`);
+        continue;
+      }
+
+      if (!frame) continue;
+      if (sessionId !== previewFetchState.sessionId || previewFetchState.churchId !== churchId) return;
+
+      previewFetchState.lastDeliveredFrameId = frame.frameId || next.frameId || previewFetchState.lastDeliveredFrameId;
+      mainWindow?.webContents.send('preview-frame', {
+        timestamp: frame.timestamp,
+        width: frame.width,
+        height: frame.height,
+        format: frame.format,
+        data: frame.data,
+      });
+    }
+  } finally {
+    previewFetchState.inFlight = false;
+    if (previewFetchState.pending && sessionId === previewFetchState.sessionId && previewFetchState.churchId === churchId) {
+      drainPreviewFetchQueue({ relay, adminKey, churchId, mainWindow, sessionId }).catch(() => {});
+    }
+  }
+}
+
+function queuePreviewFetch({ relay, adminKey, churchId, frameId, mainWindow, sessionId }) {
+  if (!frameId || previewFetchState.churchId !== churchId || sessionId !== previewFetchState.sessionId) return;
+  if (previewFetchState.lastDeliveredFrameId === frameId) return;
+  previewFetchState.pending = { frameId };
+  if (!previewFetchState.inFlight) {
+    drainPreviewFetchQueue({ relay, adminKey, churchId, mainWindow, sessionId }).catch(() => {});
+  }
+}
+
 function sendPreviewCommand(command, params = {}) {
   const config = _loadConfig();
   if (!config.token) throw new Error('No church token configured');
@@ -189,12 +281,24 @@ function sendPreviewCommand(command, params = {}) {
 
   return new Promise((resolve, reject) => {
     const mainWindow = _getMainWindow();
+    const previewSessionId = command === 'preview.start'
+      ? resetPreviewFetchState(churchId)
+      : previewFetchState.sessionId;
 
     // Keep one controller socket while preview stream is active so frames can flow.
     if (command === 'preview.start' && previewControllerSocket) {
+      try { sendPreviewSubscription(previewControllerSocket, 'preview_unsubscribe', churchId); } catch {}
       try { previewControllerSocket.send(JSON.stringify({ type: 'command', churchId, command: 'preview.stop', params: {} })); } catch {}
       try { previewControllerSocket.terminate(); } catch {}
       previewControllerSocket = null;
+      resetPreviewFetchState();
+    }
+
+    if (command === 'preview.stop' && previewControllerSocket) {
+      try { sendPreviewSubscription(previewControllerSocket, 'preview_unsubscribe', churchId); } catch {}
+      try { previewControllerSocket.close(); } catch {}
+      previewControllerSocket = null;
+      resetPreviewFetchState();
     }
 
     const socket = new WebSocket(`${relay.replace(/\/$/, '')}/controller?apikey=${encodeURIComponent(adminKey)}`);
@@ -202,6 +306,7 @@ function sendPreviewCommand(command, params = {}) {
     const timeout = setTimeout(() => {
       try { socket.terminate(); } catch {}
       if (isStart && previewControllerSocket === socket) previewControllerSocket = null;
+      if (isStart) resetPreviewFetchState();
       reject(new Error('Preview command timed out'));
     }, 8000);
 
@@ -213,6 +318,7 @@ function sendPreviewCommand(command, params = {}) {
       }
       if (socket === previewControllerSocket) {
         previewControllerSocket = null;
+        resetPreviewFetchState();
       }
     };
 
@@ -231,6 +337,18 @@ function sendPreviewCommand(command, params = {}) {
           return;
         }
 
+        if (msg.type === 'preview_available' && msg.churchId === churchId) {
+          queuePreviewFetch({
+            relay,
+            adminKey,
+            churchId,
+            frameId: msg.frameId,
+            mainWindow,
+            sessionId: previewSessionId,
+          });
+          return;
+        }
+
         if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
           if (msg.error) {
             done({ success: false, error: msg.error });
@@ -244,6 +362,10 @@ function sendPreviewCommand(command, params = {}) {
     };
 
     socket.once('open', () => {
+      if (isStart) {
+        sendPreviewSubscription(socket, 'preview_subscribe', churchId);
+      }
+
       socket.send(JSON.stringify({
         type: 'command',
         churchId,
@@ -281,6 +403,7 @@ function sendPreviewCommand(command, params = {}) {
     socket.once('error', (err) => done({ success: false, error: err.message || 'Relay socket error' }));
     socket.once('close', () => {
       if (socket === previewControllerSocket) previewControllerSocket = null;
+      if (isStart) resetPreviewFetchState();
       done({ success: true });
     });
   });

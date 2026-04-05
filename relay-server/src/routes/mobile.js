@@ -12,6 +12,9 @@ module.exports = function setupMobileRoutes(app, ctx) {
     pushNotifications, scheduleEngine, rundownEngine,
     jwt, JWT_SECRET, CHURCH_APP_TOKEN_TTL, uuidv4, safeErrorMessage, log,
   } = ctx;
+  const getObservedChurch = typeof ctx.getObservedChurch === 'function'
+    ? ctx.getObservedChurch
+    : (churchId) => churches.get(churchId) || null;
   const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
   const qOne = (sql, params = []) => (
     hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
@@ -55,7 +58,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
     } catch { /* no rooms table yet */ }
 
     // Runtime connection status
-    const runtime = churches.get(church.churchId);
+    const runtime = getObservedChurch(church.churchId);
 
     res.json({
       token,
@@ -136,7 +139,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
   app.get('/api/church/mobile/summary', requireChurchAppAuth, async (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const runtime = churches.get(churchId);
+      const runtime = getObservedChurch(churchId);
 
       // Rooms with connection/status info
       let rooms = [];
@@ -244,6 +247,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
 
   function _hasLiveSocket(runtime) {
     if (!runtime) return false;
+    if (typeof runtime.connected === 'boolean') return runtime.connected;
     // Multi-room: check if any socket is open
     if (runtime.sockets && runtime.sockets instanceof Map) {
       for (const ws of runtime.sockets.values()) {
@@ -258,7 +262,9 @@ module.exports = function setupMobileRoutes(app, ctx) {
     if (!runtime) return false;
     if (runtime.roomInstanceMap) {
       for (const [rid, instance] of Object.entries(runtime.roomInstanceMap)) {
-        if (rid === roomId && runtime.sockets?.get(instance)?.readyState === 1) return true;
+        if (rid !== roomId) continue;
+        if (runtime.sockets?.get(instance)?.readyState === 1) return true;
+        if (Array.isArray(runtime.instances) && runtime.instances.includes(instance)) return true;
       }
     }
     return false;

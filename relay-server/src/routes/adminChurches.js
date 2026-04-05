@@ -8,6 +8,9 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   const { db, queryClient, churches, requireAdmin,
           billing, normalizeBillingInterval, messageQueues,
           BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log, logAudit } = ctx;
+  const listObservedChurches = typeof ctx.listObservedChurches === 'function'
+    ? ctx.listObservedChurches
+    : () => Array.from(churches.values());
   const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
   const qOne = (sql, params = []) => (
     hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
@@ -18,6 +21,12 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   const qRun = (sql, params = []) => (
     hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
   );
+
+  function isConnected(church) {
+    if (!church) return false;
+    if (typeof church.connected === 'boolean') return church.connected;
+    return !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
+  }
 
   function auditBilling(req, churchId, details) {
     if (!logAudit) return;
@@ -43,7 +52,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     { table: 'church_tds', column: 'church_id' },
     { table: 'church_schedules', column: 'church_id' },
     { table: 'church_reviews', column: 'church_id' },
-    { table: 'guest_tokens', column: 'churchId' },
+    { table: 'guest_tokens', column: 'church_id' },
     { table: 'maintenance_windows', column: 'churchId' },
     { table: 'email_sends', column: 'church_id' },
     { table: 'referrals', column: 'referrer_id' },
@@ -55,7 +64,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     { table: 'automation_rules', column: 'church_id' },
     { table: 'church_documents', column: 'church_id' },
     { table: 'church_macros', column: 'church_id' },
-    { table: 'rooms', column: 'campus_id' }, // campus_id stores owning churchId
+    { table: 'rooms', column: 'church_id' },
   ];
 
   async function deleteChurchCascade(churchId) {
@@ -109,12 +118,12 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     const allRows = await qAll('SELECT * FROM churches');
     const rowMap = new Map(allRows.map(r => [r.churchId, r]));
 
-    const list = Array.from(churches.values()).map(c => {
+    const list = listObservedChurches().map(c => {
       const row = rowMap.get(c.churchId) || {};
       return {
         churchId:         c.churchId,
         name:             c.name,
-        connected:        !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
+        connected:        isConnected(c),
         status:           c.status,
         lastSeen:         c.lastSeen,
         church_type:      c.church_type      || 'recurring',

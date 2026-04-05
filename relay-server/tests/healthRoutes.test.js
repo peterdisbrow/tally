@@ -18,7 +18,7 @@ const setupHealthRoutes = require('../src/routes/health.js');
 function makeCtx(overrides = {}) {
   return {
     churches: new Map(),
-    controllers: new Map(),
+    controllers: new Set(),
     RELAY_VERSION: '1.2.3',
     RELAY_BUILD: 'test-build',
     WebSocket: { OPEN: 1 },
@@ -181,6 +181,58 @@ describe('GET /api/health — detailed health', () => {
 
     await queryClient.close();
     sqlite.close();
+  });
+
+  it('includes realtime socket, queue, and coordination details when runtime metrics are available', () => {
+    const controllerA = { _previewSubscriptions: new Set(['church-1', 'church-2']) };
+    const controllerB = { _previewSubscriptions: new Set(['church-3']) };
+    const churches = new Map([
+      ['c1', makeChurch(1)],
+      ['c2', makeChurch(1)],
+      ['c3', makeChurch(3)],
+    ]);
+    const messageQueues = new Map([
+      ['c1', [{}, {}]],
+      ['c2', []],
+      ['c3', [{}]],
+    ]);
+    const runtimeMetrics = {
+      snapshot: () => ({
+        windowSeconds: 60,
+        counters: { 'church.status_update.in': 120 },
+        ratesPerSecond: { 'church.status_update.in': 2 },
+        totals: { 'church.status_update.in': 512 },
+      }),
+      eventLoopSnapshot: () => ({ p95_ms: 12.5, utilization: 0.42 }),
+    };
+    const runtimeCoordinator = {
+      enabled: true,
+      instanceId: 'instance-a',
+      publishChannel: 'tally:runtime:events',
+    };
+    const ctx = makeCtx({
+      churches,
+      controllers: new Set([controllerA, controllerB]),
+      messageQueues,
+      runtimeMetrics,
+      runtimeCoordinator,
+    });
+    const { app, routes } = makeApp();
+
+    setupHealthRoutes(app, ctx);
+    const { body } = callRoute(routes, '/api/health');
+
+    expect(body.realtime.eventLoop.p95_ms).toBe(12.5);
+    expect(body.realtime.sockets.connectedChurches).toBe(2);
+    expect(body.realtime.sockets.connectedChurchInstances).toBe(2);
+    expect(body.realtime.sockets.controllerConnections).toBe(2);
+    expect(body.realtime.sockets.previewSubscriptions).toBe(3);
+    expect(body.realtime.queues.queuedChurches).toBe(2);
+    expect(body.realtime.queues.queuedMessages).toBe(3);
+    expect(body.realtime.rates1m['church.status_update.in']).toBe(2);
+    expect(body.realtime.totals['church.status_update.in']).toBe(512);
+    expect(body.realtime.coordination.enabled).toBe(true);
+    expect(body.realtime.coordination.instanceId).toBe('instance-a');
   });
 });
 

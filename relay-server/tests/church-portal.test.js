@@ -203,6 +203,7 @@ function createTestDb() {
     CREATE TABLE IF NOT EXISTS rooms (
       id          TEXT PRIMARY KEY,
       campus_id   TEXT NOT NULL,
+      church_id   TEXT NOT NULL,
       name        TEXT NOT NULL,
       description TEXT DEFAULT '',
       created_at  TEXT NOT NULL,
@@ -588,8 +589,8 @@ describe('Church Portal API', () => {
     });
 
     it('church A cannot delete church B room', async () => {
-      db.prepare('INSERT INTO rooms (id, campus_id, name, created_at) VALUES (?, ?, ?, ?)')
-        .run('room-b-1', CHURCH_B_ID, 'Beta Room', new Date().toISOString());
+      db.prepare('INSERT INTO rooms (id, campus_id, church_id, name, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run('room-b-1', CHURCH_B_ID, CHURCH_B_ID, 'Beta Room', new Date().toISOString());
 
       const res = await client.delete('/api/church/rooms/room-b-1', authHeaders(tokenA));
       expect(res.status).toBe(404);
@@ -1705,8 +1706,8 @@ describe('Church Portal API', () => {
 
       // Create a room
       roomId = 'test-room-001';
-      db.prepare("INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, 'Main Sanctuary', '', ?, 'sk-main')")
-        .run(roomId, CHURCH_A_ID, new Date().toISOString());
+      db.prepare("INSERT INTO rooms (id, campus_id, church_id, name, description, created_at, stream_key) VALUES (?, ?, ?, 'Main Sanctuary', '', ?, 'sk-main')")
+        .run(roomId, CHURCH_A_ID, CHURCH_A_ID, new Date().toISOString());
     });
 
     afterEach(() => {
@@ -1788,8 +1789,8 @@ describe('Church Portal API', () => {
 
     it('Room-scoped TD only sees assigned room in /api/church/rooms', async () => {
       // Create a second room
-      db.prepare("INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, 'Youth Room', '', ?, 'sk-youth')")
-        .run('test-room-002', CHURCH_A_ID, new Date().toISOString());
+      db.prepare("INSERT INTO rooms (id, campus_id, church_id, name, description, created_at, stream_key) VALUES (?, ?, ?, 'Youth Room', '', ?, 'sk-youth')")
+        .run('test-room-002', CHURCH_A_ID, CHURCH_A_ID, new Date().toISOString());
 
       // Assign TD to only room 1
       db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')

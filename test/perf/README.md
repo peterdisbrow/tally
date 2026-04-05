@@ -100,6 +100,9 @@ Useful knobs:
 - `INSTANCES_PER_CHURCH` creates multiple `/church` sockets for the same church, which is useful for multi-room churches.
 - `CONTROLLER_CLIENTS` adds controller sockets so you can measure relay fan-out.
 - `STATUS_INTERVAL_MS` controls how often each church client sends `status_update`.
+- `HEALTH_BASE_URL` overrides which relay HTTP base URL should be polled for `/api/health`. By default it is derived from `BASE_WS`.
+- `HEALTH_POLL_MS` enables periodic health polling during the run so the harness captures event-loop lag, queue depth, and preview subscription counts from the relay.
+- `MAX_HEALTH_EVENT_LOOP_P95_MS` and `MAX_HEALTH_QUEUE_MESSAGES` add optional fail thresholds for the sampled health telemetry.
 - `DRY_RUN=1` parses the token file and prints the connection plan without opening sockets.
 
 Baseline expectations:
@@ -108,3 +111,4 @@ Baseline expectations:
 - Controller connection failure rate should stay below `1%`.
 - Status send failure rate should stay below `1%`.
 - Controller-observed status lag p95 should stay under `1000ms` for a healthy relay.
+- When health polling is enabled, event-loop lag p95 and queued message depth should stay comfortably below your chosen thresholds.

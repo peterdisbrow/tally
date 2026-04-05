@@ -564,6 +564,15 @@ loadFleet();
 // ─── MAIN SETUP ───────────────────────────────────────────────────────────────
 
 function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
+  const listObservedChurches = typeof opts.listObservedChurches === 'function'
+    ? opts.listObservedChurches
+    : () => Array.from(churches.values());
+  const getObservedChurch = typeof opts.getObservedChurch === 'function'
+    ? opts.getObservedChurch
+    : (churchId) => churches.get(churchId) || null;
+  const dispatchRemoteCommand = typeof opts.dispatchRemoteCommand === 'function'
+    ? opts.dispatchRemoteCommand
+    : null;
   const adminQuery = opts.queryClient || (
     db && typeof db.query === 'function'
       && typeof db.run === 'function'
@@ -719,7 +728,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   app.get('/api/admin/overview', requireAdminSession, async (req, res) => {
     const totalChurches = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM churches'))?.cnt || 0;
     const totalResellers = (await qMaybeOne('SELECT COUNT(*) AS cnt FROM resellers WHERE active=1'))?.cnt || 0;
-    const onlineNow = Array.from(churches.values()).filter(c => c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)).length;
+    const onlineNow = listObservedChurches().filter(c => (typeof c.connected === 'boolean' ? c.connected : hasOpenSocket(c, WebSocket.OPEN))).length;
     let activeAlerts = 0;
     try {
       activeAlerts = (await qOne(
@@ -769,7 +778,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     // Pre-fetch room counts for all churches in this page
     const list = rows.map(row => {
-      const runtime = churches.get(row.churchId);
+      const runtime = getObservedChurch(row.churchId);
       return {
         churchId:         row.churchId,
         name:             row.name,
@@ -779,7 +788,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         reseller_id:      row.reseller_id || null,
         audio_via_atem:   row.audio_via_atem || 0,
         registeredAt:     row.registeredAt,
-        connected:        hasOpenSocket(runtime, WebSocket.OPEN),
+        connected:        runtime ? (typeof runtime.connected === 'boolean' ? runtime.connected : hasOpenSocket(runtime, WebSocket.OPEN)) : false,
         status:           runtime?.status || { connected: false },
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,
@@ -887,7 +896,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       { table: 'church_tds', column: 'church_id' },
       { table: 'church_schedules', column: 'church_id' },
       { table: 'church_reviews', column: 'church_id' },
-      { table: 'guest_tokens', column: 'churchId' },
+      { table: 'guest_tokens', column: 'church_id' },
       { table: 'maintenance_windows', column: 'churchId' },
       { table: 'email_sends', column: 'church_id' },
       { table: 'referrals', column: 'referrer_id' },
@@ -899,7 +908,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       { table: 'automation_rules', column: 'church_id' },
       { table: 'church_documents', column: 'church_id' },
       { table: 'church_macros', column: 'church_id' },
-      { table: 'rooms', column: 'campus_id' },
+      { table: 'rooms', column: 'church_id' },
       { table: 'billing_customers', column: 'church_id' },
       { table: 'billing_disputes', column: 'church_id' },
       { table: 'service_sessions', column: 'church_id' },
@@ -1364,7 +1373,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         [churchId],
       );
     } catch { /* rooms table may not exist */ }
-    const runtime = churches.get(churchId);
+    const runtime = getObservedChurch(churchId);
     const roomInstanceMap = runtime?.roomInstanceMap || {};
     res.json({ rooms, roomInstanceMap });
   });
@@ -1415,7 +1424,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const cleanName = String(name).trim();
       const cleanDesc = String(description || '').trim();
       const created_at = new Date().toISOString();
-      await qRun('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)', [id, churchId, cleanName, cleanDesc, created_at]);
+      await qRun('INSERT INTO rooms (id, campus_id, church_id, name, description, created_at) VALUES (?, ?, ?, ?, ?, ?)', [id, churchId, churchId, cleanName, cleanDesc, created_at]);
       auditFromReq(req, 'room_created', 'room', id, { churchId, name: cleanName });
       res.status(201).json({ id, campus_id: churchId, name: cleanName, description: cleanDesc, created_at, church_name: church.name });
     } catch (e) {
@@ -1658,8 +1667,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const churchRow = await qOne('SELECT * FROM churches WHERE churchId = ?', [churchId]);
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
-    const runtime = churches.get(churchId);
-    const online = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
+    const runtime = getObservedChurch(churchId);
+    const online = runtime ? (typeof runtime.connected === 'boolean' ? runtime.connected : hasOpenSocket(runtime, WebSocket.OPEN)) : false;
 
     // ── Church info ──
     const church = {
@@ -1986,11 +1995,27 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       }
     }
 
-    if (openSockets.length === 0) {
+    const commandId = uuidv4();
+    let remotePublished = false;
+    if (dispatchRemoteCommand) {
+      const remoteResult = await dispatchRemoteCommand(
+        {
+          type: 'command',
+          churchId,
+          command,
+          params: params || {},
+          id: commandId,
+          roomId: roomId || null,
+        },
+        { churchId, roomId: roomId || null, source: 'admin_portal', hasLocalDelivery: openSockets.length > 0 },
+      );
+      remotePublished = !!remoteResult?.remotePublished;
+    }
+
+    if (openSockets.length === 0 && !remotePublished) {
       return res.status(409).json({ error: 'Church client is not connected' });
     }
 
-    const commandId = uuidv4();
     const payload = JSON.stringify({
       type: 'command',
       id: commandId,
@@ -2001,7 +2026,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       for (const sock of openSockets) sock.send(payload);
       auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId, roomId: roomId || null });
-      res.json({ sent: true, commandId, targetedRoom: roomId || null, instanceCount: openSockets.length });
+      res.json({ sent: true, commandId, targetedRoom: roomId || null, instanceCount: openSockets.length, remotePublished });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
     }
@@ -2065,8 +2090,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const now = Date.now();
     const churchList = [];
     for (const row of rows) {
-      const runtime = churches.get(row.churchId);
-      const online = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
+      const runtime = getObservedChurch(row.churchId);
+      const online = runtime ? (typeof runtime.connected === 'boolean' ? runtime.connected : hasOpenSocket(runtime, WebSocket.OPEN)) : false;
 
       // Health score
       let score = null;
@@ -2319,11 +2344,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   app.get('/api/portal/churches', requireResellerSession, async (req, res) => {
     const rows = await qAll('SELECT * FROM churches WHERE reseller_id=?', [req.reseller.id]);
     const list = rows.map(row => {
-      const runtime = churches.get(row.churchId);
+      const runtime = getObservedChurch(row.churchId);
       return {
         churchId:         row.churchId,
         name:             row.name,
-        connected:        hasOpenSocket(runtime, WebSocket.OPEN),
+        connected:        runtime ? (typeof runtime.connected === 'boolean' ? runtime.connected : hasOpenSocket(runtime, WebSocket.OPEN)) : false,
         status:           runtime?.status || null,
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,

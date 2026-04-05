@@ -78,11 +78,13 @@ function loadRelayClient() {
       this.url = url;
       this.readyState = MockWebSocket.CONNECTING;
       this._lastSent = null;
+      this._sentMessages = [];
       instances.push(this);
     }
 
     send(data) {
       this._lastSent = data;
+      this._sentMessages.push(data);
     }
 
     close() {
@@ -743,6 +745,28 @@ test('sendPreviewCommand preview.start forwards preview_frame to mainWindow rend
   await promise;
 });
 
+test('sendPreviewCommand preview.start subscribes before sending the preview command', async () => {
+  const { client, instances } = loadRelayClient();
+  client.init({ loadConfig: () => makeConfig(), getMainWindow: () => null });
+
+  const promise = client.sendPreviewCommand('preview.start');
+  await new Promise((r) => setImmediate(r));
+
+  const ws = instances[0];
+  ws.simulateOpen();
+  await new Promise((r) => setImmediate(r));
+
+  const sent = ws._sentMessages.map((entry) => JSON.parse(entry));
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[0], { type: 'preview_subscribe', churchId: 'ch_test' });
+  assert.equal(sent[1].type, 'command');
+  assert.equal(sent[1].command, 'preview.start');
+  assert.equal(sent[1].churchId, 'ch_test');
+
+  ws.simulateClose(1000);
+  await promise;
+});
+
 test('sendPreviewCommand preview.start does not forward frames for wrong churchId', async () => {
   const { client, instances } = loadRelayClient();
   const sentToRenderer = [];
@@ -810,6 +834,33 @@ test('sendPreviewCommand preview.start forwards multiple frames in sequence', as
 
   ws.simulateClose(1000);
   await promise;
+});
+
+test('sendPreviewCommand preview.stop unsubscribes and closes the active preview socket first', async () => {
+  const { client, instances } = loadRelayClient();
+  client.init({ loadConfig: () => makeConfig(), getMainWindow: () => null });
+
+  const startPromise = client.sendPreviewCommand('preview.start');
+  await new Promise((r) => setImmediate(r));
+
+  const previewWs = instances[0];
+  previewWs.simulateOpen();
+  await new Promise((r) => setImmediate(r));
+
+  const stopPromise = client.sendPreviewCommand('preview.stop');
+  await new Promise((r) => setImmediate(r));
+
+  const previewMessages = previewWs._sentMessages.map((entry) => JSON.parse(entry));
+  assert.deepEqual(previewMessages[2], { type: 'preview_unsubscribe', churchId: 'ch_test' });
+
+  const stopWs = instances[1];
+  stopWs.simulateOpen();
+
+  const stopResult = await stopPromise;
+  assert.equal(stopResult.success, true);
+
+  previewWs.simulateClose(1000);
+  await startPromise;
 });
 
 // ─── sendPreviewCommand — error / close fallbacks ─────────────────────────────

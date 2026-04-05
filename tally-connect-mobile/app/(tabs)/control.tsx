@@ -319,7 +319,7 @@ export default function ControlScreen() {
     const cmd = next ? 'streamProtection.enable' : 'streamProtection.disable';
     const label = next ? 'Enable Stream Protection' : 'Disable Stream Protection';
     try {
-      await executeCommand(cmd, {}, false, label);
+      await executeCommand(cmd, {}, label);
     } catch {
       setSpOptimistic(null); // revert on failure
     }

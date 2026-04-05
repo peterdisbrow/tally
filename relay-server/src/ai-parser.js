@@ -516,7 +516,7 @@ function getAvailableCommandNames() {
     // Keep parser command surface aligned with the church client runtime.
     // This path exists in monorepo and local/dev contexts.
     // In partial deployments, we fall back to a static snapshot.
-    // eslint-disable-next-line global-require, import/no-dynamic-require
+    // eslint-disable-next-line global-require
     const { commandHandlers } = require('../../church-client/src/commands/index');
     const runtimeCommands = Object.keys(commandHandlers || {}).sort();
     if (runtimeCommands.length > 0) return runtimeCommands;

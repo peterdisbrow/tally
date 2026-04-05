@@ -34,6 +34,7 @@ function createMobileWebSocketHandler({
   log = console.log,
   checkCommandRateLimit = async () => ({ ok: true }),
   onRundownMessage = null,
+  dispatchRemoteCommand = null,
 }) {
   // Track mobile clients: Map<churchId, Set<ws>>
   const mobileClients = new Map();
@@ -203,10 +204,6 @@ function createMobileWebSocketHandler({
             if (!msg.command) break;
 
             const runtime = churches.get(churchId);
-            if (!runtime) {
-              _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
-              break;
-            }
 
             // Rate limit
             const rateCheck = await checkCommandRateLimit(churchId);
@@ -229,7 +226,7 @@ function createMobileWebSocketHandler({
             // If roomId is specified, find the instance serving that room
             const roomId = msg.roomId;
             let sent = false;
-            if (roomId && runtime.roomInstanceMap) {
+            if (runtime && roomId && runtime.roomInstanceMap) {
               const targetInstance = runtime.roomInstanceMap[roomId];
               const targetSocket = targetInstance && runtime.sockets?.get(targetInstance);
               if (targetSocket?.readyState === 1) {
@@ -240,7 +237,7 @@ function createMobileWebSocketHandler({
 
             // Fallback: broadcast to all instances (same as controller behavior)
             if (!sent) {
-              if (runtime.sockets?.size) {
+              if (runtime?.sockets?.size) {
                 for (const sock of runtime.sockets.values()) {
                   if (sock.readyState === 1) {
                     _safeSend(sock, cmdPayload);
@@ -250,11 +247,20 @@ function createMobileWebSocketHandler({
               }
             }
 
-            if (!sent) {
+            let remoteDelivered = false;
+            if (dispatchRemoteCommand) {
+              const remoteResult = await dispatchRemoteCommand(
+                { ...cmdPayload, churchId, roomId: roomId || null },
+                { churchId, roomId: roomId || null, source: 'mobile', hasLocalDelivery: sent },
+              );
+              remoteDelivered = !!remoteResult?.remotePublished;
+            }
+
+            if (!sent && !remoteDelivered) {
               _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
             }
 
-            log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (sent=${sent})`);
+            log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (local=${sent} remote=${remoteDelivered})`);
             break;
           }
 
@@ -274,11 +280,18 @@ function createMobileWebSocketHandler({
           case 'stream_protection_command': {
             // Route stream protection commands from mobile to church agent
             const spChurch = churches.get(churchId);
+            const fwd = { type: 'stream_protection_command', action: msg.action, churchId };
+            let delivered = false;
             if (spChurch && spChurch.sockets?.size) {
-              const fwd = { type: 'stream_protection_command', action: msg.action };
               for (const sock of spChurch.sockets.values()) {
-                if (sock.readyState === 1) _safeSend(sock, fwd);
+                if (sock.readyState === 1) {
+                  _safeSend(sock, fwd);
+                  delivered = true;
+                }
               }
+            }
+            if (!delivered && dispatchRemoteCommand) {
+              await dispatchRemoteCommand(fwd, { churchId, source: 'mobile' });
             }
             break;
           }

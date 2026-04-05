@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "electron-app-static",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "electron-app/src", "--no-clipboard"],
+      "runtimeExecutable": "/opt/homebrew/bin/python3",
+      "runtimeArgs": ["-m", "http.server", "5557"],
       "port": 5557,
+      "cwd": "/Users/andrewdisbrow/Documents/TallyConnect/church-av/electron-app/src",
       "autoPort": false
     },
     {
@@ -16,6 +17,14 @@
       "env": {
         "NODE_ENV": "development"
       }
+    },
+    {
+      "name": "portal-preview",
+      "runtimeExecutable": "/opt/homebrew/bin/python3",
+      "runtimeArgs": ["-m", "http.server", "5558"],
+      "port": 5558,
+      "cwd": "/Users/andrewdisbrow/Documents/TallyConnect/church-av/relay-server/public",
+      "autoPort": false
     },
     {
       "name": "admin-dev",

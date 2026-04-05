@@ -9,8 +9,12 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
   const { db, queryClient, churches, requireAdmin, requireFeature,
           onCallRotation, guestTdMode, eventMode, safeErrorMessage,
           checkCommandRateLimit, checkBillingAccessForCommand,
+          dispatchRemoteCommand,
           safeSend, queueMessage, messageQueues, uuidv4,
           totalMessagesRelayed, QUEUE_TTL_MS, log } = ctx;
+  const getObservedChurch = typeof ctx.getObservedChurch === 'function'
+    ? ctx.getObservedChurch
+    : (churchId) => churches.get(churchId) || null;
   const WebSocket = require('ws').WebSocket;
   const hasQueryClient = !!queryClient;
   const qOne = (sql, params = []) =>
@@ -19,6 +23,12 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params);
   const qRun = (sql, params = []) =>
     hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params);
+
+  function isConnected(church) {
+    if (!church) return false;
+    if (typeof church.connected === 'boolean') return church.connected;
+    return !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
+  }
 
   // ─── COMMAND DISPATCH ────────────────────────────────────────────────────────
 
@@ -42,8 +52,26 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const msg = { type: 'command', command, params, id: uuidv4() };
     ctx.totalMessagesRelayed++;
 
-    const hasOpen = church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN);
-    if (!hasOpen) {
+    let localRecipients = 0;
+    if (church.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState !== WebSocket.OPEN) continue;
+        safeSend(sock, msg);
+        localRecipients++;
+      }
+    }
+
+    let remotePublished = false;
+    if (dispatchRemoteCommand) {
+      const remoteResult = await dispatchRemoteCommand(msg, {
+        churchId,
+        source: 'admin_http',
+        hasLocalDelivery: localRecipients > 0,
+      });
+      remotePublished = !!remoteResult?.remotePublished;
+    }
+
+    if (localRecipients === 0 && !remotePublished) {
       if (church.disconnectedAt && (Date.now() - church.disconnectedAt) < QUEUE_TTL_MS) {
         queueMessage(churchId, msg);
         log(`CMD → ${church.name}: ${command} (queued — church offline)`);
@@ -52,10 +80,8 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
       return res.status(503).json({ error: 'Church client not connected' });
     }
 
-    // Send to ALL connected instances — each agent handles only its own devices
-    for (const sock of church.sockets.values()) safeSend(sock, msg);
-    log(`CMD → ${church.name}: ${command} ${JSON.stringify(params)}`);
-    res.json({ sent: true, messageId: msg.id });
+    log(`CMD → ${church.name}: ${command} ${JSON.stringify(params)} (local=${localRecipients} remote=${remotePublished})`);
+    res.json({ sent: true, messageId: msg.id, localRecipients, remotePublished });
   });
 
   app.post('/api/broadcast', requireAdmin, (req, res) => {
@@ -78,23 +104,23 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
   // ─── CHURCH STATUS & DETAIL ──────────────────────────────────────────────────
 
   app.get('/api/churches/:churchId/status', requireAdmin, (req, res) => {
-    const church = churches.get(req.params.churchId);
+    const church = getObservedChurch(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     res.json({
       name: church.name,
-      connected: !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
+      connected: isConnected(church),
       status: church.status,
       lastSeen: church.lastSeen,
     });
   });
 
   app.get('/api/churches/:churchId', requireAdmin, async (req, res) => {
-    const church = churches.get(req.params.churchId);
+    const church = getObservedChurch(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
     res.json({
       churchId: church.churchId, name: church.name,
-      connected: !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)),
+      connected: isConnected(church),
       status: church.status, lastSeen: church.lastSeen,
       registrationCode: row?.registration_code || null,
       token: row?.token,
