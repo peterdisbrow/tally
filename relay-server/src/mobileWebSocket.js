@@ -33,6 +33,7 @@ function createMobileWebSocketHandler({
   pushNotifications = null,
   log = console.log,
   checkCommandRateLimit = async () => ({ ok: true }),
+  onRundownMessage = null,
 }) {
   // Track mobile clients: Map<churchId, Set<ws>>
   const mobileClients = new Map();
@@ -254,6 +255,19 @@ function createMobileWebSocketHandler({
             }
 
             log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (sent=${sent})`);
+            break;
+          }
+
+          case 'rundown_start':
+          case 'rundown_advance':
+          case 'rundown_back':
+          case 'rundown_goto':
+          case 'rundown_end':
+          case 'rundown_get_state': {
+            // Route live rundown commands to the server-side handler
+            if (typeof onRundownMessage === 'function') {
+              onRundownMessage(churchId, msg, ws);
+            }
             break;
           }
 

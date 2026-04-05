@@ -59,6 +59,88 @@ export interface ViewerSnapshot {
   facebook?: { viewers: number };
 }
 
+// ── Live Rundown (show-calling) ──────────────────────────────────────────────
+
+export interface RundownItem {
+  index: number;
+  id: string;
+  title: string;
+  itemType: string;
+  servicePosition: string;
+  lengthSeconds: number;
+  description: string | null;
+  songTitle: string | null;
+  author: string | null;
+  arrangementKey: string | null;
+  plannedStartOffset: number;
+  estimatedStartMs?: number;
+  status?: 'completed' | 'current' | 'upcoming';
+  actualDuration?: number | null;
+  // Current item enrichments
+  elapsedSeconds?: number;
+  remainingSeconds?: number | null;
+  overtimeSeconds?: number;
+  isOvertime?: boolean;
+  isWarning?: boolean;
+}
+
+export interface ScheduleDelta {
+  seconds: number;
+  label: string;
+  isAhead: boolean;
+  isBehind: boolean;
+  isOnTime: boolean;
+}
+
+export interface RundownState {
+  type: 'rundown_state' | 'rundown_position';
+  churchId: string;
+  planId: string;
+  planTitle: string;
+  callerName: string;
+  state: 'active' | 'paused' | 'ended';
+  currentIndex: number;
+  totalItems: number;
+  currentItem: RundownItem | null;
+  items: RundownItem[];
+  scheduleDelta: ScheduleDelta;
+  startedAt: number;
+  scheduledStart: number | null;
+  totalPlannedDuration: number;
+  totalElapsed: number;
+  timestamp: number;
+  active?: boolean;
+}
+
+export interface RundownTick {
+  type: 'rundown_tick';
+  churchId: string;
+  currentIndex: number;
+  elapsedSeconds: number;
+  remainingSeconds: number | null;
+  isOvertime: boolean;
+  overtimeSeconds: number;
+  isWarning: boolean;
+  scheduleDelta: ScheduleDelta;
+  totalElapsed: number;
+  timestamp: number;
+}
+
+export interface RundownEnded {
+  type: 'rundown_ended';
+  planId: string;
+  planTitle: string;
+  totalDuration: number;
+  totalPlannedDuration: number;
+  reason: string;
+}
+
+export interface RundownError {
+  type: 'rundown_error';
+  error: string;
+  messageId?: string;
+}
+
 export type ServerMessage =
   | StatusUpdate
   | AlertMessage
@@ -66,6 +148,10 @@ export type ServerMessage =
   | ChurchConnected
   | ChurchDisconnected
   | ViewerSnapshot
+  | RundownState
+  | RundownTick
+  | RundownEnded
+  | RundownError
   | { type: string; [key: string]: unknown };
 
 // Device status shape from church-client status_update
