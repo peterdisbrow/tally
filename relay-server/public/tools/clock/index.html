@@ -60,7 +60,7 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
 .time-display {
   font-family: 'DSEG7-Classic', monospace; font-weight: 700;
   letter-spacing: 0.05em; white-space: nowrap; line-height: 1.1;
-  transition: color 0.3s, font-size 0.15s ease-out;
+  transition: color 0.3s;
 }
 .time-display.pulse { animation: pulse 0.8s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -518,7 +518,7 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
     ntpStatusEl.innerHTML = dot + ' ' + label;
   }
 
-  // ── Auto-size ──
+  // ── Auto-size (matches original ResizeObserver approach) ──
   function doAutoSize() {
     if (!autoSize || displayStyle !== 'digital') return;
     const containerW = document.body.clientWidth * 0.95;
@@ -527,7 +527,10 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
       const scale = containerW / tw;
       const newSize = Math.floor(fontSize * scale);
       const clamped = Math.max(30, Math.min(newSize, 800));
-      if (Math.abs(clamped - fontSize) > 2) { fontSize = clamped; }
+      if (Math.abs(clamped - fontSize) > 2) {
+        fontSize = clamped;
+        timeDisplay.style.fontSize = (fontSize * 0.6) + 'px';
+      }
     }
   }
 
@@ -967,8 +970,8 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
   // Render loop — 30fps for smooth ms display
   setInterval(render, 33);
 
-  // Auto-size on resize
-  window.addEventListener('resize', () => { if (autoSize) doAutoSize(); });
+  // Auto-size on resize (ResizeObserver like original broadcast-brilliance)
+  new ResizeObserver(() => { if (autoSize) doAutoSize(); }).observe(document.body);
 
 })();
 </script>
