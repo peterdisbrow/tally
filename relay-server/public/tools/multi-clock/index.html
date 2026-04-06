@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multi-Clock Wall — TallyConnect</title>
+<title>Multi-Clock — TallyConnect</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -125,6 +125,15 @@ body.toolbar-visible #grid { height: calc(100% - 44px); margin-top: 44px; }
   white-space: nowrap;
 }
 
+.cell-ampm {
+  font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+  opacity: 0.5;
+  letter-spacing: 2px;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.cell-ampm:empty { display: none; }
+
 .cell-time.warning { color: #ffcc00 !important; }
 .cell-time.overtime { animation: pulse-overtime 0.5s ease-in-out infinite alternate; }
 
@@ -206,7 +215,7 @@ body.toolbar-visible .cell-gear { display: flex; }
   <div class="sep"></div>
   <button id="btn-add">+ Add Clock</button>
   <div class="sep"></div>
-  <a href="/tools/clock" target="_blank">Open Single Clock</a>
+  <a href="/tools/clock">Single Clock</a>
 </div>
 
 <div id="grid" class="layout-2wide"></div>
@@ -349,14 +358,14 @@ function formatWallClock(now, cell) {
 
   let ampm = '';
   if (cell.is12h) {
-    ampm = hours >= 12 ? ' PM' : ' AM';
+    ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
   }
 
   let hStr = cell.hideLeadingZero ? String(hours) : String(hours).padStart(2, '0');
   let r = hStr + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
   if (cell.showTenths) r += '.' + Math.floor(ms / 100);
-  return r + ampm;
+  return { text: r, ampm: ampm };
 }
 
 // ── RENDER ──
@@ -379,10 +388,11 @@ function createCellEl(cell, idx) {
     <div class="cell-gear" data-idx="${idx}">&#9881;</div>
     <div class="cell-name">${cell.name}</div>
     <div class="cell-time" style="color:${cell.color}; font-family:${FONTS[cell.font] || FONTS.system}">--:--:--</div>
+    <div class="cell-ampm" style="color:${cell.color}"></div>
     <div class="cell-config">
       <label>Mode</label>
       <select class="cfg-mode">
-        <option value="clock">Wall Clock</option>
+        <option value="clock">Clock</option>
         <option value="stopwatch">Count Up</option>
         <option value="countdown">Countdown</option>
         <option value="countto">Count To</option>
@@ -439,6 +449,7 @@ function createCellEl(cell, idx) {
   el.querySelector('.cfg-color').addEventListener('change', (e) => {
     cell.color = e.target.value;
     el.querySelector('.cell-time').style.color = e.target.value;
+    el.querySelector('.cell-ampm').style.color = e.target.value;
     el.querySelector('.cell-name').style.color = e.target.value;
   });
   el.querySelector('.cfg-font').addEventListener('change', (e) => {
@@ -512,13 +523,18 @@ function updateAll() {
     if (i >= cells.length) return;
     const cell = cells[i];
     const timeEl = el.querySelector('.cell-time');
+    const ampmEl = el.querySelector('.cell-ampm');
     let text = '--:--:--';
+    let ampm = '';
     let isWarning = false, isOvertime = false;
 
     switch (cell.mode) {
-      case 'clock':
-        text = formatWallClock(now, cell);
+      case 'clock': {
+        const wc = formatWallClock(now, cell);
+        text = wc.text;
+        ampm = wc.ampm;
         break;
+      }
       case 'stopwatch':
         if (cell.running) cell.elapsed = now - cell.startTime;
         text = formatTime(cell.elapsed, cell);
@@ -543,6 +559,7 @@ function updateAll() {
     timeEl.textContent = text;
     timeEl.classList.toggle('warning', isWarning);
     timeEl.classList.toggle('overtime', isOvertime);
+    ampmEl.textContent = ampm;
 
     // Auto-size font
     const container = el;
@@ -562,19 +579,22 @@ function updateAll() {
 }
 
 // ── TOOLBAR ──
-let toolbarTimer = null;
 function showToolbar() {
   document.body.classList.add('toolbar-visible');
-  clearTimeout(toolbarTimer);
-  toolbarTimer = setTimeout(() => document.body.classList.remove('toolbar-visible'), 5000);
 }
+function hideToolbar() {
+  document.body.classList.remove('toolbar-visible');
+}
+// Show toolbar by default on load
+showToolbar();
+// Show toolbar on mouse move to top
 document.addEventListener('mousemove', (e) => {
-  if (e.clientY < 60 || document.body.classList.contains('toolbar-visible')) showToolbar();
+  if (e.clientY < 60 && !document.body.classList.contains('toolbar-visible')) showToolbar();
 });
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#toolbar') && !e.target.closest('.cell-config') && !e.target.closest('.cell-gear')) {
-    clearTimeout(toolbarTimer);
-    document.body.classList.remove('toolbar-visible');
+// Escape toggles toolbar
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.body.classList.contains('toolbar-visible') ? hideToolbar() : showToolbar();
   }
 });
 

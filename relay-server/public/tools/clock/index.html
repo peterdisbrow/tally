@@ -138,6 +138,14 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
   transition: font-size 0.15s ease;
 }
 
+#clock-ampm {
+  font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+  color: var(--color);
+  opacity: 0.5;
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+
 #clock-display.warning { color: var(--warning-color) !important; }
 #clock-display.overtime { animation: pulse-overtime 0.5s ease-in-out infinite alternate; }
 
@@ -274,7 +282,7 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
     <div class="group">
       <label>Mode</label>
       <select id="sel-mode">
-        <option value="clock">Wall Clock</option>
+        <option value="clock">Clock</option>
         <option value="stopwatch">Count Up</option>
         <option value="countdown">Countdown</option>
         <option value="countto">Count To</option>
@@ -359,6 +367,9 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
       <input type="text" id="inp-name" placeholder="Clock name" style="width:100px" />
     </div>
     <div class="group">
+      <a href="/tools/multi-clock" style="color:var(--text);text-decoration:none;font-size:11px;opacity:0.6;padding:3px 8px" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Multi-Clock</a>
+    </div>
+    <div class="group">
       <button id="btn-presets">Presets</button>
       <button id="btn-help">?</button>
     </div>
@@ -368,6 +379,7 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
 <div id="clock-container">
   <div id="clock-name"></div>
   <div id="clock-display">00:00:00</div>
+  <div id="clock-ampm"></div>
   <div id="analog-clock">
     <svg viewBox="0 0 400 400" id="analog-svg"></svg>
   </div>
@@ -400,7 +412,7 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
 </div>
 
 <div id="keyboard-help">
-  <div><kbd>C</kbd> Wall Clock</div>
+  <div><kbd>C</kbd> Clock</div>
   <div><kbd>S</kbd> Stopwatch</div>
   <div><kbd>D</kbd> Countdown</div>
   <div><kbd>M</kbd> Count To</div>
@@ -431,6 +443,7 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
 // ── DOM REFS ──
 const $ = id => document.getElementById(id);
 const clockDisplay = $('clock-display');
+const clockAmpm = $('clock-ampm');
 const clockName = $('clock-name');
 const clockContainer = $('clock-container');
 const analogClock = $('analog-clock');
@@ -596,27 +609,31 @@ function formatWallClock(now) {
 
   let ampm = '';
   if (state.is12h) {
-    ampm = hours >= 12 ? ' PM' : ' AM';
+    ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
   }
 
   let hStr = state.hideLeadingZero ? String(hours) : String(hours).padStart(2, '0');
   let result = hStr + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
   if (state.showTenths) result += '.' + Math.floor(ms / 100);
-  return result + ampm;
+  return { text: result, ampm: ampm };
 }
 
 // ── DISPLAY UPDATE ──
 function updateDisplay() {
   const now = syncedNow();
   let text = '';
+  let ampm = '';
   let isWarning = false;
   let isOvertime = false;
 
   switch (state.mode) {
-    case 'clock':
-      text = formatWallClock(now);
+    case 'clock': {
+      const wc = formatWallClock(now);
+      text = wc.text;
+      ampm = wc.ampm;
       break;
+    }
 
     case 'stopwatch':
       if (state.running) {
@@ -655,16 +672,22 @@ function updateDisplay() {
     clockDisplay.classList.toggle('overtime', isOvertime);
     clockDisplay.style.display = '';
     analogClock.style.display = 'none';
+    // AM/PM in separate element (avoids DSEG font "AN" rendering bug)
+    clockAmpm.textContent = ampm;
+    clockAmpm.style.fontSize = Math.max(14, state.fontSize * 0.18) + 'px';
+    clockAmpm.style.display = ampm ? '' : 'none';
   } else {
     // Analog
     clockDisplay.style.display = 'none';
+    clockAmpm.style.display = 'none';
     analogClock.style.display = 'block';
     drawAnalogClock(now);
   }
 
   // Mini clock
   if (state.showMini && state.mode !== 'clock') {
-    miniClock.textContent = formatWallClock(now);
+    const wc = formatWallClock(now);
+    miniClock.textContent = wc.text + (wc.ampm ? ' ' + wc.ampm : '');
     miniClock.style.display = 'block';
   } else if (state.showMini && state.mode === 'clock') {
     miniClock.style.display = 'none';
@@ -939,14 +962,11 @@ $('btn-set-countto').addEventListener('click', () => {
 });
 
 // ── TOOLBAR VISIBILITY ──
-let toolbarTimer = null;
-let toolbarVisible = false;
+let toolbarVisible = true;
 
 function showToolbar() {
   document.body.classList.add('toolbar-visible');
   toolbarVisible = true;
-  clearTimeout(toolbarTimer);
-  toolbarTimer = setTimeout(hideToolbar, 5000);
 }
 
 function hideToolbar() {
@@ -956,15 +976,17 @@ function hideToolbar() {
   keyboardHelp.style.display = 'none';
 }
 
-document.addEventListener('mousemove', (e) => {
-  if (e.clientY < 80 || toolbarVisible) {
-    showToolbar();
-  }
-});
+function toggleToolbar() {
+  toolbarVisible ? hideToolbar() : showToolbar();
+}
 
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#toolbar') && !e.target.closest('#presets-panel') && !e.target.closest('#keyboard-help')) {
-    hideToolbar();
+// Show toolbar by default on load
+showToolbar();
+
+// Show toolbar on mouse move to top
+document.addEventListener('mousemove', (e) => {
+  if (e.clientY < 80 && !toolbarVisible) {
+    showToolbar();
   }
 });
 
@@ -1139,7 +1161,7 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'escape':
-      hideToolbar();
+      toggleToolbar();
       break;
     default:
       // Quick countdown: 1-9 = 1-9 min, 0 = 10 min
