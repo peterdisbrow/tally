@@ -729,9 +729,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   countdownTimer: {
-    fontSize: 52,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
+    fontSize: 56,
+    fontFamily: 'JetBrainsMono-Bold',
     letterSpacing: -1,
   },
   timerLabel: {
@@ -785,10 +784,11 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontFamily: 'JetBrainsMono-Bold',
   },
   elapsedText: {
     fontSize: fontSize.xs,
+    fontFamily: 'JetBrainsMono-Bold',
     marginTop: 2,
   },
 
@@ -886,6 +886,7 @@ const styles = StyleSheet.create({
   },
   itemDuration: {
     fontSize: fontSize.xs,
+    fontFamily: 'JetBrainsMono-Bold',
   },
   itemKey: {
     fontSize: fontSize.xs,
@@ -899,10 +900,11 @@ const styles = StyleSheet.create({
   },
   actualDuration: {
     fontSize: fontSize.xs,
+    fontFamily: 'JetBrainsMono-Bold',
   },
   itemDelta: {
     fontSize: 10,
-    fontWeight: '700',
+    fontFamily: 'JetBrainsMono-Bold',
     marginTop: 1,
   },
 

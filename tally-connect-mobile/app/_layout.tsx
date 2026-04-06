@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
+import { useFonts } from 'expo-font';
 import { useAuthStore } from '../src/stores/authStore';
 import { useChatStore } from '../src/stores/chatStore';
 import { useNotifications } from '../src/hooks/useNotifications';
@@ -62,6 +63,10 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  useFonts({
+    'JetBrainsMono-Bold': require('../assets/fonts/JetBrainsMono-Bold.ttf'),
+  });
+
   return (
     <ErrorBoundary>
       <ThemeProvider>
