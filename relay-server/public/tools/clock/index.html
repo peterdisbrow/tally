@@ -2,1225 +2,973 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Broadcast Clock — TallyConnect</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-/* ── DSEG fonts (embedded subset via CDN-safe data URIs aren't practical, use CSS fallback) ── */
-@font-face {
-  font-family: 'DSEG7-Classic';
-  src: url('fonts/DSEG7Classic-Bold.woff2') format('woff2');
-  font-weight: bold;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'DSEG14-Classic';
-  src: url('fonts/DSEG14Classic-Bold.woff2') format('woff2');
-  font-weight: bold;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'DSEG7-Modern';
-  src: url('fonts/DSEG7Modern-Bold.woff2') format('woff2');
-  font-weight: bold;
-  font-display: swap;
-}
+@font-face { font-family: 'DSEG7-Classic'; src: url('fonts/DSEG7Classic-Bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
+@font-face { font-family: 'DSEG14-Classic'; src: url('fonts/DSEG14Classic-Bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
+@font-face { font-family: 'DSEG7-Modern'; src: url('fonts/DSEG7Modern-Bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-:root {
-  --color: #ff3333;
-  --color-dim: rgba(255,51,51,0.15);
-  --warning-color: #ffcc00;
-  --overtime-color: #ff3333;
-  --bg: #000;
-  --toolbar-bg: rgba(30,30,30,0.95);
-  --toolbar-border: rgba(255,255,255,0.1);
-  --input-bg: rgba(255,255,255,0.08);
-  --input-border: rgba(255,255,255,0.2);
-  --text: #ccc;
-  --text-bright: #fff;
-}
-
 html, body {
   width: 100%; height: 100%;
-  background: var(--bg);
-  color: var(--text);
+  background: #000; color: #ccc;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  overflow: hidden;
-  cursor: none;
-  user-select: none;
+  overflow: hidden; user-select: none;
 }
 
-body.toolbar-visible { cursor: default; }
+body { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; cursor: default; }
 
-/* ── TOOLBAR ── */
-#toolbar {
-  position: fixed; top: 0; left: 0; right: 0;
-  background: var(--toolbar-bg);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--toolbar-border);
-  padding: 6px 12px;
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px;
-  z-index: 100;
-  transform: translateY(-100%);
-  transition: transform 0.3s ease;
-  flex-wrap: wrap;
+/* ── Toolbar (auto-hide after 3s) ── */
+.toolbar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; z-index: 50; transition: opacity 0.5s ease; }
+.toolbar.hidden { opacity: 0; pointer-events: none; }
+.toolbar .left, .toolbar .right { display: flex; align-items: center; gap: 12px; }
+.toolbar button, .toolbar a {
+  background: none; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
+  font: 700 10px/1 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.15em;
+  padding: 5px 10px; cursor: pointer; text-decoration: none; transition: color 0.2s, border-color 0.2s; display: inline-flex; align-items: center; gap: 6px;
 }
-body.toolbar-visible #toolbar { transform: translateY(0); }
+.toolbar button:hover, .toolbar a:hover { color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.3); }
+.toolbar button.active { border-color: currentColor; }
 
-#toolbar .group {
-  display: flex; align-items: center; gap: 4px;
-  padding-right: 8px;
-  border-right: 1px solid var(--toolbar-border);
+/* ── Mode bar (center top) ── */
+.mode-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 50; transition: opacity 0.5s ease; }
+.mode-bar.hidden { opacity: 0; pointer-events: none; }
+.mode-bar button {
+  background: none; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.2);
+  font: 700 11px/1 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.15em;
+  padding: 6px 14px; cursor: pointer; transition: color 0.2s, border-color 0.2s;
 }
-#toolbar .group:last-child { border-right: none; }
+.mode-bar button.active { border-color: currentColor; }
 
-#toolbar label { color: var(--text); font-size: 11px; white-space: nowrap; }
-#toolbar select, #toolbar input[type="text"], #toolbar input[type="number"] {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-bright);
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: inherit;
+/* ── Clock name ── */
+.clock-name {
+  position: absolute; z-index: 40; font: 700 13px/1 'JetBrains Mono', monospace;
+  text-transform: uppercase; letter-spacing: 0.2em; cursor: pointer; transition: opacity 0.5s ease;
 }
-#toolbar select { padding-right: 18px; }
-#toolbar button {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-bright);
-  padding: 3px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  white-space: nowrap;
-  font-family: inherit;
-}
-#toolbar button:hover { background: rgba(255,255,255,0.15); }
-#toolbar button.active { background: var(--color); color: #000; border-color: var(--color); }
-
-.toolbar-row {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  flex-wrap: wrap;
+.clock-name.hidden { opacity: 0; }
+.clock-name input {
+  background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.2);
+  outline: none; text-align: center; font: inherit; text-transform: inherit; letter-spacing: inherit; padding: 2px 8px;
 }
 
-/* ── MAIN DISPLAY ── */
-#clock-container {
-  width: 100%; height: 100%;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  padding: 20px;
-  transition: padding-top 0.3s ease;
+/* ── Main time display ── */
+.time-display {
+  font-family: 'DSEG7-Classic', monospace; font-weight: 700;
+  letter-spacing: 0.05em; white-space: nowrap; line-height: 1.1;
+  transition: color 0.3s, font-size 0.15s ease-out;
 }
-body.toolbar-visible #clock-container { padding-top: 80px; }
+.time-display.pulse { animation: pulse 0.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-#clock-name {
-  font-size: 24px;
-  color: var(--color);
-  opacity: 0.7;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-#clock-name:empty { display: none; }
-
-#clock-display {
-  font-family: 'DSEG7-Classic', 'Share Tech Mono', monospace;
-  color: var(--color);
-  white-space: nowrap;
-  line-height: 1;
-  transition: font-size 0.15s ease;
+.ampm {
+  font: 700 18px/1 'JetBrains Mono', monospace; letter-spacing: 0.2em; margin-top: 4px;
 }
 
-#clock-ampm {
-  font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
-  color: var(--color);
-  opacity: 0.5;
-  letter-spacing: 2px;
-  margin-top: 4px;
+/* ── Mini clock ── */
+.mini-clock {
+  position: absolute; font: 400 18px/1 'JetBrains Mono', monospace; letter-spacing: 0.1em;
+  top: 52px; left: 50%; transform: translateX(-50%); z-index: 40; transition: opacity 0.5s ease;
 }
+.mini-clock.hidden { opacity: 0; }
 
-#clock-display.warning { color: var(--warning-color) !important; }
-#clock-display.overtime { animation: pulse-overtime 0.5s ease-in-out infinite alternate; }
+/* ── Size controls ── */
+.size-controls {
+  position: absolute; bottom: 16px; left: 16px; z-index: 50; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: opacity 0.5s ease;
+}
+.size-controls.hidden { opacity: 0; pointer-events: none; }
+.size-controls button {
+  background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; font-size: 20px; padding: 4px; transition: color 0.2s;
+}
+.size-controls button:hover { color: rgba(255,255,255,0.7); }
+.size-controls .size-label { color: rgba(255,255,255,0.2); font: 400 10px/1 'JetBrains Mono', monospace; }
+.size-controls .auto-btn {
+  font: 700 10px/1 'JetBrains Mono', monospace; padding: 3px 8px; cursor: pointer; background: none;
+  border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.2); transition: all 0.2s;
+}
+.size-controls .auto-btn.active { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.5); }
 
-@keyframes pulse-overtime {
-  from { opacity: 1; }
-  to { opacity: 0.3; }
+/* ── NTP status ── */
+.ntp-status {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50;
+  font: 400 10px/1 'JetBrains Mono', monospace; color: rgba(255,255,255,0.2);
+  display: flex; align-items: center; gap: 4px; transition: opacity 0.5s ease;
 }
+.ntp-status.hidden { opacity: 0; }
+.ntp-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.ntp-dot.synced { background: rgba(34,197,94,0.6); }
+.ntp-dot.local { background: rgba(255,255,255,0.4); }
+.ntp-dot.syncing { background: rgba(234,179,8,0.6); animation: pulse 1s infinite; }
 
-/* ── ANALOG CLOCK ── */
-#analog-clock {
-  display: none;
+/* ── Timer controls (bottom center) ── */
+.timer-controls {
+  position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); display: flex; gap: 16px; z-index: 50; transition: opacity 0.5s ease;
 }
-#analog-clock svg {
-  width: 100%;
-  height: 100%;
+.timer-controls.hidden { opacity: 0; pointer-events: none; }
+.timer-controls button {
+  background: none; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
+  font: 700 11px/1 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 6px 16px; cursor: pointer; transition: color 0.2s, border-color 0.2s;
 }
+.timer-controls button:hover { color: var(--active-color, #ef4444); border-color: var(--active-color-dim, rgba(239,68,68,0.5)); }
 
-/* ── MINI CLOCK ── */
-#mini-clock {
-  display: none;
-  position: fixed;
-  bottom: 12px; right: 12px;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 16px;
-  color: rgba(255,255,255,0.5);
-  z-index: 50;
+/* ── Countdown presets ── */
+.countdown-presets {
+  position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; z-index: 50; transition: opacity 0.5s ease;
 }
+.countdown-presets.hidden { opacity: 0; pointer-events: none; }
+.countdown-presets button {
+  background: none; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
+  font: 700 11px/1 'JetBrains Mono', monospace; text-transform: uppercase; padding: 6px 14px; cursor: pointer; transition: color 0.2s, border-color 0.2s;
+}
+.countdown-presets button:hover { color: var(--active-color, #ef4444); border-color: var(--active-color-dim, rgba(239,68,68,0.5)); }
 
-/* ── SYNC STATUS ── */
-#sync-status {
-  position: fixed;
-  bottom: 12px; left: 12px;
-  font-size: 10px;
-  color: rgba(255,255,255,0.3);
-  z-index: 50;
+/* ── Dropdown panels ── */
+.panel {
+  position: absolute; top: 48px; right: 16px; z-index: 60; background: rgba(0,0,0,0.95);
+  border: 1px solid rgba(255,255,255,0.1); padding: 8px; display: none; flex-direction: column; gap: 2px; min-width: 200px; max-height: 320px; overflow-y: auto;
 }
-#sync-status.synced { color: rgba(0,255,0,0.4); }
-#sync-status.error { color: rgba(255,0,0,0.4); }
+.panel.open { display: flex; }
+.panel button {
+  background: none; border: none; padding: 8px 12px; text-align: left; font: 400 12px/1 'JetBrains Mono', monospace;
+  color: rgba(255,255,255,0.4); cursor: pointer; transition: background 0.15s, color 0.15s; display: flex; align-items: center; gap: 8px;
+}
+.panel button:hover { background: rgba(255,255,255,0.05); }
+.panel button.selected { background: rgba(255,255,255,0.05); }
+.panel .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); flex-shrink: 0; }
 
-/* ── PHASE 2 PLACEHOLDER ── */
-.phase2-placeholder {
-  display: none;
-  flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 16px;
-  color: rgba(255,255,255,0.3);
-  font-size: 18px;
-  text-align: center;
-  height: 100%;
+/* ── Time-entry overlay ── */
+.time-entry {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 70;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
 }
-.phase2-placeholder .icon { font-size: 48px; opacity: 0.2; }
-.phase2-placeholder .label { font-size: 14px; opacity: 0.5; }
+.time-entry.open { display: flex; }
+.time-entry .label { color: rgba(255,255,255,0.5); font: 400 14px/1 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 16px; }
+.time-entry .input { font: 700 clamp(40px, 10vw, 80px)/1 'JetBrains Mono', monospace; letter-spacing: 0.1em; }
+.time-entry .hint { color: rgba(255,255,255,0.3); font: 400 12px/1 'JetBrains Mono', monospace; margin-top: 16px; }
 
-/* ── PRESETS PANEL ── */
-#presets-panel {
-  display: none;
-  position: fixed; top: 60px; right: 12px;
-  background: var(--toolbar-bg);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--toolbar-border);
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 220px;
-  max-height: 400px;
-  overflow-y: auto;
-  z-index: 110;
-  font-size: 12px;
+/* ── Help panel ── */
+.help-panel {
+  position: absolute; right: 0; top: 0; bottom: 0; width: min(320px, 90vw); background: rgba(0,0,0,0.95);
+  border-left: 1px solid rgba(255,255,255,0.1); padding: 24px; overflow-y: auto; z-index: 60;
+  display: none; flex-direction: column;
 }
-#presets-panel .preset-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-#presets-panel .preset-item:hover { background: rgba(255,255,255,0.08); }
-#presets-panel .preset-item .delete-preset {
-  color: #ff4444;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
-}
-#presets-panel .preset-item .delete-preset:hover { background: rgba(255,0,0,0.2); }
-#presets-save-row {
-  display: flex; gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--toolbar-border);
-}
-#presets-save-row input {
-  flex: 1;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-bright);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-}
+.help-panel.open { display: flex; }
+.help-panel h3 { font: 700 13px/1 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 24px; }
+.help-panel .row { display: flex; justify-content: space-between; gap: 8px; font: 400 12px/1.6 'JetBrains Mono', monospace; color: rgba(255,255,255,0.5); }
+.help-panel .row .key { flex-shrink: 0; }
+.help-panel .row .desc { text-align: right; }
+.help-panel .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); font: 400 12px/1.6 'JetBrains Mono', monospace; color: rgba(255,255,255,0.3); }
 
-/* ── KEYBOARD HELP ── */
-#keyboard-help {
-  display: none;
-  position: fixed;
-  bottom: 40px; left: 50%; transform: translateX(-50%);
-  background: var(--toolbar-bg);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--toolbar-border);
-  border-radius: 8px;
-  padding: 16px 24px;
-  z-index: 110;
-  font-size: 11px;
-  line-height: 1.8;
-  columns: 2;
-  column-gap: 32px;
-  max-width: 600px;
+/* ── Analog clock ── */
+.analog-container { display: flex; align-items: center; justify-content: center; }
+.analog-container svg { max-width: 100%; max-height: 100%; }
+
+/* ── Logo ── */
+.logo {
+  position: absolute; bottom: 12px; right: 16px; z-index: 50; display: flex; flex-direction: column; align-items: flex-end;
 }
-#keyboard-help kbd {
-  display: inline-block;
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 3px;
-  padding: 0 5px;
-  font-family: inherit;
-  font-size: 10px;
-  min-width: 20px;
-  text-align: center;
+.logo .top { font: 700 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.25em; color: rgba(255,255,255,0.2); }
+.logo .bottom { font: 400 7px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.35em; color: rgba(255,255,255,0.15); margin-top: -1px; }
+
+/* ── Mobile fixes ── */
+@media (max-width: 600px) {
+  .toolbar { padding: 8px 10px; }
+  .toolbar button, .toolbar a { font-size: 9px; padding: 4px 7px; }
+  .mode-bar button { font-size: 9px; padding: 4px 10px; }
+  .size-controls { display: none; }
+  .help-panel { width: 100vw; }
 }
 </style>
 </head>
 <body>
 
-<div id="toolbar">
-  <div class="toolbar-row">
-    <div class="group">
-      <label>Mode</label>
-      <select id="sel-mode">
-        <option value="clock">Clock</option>
-        <option value="stopwatch">Count Up</option>
-        <option value="countdown">Countdown</option>
-        <option value="countto">Count To</option>
-        <option value="propresenter">ProPresenter</option>
-        <option value="hyperdeck">HyperDeck</option>
-        <option value="streamtime">Stream Runtime</option>
-      </select>
-    </div>
-    <div class="group" id="grp-tz">
-      <label>Timezone</label>
-      <select id="sel-tz">
-        <option value="local">Local</option>
-        <option value="UTC">UTC</option>
-        <option value="America/New_York">US Eastern</option>
-        <option value="America/Chicago">US Central</option>
-        <option value="America/Denver">US Mountain</option>
-        <option value="America/Los_Angeles">US Pacific</option>
-        <option value="Europe/London">London</option>
-        <option value="Europe/Paris">Paris</option>
-        <option value="Asia/Tokyo">Tokyo</option>
-        <option value="Australia/Sydney">Sydney</option>
-        <option value="Asia/Dubai">Dubai</option>
-        <option value="Asia/Hong_Kong">Hong Kong</option>
-        <option value="Asia/Singapore">Singapore</option>
-        <option value="Asia/Kolkata">Mumbai</option>
-      </select>
-    </div>
-    <div class="group" id="grp-countdown" style="display:none">
-      <label>Time</label>
-      <input type="text" id="inp-countdown" placeholder="MM:SS or HH:MM:SS" style="width:110px" />
-      <button id="btn-set-countdown">Set</button>
-    </div>
-    <div class="group" id="grp-countto" style="display:none">
-      <label>Count to</label>
-      <input type="text" id="inp-countto" placeholder="HH:MM:SS" style="width:90px" />
-      <button id="btn-set-countto">Set</button>
-    </div>
-    <div class="group" id="grp-controls" style="display:none">
-      <button id="btn-start">Start</button>
-      <button id="btn-pause">Pause</button>
-      <button id="btn-reset">Reset</button>
-    </div>
-    <div class="group">
-      <label>Style</label>
-      <select id="sel-style">
-        <option value="digital">Digital</option>
-        <option value="analog">Analog</option>
-      </select>
-    </div>
-    <div class="group">
-      <label>Font</label>
-      <select id="sel-font">
-        <option value="DSEG7-Classic">DSEG7 Classic</option>
-        <option value="DSEG14-Classic">DSEG14 Classic</option>
-        <option value="DSEG7-Modern">DSEG7 Modern</option>
-        <option value="Share Tech Mono">Share Tech Mono</option>
-        <option value="JetBrains Mono">JetBrains Mono</option>
-        <option value="system">System Mono</option>
-      </select>
-    </div>
-    <div class="group">
-      <label>Color</label>
-      <select id="sel-color">
-        <option value="#ff3333">Red</option>
-        <option value="#33ff33">Green</option>
-        <option value="#ffaa00">Amber</option>
-        <option value="#3388ff">Blue</option>
-        <option value="#00ffff">Cyan</option>
-        <option value="#ffffff">White</option>
-        <option value="#ff33ff">Magenta</option>
-      </select>
-    </div>
-    <div class="group">
-      <button id="btn-12h" title="12/24h toggle">12h</button>
-      <button id="btn-tenths" title="Show tenths">0.0</button>
-      <button id="btn-zero" title="Toggle leading zero (e.g. 09:00 vs 9:00)">0:</button>
-      <button id="btn-autosize" class="active" title="Auto font size">Auto</button>
-      <button id="btn-mini" title="Mini clock overlay">Mini</button>
-    </div>
-    <div class="group">
-      <label>Name</label>
-      <input type="text" id="inp-name" placeholder="Clock name" style="width:100px" />
-    </div>
-    <div class="group">
-      <a href="/tools/multi-clock" style="color:var(--text);text-decoration:none;font-size:11px;opacity:0.6;padding:3px 8px" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Multi-Clock</a>
-    </div>
-    <div class="group">
-      <button id="btn-presets">Presets</button>
-      <button id="btn-help">?</button>
-    </div>
+<!-- ── Toolbar ── -->
+<div class="toolbar" id="toolbar">
+  <div class="left">
+    <a href="/tools/multi-clock" title="Multi-clock view">&#9638; Multi</a>
+  </div>
+  <div class="right">
+    <button id="btnPresetSave" title="Save preset">Save</button>
+    <button id="btnPresetLoad" title="Load preset">Load</button>
+    <button id="btnColor" title="Change color (K)">Color</button>
+    <button id="btnTz" title="Timezone">TZ</button>
+    <button id="btnFont" title="Font (F)">Font</button>
+    <button id="btnAnalog" title="Toggle analog/digital">Style</button>
+    <button id="btnHelp" title="Shortcuts">?</button>
   </div>
 </div>
 
-<div id="clock-container">
-  <div id="clock-name"></div>
-  <div id="clock-display">00:00:00</div>
-  <div id="clock-ampm"></div>
-  <div id="analog-clock">
-    <svg viewBox="0 0 400 400" id="analog-svg"></svg>
-  </div>
-  <div class="phase2-placeholder" id="phase2-propresenter">
-    <div class="icon">&#9654;</div>
-    <div>ProPresenter Video Countdown</div>
-    <div class="label">Connect to TallyConnect to sync video countdowns</div>
-  </div>
-  <div class="phase2-placeholder" id="phase2-hyperdeck">
-    <div class="icon">&#9899;</div>
-    <div>HyperDeck Transport Time</div>
-    <div class="label">Connect to TallyConnect to display transport time</div>
-  </div>
-  <div class="phase2-placeholder" id="phase2-streamtime">
-    <div class="icon">&#9673;</div>
-    <div>Total Stream Runtime</div>
-    <div class="label">Connect to TallyConnect to track stream duration</div>
+<!-- ── Mode bar ── -->
+<div class="mode-bar" id="modeBar">
+  <button data-mode="clock" class="active">Clock</button>
+  <button data-mode="countup">Count Up</button>
+  <button data-mode="countdown">Countdown</button>
+</div>
+
+<!-- ── Clock name ── -->
+<div class="clock-name" id="clockName"></div>
+
+<!-- ── Mini clock ── -->
+<div class="mini-clock hidden" id="miniClock"></div>
+
+<!-- ── Main display ── -->
+<div class="time-display" id="timeDisplay">00:00:00</div>
+<div class="ampm" id="ampmDisplay" style="display:none"></div>
+
+<!-- ── Analog display ── -->
+<div class="analog-container" id="analogContainer" style="display:none">
+  <svg id="analogSvg" viewBox="0 0 300 300" width="400" height="400"></svg>
+</div>
+
+<!-- ── Timer controls ── -->
+<div class="timer-controls hidden" id="timerControls">
+  <button id="btnPause">Pause</button>
+  <button id="btnReset">Reset</button>
+</div>
+
+<!-- ── Countdown presets ── -->
+<div class="countdown-presets hidden" id="countdownPresets">
+  <button data-sec="60">1m</button>
+  <button data-sec="120">2m</button>
+  <button data-sec="300">5m</button>
+  <button data-sec="600">10m</button>
+  <button data-sec="900">15m</button>
+  <button data-sec="1800">30m</button>
+  <button data-sec="3600">1h</button>
+</div>
+
+<!-- ── Size controls ── -->
+<div class="size-controls" id="sizeControls">
+  <button id="btnSizeUp">+</button>
+  <span class="size-label" id="sizeLabel">auto</span>
+  <button id="btnSizeDown">−</button>
+  <button class="auto-btn active" id="btnAutoSize">AUTO</button>
+</div>
+
+<!-- ── NTP status ── -->
+<div class="ntp-status" id="ntpStatus"><span class="ntp-dot syncing"></span> Syncing...</div>
+
+<!-- ── Panels ── -->
+<div class="panel" id="panelColor"></div>
+<div class="panel" id="panelTz"></div>
+<div class="panel" id="panelFont"></div>
+<div class="panel" id="panelPresets"></div>
+
+<!-- ── Time entry overlay ── -->
+<div class="time-entry" id="timeEntry">
+  <div class="label" id="timeEntryLabel">Enter countdown (hh:mm:ss)</div>
+  <div class="input" id="timeEntryInput" style="color:#ef4444">—:——:——</div>
+  <div class="hint">Press Enter to confirm · Escape to cancel</div>
+</div>
+
+<!-- ── Help panel ── -->
+<div class="help-panel" id="helpPanel">
+  <h3 id="helpTitle" style="color:#ef4444">Keyboard Shortcuts</h3>
+  <div id="helpBody"></div>
+  <div class="footer">
+    <p>⇧ = Shift · ⌃ = Ctrl</p>
+    <p style="margin-top:8px">Digit 0 is treated as 10</p>
+    <p style="margin-top:8px">UI auto-hides after 3s of inactivity</p>
+    <p style="margin-top:8px">Settings are saved automatically</p>
   </div>
 </div>
 
-<div id="mini-clock"></div>
-<div id="sync-status">NTP: --</div>
-
-<div id="presets-panel">
-  <div id="presets-list"></div>
-  <div id="presets-save-row">
-    <input type="text" id="inp-preset-name" placeholder="Preset name" />
-    <button id="btn-save-preset">Save</button>
-  </div>
-</div>
-
-<div id="keyboard-help">
-  <div><kbd>C</kbd> Clock</div>
-  <div><kbd>S</kbd> Stopwatch</div>
-  <div><kbd>D</kbd> Countdown</div>
-  <div><kbd>M</kbd> Count To</div>
-  <div><kbd>Space</kbd> Start/Pause</div>
-  <div><kbd>R</kbd> Reset</div>
-  <div><kbd>T</kbd> Tenths</div>
-  <div><kbd>H</kbd> 12/24h</div>
-  <div><kbd>Q</kbd> Mini clock</div>
-  <div><kbd>Z</kbd> Leading zero</div>
-  <div><kbd>F</kbd> Cycle font</div>
-  <div><kbd>N</kbd> Edit name</div>
-  <div><kbd>K</kbd> Cycle color</div>
-  <div><kbd>A</kbd> Auto-size</div>
-  <div><kbd>&uarr;</kbd><kbd>&darr;</kbd> Font size</div>
-  <div><kbd>1</kbd>-<kbd>9</kbd>,<kbd>0</kbd> Quick countdown</div>
-  <div><kbd>-</kbd><kbd>=</kbd> Adjust timer</div>
-  <div><kbd>?</kbd> This help</div>
+<!-- ── Logo ── -->
+<div class="logo" id="logo">
+  <span class="top">DISBROW</span>
+  <span class="bottom">PRODUCTIONS</span>
 </div>
 
 <script>
-/* ════════════════════════════════════════════════════════════════════════════
-   TallyConnect Broadcast Clock
-   ════════════════════════════════════════════════════════════════════════════ */
-
 (function() {
-'use strict';
+  'use strict';
 
-// ── DOM REFS ──
-const $ = id => document.getElementById(id);
-const clockDisplay = $('clock-display');
-const clockAmpm = $('clock-ampm');
-const clockName = $('clock-name');
-const clockContainer = $('clock-container');
-const analogClock = $('analog-clock');
-const analogSvg = $('analog-svg');
-const miniClock = $('mini-clock');
-const syncStatus = $('sync-status');
-const presetsPanel = $('presets-panel');
-const presetsList = $('presets-list');
-const keyboardHelp = $('keyboard-help');
+  // ── Constants ──
+  const STORAGE_KEY = 'broadcast-clock-settings';
+  const PRESETS_KEY = 'broadcast-clock-presets';
+  const AUTO_HIDE_DELAY = 3000;
 
-// ── STATE ──
-const state = {
-  mode: 'clock',        // clock, stopwatch, countdown, countto, propresenter, hyperdeck, streamtime
-  style: 'digital',     // digital, analog
-  font: 'DSEG7-Classic',
-  color: '#ff3333',
-  colorIndex: 0,
-  timezone: 'local',
-  is12h: false,
-  showTenths: false,
-  hideLeadingZero: false,
-  autoSize: true,
-  fontSize: 120,
-  showMini: false,
-  name: '',
+  const FONTS = [
+    { name: 'dseg7',       label: '7-Segment',    css: "'DSEG7-Classic', monospace",   weight: 700 },
+    { name: 'dseg14',      label: '14-Segment',   css: "'DSEG14-Classic', monospace",  weight: 700 },
+    { name: 'dseg7modern', label: '7-Seg Modern', css: "'DSEG7-Modern', monospace",    weight: 700 },
+    { name: 'digital',     label: 'Digital',      css: "'Share Tech Mono', monospace", weight: 400 },
+    { name: 'mono',        label: 'Classic Mono', css: "'JetBrains Mono', monospace",  weight: 700 },
+    { name: 'system',      label: 'System',       css: "ui-monospace, monospace",      weight: 700 },
+  ];
 
-  // Timer state
-  running: false,
-  startTime: 0,
-  elapsed: 0,
-  countdownTotal: 0,    // ms
-  countToTarget: 0,     // epoch ms
-  paused: false,
-  pauseElapsed: 0,
+  const COLORS = [
+    { label: 'Red',     value: '#ef4444' },
+    { label: 'Green',   value: '#22c55e' },
+    { label: 'Amber',   value: '#f59e0b' },
+    { label: 'Blue',    value: '#3b82f6' },
+    { label: 'Cyan',    value: '#06b6d4' },
+    { label: 'White',   value: '#ffffff' },
+    { label: 'Magenta', value: '#d946ef' },
+  ];
 
-  // NTP sync
-  ntpOffset: 0,
-  ntpSynced: false,
-  ntpLastSync: 0,
-};
+  const TIMEZONES = [
+    { label: 'Local',      value: 'local' },
+    { label: 'UTC',        value: 'UTC' },
+    { label: 'US Eastern', value: 'America/New_York' },
+    { label: 'US Central', value: 'America/Chicago' },
+    { label: 'US Mountain',value: 'America/Denver' },
+    { label: 'US Pacific', value: 'America/Los_Angeles' },
+    { label: 'London',     value: 'Europe/London' },
+    { label: 'Paris',      value: 'Europe/Paris' },
+    { label: 'Tokyo',      value: 'Asia/Tokyo' },
+    { label: 'Sydney',     value: 'Australia/Sydney' },
+    { label: 'Dubai',      value: 'Asia/Dubai' },
+    { label: 'Hong Kong',  value: 'Asia/Hong_Kong' },
+    { label: 'Singapore',  value: 'Asia/Singapore' },
+    { label: 'Mumbai',     value: 'Asia/Kolkata' },
+  ];
 
-const COLORS = [
-  { name: 'Red', hex: '#ff3333' },
-  { name: 'Green', hex: '#33ff33' },
-  { name: 'Amber', hex: '#ffaa00' },
-  { name: 'Blue', hex: '#3388ff' },
-  { name: 'Cyan', hex: '#00ffff' },
-  { name: 'White', hex: '#ffffff' },
-  { name: 'Magenta', hex: '#ff33ff' },
-];
+  const COUNTDOWN_PRESETS = [
+    { label: '1m', seconds: 60 },
+    { label: '2m', seconds: 120 },
+    { label: '5m', seconds: 300 },
+    { label: '10m', seconds: 600 },
+    { label: '15m', seconds: 900 },
+    { label: '30m', seconds: 1800 },
+    { label: '1h', seconds: 3600 },
+  ];
 
-const FONTS = [
-  'DSEG7-Classic', 'DSEG14-Classic', 'DSEG7-Modern',
-  'Share Tech Mono', 'JetBrains Mono', 'system'
-];
+  // ── State ──
+  const saved = loadSettings();
+  let mode = saved.mode || 'clock';           // clock | countup | countdown | countto
+  let is24h = saved.is24h ?? false;
+  let showTenths = saved.showTenths ?? false;
+  let showMiniClock = saved.showMiniClock ?? false;
+  let hideLeadingZero = saved.hideLeadingZero ?? false;
+  let fontSize = saved.fontSize ?? 200;
+  let autoSize = saved.autoSize ?? true;
+  let displayStyle = saved.displayStyle || 'digital';  // digital | analog
+  let selectedFont = FONTS.find(f => f.name === saved.fontName) || FONTS[0];
+  let timezone = saved.timezone || 'local';
+  let clockName = saved.clockName || '';
+  let clockColor = saved.clockColor || '#ef4444';
+  let logoVisible = true;
 
-const FONT_FAMILIES = {
-  'DSEG7-Classic': "'DSEG7-Classic', monospace",
-  'DSEG14-Classic': "'DSEG14-Classic', monospace",
-  'DSEG7-Modern': "'DSEG7-Modern', monospace",
-  'Share Tech Mono': "'Share Tech Mono', monospace",
-  'JetBrains Mono': "'JetBrains Mono', monospace",
-  'system': "ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace",
-};
+  let ntpOffset = 0;
+  let syncStatus = 'syncing';
+  let paused = false;
+  let countdownFrom = 300;
+  let countToTarget = null;
+  let sign = '+';
 
-// ── NTP SYNC ──
-async function ntpSync() {
-  try {
-    const t0 = Date.now();
-    const res = await fetch('/api/time');
-    const t3 = Date.now();
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const rtt = t3 - t0;
-    const serverTime = data.serverTime + rtt / 2;
-    state.ntpOffset = serverTime - t3;
-    state.ntpSynced = true;
-    state.ntpLastSync = Date.now();
-    syncStatus.textContent = 'NTP: synced (offset ' + Math.round(state.ntpOffset) + 'ms)';
-    syncStatus.className = 'synced';
-  } catch (e) {
-    // Fallback to worldtimeapi
+  // ms-precision timer
+  let timerStart = null;
+  let timerAcc = 0;
+  let timerElapsedMs = 0;
+
+  // UI state
+  let uiVisible = true;
+  let hideTimer = null;
+  let editingName = false;
+  let enteringTime = false;
+  let enterMode = 'countdown';
+  let timeInput = '';
+
+  // ── DOM refs ──
+  const $ = id => document.getElementById(id);
+  const toolbar = $('toolbar');
+  const modeBar = $('modeBar');
+  const clockNameEl = $('clockName');
+  const miniClockEl = $('miniClock');
+  const timeDisplay = $('timeDisplay');
+  const ampmDisplay = $('ampmDisplay');
+  const analogContainer = $('analogContainer');
+  const analogSvg = $('analogSvg');
+  const timerControls = $('timerControls');
+  const countdownPresetsEl = $('countdownPresets');
+  const sizeControls = $('sizeControls');
+  const ntpStatusEl = $('ntpStatus');
+  const panelColor = $('panelColor');
+  const panelTz = $('panelTz');
+  const panelFont = $('panelFont');
+  const panelPresets = $('panelPresets');
+  const timeEntry = $('timeEntry');
+  const helpPanel = $('helpPanel');
+  const logo = $('logo');
+
+  // ── Helpers ──
+  function loadSettings() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+  }
+
+  function saveSettings() {
     try {
-      const t0 = Date.now();
-      const res = await fetch('https://worldtimeapi.org/api/timezone/Etc/UTC');
-      const t3 = Date.now();
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      const rtt = t3 - t0;
-      const serverTime = new Date(data.utc_datetime).getTime() + rtt / 2;
-      state.ntpOffset = serverTime - t3;
-      state.ntpSynced = true;
-      state.ntpLastSync = Date.now();
-      syncStatus.textContent = 'NTP: synced via worldtime (offset ' + Math.round(state.ntpOffset) + 'ms)';
-      syncStatus.className = 'synced';
-    } catch (e2) {
-      syncStatus.textContent = 'NTP: sync failed';
-      syncStatus.className = 'error';
-    }
-  }
-}
-
-function syncedNow() {
-  return Date.now() + state.ntpOffset;
-}
-
-// Initial sync + periodic re-sync
-ntpSync();
-setInterval(ntpSync, 60000);
-
-// ── TIME FORMATTING ──
-function formatTime(ms, opts = {}) {
-  const neg = ms < 0;
-  const abs = Math.abs(ms);
-  let totalSec = Math.floor(abs / 1000);
-  const tenths = Math.floor((abs % 1000) / 100);
-  const hours = Math.floor(totalSec / 3600);
-  totalSec %= 3600;
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-
-  let hStr = String(hours).padStart(2, '0');
-  let mStr = String(mins).padStart(2, '0');
-  let sStr = String(secs).padStart(2, '0');
-
-  if (state.hideLeadingZero && hours === 0) {
-    // Show MM:SS
-    let result = mStr + ':' + sStr;
-    if (state.showTenths) result += '.' + tenths;
-    return (neg ? '-' : '') + result;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        clockName, clockColor, fontName: selectedFont.name, timezone,
+        is24h, mode, showTenths, showMiniClock, hideLeadingZero, fontSize, autoSize, displayStyle,
+      }));
+    } catch {}
   }
 
-  let result = hStr + ':' + mStr + ':' + sStr;
-  if (state.showTenths) result += '.' + tenths;
-  return (neg ? '-' : '') + result;
-}
-
-function formatWallClock(now) {
-  let d;
-  if (state.timezone === 'local') {
-    d = new Date(now);
-  } else {
-    d = new Date(now);
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || []; } catch { return []; }
   }
 
-  let hours, mins, secs, ms;
-  if (state.timezone === 'local') {
-    hours = d.getHours();
-    mins = d.getMinutes();
-    secs = d.getSeconds();
-    ms = d.getMilliseconds();
-  } else {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: state.timezone === 'local' ? undefined : state.timezone,
-      hour: 'numeric', minute: 'numeric', second: 'numeric',
-      hour12: false,
-    }).formatToParts(d);
-    hours = parseInt(parts.find(p => p.type === 'hour').value);
-    mins = parseInt(parts.find(p => p.type === 'minute').value);
-    secs = parseInt(parts.find(p => p.type === 'second').value);
-    ms = d.getMilliseconds();
+  function savePresetsList(list) {
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch {}
   }
 
-  let ampm = '';
-  if (state.is12h) {
-    ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12 || 12;
+  function getTimeInZone(date, tz) {
+    if (tz === 'local') return { hours: date.getHours(), minutes: date.getMinutes(), seconds: date.getSeconds(), ms: date.getMilliseconds() };
+    const str = date.toLocaleString('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const p = str.split(':');
+    return { hours: parseInt(p[0]) % 24, minutes: parseInt(p[1]), seconds: parseInt(p[2]), ms: date.getMilliseconds() };
   }
 
-  let hStr = state.hideLeadingZero ? String(hours) : String(hours).padStart(2, '0');
-  let result = hStr + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
-  if (state.showTenths) result += '.' + Math.floor(ms / 100);
-  return { text: result, ampm: ampm };
-}
-
-// ── DISPLAY UPDATE ──
-function updateDisplay() {
-  const now = syncedNow();
-  let text = '';
-  let ampm = '';
-  let isWarning = false;
-  let isOvertime = false;
-
-  switch (state.mode) {
-    case 'clock': {
-      const wc = formatWallClock(now);
-      text = wc.text;
-      ampm = wc.ampm;
-      break;
-    }
-
-    case 'stopwatch':
-      if (state.running) {
-        state.elapsed = now - state.startTime;
-      }
-      text = formatTime(state.elapsed);
-      break;
-
-    case 'countdown': {
-      if (state.running) {
-        state.elapsed = now - state.startTime;
-      }
-      const remaining = state.countdownTotal - state.elapsed;
-      if (remaining <= 30000 && remaining > 0) isWarning = true;
-      if (remaining <= 0) isOvertime = true;
-      text = formatTime(remaining);
-      break;
-    }
-
-    case 'countto': {
-      const remaining = state.countToTarget - now;
-      if (remaining <= 30000 && remaining > 0) isWarning = true;
-      if (remaining <= 0) isOvertime = true;
-      text = formatTime(remaining);
-      break;
-    }
-
-    default:
-      text = '--:--:--';
-  }
-
-  // Digital display
-  if (state.style === 'digital') {
-    clockDisplay.textContent = text;
-    clockDisplay.classList.toggle('warning', isWarning);
-    clockDisplay.classList.toggle('overtime', isOvertime);
-    clockDisplay.style.display = '';
-    analogClock.style.display = 'none';
-    // AM/PM in separate element (avoids DSEG font "AN" rendering bug)
-    clockAmpm.textContent = ampm;
-    clockAmpm.style.fontSize = Math.max(14, state.fontSize * 0.18) + 'px';
-    clockAmpm.style.display = ampm ? '' : 'none';
-  } else {
-    // Analog
-    clockDisplay.style.display = 'none';
-    clockAmpm.style.display = 'none';
-    analogClock.style.display = 'block';
-    drawAnalogClock(now);
-  }
-
-  // Mini clock
-  if (state.showMini && state.mode !== 'clock') {
-    const wc = formatWallClock(now);
-    miniClock.textContent = wc.text + (wc.ampm ? ' ' + wc.ampm : '');
-    miniClock.style.display = 'block';
-  } else if (state.showMini && state.mode === 'clock') {
-    miniClock.style.display = 'none';
-  } else {
-    miniClock.style.display = 'none';
-  }
-
-  // Auto-size
-  if (state.autoSize && state.style === 'digital') {
-    autoSizeText();
-  }
-}
-
-// ── AUTO SIZE ──
-let _autoSizeCache = { w: 0, h: 0, len: 0 };
-
-function autoSizeText() {
-  const container = clockContainer;
-  const el = clockDisplay;
-  const w = container.clientWidth;
-  const h = container.clientHeight;
-  const len = el.textContent.length;
-
-  // Only re-run when container dimensions or text length change.
-  // For monospace/DSEG fonts all digits are equal width, so length is sufficient
-  // to detect structural changes (e.g. adding tenths, toggling leading zero).
-  if (w === _autoSizeCache.w && h === _autoSizeCache.h && len === _autoSizeCache.len) return;
-  _autoSizeCache = { w, h, len };
-
-  const maxW = w * 0.9;
-  const maxH = h * 0.5;
-
-  // Binary search for best font size
-  let lo = 20, hi = 800;
-  while (hi - lo > 2) {
-    const mid = Math.floor((lo + hi) / 2);
-    el.style.fontSize = mid + 'px';
-    if (el.scrollWidth <= maxW && el.scrollHeight <= maxH) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  el.style.fontSize = lo + 'px';
-  state.fontSize = lo;
-}
-
-// ── ANALOG CLOCK ──
-function drawAnalogClock(now) {
-  const d = state.timezone === 'local' ? new Date(now)
-    : new Date(new Date(now).toLocaleString('en-US', { timeZone: state.timezone }));
-
-  const h = d.getHours() % 12;
-  const m = d.getMinutes();
-  const s = d.getSeconds();
-  const ms = d.getMilliseconds();
-
-  const color = state.color;
-  const dim = color + '33';
-
-  const size = Math.min(clockContainer.clientWidth, clockContainer.clientHeight) * 0.85;
-  analogClock.style.width = size + 'px';
-  analogClock.style.height = size + 'px';
-
-  const cx = 200, cy = 200, r = 180;
-
-  let svg = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${dim}" stroke-width="2"/>`;
-
-  // Hour markers
-  for (let i = 0; i < 12; i++) {
-    const angle = (i * 30 - 90) * Math.PI / 180;
-    const inner = i % 3 === 0 ? r - 25 : r - 15;
-    const outer = r - 5;
-    const w = i % 3 === 0 ? 3 : 1.5;
-    svg += `<line x1="${cx + inner * Math.cos(angle)}" y1="${cy + inner * Math.sin(angle)}" x2="${cx + outer * Math.cos(angle)}" y2="${cy + outer * Math.sin(angle)}" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`;
-  }
-
-  // Minute markers
-  for (let i = 0; i < 60; i++) {
-    if (i % 5 === 0) continue;
-    const angle = (i * 6 - 90) * Math.PI / 180;
-    const inner = r - 8;
-    const outer = r - 5;
-    svg += `<line x1="${cx + inner * Math.cos(angle)}" y1="${cy + inner * Math.sin(angle)}" x2="${cx + outer * Math.cos(angle)}" y2="${cy + outer * Math.sin(angle)}" stroke="${dim}" stroke-width="1"/>`;
-  }
-
-  // Hour hand
-  const hAngle = ((h + m / 60) * 30 - 90) * Math.PI / 180;
-  svg += `<line x1="${cx}" y1="${cy}" x2="${cx + 100 * Math.cos(hAngle)}" y2="${cy + 100 * Math.sin(hAngle)}" stroke="${color}" stroke-width="6" stroke-linecap="round"/>`;
-
-  // Minute hand
-  const mAngle = ((m + s / 60) * 6 - 90) * Math.PI / 180;
-  svg += `<line x1="${cx}" y1="${cy}" x2="${cx + 140 * Math.cos(mAngle)}" y2="${cy + 140 * Math.sin(mAngle)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
-
-  // Second hand
-  const sAngle = ((s + ms / 1000) * 6 - 90) * Math.PI / 180;
-  svg += `<line x1="${cx - 30 * Math.cos(sAngle)}" y1="${cy - 30 * Math.sin(sAngle)}" x2="${cx + 155 * Math.cos(sAngle)}" y2="${cy + 155 * Math.sin(sAngle)}" stroke="${color}" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>`;
-
-  // Center dot
-  svg += `<circle cx="${cx}" cy="${cy}" r="5" fill="${color}"/>`;
-
-  analogSvg.innerHTML = svg;
-}
-
-// ── UI BINDINGS ──
-const selMode = $('sel-mode');
-const selTz = $('sel-tz');
-const selStyle = $('sel-style');
-const selFont = $('sel-font');
-const selColor = $('sel-color');
-const grpCountdown = $('grp-countdown');
-const grpCountto = $('grp-countto');
-const grpControls = $('grp-controls');
-const grpTz = $('grp-tz');
-const inpCountdown = $('inp-countdown');
-const inpCountto = $('inp-countto');
-const inpName = $('inp-name');
-const btnStart = $('btn-start');
-const btnPause = $('btn-pause');
-const btnReset = $('btn-reset');
-const btn12h = $('btn-12h');
-const btnTenths = $('btn-tenths');
-const btnZero = $('btn-zero');
-const btnAutosize = $('btn-autosize');
-const btnMini = $('btn-mini');
-
-function setMode(mode) {
-  state.mode = mode;
-  selMode.value = mode;
-
-  // Hide all phase2 placeholders
-  document.querySelectorAll('.phase2-placeholder').forEach(el => el.style.display = 'none');
-
-  const isTimer = mode === 'stopwatch' || mode === 'countdown';
-  const isPhase2 = mode === 'propresenter' || mode === 'hyperdeck' || mode === 'streamtime';
-
-  grpCountdown.style.display = mode === 'countdown' ? '' : 'none';
-  grpCountto.style.display = mode === 'countto' ? '' : 'none';
-  grpControls.style.display = isTimer ? '' : 'none';
-  grpTz.style.display = (mode === 'clock' || mode === 'countto') ? '' : 'none';
-
-  if (isPhase2) {
-    clockDisplay.style.display = 'none';
-    analogClock.style.display = 'none';
-    $('phase2-' + mode).style.display = 'flex';
-  } else {
-    clockDisplay.style.display = '';
-  }
-
-  // Reset timer on mode change
-  state.running = false;
-  state.elapsed = 0;
-  state.startTime = 0;
-}
-
-function setColor(hex) {
-  state.color = hex;
-  state.colorIndex = COLORS.findIndex(c => c.hex === hex);
-  if (state.colorIndex === -1) state.colorIndex = 0;
-  document.documentElement.style.setProperty('--color', hex);
-  selColor.value = hex;
-}
-
-function setFont(font) {
-  state.font = font;
-  clockDisplay.style.fontFamily = FONT_FAMILIES[font] || FONT_FAMILIES.system;
-  selFont.value = font;
-}
-
-function updateToggleButtons() {
-  btn12h.classList.toggle('active', state.is12h);
-  btn12h.textContent = state.is12h ? '12h' : '24h';
-  btnTenths.classList.toggle('active', state.showTenths);
-  btnZero.classList.toggle('active', !state.hideLeadingZero);
-  btnAutosize.classList.toggle('active', state.autoSize);
-  btnMini.classList.toggle('active', state.showMini);
-}
-
-// Toolbar event handlers
-selMode.addEventListener('change', () => setMode(selMode.value));
-selTz.addEventListener('change', () => { state.timezone = selTz.value; });
-selStyle.addEventListener('change', () => { state.style = selStyle.value; });
-selFont.addEventListener('change', () => setFont(selFont.value));
-selColor.addEventListener('change', () => setColor(selColor.value));
-inpName.addEventListener('input', () => {
-  state.name = inpName.value;
-  clockName.textContent = inpName.value;
-});
-
-btn12h.addEventListener('click', () => { state.is12h = !state.is12h; updateToggleButtons(); });
-btnTenths.addEventListener('click', () => { state.showTenths = !state.showTenths; updateToggleButtons(); });
-btnZero.addEventListener('click', () => { state.hideLeadingZero = !state.hideLeadingZero; updateToggleButtons(); });
-btnAutosize.addEventListener('click', () => {
-  state.autoSize = !state.autoSize;
-  updateToggleButtons();
-  if (!state.autoSize) {
-    clockDisplay.style.fontSize = state.fontSize + 'px';
-  }
-});
-btnMini.addEventListener('click', () => { state.showMini = !state.showMini; updateToggleButtons(); });
-
-// Start / Pause / Reset
-btnStart.addEventListener('click', startTimer);
-btnPause.addEventListener('click', pauseTimer);
-btnReset.addEventListener('click', resetTimer);
-
-function startTimer() {
-  if (state.running) return;
-  const now = syncedNow();
-  if (state.elapsed > 0) {
-    // Resume
-    state.startTime = now - state.elapsed;
-  } else {
-    state.startTime = now;
-    if (state.mode === 'countdown' && state.countdownTotal === 0) {
-      parseCountdownInput();
-    }
-  }
-  state.running = true;
-}
-
-function pauseTimer() {
-  if (!state.running) return;
-  state.running = false;
-  // elapsed is already captured in updateDisplay
-}
-
-function resetTimer() {
-  state.running = false;
-  state.elapsed = 0;
-  state.startTime = 0;
-}
-
-function parseCountdownInput() {
-  const val = inpCountdown.value.trim();
-  const parts = val.split(':').map(Number);
-  let ms = 0;
-  if (parts.length === 3) {
-    ms = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-  } else if (parts.length === 2) {
-    ms = (parts[0] * 60 + parts[1]) * 1000;
-  } else if (parts.length === 1) {
-    ms = parts[0] * 1000;
-  }
-  state.countdownTotal = ms;
-}
-
-$('btn-set-countdown').addEventListener('click', () => {
-  parseCountdownInput();
-  resetTimer();
-});
-
-$('btn-set-countto').addEventListener('click', () => {
-  const val = inpCountto.value.trim();
-  const parts = val.split(':').map(Number);
-  const now = new Date();
-  let target;
-  if (state.timezone !== 'local') {
-    const tzNow = new Date(now.toLocaleString('en-US', { timeZone: state.timezone }));
-    target = new Date(tzNow);
-  } else {
-    target = new Date(now);
-  }
-  if (parts.length >= 2) {
-    target.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
-  }
-  // If target is in the past, assume tomorrow
-  if (target.getTime() <= now.getTime()) {
-    target.setDate(target.getDate() + 1);
-  }
-  state.countToTarget = target.getTime();
-});
-
-// ── TOOLBAR VISIBILITY ──
-let toolbarVisible = true;
-
-function showToolbar() {
-  document.body.classList.add('toolbar-visible');
-  toolbarVisible = true;
-}
-
-function hideToolbar() {
-  document.body.classList.remove('toolbar-visible');
-  toolbarVisible = false;
-  presetsPanel.style.display = 'none';
-  keyboardHelp.style.display = 'none';
-}
-
-function toggleToolbar() {
-  toolbarVisible ? hideToolbar() : showToolbar();
-}
-
-// Show toolbar by default on load
-showToolbar();
-
-// Show toolbar on mouse move to top
-document.addEventListener('mousemove', (e) => {
-  if (e.clientY < 80 && !toolbarVisible) {
-    showToolbar();
-  }
-});
-
-// ── PRESETS ──
-function getPresets() {
-  try {
-    return JSON.parse(localStorage.getItem('tc-clock-presets') || '{}');
-  } catch { return {}; }
-}
-
-function savePresets(presets) {
-  localStorage.setItem('tc-clock-presets', JSON.stringify(presets));
-}
-
-function renderPresets() {
-  const presets = getPresets();
-  const keys = Object.keys(presets);
-  if (keys.length === 0) {
-    presetsList.innerHTML = '<div style="color:rgba(255,255,255,0.3);padding:8px">No saved presets</div>';
-    return;
-  }
-  presetsList.innerHTML = keys.map(k =>
-    `<div class="preset-item" data-name="${k}"><span>${k}</span><span class="delete-preset" data-name="${k}">x</span></div>`
-  ).join('');
-}
-
-$('btn-presets').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const vis = presetsPanel.style.display === 'block';
-  presetsPanel.style.display = vis ? 'none' : 'block';
-  if (!vis) renderPresets();
-});
-
-$('btn-save-preset').addEventListener('click', () => {
-  const name = $('inp-preset-name').value.trim();
-  if (!name) return;
-  const presets = getPresets();
-  presets[name] = {
-    mode: state.mode,
-    style: state.style,
-    font: state.font,
-    color: state.color,
-    timezone: state.timezone,
-    is12h: state.is12h,
-    showTenths: state.showTenths,
-    hideLeadingZero: state.hideLeadingZero,
-    name: state.name,
-    countdownTotal: state.countdownTotal,
-  };
-  savePresets(presets);
-  $('inp-preset-name').value = '';
-  renderPresets();
-});
-
-presetsList.addEventListener('click', (e) => {
-  const del = e.target.closest('.delete-preset');
-  if (del) {
-    const presets = getPresets();
-    delete presets[del.dataset.name];
-    savePresets(presets);
-    renderPresets();
-    return;
-  }
-  const item = e.target.closest('.preset-item');
-  if (item) {
-    loadPreset(item.dataset.name);
-  }
-});
-
-function loadPreset(name) {
-  const presets = getPresets();
-  const p = presets[name];
-  if (!p) return;
-  setMode(p.mode);
-  state.style = p.style; selStyle.value = p.style;
-  setFont(p.font);
-  setColor(p.color);
-  state.timezone = p.timezone; selTz.value = p.timezone;
-  state.is12h = p.is12h;
-  state.showTenths = p.showTenths;
-  state.hideLeadingZero = p.hideLeadingZero;
-  state.name = p.name || '';
-  inpName.value = state.name;
-  clockName.textContent = state.name;
-  if (p.countdownTotal) {
-    state.countdownTotal = p.countdownTotal;
-    const totalSec = p.countdownTotal / 1000;
-    const h = Math.floor(totalSec / 3600);
+  function formatTime(value, show24h, showSec, showT, t, hideLZ, showMs) {
+    const negative = value < 0;
+    const abs = Math.abs(value);
+    let totalSec, ms = 0;
+    if (showMs) { totalSec = Math.floor(abs / 1000); ms = Math.floor((abs % 1000) / 10); }
+    else { totalSec = abs; }
+    let h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;
-    inpCountdown.value = h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
-  }
-  updateToggleButtons();
-  presetsPanel.style.display = 'none';
-}
-
-// ── HELP ──
-$('btn-help').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const vis = keyboardHelp.style.display === 'block';
-  keyboardHelp.style.display = vis ? 'none' : 'block';
-});
-
-// ── KEYBOARD SHORTCUTS ──
-document.addEventListener('keydown', (e) => {
-  // Don't intercept when typing in inputs
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
-    if (e.key === 'Escape') e.target.blur();
-    return;
+    if (!show24h && h > 12) h -= 12;
+    if (!show24h && h === 0) h = 12;
+    const hStr = hideLZ ? String(h) : String(h).padStart(2, '0');
+    const mStr = String(m).padStart(2, '0');
+    const sStr = String(s).padStart(2, '0');
+    let result;
+    if (showMs && h === 0) result = showSec ? `${mStr}:${sStr}` : `${mStr}`;
+    else result = showSec ? `${hStr}:${mStr}:${sStr}` : `${hStr}:${mStr}`;
+    if (showMs && showSec) result += '.' + String(ms).padStart(2, '0');
+    else if (showT && showSec) result += '.' + t;
+    return { text: result, negative };
   }
 
-  switch (e.key.toLowerCase()) {
-    case 'c': setMode('clock'); showToolbar(); break;
-    case 's': setMode('stopwatch'); showToolbar(); break;
-    case 'd': setMode('countdown'); showToolbar(); break;
-    case 'm': setMode('countto'); showToolbar(); break;
-    case ' ':
-    case 'p':
-      e.preventDefault();
-      if (state.mode === 'stopwatch' || state.mode === 'countdown') {
-        state.running ? pauseTimer() : startTimer();
-      }
-      break;
-    case 'r': resetTimer(); break;
-    case 't': state.showTenths = !state.showTenths; updateToggleButtons(); break;
-    case 'h': state.is12h = !state.is12h; updateToggleButtons(); break;
-    case 'q': state.showMini = !state.showMini; updateToggleButtons(); break;
-    case 'z': state.hideLeadingZero = !state.hideLeadingZero; updateToggleButtons(); break;
-    case 'f': {
-      const idx = (FONTS.indexOf(state.font) + 1) % FONTS.length;
-      setFont(FONTS[idx]);
-      break;
+  function hexAlpha(hex, a) { return hex + Math.round(a * 255).toString(16).padStart(2, '0'); }
+
+  // ── Timer helpers ──
+  function startTimer() { timerStart = Date.now(); paused = false; }
+  function pauseTimer() {
+    if (timerStart !== null) { timerAcc += Date.now() - timerStart; timerStart = null; }
+    paused = true;
+  }
+  function togglePause() { paused ? startTimer() : pauseTimer(); }
+  function resetTimerFn(andStart) {
+    timerAcc = 0; timerStart = andStart ? Date.now() : null;
+    timerElapsedMs = 0; paused = !andStart;
+  }
+
+  // ── UI Visibility ──
+  function resetHideTimer() {
+    uiVisible = true;
+    applyUiVisibility();
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { uiVisible = false; applyUiVisibility(); }, AUTO_HIDE_DELAY);
+  }
+
+  function applyUiVisibility() {
+    const cls = uiVisible ? '' : 'hidden';
+    toolbar.className = 'toolbar ' + cls;
+    modeBar.className = 'mode-bar ' + cls;
+    clockNameEl.className = 'clock-name ' + cls;
+    sizeControls.className = 'size-controls ' + cls;
+    ntpStatusEl.className = 'ntp-status ' + cls;
+    if (showMiniClock && mode !== 'clock') miniClockEl.className = 'mini-clock ' + cls;
+    else miniClockEl.className = 'mini-clock hidden';
+    timerControls.className = 'timer-controls ' + ((mode !== 'clock') ? cls : 'hidden');
+    countdownPresetsEl.className = 'countdown-presets ' + ((mode === 'countdown') ? cls : 'hidden');
+  }
+
+  // ── NTP sync ──
+  async function syncTime() {
+    const apis = [
+      { url: 'https://timeapi.io/api/time/current/zone?timeZone=UTC', parse: d => new Date(d.dateTime + 'Z').getTime() },
+      { url: 'https://worldtimeapi.org/api/timezone/UTC', parse: d => new Date(d.utc_datetime).getTime() },
+    ];
+    for (const api of apis) {
+      try {
+        const before = Date.now();
+        const res = await fetch(api.url);
+        if (!res.ok) continue;
+        const after = Date.now();
+        const data = await res.json();
+        const serverTime = api.parse(data);
+        if (isNaN(serverTime)) continue;
+        ntpOffset = serverTime - (before + (after - before) / 2);
+        syncStatus = 'synced';
+        updateNtpStatus();
+        return;
+      } catch { continue; }
     }
-    case 'n': showToolbar(); inpName.focus(); break;
-    case 'k': {
-      state.colorIndex = (state.colorIndex + 1) % COLORS.length;
-      setColor(COLORS[state.colorIndex].hex);
-      break;
-    }
-    case 'a': {
-      state.autoSize = !state.autoSize;
-      updateToggleButtons();
-      break;
-    }
-    case 'arrowup':
-      e.preventDefault();
-      state.autoSize = false;
-      state.fontSize = Math.min(800, state.fontSize + 8);
-      clockDisplay.style.fontSize = state.fontSize + 'px';
-      updateToggleButtons();
-      break;
-    case 'arrowdown':
-      e.preventDefault();
-      state.autoSize = false;
-      state.fontSize = Math.max(20, state.fontSize - 8);
-      clockDisplay.style.fontSize = state.fontSize + 'px';
-      updateToggleButtons();
-      break;
-    case '?':
-      keyboardHelp.style.display = keyboardHelp.style.display === 'block' ? 'none' : 'block';
-      break;
-    case '=':
-    case '+':
-      if (state.mode === 'countdown') {
-        state.countdownTotal += 60000;
-        if (state.running) state.startTime -= 0; // no change needed, just extends total
-      }
-      break;
-    case '-':
-      if (state.mode === 'countdown') {
-        state.countdownTotal = Math.max(0, state.countdownTotal - 60000);
-      }
-      break;
-    case 'escape':
-      toggleToolbar();
-      break;
-    default:
-      // Quick countdown: 1-9 = 1-9 min, 0 = 10 min
-      if (/^[0-9]$/.test(e.key)) {
-        const mins = e.key === '0' ? 10 : parseInt(e.key);
-        state.countdownTotal = mins * 60 * 1000;
-        setMode('countdown');
-        inpCountdown.value = mins + ':00';
-        resetTimer();
-        startTimer();
-        showToolbar();
-      }
+    ntpOffset = 0;
+    syncStatus = 'local';
+    updateNtpStatus();
   }
-});
 
-// ── RENDER LOOP ──
-function render() {
-  updateDisplay();
-  requestAnimationFrame(render);
-}
-
-// ── INIT ──
-setColor(state.color);
-setFont(state.font);
-updateToggleButtons();
-setMode('clock');
-render();
-
-// Try to load last state from localStorage
-try {
-  const saved = JSON.parse(localStorage.getItem('tc-clock-state'));
-  if (saved) {
-    if (saved.mode) setMode(saved.mode);
-    if (saved.style) { state.style = saved.style; selStyle.value = saved.style; }
-    if (saved.font) setFont(saved.font);
-    if (saved.color) setColor(saved.color);
-    if (saved.timezone) { state.timezone = saved.timezone; selTz.value = saved.timezone; }
-    if (saved.is12h !== undefined) state.is12h = saved.is12h;
-    if (saved.showTenths !== undefined) state.showTenths = saved.showTenths;
-    if (saved.hideLeadingZero !== undefined) state.hideLeadingZero = saved.hideLeadingZero;
-    if (saved.name) { state.name = saved.name; inpName.value = saved.name; clockName.textContent = saved.name; }
-    updateToggleButtons();
+  function updateNtpStatus() {
+    const dot = syncStatus === 'synced' ? '<span class="ntp-dot synced"></span>'
+      : syncStatus === 'local' ? '<span class="ntp-dot local"></span>'
+      : '<span class="ntp-dot syncing"></span>';
+    const label = syncStatus === 'synced' ? `NTP synced (${ntpOffset > 0 ? '+' : ''}${ntpOffset}ms)`
+      : syncStatus === 'local' ? 'Local clock' : 'Syncing...';
+    ntpStatusEl.innerHTML = dot + ' ' + label;
   }
-} catch {}
 
-// Save state periodically
-setInterval(() => {
-  localStorage.setItem('tc-clock-state', JSON.stringify({
-    mode: state.mode,
-    style: state.style,
-    font: state.font,
-    color: state.color,
-    timezone: state.timezone,
-    is12h: state.is12h,
-    showTenths: state.showTenths,
-    hideLeadingZero: state.hideLeadingZero,
-    name: state.name,
-  }));
-}, 5000);
+  // ── Auto-size ──
+  function doAutoSize() {
+    if (!autoSize || displayStyle !== 'digital') return;
+    const containerW = document.body.clientWidth * 0.95;
+    const tw = timeDisplay.scrollWidth;
+    if (tw > 0) {
+      const scale = containerW / tw;
+      const newSize = Math.floor(fontSize * scale);
+      const clamped = Math.max(30, Math.min(newSize, 800));
+      if (Math.abs(clamped - fontSize) > 2) { fontSize = clamped; }
+    }
+  }
+
+  // ── Build panels ──
+  function buildColorPanel() {
+    panelColor.innerHTML = '';
+    COLORS.forEach(c => {
+      const btn = document.createElement('button');
+      btn.innerHTML = '<span class="swatch" style="background:' + c.value + '"></span>' + c.label;
+      if (clockColor === c.value) { btn.classList.add('selected'); btn.style.color = c.value; }
+      btn.onclick = () => { clockColor = c.value; closeAllPanels(); applyColor(); saveSettings(); };
+      panelColor.appendChild(btn);
+    });
+  }
+
+  function buildTzPanel() {
+    panelTz.innerHTML = '';
+    TIMEZONES.forEach(t => {
+      const btn = document.createElement('button');
+      btn.textContent = t.label + (t.value === 'local' ? '' : '  ' + t.value);
+      if (timezone === t.value) { btn.classList.add('selected'); btn.style.color = clockColor; }
+      btn.onclick = () => { timezone = t.value; closeAllPanels(); saveSettings(); };
+      panelTz.appendChild(btn);
+    });
+  }
+
+  function buildFontPanel() {
+    panelFont.innerHTML = '';
+    FONTS.forEach(f => {
+      const btn = document.createElement('button');
+      btn.textContent = f.label + '  12:34';
+      btn.style.fontFamily = f.css;
+      btn.style.fontWeight = f.weight;
+      if (selectedFont.name === f.name) { btn.classList.add('selected'); btn.style.color = clockColor; }
+      btn.onclick = () => { selectedFont = f; closeAllPanels(); applyFont(); saveSettings(); };
+      panelFont.appendChild(btn);
+    });
+  }
+
+  function buildPresetPanel() {
+    const presets = loadPresets();
+    panelPresets.innerHTML = '';
+    if (presets.length === 0) {
+      const p = document.createElement('button');
+      p.textContent = 'No presets saved yet';
+      p.style.cursor = 'default';
+      panelPresets.appendChild(p);
+      return;
+    }
+    presets.forEach(preset => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:4px';
+      const btn = document.createElement('button');
+      btn.innerHTML = '<span class="swatch" style="background:' + preset.clockColor + '"></span>' + preset.name;
+      btn.style.flex = '1';
+      btn.onclick = () => {
+        clockName = preset.clockName; clockColor = preset.clockColor;
+        selectedFont = FONTS.find(f => f.name === preset.fontName) || FONTS[0];
+        timezone = preset.timezone; is24h = preset.is24h; mode = preset.mode;
+        closeAllPanels(); applyColor(); applyFont(); applyMode(); saveSettings();
+      };
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.style.cssText = 'color:rgba(255,255,255,0.2);padding:4px 8px;flex-shrink:0';
+      del.onmouseenter = () => del.style.color = '#ef4444';
+      del.onmouseleave = () => del.style.color = 'rgba(255,255,255,0.2)';
+      del.onclick = () => {
+        const updated = loadPresets().filter(p => p.id !== preset.id);
+        savePresetsList(updated);
+        buildPresetPanel();
+      };
+      row.appendChild(btn);
+      row.appendChild(del);
+      panelPresets.appendChild(row);
+    });
+  }
+
+  function closeAllPanels() {
+    panelColor.classList.remove('open');
+    panelTz.classList.remove('open');
+    panelFont.classList.remove('open');
+    panelPresets.classList.remove('open');
+    helpPanel.classList.remove('open');
+  }
+
+  function togglePanel(panel, buildFn) {
+    const wasOpen = panel.classList.contains('open');
+    closeAllPanels();
+    if (!wasOpen) { buildFn(); panel.classList.add('open'); }
+  }
+
+  // ── Apply visual state ──
+  function applyColor() {
+    document.documentElement.style.setProperty('--active-color', clockColor);
+    document.documentElement.style.setProperty('--active-color-dim', hexAlpha(clockColor, 0.5));
+    $('helpTitle').style.color = clockColor;
+    buildHelpBody();
+  }
+
+  function applyFont() {
+    timeDisplay.style.fontFamily = selectedFont.css;
+    timeDisplay.style.fontWeight = selectedFont.weight;
+  }
+
+  function applyMode() {
+    modeBar.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+      b.style.color = b.dataset.mode === mode ? clockColor : 'rgba(255,255,255,0.2)';
+      b.style.borderColor = b.dataset.mode === mode ? hexAlpha(clockColor, 0.5) : 'rgba(255,255,255,0.1)';
+    });
+    applyUiVisibility();
+  }
+
+  function buildHelpBody() {
+    const keys = [
+      ['C', 'Show real-time clock'], ['S', 'Start count-up timer'],
+      ['D', 'Enter countdown time (hh:mm:ss)'], ['M', 'Enter target time of day'],
+      ['R', 'Restart timer'], ['P / Space', 'Pause / Resume'],
+      ['T', 'Toggle tenths'], ['H', 'Toggle 12/24 hour'],
+      ['Q', 'Toggle mini-clock'], ['Z', 'Toggle leading zeroes'],
+      ['I', 'Change +/- sign'], ['N', 'Edit clock name'],
+      ['K', 'Cycle display color'], ['0-9', 'Quick countdown (minutes)'],
+      ['⇧ 0-9', 'Quick countdown (×5 min)'], ['⌃ 0-9', 'Quick countdown (×30 min)'],
+      ['⇧⌃ 0-9', 'Quick countdown (hours)'], ['-/=', 'Adjust ±5 seconds'],
+      ['⇧ -/=', 'Adjust ±30 seconds'], ['⌃ -/=', 'Adjust ±60 seconds'],
+      ['F', 'Toggle font picker'], ['A', 'Toggle auto-fit size'],
+      ['L', 'Toggle logo'], ['↑/↓', 'Adjust font size (manual)'],
+    ];
+    $('helpBody').innerHTML = keys.map(([k, d]) =>
+      `<div class="row"><span class="key" style="color:${hexAlpha(clockColor, 0.7)}">${k}</span><span class="desc">${d}</span></div>`
+    ).join('');
+  }
+
+  // ── Analog clock rendering ──
+  function renderAnalog(hours, minutes, seconds, color, digitalTime, ampm) {
+    const cx = 150, cy = 150, r = 140;
+    const secA = (seconds / 60) * 360 - 90;
+    const minA = ((minutes + seconds / 60) / 60) * 360 - 90;
+    const hourA = (((hours % 12) + minutes / 60) / 12) * 360 - 90;
+    const rad = a => a * Math.PI / 180;
+    const end = (a, l) => ({ x: cx + l * Math.cos(rad(a)), y: cy + l * Math.sin(rad(a)) });
+    const hEnd = end(hourA, r * 0.5), mEnd = end(minA, r * 0.7), sEnd = end(secA, r * 0.85);
+
+    let svg = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${hexAlpha(color, 0.25)}" stroke-width="5"/>`;
+
+    // Ticks
+    for (let i = 0; i < 60; i++) {
+      const a = (i / 60) * 360 - 90;
+      const isHr = i % 5 === 0;
+      const oR = r - 2, iR = isHr ? r - 16 : r - 7;
+      const p1 = end(a, iR), p2 = end(a, oR);
+      svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${isHr ? hexAlpha(color, 0.56) : hexAlpha(color, 0.25)}" stroke-width="${isHr ? 3.9 : 2}" stroke-linecap="round"/>`;
+    }
+
+    // Hour numbers
+    for (let i = 1; i <= 12; i++) {
+      const a = (i / 12) * 360 - 90;
+      const p = end(a, r - 26);
+      svg += `<text x="${p.x}" y="${p.y}" fill="${hexAlpha(color, 0.44)}" font-size="18" font-family="${selectedFont.css}" font-weight="${selectedFont.weight}" text-anchor="middle" dominant-baseline="central">${i}</text>`;
+    }
+
+    // Hands
+    svg += `<line x1="${cx}" y1="${cy}" x2="${hEnd.x}" y2="${hEnd.y}" stroke="${color}" stroke-width="7.5" stroke-linecap="round"/>`;
+    svg += `<line x1="${cx}" y1="${cy}" x2="${mEnd.x}" y2="${mEnd.y}" stroke="${color}" stroke-width="5" stroke-linecap="round"/>`;
+    svg += `<line x1="${cx}" y1="${cy}" x2="${sEnd.x}" y2="${sEnd.y}" stroke="${hexAlpha(color, 0.8)}" stroke-width="2" stroke-linecap="round"/>`;
+    svg += `<circle cx="${cx}" cy="${cy}" r="6" fill="${color}"/>`;
+
+    // Digital time overlay
+    svg += `<text x="${cx}" y="${cy + 38}" fill="${hexAlpha(color, 0.56)}" font-size="18" font-family="${selectedFont.css}" font-weight="${selectedFont.weight}" text-anchor="middle" dominant-baseline="central">${digitalTime}</text>`;
+    if (ampm) svg += `<text x="${cx}" y="${cy + 54}" fill="${hexAlpha(color, 0.31)}" font-size="10" font-family="${selectedFont.css}" text-anchor="middle" dominant-baseline="central">${ampm}</text>`;
+
+    analogSvg.innerHTML = svg;
+    const sz = Math.min(fontSize * 2, 600);
+    analogSvg.setAttribute('width', sz);
+    analogSvg.setAttribute('height', sz);
+  }
+
+  // ── Main render loop ──
+  function render() {
+    const now = new Date(Date.now() + ntpOffset);
+    const tz = getTimeInZone(now, timezone);
+    const currentSec = tz.hours * 3600 + tz.minutes * 60 + tz.seconds;
+    const tenthsVal = Math.floor(now.getMilliseconds() / 100);
+
+    // Update timer elapsed
+    timerElapsedMs = timerAcc + (timerStart !== null ? Date.now() - timerStart : 0);
+
+    // Compute display time
+    let dt;
+    if (mode === 'clock') dt = formatTime(currentSec, is24h, true, showTenths, tenthsVal);
+    else if (mode === 'countup') dt = formatTime(timerElapsedMs, true, true, false, 0, hideLeadingZero, true);
+    else if (mode === 'countdown') {
+      const remainingMs = countdownFrom * 1000 - timerElapsedMs;
+      dt = formatTime(remainingMs, true, true, false, 0, hideLeadingZero, true);
+    } else if (mode === 'countto' && countToTarget !== null) {
+      const diffSec = Math.round((countToTarget - Date.now()) / 1000);
+      dt = formatTime(diffSec, true, true, false, 0, hideLeadingZero);
+    } else {
+      dt = { text: '00:00:00', negative: false };
+    }
+
+    // Active color (overtime = red, warning = yellow)
+    const countdownRemMs = countdownFrom * 1000 - timerElapsedMs;
+    const isOvertime = mode === 'countdown' && countdownRemMs < 0;
+    const isWarning = mode === 'countdown' && countdownRemMs <= 30000 && countdownRemMs > 0;
+    const activeColor = isOvertime ? '#dc2626' : isWarning ? '#eab308' : clockColor;
+
+    if (displayStyle === 'digital') {
+      analogContainer.style.display = 'none';
+      timeDisplay.style.display = '';
+      ampmDisplay.style.display = (mode === 'clock' && !is24h) ? '' : 'none';
+
+      let text = '';
+      if (mode !== 'clock' && dt.negative) text += (sign === '+' ? '−' : '+');
+      else if (mode !== 'clock' && !dt.negative) text += '<span style="opacity:0.3">' + (sign === '+' ? '+' : '−') + '</span>';
+      text += dt.text;
+      timeDisplay.innerHTML = text;
+      timeDisplay.style.color = activeColor;
+      timeDisplay.style.fontSize = (fontSize * 0.6) + 'px';
+      timeDisplay.classList.toggle('pulse', isOvertime);
+
+      if (mode === 'clock' && !is24h) {
+        ampmDisplay.textContent = tz.hours >= 12 ? 'PM' : 'AM';
+        ampmDisplay.style.color = hexAlpha(clockColor, 0.5);
+      }
+    } else {
+      timeDisplay.style.display = 'none';
+      ampmDisplay.style.display = 'none';
+      analogContainer.style.display = '';
+      const ampm = (mode === 'clock' && !is24h) ? (tz.hours >= 12 ? 'PM' : 'AM') : null;
+      renderAnalog(tz.hours, tz.minutes, tz.seconds, activeColor, dt.text, ampm);
+    }
+
+    // Clock name
+    if (!editingName) {
+      const defaultN = mode === 'countup' ? 'Count Up' : mode === 'countdown' ? 'Countdown' : mode === 'countto' ? 'Count To' : 'Clock';
+      const name = clockName || defaultN;
+      clockNameEl.innerHTML = '';
+      const span = document.createElement('span');
+      span.textContent = name;
+      span.style.color = hexAlpha(clockColor, 0.4);
+      span.title = 'Click to rename (N)';
+      span.onclick = () => startEditName();
+      clockNameEl.appendChild(span);
+      // Position above time
+      clockNameEl.style.top = 'calc(50% - ' + (fontSize * 0.6 * 0.55 + 30) + 'px)';
+      clockNameEl.style.left = '50%';
+      clockNameEl.style.transform = 'translateX(-50%)';
+    }
+
+    // Mini clock
+    if (showMiniClock && mode !== 'clock') {
+      miniClockEl.textContent = formatTime(currentSec, is24h, true).text;
+      miniClockEl.style.color = hexAlpha(clockColor, 0.4);
+    }
+
+    // Pause button label
+    $('btnPause').textContent = paused ? 'Resume' : 'Pause';
+
+    // Mode bar colors
+    modeBar.querySelectorAll('button').forEach(b => {
+      const isActive = b.dataset.mode === mode;
+      b.style.color = isActive ? activeColor : 'rgba(255,255,255,0.2)';
+      b.style.borderColor = isActive ? hexAlpha(activeColor, 0.5) : 'rgba(255,255,255,0.1)';
+    });
+
+    doAutoSize();
+  }
+
+  function startEditName() {
+    editingName = true;
+    clockNameEl.innerHTML = '';
+    const inp = document.createElement('input');
+    inp.value = clockName;
+    inp.placeholder = mode === 'countup' ? 'Count Up' : mode === 'countdown' ? 'Countdown' : 'Clock';
+    inp.style.color = hexAlpha(clockColor, 0.6);
+    inp.onblur = () => finishEditName(inp.value);
+    inp.onkeydown = (e) => { if (e.key === 'Enter' || e.key === 'Escape') finishEditName(inp.value); };
+    clockNameEl.appendChild(inp);
+    inp.focus();
+    inp.select();
+  }
+
+  function finishEditName(val) {
+    clockName = val;
+    editingName = false;
+    saveSettings();
+  }
+
+  // ── Keyboard handler ──
+  function handleKey(e) {
+    if (editingName) {
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        const inp = clockNameEl.querySelector('input');
+        if (inp) finishEditName(inp.value);
+      }
+      return;
+    }
+
+    if (enteringTime) {
+      if (e.key === 'Enter') {
+        const parts = timeInput.split(':').map(Number);
+        if (enterMode === 'countdown') {
+          let totalSec = 0;
+          if (parts.length === 3) totalSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+          else if (parts.length === 2) totalSec = parts[0] * 60 + parts[1];
+          else totalSec = parts[0] * 60;
+          countdownFrom = totalSec;
+          mode = 'countdown';
+          resetTimerFn(true);
+        } else {
+          if (parts.length >= 2) {
+            const target = new Date();
+            target.setHours(parts[0], parts[1], parts[2] || 0, 0);
+            if (target.getTime() < Date.now()) target.setDate(target.getDate() + 1);
+            countToTarget = target.getTime();
+            mode = 'countto';
+            paused = false;
+          }
+        }
+        enteringTime = false; timeInput = '';
+        timeEntry.classList.remove('open');
+        applyMode(); saveSettings();
+        return;
+      }
+      if (e.key === 'Escape') { enteringTime = false; timeInput = ''; timeEntry.classList.remove('open'); return; }
+      if (e.key === 'Backspace') { timeInput = timeInput.slice(0, -1); $('timeEntryInput').textContent = timeInput || '—:——:——'; return; }
+      if (/[\d:]/.test(e.key)) { timeInput += e.key; $('timeEntryInput').textContent = timeInput || '—:——:——'; }
+      return;
+    }
+
+    const key = e.key.toLowerCase();
+
+    if (key === 'c') { mode = 'clock'; paused = false; applyMode(); saveSettings(); }
+    else if (key === 's') { mode = 'countup'; resetTimerFn(true); applyMode(); saveSettings(); }
+    else if (key === 'd') { enteringTime = true; enterMode = 'countdown'; timeInput = ''; showTimeEntry('Enter countdown (hh:mm:ss)'); }
+    else if (key === 'm') { enteringTime = true; enterMode = 'countto'; timeInput = ''; showTimeEntry('Enter target time (hh:mm:ss)'); }
+    else if (key === 'r') { if (mode === 'countdown' || mode === 'countup') resetTimerFn(true); }
+    else if (key === 'p' || key === ' ') { e.preventDefault(); togglePause(); }
+    else if (key === 't') { showTenths = !showTenths; saveSettings(); }
+    else if (key === 'h') { is24h = !is24h; saveSettings(); }
+    else if (key === 'q') { showMiniClock = !showMiniClock; applyUiVisibility(); saveSettings(); }
+    else if (key === 'z') { hideLeadingZero = !hideLeadingZero; saveSettings(); }
+    else if (key === 'i') { sign = sign === '+' ? '-' : '+'; }
+    else if (key === 'f') { togglePanel(panelFont, buildFontPanel); }
+    else if (key === 'n') { startEditName(); }
+    else if (key === 'k') {
+      const idx = COLORS.findIndex(c => c.value === clockColor);
+      clockColor = COLORS[(idx + 1) % COLORS.length].value;
+      applyColor(); saveSettings();
+    }
+    else if (key === 'a') { autoSize = !autoSize; updateAutoSizeBtn(); saveSettings(); }
+    else if (key === 'l') { logoVisible = !logoVisible; logo.style.display = logoVisible ? '' : 'none'; }
+    else if (key === 'arrowup') { autoSize = false; fontSize = Math.min(fontSize + 10, 800); updateAutoSizeBtn(); }
+    else if (key === 'arrowdown') { autoSize = false; fontSize = Math.max(fontSize - 10, 30); updateAutoSizeBtn(); }
+    else if (key === '-') {
+      const adj = e.ctrlKey ? 60 : e.shiftKey ? 30 : 5;
+      timerAcc += adj * 1000;
+    } else if (key === '=') {
+      const adj = e.ctrlKey ? 60 : e.shiftKey ? 30 : 5;
+      timerAcc = Math.max(0, timerAcc - adj * 1000);
+    } else if (/\d/.test(key)) {
+      const d = key === '0' ? 10 : parseInt(key);
+      let minutes = d;
+      if (e.shiftKey && e.ctrlKey) countdownFrom = d * 3600;
+      else if (e.ctrlKey) countdownFrom = d * 30 * 60;
+      else if (e.shiftKey) countdownFrom = d * 5 * 60;
+      else countdownFrom = minutes * 60;
+      mode = 'countdown'; resetTimerFn(true); applyMode(); saveSettings();
+    }
+  }
+
+  function showTimeEntry(label) {
+    $('timeEntryLabel').textContent = label;
+    $('timeEntryInput').textContent = '—:——:——';
+    $('timeEntryInput').style.color = clockColor;
+    timeEntry.classList.add('open');
+  }
+
+  function updateAutoSizeBtn() {
+    const btn = $('btnAutoSize');
+    btn.textContent = autoSize ? 'AUTO' : 'FIXED';
+    btn.classList.toggle('active', autoSize);
+    $('sizeLabel').textContent = autoSize ? 'auto' : Math.round(fontSize * 0.6) + 'px';
+  }
+
+  // ── Button handlers ──
+  $('btnColor').onclick = (e) => { e.stopPropagation(); togglePanel(panelColor, buildColorPanel); };
+  $('btnTz').onclick = (e) => { e.stopPropagation(); togglePanel(panelTz, buildTzPanel); };
+  $('btnFont').onclick = (e) => { e.stopPropagation(); togglePanel(panelFont, buildFontPanel); };
+  $('btnHelp').onclick = (e) => { e.stopPropagation(); const wasOpen = helpPanel.classList.contains('open'); closeAllPanels(); if (!wasOpen) helpPanel.classList.add('open'); };
+  $('btnAnalog').onclick = () => { displayStyle = displayStyle === 'digital' ? 'analog' : 'digital'; saveSettings(); };
+  $('btnPresetSave').onclick = () => {
+    const name = prompt('Preset name:', clockName || 'Clock');
+    if (!name) return;
+    const presets = loadPresets();
+    presets.push({ id: Date.now().toString(), name, clockName, clockColor, fontName: selectedFont.name, timezone, is24h, mode });
+    savePresetsList(presets);
+  };
+  $('btnPresetLoad').onclick = (e) => { e.stopPropagation(); togglePanel(panelPresets, buildPresetPanel); };
+  $('btnPause').onclick = () => togglePause();
+  $('btnReset').onclick = () => resetTimerFn(true);
+  $('btnSizeUp').onclick = () => { autoSize = false; fontSize = Math.min(fontSize + 10, 800); updateAutoSizeBtn(); saveSettings(); };
+  $('btnSizeDown').onclick = () => { autoSize = false; fontSize = Math.max(fontSize - 10, 30); updateAutoSizeBtn(); saveSettings(); };
+  $('btnAutoSize').onclick = () => { autoSize = !autoSize; updateAutoSizeBtn(); saveSettings(); };
+
+  // Mode bar buttons
+  modeBar.querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      mode = b.dataset.mode;
+      if (mode === 'countup' || mode === 'countdown') resetTimerFn(true);
+      applyMode(); saveSettings();
+    };
+  });
+
+  // Countdown preset buttons
+  countdownPresetsEl.querySelectorAll('button').forEach(b => {
+    b.onclick = () => { countdownFrom = parseInt(b.dataset.sec); resetTimerFn(true); };
+  });
+
+  // Close panels on body click
+  document.body.addEventListener('click', () => closeAllPanels());
+
+  // ── Activity listeners ──
+  ['mousemove', 'keydown', 'touchstart'].forEach(evt => window.addEventListener(evt, resetHideTimer));
+  window.addEventListener('keydown', handleKey);
+
+  // ── Init ──
+  applyColor();
+  applyFont();
+  applyMode();
+  updateAutoSizeBtn();
+  resetHideTimer();
+  syncTime();
+  setInterval(syncTime, 60000);
+
+  // Render loop — 30fps for smooth ms display
+  setInterval(render, 33);
+
+  // Auto-size on resize
+  window.addEventListener('resize', () => { if (autoSize) doAutoSize(); });
 
 })();
 </script>
