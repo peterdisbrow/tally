@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Clock Wall — TallyConnect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+@font-face {
+  font-family: 'DSEG7-Classic';
+  src: url('../clock/fonts/DSEG7Classic-Bold.woff2') format('woff2');
+  font-weight: bold; font-display: swap;
+}
+@font-face {
+  font-family: 'DSEG14-Classic';
+  src: url('../clock/fonts/DSEG14Classic-Bold.woff2') format('woff2');
+  font-weight: bold; font-display: swap;
+}
+@font-face {
+  font-family: 'DSEG7-Modern';
+  src: url('../clock/fonts/DSEG7Modern-Bold.woff2') format('woff2');
+  font-weight: bold; font-display: swap;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #000;
+  --toolbar-bg: rgba(30,30,30,0.95);
+  --toolbar-border: rgba(255,255,255,0.1);
+  --input-bg: rgba(255,255,255,0.08);
+  --input-border: rgba(255,255,255,0.2);
+  --text: #ccc;
+  --text-bright: #fff;
+  --cell-border: rgba(255,255,255,0.08);
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: hidden;
+  cursor: none;
+  user-select: none;
+}
+body.toolbar-visible { cursor: default; }
+
+/* ── TOOLBAR ── */
+#toolbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--toolbar-border);
+  padding: 8px 12px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px;
+  z-index: 100;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+}
+body.toolbar-visible #toolbar { transform: translateY(0); }
+
+#toolbar label { color: var(--text); font-size: 11px; }
+#toolbar select, #toolbar button {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-bright);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+#toolbar button:hover { background: rgba(255,255,255,0.15); }
+#toolbar .sep {
+  width: 1px; height: 24px;
+  background: var(--toolbar-border);
+}
+#toolbar a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 11px;
+  opacity: 0.6;
+}
+#toolbar a:hover { opacity: 1; }
+
+/* ── GRID ── */
+#grid {
+  width: 100%; height: 100%;
+  display: grid;
+  gap: 2px;
+  background: var(--bg);
+}
+body.toolbar-visible #grid { height: calc(100% - 44px); margin-top: 44px; }
+
+.cell {
+  position: relative;
+  background: #0a0a0a;
+  border: 1px solid var(--cell-border);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  overflow: hidden;
+  min-height: 0;
+  cursor: grab;
+}
+.cell.dragging { opacity: 0.4; }
+.cell.drag-over { border-color: rgba(255,255,255,0.4); }
+
+.cell-name {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-bottom: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.cell-name:empty { display: none; }
+
+.cell-time {
+  font-family: 'DSEG7-Classic', 'Share Tech Mono', monospace;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cell-time.warning { color: #ffcc00 !important; }
+.cell-time.overtime { animation: pulse-overtime 0.5s ease-in-out infinite alternate; }
+
+@keyframes pulse-overtime {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
+}
+
+/* Cell config overlay */
+.cell-config {
+  display: none;
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.92);
+  padding: 12px;
+  z-index: 10;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.cell-config.active { display: flex; flex-direction: column; gap: 6px; }
+
+.cell-config label { color: var(--text); font-size: 10px; }
+.cell-config select, .cell-config input {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-bright);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+}
+.cell-config .cfg-row { display: flex; gap: 6px; align-items: center; }
+.cell-config button {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-bright);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+.cell-config button:hover { background: rgba(255,255,255,0.15); }
+.cell-config button.danger { border-color: #ff4444; color: #ff4444; }
+
+/* Cell gear button */
+.cell-gear {
+  position: absolute; top: 4px; right: 4px;
+  width: 22px; height: 22px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+  cursor: pointer;
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 5;
+}
+body.toolbar-visible .cell-gear { display: flex; }
+.cell-gear:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+/* Layouts */
+.layout-2wide { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.layout-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.layout-3stack { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr 1fr; }
+.layout-4stack { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr 1fr 1fr; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label>Layout</label>
+  <select id="sel-layout">
+    <option value="2wide">2 Wide</option>
+    <option value="2x2">2x2 Grid</option>
+    <option value="3stack">3 Stack</option>
+    <option value="4stack">4 Stack</option>
+  </select>
+  <div class="sep"></div>
+  <button id="btn-add">+ Add Clock</button>
+  <div class="sep"></div>
+  <a href="/tools/clock" target="_blank">Open Single Clock</a>
+</div>
+
+<div id="grid" class="layout-2wide"></div>
+
+<script>
+(function() {
+'use strict';
+
+const COLORS = [
+  { name: 'Red', hex: '#ff3333' },
+  { name: 'Green', hex: '#33ff33' },
+  { name: 'Amber', hex: '#ffaa00' },
+  { name: 'Blue', hex: '#3388ff' },
+  { name: 'Cyan', hex: '#00ffff' },
+  { name: 'White', hex: '#ffffff' },
+  { name: 'Magenta', hex: '#ff33ff' },
+];
+
+const TIMEZONES = [
+  { value: 'local', label: 'Local' },
+  { value: 'UTC', label: 'UTC' },
+  { value: 'America/New_York', label: 'US Eastern' },
+  { value: 'America/Chicago', label: 'US Central' },
+  { value: 'America/Denver', label: 'US Mountain' },
+  { value: 'America/Los_Angeles', label: 'US Pacific' },
+  { value: 'Europe/London', label: 'London' },
+  { value: 'Europe/Paris', label: 'Paris' },
+  { value: 'Asia/Tokyo', label: 'Tokyo' },
+  { value: 'Australia/Sydney', label: 'Sydney' },
+  { value: 'Asia/Dubai', label: 'Dubai' },
+  { value: 'Asia/Hong_Kong', label: 'Hong Kong' },
+  { value: 'Asia/Singapore', label: 'Singapore' },
+  { value: 'Asia/Kolkata', label: 'Mumbai' },
+];
+
+const FONTS = {
+  'DSEG7-Classic': "'DSEG7-Classic', 'Share Tech Mono', monospace",
+  'DSEG14-Classic': "'DSEG14-Classic', 'Share Tech Mono', monospace",
+  'DSEG7-Modern': "'DSEG7-Modern', 'Share Tech Mono', monospace",
+  'Share Tech Mono': "'Share Tech Mono', monospace",
+  'JetBrains Mono': "'JetBrains Mono', monospace",
+  'system': "ui-monospace, 'SF Mono', 'Consolas', monospace",
+};
+
+const grid = document.getElementById('grid');
+const selLayout = document.getElementById('sel-layout');
+
+// NTP sync
+let ntpOffset = 0;
+async function ntpSync() {
+  try {
+    const t0 = Date.now();
+    const res = await fetch('/api/time');
+    const t3 = Date.now();
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    ntpOffset = data.serverTime + (t3 - t0) / 2 - t3;
+  } catch {
+    try {
+      const t0 = Date.now();
+      const res = await fetch('https://worldtimeapi.org/api/timezone/Etc/UTC');
+      const t3 = Date.now();
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      ntpOffset = new Date(data.utc_datetime).getTime() + (t3 - t0) / 2 - t3;
+    } catch {}
+  }
+}
+ntpSync();
+setInterval(ntpSync, 60000);
+function syncedNow() { return Date.now() + ntpOffset; }
+
+// ── CLOCK CELLS ──
+let cells = [];
+let layout = '2wide';
+
+function defaultCell() {
+  return {
+    id: Math.random().toString(36).slice(2, 8),
+    mode: 'clock',
+    timezone: 'local',
+    color: '#ff3333',
+    font: 'DSEG7-Classic',
+    is12h: false,
+    showTenths: false,
+    hideLeadingZero: false,
+    name: '',
+    running: false,
+    elapsed: 0,
+    startTime: 0,
+    countdownTotal: 300000,
+  };
+}
+
+function layoutCount(l) {
+  return l === '2wide' ? 2 : l === '2x2' ? 4 : l === '3stack' ? 3 : 4;
+}
+
+function initCells() {
+  const count = layoutCount(layout);
+  while (cells.length < count) cells.push(defaultCell());
+  renderGrid();
+}
+
+// ── FORMAT ──
+function formatTime(ms, cell) {
+  const neg = ms < 0;
+  const abs = Math.abs(ms);
+  let totalSec = Math.floor(abs / 1000);
+  const tenths = Math.floor((abs % 1000) / 100);
+  const hours = Math.floor(totalSec / 3600);
+  totalSec %= 3600;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+
+  if (cell.hideLeadingZero && hours === 0) {
+    let r = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    if (cell.showTenths) r += '.' + tenths;
+    return (neg ? '-' : '') + r;
+  }
+  let r = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+  if (cell.showTenths) r += '.' + tenths;
+  return (neg ? '-' : '') + r;
+}
+
+function formatWallClock(now, cell) {
+  const d = new Date(now);
+  let hours, mins, secs, ms;
+  if (cell.timezone === 'local') {
+    hours = d.getHours(); mins = d.getMinutes(); secs = d.getSeconds(); ms = d.getMilliseconds();
+  } else {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: cell.timezone, hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false,
+    }).formatToParts(d);
+    hours = parseInt(parts.find(p => p.type === 'hour').value);
+    mins = parseInt(parts.find(p => p.type === 'minute').value);
+    secs = parseInt(parts.find(p => p.type === 'second').value);
+    ms = d.getMilliseconds();
+  }
+
+  let ampm = '';
+  if (cell.is12h) {
+    ampm = hours >= 12 ? ' PM' : ' AM';
+    hours = hours % 12 || 12;
+  }
+
+  let hStr = cell.hideLeadingZero ? String(hours) : String(hours).padStart(2, '0');
+  let r = hStr + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+  if (cell.showTenths) r += '.' + Math.floor(ms / 100);
+  return r + ampm;
+}
+
+// ── RENDER ──
+function renderGrid() {
+  grid.className = 'layout-' + layout;
+  grid.innerHTML = '';
+  const count = layoutCount(layout);
+  for (let i = 0; i < count && i < cells.length; i++) {
+    grid.appendChild(createCellEl(cells[i], i));
+  }
+}
+
+function createCellEl(cell, idx) {
+  const el = document.createElement('div');
+  el.className = 'cell';
+  el.draggable = true;
+  el.dataset.idx = idx;
+
+  el.innerHTML = `
+    <div class="cell-gear" data-idx="${idx}">&#9881;</div>
+    <div class="cell-name">${cell.name}</div>
+    <div class="cell-time" style="color:${cell.color}; font-family:${FONTS[cell.font] || FONTS.system}">--:--:--</div>
+    <div class="cell-config">
+      <label>Mode</label>
+      <select class="cfg-mode">
+        <option value="clock">Wall Clock</option>
+        <option value="stopwatch">Count Up</option>
+        <option value="countdown">Countdown</option>
+        <option value="countto">Count To</option>
+      </select>
+      <label>Timezone</label>
+      <select class="cfg-tz">${TIMEZONES.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}</select>
+      <label>Color</label>
+      <select class="cfg-color">${COLORS.map(c => `<option value="${c.hex}">${c.name}</option>`).join('')}</select>
+      <label>Font</label>
+      <select class="cfg-font">${Object.keys(FONTS).map(f => `<option value="${f}">${f}</option>`).join('')}</select>
+      <label>Name</label>
+      <input class="cfg-name" type="text" placeholder="Clock name" />
+      <label>Countdown (MM:SS)</label>
+      <input class="cfg-cd" type="text" placeholder="5:00" />
+      <div class="cfg-row">
+        <button class="cfg-12h">12h</button>
+        <button class="cfg-tenths">.0</button>
+        <button class="cfg-lz">LZ</button>
+      </div>
+      <div class="cfg-row" style="margin-top:4px">
+        <button class="cfg-start">Start</button>
+        <button class="cfg-pause">Pause</button>
+        <button class="cfg-reset">Reset</button>
+      </div>
+      <div class="cfg-row" style="margin-top:8px">
+        <button class="cfg-close">Done</button>
+        <button class="cfg-remove danger">Remove</button>
+      </div>
+    </div>
+  `;
+
+  // Populate config values
+  el.querySelector('.cfg-mode').value = cell.mode;
+  el.querySelector('.cfg-tz').value = cell.timezone;
+  el.querySelector('.cfg-color').value = cell.color;
+  el.querySelector('.cfg-font').value = cell.font;
+  el.querySelector('.cfg-name').value = cell.name;
+  if (cell.countdownTotal) {
+    const ts = cell.countdownTotal / 1000;
+    const m = Math.floor(ts / 60), s = ts % 60;
+    el.querySelector('.cfg-cd').value = m + ':' + String(s).padStart(2, '0');
+  }
+
+  // Config events
+  const cfg = el.querySelector('.cell-config');
+  el.querySelector('.cell-gear').addEventListener('click', (e) => {
+    e.stopPropagation();
+    cfg.classList.toggle('active');
+  });
+  el.querySelector('.cfg-close').addEventListener('click', () => cfg.classList.remove('active'));
+
+  el.querySelector('.cfg-mode').addEventListener('change', (e) => { cell.mode = e.target.value; cell.running = false; cell.elapsed = 0; });
+  el.querySelector('.cfg-tz').addEventListener('change', (e) => { cell.timezone = e.target.value; });
+  el.querySelector('.cfg-color').addEventListener('change', (e) => {
+    cell.color = e.target.value;
+    el.querySelector('.cell-time').style.color = e.target.value;
+    el.querySelector('.cell-name').style.color = e.target.value;
+  });
+  el.querySelector('.cfg-font').addEventListener('change', (e) => {
+    cell.font = e.target.value;
+    el.querySelector('.cell-time').style.fontFamily = FONTS[e.target.value] || FONTS.system;
+  });
+  el.querySelector('.cfg-name').addEventListener('input', (e) => {
+    cell.name = e.target.value;
+    el.querySelector('.cell-name').textContent = e.target.value;
+  });
+  el.querySelector('.cfg-cd').addEventListener('change', (e) => {
+    const parts = e.target.value.split(':').map(Number);
+    cell.countdownTotal = parts.length === 2 ? (parts[0] * 60 + parts[1]) * 1000
+      : parts.length === 3 ? (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000
+      : parts[0] * 1000;
+  });
+
+  el.querySelector('.cfg-12h').addEventListener('click', () => { cell.is12h = !cell.is12h; });
+  el.querySelector('.cfg-tenths').addEventListener('click', () => { cell.showTenths = !cell.showTenths; });
+  el.querySelector('.cfg-lz').addEventListener('click', () => { cell.hideLeadingZero = !cell.hideLeadingZero; });
+
+  el.querySelector('.cfg-start').addEventListener('click', () => {
+    if (cell.running) return;
+    const now = syncedNow();
+    if (cell.elapsed > 0) cell.startTime = now - cell.elapsed;
+    else {
+      cell.startTime = now;
+      if (cell.mode === 'countdown' && cell.countdownTotal === 0) cell.countdownTotal = 300000;
+    }
+    cell.running = true;
+  });
+  el.querySelector('.cfg-pause').addEventListener('click', () => { cell.running = false; });
+  el.querySelector('.cfg-reset').addEventListener('click', () => { cell.running = false; cell.elapsed = 0; cell.startTime = 0; });
+
+  el.querySelector('.cfg-remove').addEventListener('click', () => {
+    if (cells.length <= 1) return;
+    cells.splice(idx, 1);
+    renderGrid();
+    saveState();
+  });
+
+  // Drag and drop
+  el.addEventListener('dragstart', (e) => {
+    el.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', idx);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+    const toIdx = idx;
+    if (fromIdx === toIdx) return;
+    const [moved] = cells.splice(fromIdx, 1);
+    cells.splice(toIdx, 0, moved);
+    renderGrid();
+    saveState();
+  });
+
+  return el;
+}
+
+// ── UPDATE LOOP ──
+function updateAll() {
+  const now = syncedNow();
+  const cellEls = grid.querySelectorAll('.cell');
+  cellEls.forEach((el, i) => {
+    if (i >= cells.length) return;
+    const cell = cells[i];
+    const timeEl = el.querySelector('.cell-time');
+    let text = '--:--:--';
+    let isWarning = false, isOvertime = false;
+
+    switch (cell.mode) {
+      case 'clock':
+        text = formatWallClock(now, cell);
+        break;
+      case 'stopwatch':
+        if (cell.running) cell.elapsed = now - cell.startTime;
+        text = formatTime(cell.elapsed, cell);
+        break;
+      case 'countdown': {
+        if (cell.running) cell.elapsed = now - cell.startTime;
+        const rem = cell.countdownTotal - cell.elapsed;
+        if (rem <= 30000 && rem > 0) isWarning = true;
+        if (rem <= 0) isOvertime = true;
+        text = formatTime(rem, cell);
+        break;
+      }
+      case 'countto': {
+        const rem = cell.countToTarget - now;
+        if (rem <= 30000 && rem > 0) isWarning = true;
+        if (rem <= 0) isOvertime = true;
+        text = formatTime(rem || 0, cell);
+        break;
+      }
+    }
+
+    timeEl.textContent = text;
+    timeEl.classList.toggle('warning', isWarning);
+    timeEl.classList.toggle('overtime', isOvertime);
+
+    // Auto-size font
+    const container = el;
+    const maxW = container.clientWidth * 0.85;
+    const maxH = container.clientHeight * 0.45;
+    let lo = 16, hi = 400;
+    while (hi - lo > 2) {
+      const mid = Math.floor((lo + hi) / 2);
+      timeEl.style.fontSize = mid + 'px';
+      if (timeEl.scrollWidth <= maxW && timeEl.scrollHeight <= maxH) lo = mid;
+      else hi = mid;
+    }
+    timeEl.style.fontSize = lo + 'px';
+  });
+
+  requestAnimationFrame(updateAll);
+}
+
+// ── TOOLBAR ──
+let toolbarTimer = null;
+function showToolbar() {
+  document.body.classList.add('toolbar-visible');
+  clearTimeout(toolbarTimer);
+  toolbarTimer = setTimeout(() => document.body.classList.remove('toolbar-visible'), 5000);
+}
+document.addEventListener('mousemove', (e) => {
+  if (e.clientY < 60 || document.body.classList.contains('toolbar-visible')) showToolbar();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#toolbar') && !e.target.closest('.cell-config') && !e.target.closest('.cell-gear')) {
+    clearTimeout(toolbarTimer);
+    document.body.classList.remove('toolbar-visible');
+  }
+});
+
+selLayout.addEventListener('change', () => {
+  layout = selLayout.value;
+  initCells();
+  saveState();
+});
+
+document.getElementById('btn-add').addEventListener('click', () => {
+  cells.push(defaultCell());
+  // Auto-adjust layout
+  if (cells.length === 2 && layout !== '2wide') { layout = '2wide'; selLayout.value = layout; }
+  else if (cells.length === 3) { layout = '3stack'; selLayout.value = layout; }
+  else if (cells.length >= 4) { layout = '2x2'; selLayout.value = layout; }
+  renderGrid();
+  saveState();
+});
+
+// ── PERSISTENCE ──
+function saveState() {
+  localStorage.setItem('tc-multiclock', JSON.stringify({
+    layout,
+    cells: cells.map(c => ({
+      mode: c.mode, timezone: c.timezone, color: c.color, font: c.font,
+      is12h: c.is12h, showTenths: c.showTenths, hideLeadingZero: c.hideLeadingZero,
+      name: c.name, countdownTotal: c.countdownTotal,
+    })),
+  }));
+}
+setInterval(saveState, 5000);
+
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('tc-multiclock'));
+    if (saved) {
+      layout = saved.layout || '2wide';
+      selLayout.value = layout;
+      if (saved.cells && saved.cells.length) {
+        cells = saved.cells.map(c => ({ ...defaultCell(), ...c }));
+      }
+    }
+  } catch {}
+}
+
+// ── INIT ──
+loadState();
+initCells();
+updateAll();
+
+})();
+</script>
+</body>
+</html>
