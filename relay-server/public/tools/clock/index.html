@@ -350,7 +350,7 @@ body.toolbar-visible #clock-container { padding-top: 80px; }
     <div class="group">
       <button id="btn-12h" title="12/24h toggle">12h</button>
       <button id="btn-tenths" title="Show tenths">0.0</button>
-      <button id="btn-zero" title="Hide leading zero">LZ</button>
+      <button id="btn-zero" title="Toggle leading zero (e.g. 09:00 vs 9:00)">0:</button>
       <button id="btn-autosize" class="active" title="Auto font size">Auto</button>
       <button id="btn-mini" title="Mini clock overlay">Mini</button>
     </div>
@@ -679,11 +679,23 @@ function updateDisplay() {
 }
 
 // ── AUTO SIZE ──
+let _autoSizeCache = { w: 0, h: 0, len: 0 };
+
 function autoSizeText() {
   const container = clockContainer;
   const el = clockDisplay;
-  const maxW = container.clientWidth * 0.9;
-  const maxH = container.clientHeight * 0.5;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  const len = el.textContent.length;
+
+  // Only re-run when container dimensions or text length change.
+  // For monospace/DSEG fonts all digits are equal width, so length is sufficient
+  // to detect structural changes (e.g. adding tenths, toggling leading zero).
+  if (w === _autoSizeCache.w && h === _autoSizeCache.h && len === _autoSizeCache.len) return;
+  _autoSizeCache = { w, h, len };
+
+  const maxW = w * 0.9;
+  const maxH = h * 0.5;
 
   // Binary search for best font size
   let lo = 20, hi = 800;
