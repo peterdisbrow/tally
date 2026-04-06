@@ -1,5 +1,5 @@
 import type { CompanionVariableDefinition } from '@companion-module/base'
-import type { TallyConnectInstance, TallyState } from './main.js'
+import type { TallyConnectInstance, TallyState, RundownState, ClockState } from './main.js'
 
 /**
  * All variables map to real fields from the church-client status object.
@@ -77,6 +77,23 @@ export function getVariableDefinitions(): CompanionVariableDefinition[] {
 		// ── Connection ────────────────────────────────────────────────────────────
 		{ variableId: 'connection_status', name: 'Module Connection Status' },
 		{ variableId: 'church_name', name: 'Church Name' },
+
+		// ── Rundown ───────────────────────────────────────────────────────────────
+		// Sourced from rundown_state / rundown_tick WebSocket events
+		// @see relay-server/src/liveRundown.js
+		{ variableId: 'rundown_current_item', name: 'Rundown: Current Item Name' },
+		{ variableId: 'rundown_next_item', name: 'Rundown: Next Item Name' },
+		{ variableId: 'rundown_remaining', name: 'Rundown: Time Remaining (MM:SS)' },
+		{ variableId: 'rundown_elapsed', name: 'Rundown: Item Elapsed Time (MM:SS)' },
+		{ variableId: 'rundown_total_elapsed', name: 'Rundown: Total Service Elapsed (MM:SS)' },
+		{ variableId: 'rundown_schedule_delta', name: 'Rundown: Ahead/Behind Schedule Label' },
+		{ variableId: 'rundown_progress', name: 'Rundown: Progress (e.g. 3/15)' },
+		{ variableId: 'rundown_item_type', name: 'Rundown: Current Item Type' },
+
+		// ── Clock ─────────────────────────────────────────────────────────────────
+		{ variableId: 'clock_time', name: 'Clock: Current Display Time' },
+		{ variableId: 'clock_mode', name: 'Clock: Current Mode' },
+		{ variableId: 'clock_state', name: 'Clock: State (running/paused/stopped)' },
 	]
 }
 
@@ -84,6 +101,21 @@ export function getVariableDefinitions(): CompanionVariableDefinition[] {
  * Build the variable values object from the current tally state.
  * Called after every status_update to push new values to Companion.
  */
+/**
+ * Format seconds as MM:SS (or H:MM:SS if over an hour).
+ */
+function formatTime(totalSeconds: number | null): string {
+	if (totalSeconds == null) return '--:--'
+	const abs = Math.abs(Math.round(totalSeconds))
+	const h = Math.floor(abs / 3600)
+	const m = Math.floor((abs % 3600) / 60)
+	const sec = abs % 60
+	const pad = (n: number) => String(n).padStart(2, '0')
+	const prefix = totalSeconds < 0 ? '-' : ''
+	if (h > 0) return `${prefix}${h}:${pad(m)}:${pad(sec)}`
+	return `${prefix}${pad(m)}:${pad(sec)}`
+}
+
 export function getVariableValues(self: TallyConnectInstance): Record<string, string | number | undefined> {
 	const s: TallyState = self.tallyState
 
@@ -101,6 +133,12 @@ export function getVariableValues(self: TallyConnectInstance): Record<string, st
 	// Viewer totals from streamVerification
 	const ytViewers = s.ytViewers ?? 0
 	const fbViewers = s.fbViewers ?? 0
+
+	// Rundown state
+	const r: RundownState = self.rundownState
+
+	// Clock state
+	const c: ClockState = self.clockState
 
 	return {
 		program_input: s.programInput ?? '',
@@ -154,5 +192,20 @@ export function getVariableValues(self: TallyConnectInstance): Record<string, st
 
 		connection_status: self.connectionStatus,
 		church_name: self.churchName,
+
+		// Rundown
+		rundown_current_item: r.currentItemTitle ?? '',
+		rundown_next_item: r.nextItemTitle ?? '',
+		rundown_remaining: r.isOvertime ? `-${formatTime(r.overtimeSeconds)}` : formatTime(r.remainingSeconds),
+		rundown_elapsed: formatTime(r.elapsedSeconds),
+		rundown_total_elapsed: formatTime(r.totalElapsed),
+		rundown_schedule_delta: r.scheduleDeltaLabel || (r.active ? 'On Time' : ''),
+		rundown_progress: r.active ? `${r.currentIndex + 1}/${r.totalItems}` : '',
+		rundown_item_type: r.currentItemType ?? '',
+
+		// Clock
+		clock_time: c.time || '',
+		clock_mode: c.mode || '',
+		clock_state: c.state || '',
 	}
 }

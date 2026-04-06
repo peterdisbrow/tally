@@ -26,12 +26,13 @@
 'use strict';
 
 class LiveRundownManager {
-  constructor({ broadcastToMobile, broadcastToPortal, log = console.log } = {}) {
+  constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, log = console.log } = {}) {
     // Map<churchId, RundownSession>
     this._sessions = new Map();
     this._tickTimers = new Map();
     this._broadcastToMobile = broadcastToMobile || (() => {});
     this._broadcastToPortal = broadcastToPortal || (() => {});
+    this._broadcastToControllers = broadcastToControllers || (() => {});
     this._log = log;
   }
 
@@ -437,6 +438,7 @@ class LiveRundownManager {
   _broadcast(churchId, message) {
     this._broadcastToMobile(churchId, message);
     this._broadcastToPortal(churchId, message);
+    this._broadcastToControllers(churchId, message);
   }
 
   /**

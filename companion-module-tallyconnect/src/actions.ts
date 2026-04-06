@@ -782,6 +782,151 @@ export function getActions(self: TallyConnectInstance): CompanionActionDefinitio
 			},
 		},
 
+		// ── Tally Rundown ─────────────────────────────────────────────────────────
+		// These send rundown_* WebSocket messages handled server-side by liveRundown.
+		// @see relay-server/src/liveRundown.js
+
+		rundown_advance: {
+			name: 'Rundown: Advance',
+			description: 'Advance to the next rundown item',
+			options: [],
+			callback: async () => {
+				self.sendRundownCommand('rundown_advance')
+			},
+		},
+
+		rundown_back: {
+			name: 'Rundown: Back',
+			description: 'Go back to the previous rundown item',
+			options: [],
+			callback: async () => {
+				self.sendRundownCommand('rundown_back')
+			},
+		},
+
+		rundown_goto: {
+			name: 'Rundown: Go To Item',
+			description: 'Jump to a specific rundown item by index (0-based) or search by name',
+			options: [
+				{ id: 'index', type: 'number', label: 'Item Index (0-based)', default: 0, min: 0, max: 999 },
+			],
+			callback: async (action) => {
+				self.sendRundownCommand('rundown_goto', { index: Number(action.options.index) })
+			},
+		},
+
+		rundown_start: {
+			name: 'Rundown: Start Session',
+			description: 'Start a live rundown session with a PCO plan ID',
+			options: [
+				{ id: 'planId', type: 'textinput', label: 'PCO Plan ID', default: '' },
+				{ id: 'callerName', type: 'textinput', label: 'Caller Name', default: 'Companion' },
+			],
+			callback: async (action) => {
+				self.sendRundownCommand('rundown_start', {
+					planId: String(action.options.planId),
+					callerName: String(action.options.callerName || 'Companion'),
+				})
+			},
+		},
+
+		rundown_end: {
+			name: 'Rundown: End Session',
+			description: 'End the current live rundown session',
+			options: [],
+			callback: async () => {
+				self.sendRundownCommand('rundown_end')
+			},
+		},
+
+		rundown_get_state: {
+			name: 'Rundown: Refresh State',
+			description: 'Request the current rundown state from the server',
+			options: [],
+			callback: async () => {
+				self.sendRundownCommand('rundown_get_state')
+			},
+		},
+
+		// ── Tally Clock ───────────────────────────────────────────────────────────
+		// These send commands to the church-client clock tool (future).
+
+		clock_mode: {
+			name: 'Clock: Set Mode',
+			description: 'Switch the clock display mode',
+			options: [
+				{
+					id: 'mode',
+					type: 'dropdown',
+					label: 'Mode',
+					default: 'clock',
+					choices: [
+						{ id: 'clock', label: 'Wall Clock' },
+						{ id: 'stopwatch', label: 'Count Up (Stopwatch)' },
+						{ id: 'countdown', label: 'Countdown' },
+						{ id: 'countto', label: 'Count To (Target Time)' },
+					],
+				},
+			],
+			callback: async (action) => {
+				self.sendCommand('clock.setMode', { mode: String(action.options.mode) })
+			},
+		},
+
+		clock_start_stop: {
+			name: 'Clock: Start/Stop',
+			description: 'Toggle play/pause on the clock timer',
+			options: [],
+			callback: async () => {
+				self.sendCommand('clock.toggleStartStop', {})
+			},
+		},
+
+		clock_reset: {
+			name: 'Clock: Reset',
+			description: 'Reset the current clock timer',
+			options: [],
+			callback: async () => {
+				self.sendCommand('clock.reset', {})
+			},
+		},
+
+		clock_countdown_set: {
+			name: 'Clock: Set Countdown',
+			description: 'Set the countdown duration in seconds',
+			options: [
+				{ id: 'seconds', type: 'number', label: 'Duration (seconds)', default: 300, min: 1, max: 86400 },
+			],
+			callback: async (action) => {
+				self.sendCommand('clock.setCountdown', { seconds: Number(action.options.seconds) })
+			},
+		},
+
+		clock_color: {
+			name: 'Clock: Set Color',
+			description: 'Set the clock display color',
+			options: [
+				{
+					id: 'color',
+					type: 'dropdown',
+					label: 'Color',
+					default: 'white',
+					choices: [
+						{ id: 'red', label: 'Red' },
+						{ id: 'green', label: 'Green' },
+						{ id: 'amber', label: 'Amber' },
+						{ id: 'blue', label: 'Blue' },
+						{ id: 'cyan', label: 'Cyan' },
+						{ id: 'white', label: 'White' },
+						{ id: 'magenta', label: 'Magenta' },
+					],
+				},
+			],
+			callback: async (action) => {
+				self.sendCommand('clock.setColor', { color: String(action.options.color) })
+			},
+		},
+
 		// ── Freeform Command ──────────────────────────────────────────────────────
 
 		send_command: {

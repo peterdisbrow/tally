@@ -411,5 +411,137 @@ export function getPresets(): CompanionPresetDefinitions {
 		feedbacks: [],
 	}
 
+	// ── Rundown ──────────────────────────────────────────────────────────────
+
+	presets['rundown_advance'] = {
+		type: 'button',
+		category: 'Rundown',
+		name: 'Advance Cue',
+		style: {
+			text: 'NEXT\\n$(tallyconnect:rundown_current_item)',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(0, 51, 102),
+		},
+		steps: [{ down: [{ actionId: 'rundown_advance', options: {} }], up: [] }],
+		feedbacks: [
+			{
+				feedbackId: 'rundown_warning',
+				options: {},
+				style: { bgcolor: combineRgb(255, 191, 0), color: combineRgb(0, 0, 0) },
+			},
+			{
+				feedbackId: 'rundown_overtime',
+				options: {},
+				style: { bgcolor: combineRgb(255, 0, 0), color: combineRgb(255, 255, 255) },
+			},
+		],
+	}
+
+	presets['rundown_back'] = {
+		type: 'button',
+		category: 'Rundown',
+		name: 'Back Cue',
+		style: {
+			text: 'BACK',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(51, 51, 51),
+		},
+		steps: [{ down: [{ actionId: 'rundown_back', options: {} }], up: [] }],
+		feedbacks: [],
+	}
+
+	presets['rundown_schedule'] = {
+		type: 'button',
+		category: 'Rundown',
+		name: 'Schedule Status',
+		style: {
+			text: '$(tallyconnect:rundown_schedule_delta)',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(0, 0, 0),
+		},
+		steps: [],
+		feedbacks: [
+			{
+				feedbackId: 'rundown_on_time',
+				options: {},
+				style: { bgcolor: combineRgb(0, 204, 0), color: combineRgb(0, 0, 0) },
+			},
+			{
+				feedbackId: 'rundown_ahead',
+				options: {},
+				style: { bgcolor: combineRgb(0, 102, 204), color: combineRgb(255, 255, 255) },
+			},
+			{
+				feedbackId: 'rundown_behind',
+				options: {},
+				style: { bgcolor: combineRgb(255, 0, 0), color: combineRgb(255, 255, 255) },
+			},
+		],
+	}
+
+	presets['rundown_current_timer'] = {
+		type: 'button',
+		category: 'Rundown',
+		name: 'Current Timer',
+		style: {
+			text: '$(tallyconnect:rundown_remaining)\\n$(tallyconnect:rundown_progress)',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(0, 0, 0),
+		},
+		steps: [],
+		feedbacks: [
+			{
+				feedbackId: 'rundown_warning',
+				options: {},
+				style: { bgcolor: combineRgb(255, 191, 0), color: combineRgb(0, 0, 0) },
+			},
+			{
+				feedbackId: 'rundown_overtime',
+				options: {},
+				style: { bgcolor: combineRgb(255, 0, 0), color: combineRgb(255, 255, 255) },
+			},
+		],
+	}
+
+	presets['rundown_service_timer'] = {
+		type: 'button',
+		category: 'Rundown',
+		name: 'Service Timer',
+		style: {
+			text: 'SERVICE\\n$(tallyconnect:rundown_total_elapsed)',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(0, 0, 0),
+		},
+		steps: [],
+		feedbacks: [
+			{
+				feedbackId: 'rundown_active',
+				options: {},
+				style: { bgcolor: combineRgb(0, 102, 0) },
+			},
+		],
+	}
+
+	// ── Clock ────────────────────────────────────────────────────────────────
+
+	presets['clock_control'] = {
+		type: 'button',
+		category: 'Clock',
+		name: 'Clock Control',
+		style: {
+			text: '$(tallyconnect:clock_time)\\n$(tallyconnect:clock_mode)',
+			size: 'auto',
+			color: combineRgb(255, 255, 255),
+			bgcolor: combineRgb(0, 0, 0),
+		},
+		steps: [{ down: [{ actionId: 'clock_start_stop', options: {} }], up: [] }],
+		feedbacks: [],
+	}
+
 	return presets
 }
