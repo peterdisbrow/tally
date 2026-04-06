@@ -484,7 +484,7 @@ class LifecycleEmails {
 
     if (!recent) return false;
     const elapsed = now - recent;
-    if (elapsed < THROTTLE_MS) return Math.floor(elapsed / 1000);
+    if (elapsed < THROTTLE_MS) return Math.max(1, Math.floor(elapsed / 1000));
     return false;
   }
 

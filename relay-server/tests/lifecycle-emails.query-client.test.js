@@ -370,13 +370,10 @@ describe('LifecycleEmails query-client support', () => {
       await runCheckEmails.runCheck();
 
       expect(runCheckClient.query).toHaveBeenCalled();
-      expect(runCheckClient.state.emailSends.map((row) => row.email_type)).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/^weekly-digest-/),
-          'inactivity-alert',
-          'review-request',
-        ]),
-      );
+      // Per-church 5-minute throttle means only the first qualifying email sends per cycle
+      const sentTypes = runCheckClient.state.emailSends.map((row) => row.email_type);
+      expect(sentTypes.length).toBe(1);
+      expect(sentTypes[0]).toBe('setup-reminder');
     } finally {
       vi.useRealTimers();
     }
