@@ -118,6 +118,49 @@ class ObsEncoder {
   async stopStream() {
     if (this._obs) await this._obs.call('StopStream');
   }
+
+  // ─── STREAMING DESTINATION CONFIG ──────────────────────────────────────────
+
+  /**
+   * Read current streaming service settings from OBS.
+   * Returns { streamServiceType, streamServiceSettings: { server, key, ... } }
+   */
+  async getStreamServiceSettings() {
+    if (!this._obs) return null;
+    try {
+      return await this._obs.call('GetStreamServiceSettings');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Push RTMP URL and/or stream key to OBS.
+   * @param {{ server?: string, key?: string, type?: string }} config
+   *   type defaults to 'rtmp_custom'
+   */
+  async setStreamServiceSettings(config) {
+    if (!this._obs) throw new Error('OBS not connected');
+    // Fetch current settings so we can merge partial updates
+    let current = {};
+    try {
+      const cur = await this._obs.call('GetStreamServiceSettings');
+      current = cur.streamServiceSettings || {};
+    } catch { /* start fresh */ }
+
+    const serviceType = config.type || 'rtmp_custom';
+    const settings = {
+      ...current,
+      ...(config.server != null ? { server: config.server } : {}),
+      ...(config.key != null ? { key: config.key } : {}),
+    };
+
+    await this._obs.call('SetStreamServiceSettings', {
+      streamServiceType: serviceType,
+      streamServiceSettings: settings,
+    });
+    return { ok: true };
+  }
 }
 
 module.exports = { ObsEncoder };
