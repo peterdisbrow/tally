@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, SectionList, StyleSheet, ActivityIndicator,
-  RefreshControl, TouchableOpacity, Alert,
+  RefreshControl, TouchableOpacity, Alert, Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, getChurchId } from '../src/api/client';
@@ -523,7 +523,10 @@ function RundownItem({ item, isLast, colors, isLive, isCurrent, isCompleted }: {
         <ItemTypeIcon type={item.itemType} colors={colors} isCurrent={isCurrent} />
       </View>
       <View style={styles.itemContent}>
-        <Text style={[styles.itemTitle, { color: isCurrent ? colors.text : isCompleted ? colors.textMuted : colors.text, fontWeight: isCurrent ? '800' : '700' }]}>{item.title}</Text>
+        <View style={styles.itemTitleRow}>
+          <Text style={[styles.itemTitle, { color: isCurrent ? colors.text : isCompleted ? colors.textMuted : colors.text, fontWeight: isCurrent ? '800' : '700', flexShrink: 1 }]}>{item.title}</Text>
+          {isCurrent && <EqBars />}
+        </View>
         {item.songTitle && item.songTitle !== item.title && (
           <Text style={[styles.itemSubtitle, { color: colors.textSecondary }]}>{item.songTitle}</Text>
         )}
@@ -584,6 +587,54 @@ function ItemTypeIcon({ type, colors, isCurrent }: { type: string; colors: Theme
 
   return <Ionicons name={icon as any} size={20} color={iconColor} />;
 }
+
+const EQ_BAR_MAX_H = 14;
+const EQ_BAR_PEAKS = [0.9, 0.5, 1.0, 0.6];
+const EQ_BAR_DELAYS = [0, 120, 60, 200];
+
+function EqBars() {
+  // Animate raw height values (0..EQ_BAR_MAX_H) so bars grow from the bottom
+  const heights = useRef(EQ_BAR_PEAKS.map((p) => new Animated.Value(p * EQ_BAR_MAX_H))).current;
+
+  useEffect(() => {
+    const anims = heights.map((h, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(EQ_BAR_DELAYS[i]),
+          Animated.timing(h, { toValue: EQ_BAR_PEAKS[i] * EQ_BAR_MAX_H, duration: 280, useNativeDriver: false }),
+          Animated.timing(h, { toValue: 0.2 * EQ_BAR_MAX_H, duration: 320, useNativeDriver: false }),
+          Animated.timing(h, { toValue: EQ_BAR_PEAKS[i] * 0.7 * EQ_BAR_MAX_H, duration: 240, useNativeDriver: false }),
+          Animated.timing(h, { toValue: 0.3 * EQ_BAR_MAX_H, duration: 300, useNativeDriver: false }),
+        ])
+      )
+    );
+    anims.forEach((a) => a.start());
+    return () => anims.forEach((a) => a.stop());
+  }, []);
+
+  return (
+    <View style={eqStyles.container}>
+      {heights.map((h, i) => (
+        <Animated.View key={i} style={[eqStyles.bar, { height: h }]} />
+      ))}
+    </View>
+  );
+}
+
+const eqStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: EQ_BAR_MAX_H + 2,
+    marginLeft: 6,
+  },
+  bar: {
+    width: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#22c55e',
+  },
+});
 
 function StatusBadge({ status, label, colors }: { status: string; label: string; colors: ThemeColors }) {
   let badgeColor = colors.textMuted;
@@ -859,6 +910,10 @@ const styles = StyleSheet.create({
   },
   itemContent: {
     flex: 1,
+  },
+  itemTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   itemTitle: {
     fontSize: fontSize.md,
