@@ -280,5 +280,92 @@ export function getFeedbacks(self: TallyConnectInstance): CompanionFeedbackDefin
 				return self.tallyState.streamProtectionCdnHealth === 'mismatch'
 			},
 		},
+
+		// ── Rundown ───────────────────────────────────────────────────────────────
+		// @see relay-server/src/liveRundown.js
+
+		rundown_active: {
+			type: 'boolean',
+			name: 'Rundown: Session Active',
+			description: 'True when a live rundown session is currently active',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 204, 0),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.active === true
+			},
+		},
+
+		rundown_warning: {
+			type: 'boolean',
+			name: 'Rundown: Warning',
+			description: 'True when the current item has 30 seconds or less remaining',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 191, 0),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.isWarning === true
+			},
+		},
+
+		rundown_overtime: {
+			type: 'boolean',
+			name: 'Rundown: Overtime',
+			description: 'True when the current item has exceeded its planned duration',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 0, 0),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.isOvertime === true
+			},
+		},
+
+		rundown_ahead: {
+			type: 'boolean',
+			name: 'Rundown: Ahead of Schedule',
+			description: 'True when the service is running ahead of the planned schedule',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 102, 204),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.isAhead === true
+			},
+		},
+
+		rundown_behind: {
+			type: 'boolean',
+			name: 'Rundown: Behind Schedule',
+			description: 'True when the service is running behind the planned schedule',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 0, 0),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.isBehind === true
+			},
+		},
+
+		rundown_on_time: {
+			type: 'boolean',
+			name: 'Rundown: On Time',
+			description: 'True when the service is within 15 seconds of the planned schedule',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 204, 0),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => {
+				return self.rundownState.isOnTime === true
+			},
+		},
 	}
 }

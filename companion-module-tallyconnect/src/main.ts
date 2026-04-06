@@ -74,6 +74,42 @@ export interface TallyState {
 	streamProtectionCdnHealth: string | null
 }
 
+/**
+ * State from the Tally Rundown system (live show-calling with PCO plans).
+ * Populated from rundown_state, rundown_position, and rundown_tick WebSocket events.
+ * @see relay-server/src/liveRundown.js
+ */
+export interface RundownState {
+	active: boolean
+	planTitle: string | null
+	currentIndex: number
+	totalItems: number
+	currentItemTitle: string | null
+	currentItemType: string | null
+	nextItemTitle: string | null
+	elapsedSeconds: number
+	remainingSeconds: number | null
+	isOvertime: boolean
+	overtimeSeconds: number
+	isWarning: boolean
+	totalElapsed: number
+	scheduleDeltaSeconds: number
+	scheduleDeltaLabel: string
+	isAhead: boolean
+	isBehind: boolean
+	isOnTime: boolean
+}
+
+/**
+ * State for the Tally Clock tool.
+ * Populated from clock_state WebSocket events (future).
+ */
+export interface ClockState {
+	time: string
+	mode: string
+	state: string // running | paused | stopped
+}
+
 function createDefaultTallyState(): TallyState {
 	return {
 		programInput: null,
@@ -114,9 +150,42 @@ function createDefaultTallyState(): TallyState {
 	}
 }
 
+function createDefaultRundownState(): RundownState {
+	return {
+		active: false,
+		planTitle: null,
+		currentIndex: 0,
+		totalItems: 0,
+		currentItemTitle: null,
+		currentItemType: null,
+		nextItemTitle: null,
+		elapsedSeconds: 0,
+		remainingSeconds: null,
+		isOvertime: false,
+		overtimeSeconds: 0,
+		isWarning: false,
+		totalElapsed: 0,
+		scheduleDeltaSeconds: 0,
+		scheduleDeltaLabel: '',
+		isAhead: false,
+		isBehind: false,
+		isOnTime: true,
+	}
+}
+
+function createDefaultClockState(): ClockState {
+	return {
+		time: '',
+		mode: 'clock',
+		state: 'stopped',
+	}
+}
+
 export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 	config!: TallyConnectConfig
 	tallyState: TallyState = createDefaultTallyState()
+	rundownState: RundownState = createDefaultRundownState()
+	clockState: ClockState = createDefaultClockState()
 	connectionStatus: string = 'Disconnected'
 	churchName: string = ''
 
@@ -149,6 +218,8 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 		this.config = config
 		this.cleanupConnection()
 		this.tallyState = createDefaultTallyState()
+		this.rundownState = createDefaultRundownState()
+		this.clockState = createDefaultClockState()
 		this.initModule()
 		this.connectWebSocket()
 	}
@@ -297,7 +368,10 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 				if (this.isOurChurch(msg)) {
 					this.log('warn', `Church disconnected: ${msg.name}`)
 					this.tallyState = createDefaultTallyState()
+					this.rundownState = createDefaultRundownState()
+					this.clockState = createDefaultClockState()
 					this.refreshState()
+					this.refreshRundownState()
 				}
 				break
 			case 'alert':
@@ -310,6 +384,33 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 					if (msg.error) {
 						this.log('warn', `Command failed: ${msg.error}`)
 					}
+				}
+				break
+
+			// ── Rundown events ────────────────────────────────────────────────
+			// @see relay-server/src/liveRundown.js _broadcast()
+			case 'rundown_state':
+			case 'rundown_position':
+				if (this.isOurChurch(msg)) {
+					this.handleRundownState(msg)
+				}
+				break
+			case 'rundown_tick':
+				if (this.isOurChurch(msg)) {
+					this.handleRundownTick(msg)
+				}
+				break
+			case 'rundown_ended':
+				if (this.isOurChurch(msg)) {
+					this.rundownState = createDefaultRundownState()
+					this.refreshRundownState()
+				}
+				break
+
+			// ── Clock events (future) ────────────────────────────────────────
+			case 'clock_state':
+				if (this.isOurChurch(msg)) {
+					this.handleClockState(msg)
 				}
 				break
 		}
@@ -492,6 +593,129 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 			'cdn_health_ok',
 			'cdn_health_mismatch',
 		)
+	}
+
+	// ── Rundown event handling ────────────────────────────────────────────────
+
+	/**
+	 * Handle rundown_state / rundown_position events (full state snapshots).
+	 * @see relay-server/src/liveRundown.js _buildState()
+	 */
+	private handleRundownState(msg: Record<string, unknown>): void {
+		const r = this.rundownState
+		r.active = msg.state === 'active'
+		r.planTitle = msg.planTitle != null ? String(msg.planTitle) : null
+		r.currentIndex = Number(msg.currentIndex ?? 0)
+		r.totalItems = Number(msg.totalItems ?? 0)
+		r.totalElapsed = Number(msg.totalElapsed ?? 0)
+
+		const currentItem = (msg.currentItem || {}) as Record<string, unknown>
+		r.currentItemTitle = currentItem.title != null ? String(currentItem.title) : null
+		r.currentItemType = currentItem.itemType != null ? String(currentItem.itemType) : null
+		r.elapsedSeconds = Number(currentItem.elapsedSeconds ?? 0)
+		r.remainingSeconds = currentItem.remainingSeconds != null ? Number(currentItem.remainingSeconds) : null
+		r.isOvertime = currentItem.isOvertime === true
+		r.overtimeSeconds = Number(currentItem.overtimeSeconds ?? 0)
+		r.isWarning = currentItem.isWarning === true
+
+		// Next item
+		const items = msg.items as Array<Record<string, unknown>> | undefined
+		if (Array.isArray(items) && r.currentIndex + 1 < items.length) {
+			r.nextItemTitle = String(items[r.currentIndex + 1].title || '')
+		} else {
+			r.nextItemTitle = null
+		}
+
+		const delta = (msg.scheduleDelta || {}) as Record<string, unknown>
+		r.scheduleDeltaSeconds = Number(delta.seconds ?? 0)
+		r.scheduleDeltaLabel = delta.label != null ? String(delta.label) : ''
+		r.isAhead = delta.isAhead === true
+		r.isBehind = delta.isBehind === true
+		r.isOnTime = delta.isOnTime === true
+
+		this.refreshRundownState()
+	}
+
+	/**
+	 * Handle rundown_tick events (1-second timer updates).
+	 * @see relay-server/src/liveRundown.js _startTick()
+	 */
+	private handleRundownTick(msg: Record<string, unknown>): void {
+		const r = this.rundownState
+		r.active = true
+		r.elapsedSeconds = Number(msg.elapsedSeconds ?? r.elapsedSeconds)
+		r.remainingSeconds = msg.remainingSeconds != null ? Number(msg.remainingSeconds) : r.remainingSeconds
+		r.isOvertime = msg.isOvertime === true
+		r.overtimeSeconds = Number(msg.overtimeSeconds ?? 0)
+		r.isWarning = msg.isWarning === true
+		r.totalElapsed = Number(msg.totalElapsed ?? r.totalElapsed)
+
+		const delta = (msg.scheduleDelta || {}) as Record<string, unknown>
+		r.scheduleDeltaSeconds = Number(delta.seconds ?? r.scheduleDeltaSeconds)
+		r.scheduleDeltaLabel = delta.label != null ? String(delta.label) : r.scheduleDeltaLabel
+		r.isAhead = delta.isAhead === true
+		r.isBehind = delta.isBehind === true
+		r.isOnTime = delta.isOnTime === true
+
+		this.refreshRundownState()
+	}
+
+	/**
+	 * Handle clock_state events (future Tally Clock tool).
+	 */
+	private handleClockState(msg: Record<string, unknown>): void {
+		const c = this.clockState
+		c.time = msg.time != null ? String(msg.time) : c.time
+		c.mode = msg.mode != null ? String(msg.mode) : c.mode
+		c.state = msg.state != null ? String(msg.state) : c.state
+
+		this.setVariableValues(getVariableValues(this))
+		this.checkFeedbacks()
+	}
+
+	/**
+	 * Push updated rundown + clock state to Companion (variables + feedbacks).
+	 */
+	private refreshRundownState(): void {
+		this.setVariableValues(getVariableValues(this))
+		this.checkFeedbacks(
+			'rundown_active',
+			'rundown_warning',
+			'rundown_overtime',
+			'rundown_ahead',
+			'rundown_behind',
+			'rundown_on_time',
+		)
+	}
+
+	// ── Rundown command sending ───────────────────────────────────────────────
+
+	/**
+	 * Send a rundown command to the relay server.
+	 * These are handled server-side (not forwarded to church-client).
+	 * @see relay-server/server.js _handleRundownWsMessage()
+	 */
+	sendRundownCommand(type: string, params: Record<string, unknown> = {}): void {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			this.log('warn', `Cannot send rundown command "${type}" — not connected`)
+			return
+		}
+		if (!this.config.church_id) {
+			this.log('warn', `Cannot send rundown command "${type}" — no church_id configured`)
+			return
+		}
+
+		const msg: Record<string, unknown> = {
+			type,
+			churchId: this.config.church_id,
+			...params,
+		}
+
+		try {
+			this.ws.send(JSON.stringify(msg))
+		} catch (e) {
+			this.log('error', `Failed to send rundown command "${type}": ${e instanceof Error ? e.message : String(e)}`)
+		}
 	}
 
 	// ── Command sending ───────────────────────────────────────────────────────

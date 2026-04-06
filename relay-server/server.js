@@ -1299,9 +1299,11 @@ const rundownEngine = new RundownEngine(queryClient);
 // Broadcast functions are deferred because the WebSocket handlers aren't created yet.
 let _liveRundownBroadcastMobile = () => {};
 let _liveRundownBroadcastPortal = () => {};
+let _liveRundownBroadcastControllers = () => {};
 const liveRundown = new LiveRundownManager({
   broadcastToMobile: (churchId, msg) => _liveRundownBroadcastMobile(churchId, msg),
   broadcastToPortal: (churchId, msg) => _liveRundownBroadcastPortal(churchId, msg),
+  broadcastToControllers: (churchId, msg) => _liveRundownBroadcastControllers(churchId, msg),
   log,
 });
 
@@ -4585,6 +4587,13 @@ const _wsHandlers = createWebSocketHandlers({
       }
     }
 
+    // Rundown commands from controller (Companion module / admin dashboard)
+    if (msg.type?.startsWith('rundown_') && msg.churchId) {
+      runtimeMetrics.record('controller.rundown.in');
+      _handleRundownWsMessage(msg.churchId, msg, ws);
+      return;
+    }
+
     // Chat from controller (admin dashboard WebSocket)
     if (msg.type === 'chat' && msg.churchId && msg.message) {
       runtimeMetrics.record('controller.chat.in');
@@ -4682,6 +4691,7 @@ const _mobileWsHandler = createMobileWebSocketHandler({
 // Wire up deferred broadcast functions for LiveRundownManager
 _liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
 _liveRundownBroadcastPortal = (churchId, msg) => broadcastToPortal(churchId, msg);
+_liveRundownBroadcastControllers = (churchId, msg) => broadcastToControllers({ ...msg, churchId });
 
 wss.on('connection', (ws, req) => {
   // Clear pong-timeout when client responds to a heartbeat ping
