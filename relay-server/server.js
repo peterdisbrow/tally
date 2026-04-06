@@ -53,13 +53,13 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],  // tools pages use inline scripts
       scriptSrcAttr: ["'none'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", 'wss:', 'ws:'],
+      connectSrc: ["'self'", 'wss:', 'ws:', 'https://worldtimeapi.org'],
       mediaSrc: ["'self'", "blob:", "https://*.facebook.com", "https://*.fbcdn.net"],
-      fontSrc: ["'self'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       frameSrc: ["https://www.facebook.com", "https://web.facebook.com"],
       frameAncestors: ["'none'"],
     },
@@ -81,6 +81,7 @@ app.use(express.json({
 app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal')));
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin')));
+app.use('/tools', express.static(require('path').join(__dirname, 'public/tools')));
 
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
@@ -2342,6 +2343,9 @@ function drainQueue(churchId, ws) {
 }
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
+
+// Time endpoint (NTP-like sync for broadcast clock)
+require('./src/routes/time')(app);
 
 // Health / root endpoints (extracted)
 require('./src/routes/health')(app, {
