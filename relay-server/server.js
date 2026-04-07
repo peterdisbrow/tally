@@ -4751,7 +4751,7 @@ function handlePortalWsConnection(ws, url) {
   let churchId;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    if (payload.type !== 'church_portal' && payload.type !== 'church_td') {
+    if (payload.type !== 'church_portal' && payload.type !== 'church_td' && payload.type !== 'church_app') {
       throw new Error('wrong token type');
     }
     churchId = payload.churchId;
