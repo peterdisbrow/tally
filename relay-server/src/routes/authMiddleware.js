@@ -157,10 +157,20 @@ module.exports = function createAuthMiddleware(ctx) {
     const key = resolveAdminKey(req);
     if (safeCompareKey(key, ADMIN_API_KEY)) return next();
 
+    // Accept token from Authorization: Bearer header (mobile/electron app)
+    // or tally_church_session cookie (portal)
+    let token = null;
     const auth = req.headers['authorization'] || '';
     if (auth.startsWith('Bearer ')) {
+      token = auth.slice(7);
+    }
+    if (!token) {
+      token = req.cookies?.tally_church_session;
+    }
+
+    if (token) {
       try {
-        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        const payload = jwt.verify(token, JWT_SECRET);
         // Church JWT can only access its own data
         if (req.params.churchId && payload.churchId !== req.params.churchId) {
           return res.status(403).json({ error: 'forbidden' });

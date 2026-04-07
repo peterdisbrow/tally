@@ -9674,10 +9674,13 @@ document.addEventListener('DOMContentLoaded', function() {
   window.toggleMoreNav = toggleMoreNav;
 
   // Auto-expand More section if a child page is active, or from localStorage
+  // On mobile (<=768px), always start collapsed for a cleaner sidebar
   (function() {
     var items = document.getElementById('nav-more-items');
     var toggle = document.getElementById('nav-more-toggle');
     if (!items || !toggle) return;
+    var isMobile = window.innerWidth <= 768;
+    if (isMobile) return; // collapsed by default on mobile
     var hasActive = items.querySelector('.nav-item.active');
     var stored = localStorage.getItem('tally_nav_more_open');
     if (hasActive || stored === '1') {

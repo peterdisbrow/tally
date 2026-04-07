@@ -511,6 +511,8 @@ input:checked + .slider:before { background: var(--primary); transform: translat
   .sidebar.open { display: flex; flex-direction: column; }
   .sidebar-overlay.open { display: block; }
   .sidebar .sidebar-footer { margin-top: 16px; }
+  .nav-more-items { max-height: none; overflow: visible; transition: none; display: none; }
+  .nav-more-items.open { display: block; }
   .main { margin-left: 0; padding: 16px; padding-top: 56px; }
   .page-title { font-size: 18px; }
   .card { padding: 16px; }
