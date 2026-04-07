@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATEM Streaming.xml Generator - TallyConnect</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base: #060D08;
+    --bg-surface: rgba(255,255,255,0.06);
+    --bg-elevated: rgba(255,255,255,0.09);
+    --border: rgba(0,230,118,0.12);
+    --border-solid: #0d3320;
+    --primary: #00E676;
+    --primary-dim: rgba(0,230,118,0.15);
+    --primary-glow: rgba(0,230,118,0.25);
+    --danger: #FF5252;
+    --warning: #FFB74D;
+    --text: rgba(255,255,255,0.95);
+    --text-secondary: rgba(255,255,255,0.6);
+    --text-muted: rgba(255,255,255,0.4);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 0 16px 64px;
+  }
+
+  .header {
+    text-align: center;
+    padding: 48px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .header .brand {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 12px;
+  }
+  .header h1 {
+    font-size: clamp(24px, 4vw, 36px);
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .header p {
+    color: var(--text-secondary);
+    font-size: 15px;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(16px);
+  }
+  .card h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card h2 .step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--primary-dim);
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  select, input[type="text"], input[type="email"], input[type="number"] {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  select:focus, input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-dim);
+  }
+  select { cursor: pointer; }
+  select option { background: #0a1610; }
+
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 500px) {
+    .row { grid-template-columns: 1fr; }
+  }
+
+  .url-display {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--primary);
+    background: var(--bg-base);
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-solid);
+    word-break: break-all;
+  }
+
+  button {
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: #000;
+  }
+  .btn-primary:hover { background: #33eb91; }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+  .btn-danger {
+    background: rgba(255,82,82,0.15);
+    color: var(--danger);
+    border: 1px solid rgba(255,82,82,0.2);
+  }
+  .btn-danger:hover { background: rgba(255,82,82,0.25); }
+  .btn-sm { padding: 6px 14px; font-size: 13px; }
+
+  /* Profile list */
+  .profiles-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+  .profile-item {
+    background: var(--bg-base);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .profile-item .info { font-size: 14px; }
+  .profile-item .info .name { font-weight: 600; }
+  .profile-item .info .detail { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
+  /* Custom profile fields */
+  .custom-fields {
+    display: none;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .custom-fields.visible { display: block; }
+
+  /* XML Preview */
+  .xml-preview {
+    background: var(--bg-base);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .xml-preview pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    white-space: pre;
+    margin: 0;
+  }
+  .xml-preview .tag { color: var(--primary); }
+  .xml-preview .attr { color: #FFB74D; }
+  .xml-preview .val { color: #64B5F6; }
+
+  /* Email gate */
+  .email-gate { text-align: center; }
+  .email-gate p { color: var(--text-secondary); font-size: 14px; margin-bottom: 20px; }
+  .email-gate .row { max-width: 400px; margin: 0 auto 16px; grid-template-columns: 1fr; }
+
+  /* Install instructions */
+  .instructions { display: none; }
+  .instructions.visible { display: block; }
+  .instructions h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .instructions .path-block {
+    background: var(--bg-base);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-bottom: 12px;
+  }
+  .instructions .path-block .os { font-size: 12px; color: var(--primary); font-weight: 600; margin-bottom: 4px; }
+  .instructions .path-block code {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-secondary);
+    word-break: break-all;
+  }
+  .instructions ol {
+    padding-left: 20px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+  .instructions ol li { margin-bottom: 6px; }
+  .instructions ol li strong { color: var(--text); }
+
+  /* Utility */
+  .hidden { display: none !important; }
+  .mt-12 { margin-top: 12px; }
+  .mt-16 { margin-top: 16px; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .text-muted { color: var(--text-muted); font-size: 13px; }
+  .badge {
+    display: inline-block;
+    background: var(--primary-dim);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">TallyConnect</div>
+  <h1>ATEM Streaming.xml Generator</h1>
+  <p>Generate a custom Streaming.xml file for your Blackmagic ATEM Mini Pro / Extreme to add any streaming destination.</p>
+</div>
+
+<div class="container">
+
+  <!-- Step 1: ATEM Model -->
+  <div class="card">
+    <h2><span class="step">1</span> ATEM Model</h2>
+    <div class="field">
+      <label for="atemModel">Select your switcher</label>
+      <select id="atemModel">
+        <option value="mini-pro">ATEM Mini Pro</option>
+        <option value="mini-pro-iso">ATEM Mini Pro ISO</option>
+        <option value="mini-extreme">ATEM Mini Extreme</option>
+        <option value="mini-extreme-iso">ATEM Mini Extreme ISO</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Step 2: Platform -->
+  <div class="card">
+    <h2><span class="step">2</span> Streaming Platform</h2>
+    <div class="field">
+      <label for="platform">Select destination</label>
+      <select id="platform">
+        <option value="youtube">YouTube Live</option>
+        <option value="facebook">Facebook Live</option>
+        <option value="twitch">Twitch</option>
+        <option value="restream">Restream</option>
+        <option value="custom-rtmp">Custom RTMP</option>
+        <option value="custom-srt">Custom SRT</option>
+      </select>
+    </div>
+    <div class="field mt-12" id="ingestUrlField">
+      <label>Ingest URL</label>
+      <div class="url-display" id="ingestUrl"></div>
+    </div>
+    <div class="field mt-12 hidden" id="customUrlField">
+      <label for="customUrl">Enter your ingest URL</label>
+      <input type="text" id="customUrl" placeholder="rtmp://your-server.com/live">
+    </div>
+    <div class="field mt-12 hidden" id="customSrtField">
+      <label for="customSrtUrl">Enter your SRT URL</label>
+      <input type="text" id="customSrtUrl" placeholder="srt://your-server.com:9998">
+    </div>
+    <div class="field mt-12 hidden" id="customNameField">
+      <label for="customServiceName">Service display name</label>
+      <input type="text" id="customServiceName" placeholder="My Streaming Server">
+    </div>
+  </div>
+
+  <!-- Step 3: Quality Profiles -->
+  <div class="card">
+    <h2><span class="step">3</span> Quality Profiles</h2>
+    <div class="profiles-list" id="profilesList"></div>
+
+    <div class="flex-between">
+      <div>
+        <select id="presetSelect" style="width: auto; display: inline-block;">
+          <option value="1080p60">1080p60 High (12 Mbps)</option>
+          <option value="1080p30" selected>1080p30 Standard (6 Mbps)</option>
+          <option value="720p30">720p30 Low (3.5 Mbps)</option>
+          <option value="custom">Custom</option>
+        </select>
+        <button class="btn-secondary btn-sm" style="margin-left: 8px;" onclick="addProfile()">Add Profile</button>
+      </div>
+    </div>
+
+    <div class="custom-fields" id="customProfileFields">
+      <div class="row">
+        <div class="field">
+          <label for="customRes">Resolution</label>
+          <select id="customRes">
+            <option value="1920x1080">1920x1080</option>
+            <option value="1280x720">1280x720</option>
+            <option value="1024x576">1024x576</option>
+            <option value="960x540">960x540</option>
+            <option value="854x480">854x480</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="customFps">Frame Rate</label>
+          <select id="customFps">
+            <option value="60">60 fps</option>
+            <option value="30" selected>30 fps</option>
+            <option value="25">25 fps</option>
+            <option value="24">24 fps</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="customBitrate">Bitrate (kbps)</label>
+          <input type="number" id="customBitrate" value="6000" min="500" max="30000" step="500">
+        </div>
+        <div class="field">
+          <label for="customKeyint">Keyframe Interval (s)</label>
+          <input type="number" id="customKeyint" value="2" min="1" max="10" step="1">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4: Preview -->
+  <div class="card">
+    <h2><span class="step">4</span> XML Preview</h2>
+    <div class="xml-preview" id="xmlPreview">
+      <pre id="xmlCode"></pre>
+    </div>
+  </div>
+
+  <!-- Step 5: Download -->
+  <div class="card" id="emailCard">
+    <h2><span class="step">5</span> Download</h2>
+    <div class="email-gate" id="emailGate">
+      <p>Enter your email to download your config file.</p>
+      <div class="row">
+        <div class="field">
+          <input type="email" id="leadEmail" placeholder="you@church.org">
+        </div>
+        <div class="field">
+          <input type="text" id="leadChurch" placeholder="Church / Organization name">
+        </div>
+      </div>
+      <button class="btn-primary" id="downloadBtn" onclick="handleDownload()">Download Streaming.xml</button>
+      <div id="emailError" class="text-muted mt-12" style="color: var(--danger);"></div>
+    </div>
+  </div>
+
+  <!-- Step 6: Installation -->
+  <div class="card instructions" id="installInstructions">
+    <h2><span class="step">6</span> Installation</h2>
+    <h3>Copy the file to:</h3>
+    <div class="path-block">
+      <div class="os">macOS</div>
+      <code>/Library/Application Support/Blackmagic Design/Switchers/Streaming.xml</code>
+    </div>
+    <div class="path-block">
+      <div class="os">Windows</div>
+      <code>C:\ProgramData\Blackmagic Design\Switchers\Streaming.xml</code>
+    </div>
+    <h3 class="mt-16">Steps</h3>
+    <ol class="mt-12">
+      <li><strong>Close</strong> ATEM Software Control if it's open.</li>
+      <li><strong>Copy</strong> the downloaded <code>Streaming.xml</code> file to the path above (you may need admin/root permissions).</li>
+      <li><strong>Reopen</strong> ATEM Software Control.</li>
+      <li>Go to the <strong>Streaming</strong> palette and select your new service from the dropdown.</li>
+      <li>Enter your <strong>stream key</strong> in the key field.</li>
+      <li>Start streaming!</li>
+    </ol>
+    <div class="mt-16 text-muted">
+      Tip: Back up the original Streaming.xml before replacing it. You can find the default file at the same path above.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ─── Platform Data ─────────────────────────────────────────────────────────
+  const PLATFORMS = {
+    youtube: {
+      name: 'YouTube Live',
+      url: 'rtmp://a.rtmp.youtube.com/live2',
+      servers: [
+        { name: 'Primary', url: 'rtmp://a.rtmp.youtube.com/live2' },
+        { name: 'Backup', url: 'rtmp://b.rtmp.youtube.com/live2?backup=1' }
+      ]
+    },
+    facebook: {
+      name: 'Facebook Live',
+      url: 'rtmps://live-api-s.facebook.com:443/rtmp/',
+      servers: [
+        { name: 'Primary', url: 'rtmps://live-api-s.facebook.com:443/rtmp/' }
+      ]
+    },
+    twitch: {
+      name: 'Twitch',
+      url: 'rtmp://live.twitch.tv/app',
+      servers: [
+        { name: 'Auto (Recommended)', url: 'rtmp://live.twitch.tv/app' },
+        { name: 'US East', url: 'rtmp://live-iad05.twitch.tv/app' },
+        { name: 'US West', url: 'rtmp://live-lax.twitch.tv/app' },
+        { name: 'EU West', url: 'rtmp://live-ams.twitch.tv/app' }
+      ]
+    },
+    restream: {
+      name: 'Restream',
+      url: 'rtmp://live.restream.io/live',
+      servers: [
+        { name: 'Primary', url: 'rtmp://live.restream.io/live' }
+      ]
+    },
+    'custom-rtmp': {
+      name: 'Custom RTMP',
+      url: '',
+      servers: []
+    },
+    'custom-srt': {
+      name: 'Custom SRT',
+      url: '',
+      servers: []
+    }
+  };
+
+  const PRESETS = {
+    '1080p60': { name: '1080p60 High Quality', resolution: '1920x1080', fps: '60', bitrate: '12000', keyint: '2' },
+    '1080p30': { name: '1080p30 Standard', resolution: '1920x1080', fps: '30', bitrate: '6000', keyint: '2' },
+    '720p30':  { name: '720p30 Low Bandwidth', resolution: '1280x720', fps: '30', bitrate: '3500', keyint: '2' }
+  };
+
+  // ─── State ─────────────────────────────────────────────────────────────────
+  let profiles = [];
+  let downloaded = false;
+
+  // ─── DOM Refs ──────────────────────────────────────────────────────────────
+  const platformSelect = document.getElementById('platform');
+  const ingestUrlField = document.getElementById('ingestUrlField');
+  const ingestUrlDisplay = document.getElementById('ingestUrl');
+  const customUrlField = document.getElementById('customUrlField');
+  const customSrtField = document.getElementById('customSrtField');
+  const customNameField = document.getElementById('customNameField');
+  const presetSelect = document.getElementById('presetSelect');
+  const customProfileFields = document.getElementById('customProfileFields');
+  const profilesList = document.getElementById('profilesList');
+  const xmlCode = document.getElementById('xmlCode');
+
+  // ─── Platform Change ───────────────────────────────────────────────────────
+  platformSelect.addEventListener('change', () => {
+    const val = platformSelect.value;
+    const isCustomRtmp = val === 'custom-rtmp';
+    const isCustomSrt = val === 'custom-srt';
+    const isCustom = isCustomRtmp || isCustomSrt;
+
+    ingestUrlField.classList.toggle('hidden', isCustom);
+    customUrlField.classList.toggle('hidden', !isCustomRtmp);
+    customSrtField.classList.toggle('hidden', !isCustomSrt);
+    customNameField.classList.toggle('hidden', !isCustom);
+
+    if (!isCustom) {
+      ingestUrlDisplay.textContent = PLATFORMS[val].url;
+    }
+    updateXml();
+  });
+
+  document.getElementById('customUrl').addEventListener('input', updateXml);
+  document.getElementById('customSrtUrl').addEventListener('input', updateXml);
+  document.getElementById('customServiceName').addEventListener('input', updateXml);
+
+  // ─── Preset Change ─────────────────────────────────────────────────────────
+  presetSelect.addEventListener('change', () => {
+    customProfileFields.classList.toggle('visible', presetSelect.value === 'custom');
+  });
+
+  // ─── Profiles ──────────────────────────────────────────────────────────────
+  function addProfile() {
+    const presetKey = presetSelect.value;
+    let profile;
+
+    if (presetKey === 'custom') {
+      const res = document.getElementById('customRes').value;
+      const fps = document.getElementById('customFps').value;
+      const bitrate = document.getElementById('customBitrate').value;
+      const keyint = document.getElementById('customKeyint').value;
+      profile = {
+        name: res + ' @ ' + fps + 'fps (' + bitrate + ' kbps)',
+        resolution: res,
+        fps: fps,
+        bitrate: String(bitrate),
+        keyint: String(keyint)
+      };
+    } else {
+      profile = { ...PRESETS[presetKey] };
+    }
+
+    profiles.push(profile);
+    renderProfiles();
+    updateXml();
+  }
+
+  function removeProfile(idx) {
+    profiles.splice(idx, 1);
+    renderProfiles();
+    updateXml();
+  }
+
+  function renderProfiles() {
+    if (profiles.length === 0) {
+      profilesList.innerHTML = '<div class="text-muted">No profiles added yet. Select a preset and click "Add Profile".</div>';
+      return;
+    }
+    profilesList.innerHTML = profiles.map((p, i) => {
+      return '<div class="profile-item">' +
+        '<div class="info"><div class="name">' + escHtml(p.name) + '</div>' +
+        '<div class="detail">' + escHtml(p.resolution) + ' | ' + escHtml(p.fps) + ' fps | ' + escHtml(p.bitrate) + ' kbps | keyframe ' + escHtml(p.keyint) + 's</div></div>' +
+        '<button class="btn-danger btn-sm" onclick="removeProfile(' + i + ')">Remove</button></div>';
+    }).join('');
+  }
+
+  // ─── XML Generation ────────────────────────────────────────────────────────
+  function getServiceInfo() {
+    const val = platformSelect.value;
+    const platform = PLATFORMS[val];
+
+    if (val === 'custom-rtmp') {
+      const url = document.getElementById('customUrl').value.trim() || 'rtmp://your-server.com/live';
+      const name = document.getElementById('customServiceName').value.trim() || 'Custom RTMP';
+      return { name, servers: [{ name: 'Primary', url }] };
+    }
+    if (val === 'custom-srt') {
+      const url = document.getElementById('customSrtUrl').value.trim() || 'srt://your-server.com:9998';
+      const name = document.getElementById('customServiceName').value.trim() || 'Custom SRT';
+      return { name, servers: [{ name: 'Primary', url }] };
+    }
+    return { name: platform.name, servers: platform.servers };
+  }
+
+  function generateXml() {
+    const service = getServiceInfo();
+    const profs = profiles.length > 0 ? profiles : [PRESETS['1080p30']];
+
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<streaming>\n';
+    xml += '  <service>\n';
+    xml += '    <name>' + escXml(service.name) + '</name>\n';
+    xml += '    <servers>\n';
+    service.servers.forEach(s => {
+      xml += '      <server>\n';
+      xml += '        <name>' + escXml(s.name) + '</name>\n';
+      xml += '        <url>' + escXml(s.url) + '</url>\n';
+      xml += '      </server>\n';
+    });
+    xml += '    </servers>\n';
+    xml += '    <profiles>\n';
+    profs.forEach(p => {
+      xml += '      <profile>\n';
+      xml += '        <name>' + escXml(p.name) + '</name>\n';
+      xml += '        <config resolution="' + escXml(p.resolution) + '" fps="' + escXml(p.fps) + '">\n';
+      xml += '          <bitrate>' + (parseInt(p.bitrate, 10) * 1000) + '</bitrate>\n';
+      xml += '          <keyframe-interval>' + escXml(p.keyint) + '</keyframe-interval>\n';
+      xml += '          <audio-bitrate>128000</audio-bitrate>\n';
+      xml += '        </config>\n';
+      xml += '      </profile>\n';
+    });
+    xml += '    </profiles>\n';
+    xml += '  </service>\n';
+    xml += '</streaming>';
+
+    return xml;
+  }
+
+  function updateXml() {
+    const raw = generateXml();
+    // Syntax highlight
+    const highlighted = escHtml(raw)
+      .replace(/(&lt;\/?[\w-]+)/g, '<span class="tag">$1</span>')
+      .replace(/(&gt;)/g, '<span class="tag">$1</span>')
+      .replace(/([\w-]+)(=)/g, '<span class="attr">$1</span>$2')
+      .replace(/(".*?")/g, '<span class="val">$1</span>');
+    xmlCode.innerHTML = highlighted;
+  }
+
+  // ─── Download ──────────────────────────────────────────────────────────────
+  async function handleDownload() {
+    const email = document.getElementById('leadEmail').value.trim();
+    const churchName = document.getElementById('leadChurch').value.trim();
+    const errorEl = document.getElementById('emailError');
+
+    if (!email || !email.includes('@')) {
+      errorEl.textContent = 'Please enter a valid email address.';
+      return;
+    }
+    if (!churchName) {
+      errorEl.textContent = 'Please enter your church or organization name.';
+      return;
+    }
+    errorEl.textContent = '';
+
+    // Submit lead
+    try {
+      await fetch('/api/tools/streaming-config/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          churchName,
+          platform: platformSelect.value,
+          model: document.getElementById('atemModel').value
+        })
+      });
+    } catch (e) {
+      // Non-blocking — download even if lead capture fails
+    }
+
+    // Download file
+    const xml = generateXml();
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Streaming.xml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Show instructions
+    document.getElementById('installInstructions').classList.add('visible');
+    downloaded = true;
+  }
+
+  // ─── Utilities ─────────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function escXml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  }
+
+  // ─── Init ──────────────────────────────────────────────────────────────────
+  ingestUrlDisplay.textContent = PLATFORMS.youtube.url;
+  renderProfiles();
+  updateXml();
+</script>
+</body>
+</html>
