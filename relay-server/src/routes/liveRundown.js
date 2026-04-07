@@ -6,8 +6,9 @@
  *   POST /api/churches/:churchId/live-rundown/advance   — Advance to next item
  *   POST /api/churches/:churchId/live-rundown/back      — Go back to previous item
  *   POST /api/churches/:churchId/live-rundown/goto      — Jump to specific item
- *   POST /api/churches/:churchId/live-rundown/end       — End the session
- *   GET  /api/churches/:churchId/live-rundown/state     — Get current session state
+ *   POST /api/churches/:churchId/live-rundown/end            — End the session
+ *   POST /api/churches/:churchId/live-rundown/auto-advance  — Toggle auto-advance from ProPresenter
+ *   GET  /api/churches/:churchId/live-rundown/state         — Get current session state
  *
  * Auth: requireChurchOrAdmin (portal TDs and mobile church_app tokens)
  *
@@ -125,6 +126,30 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         return res.status(400).json({ error: 'No active rundown session' });
       }
       res.json(summary);
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/live-rundown/auto-advance
+   * Toggle auto-advance from ProPresenter.
+   * Body: { enabled: boolean }
+   */
+  app.post('/api/churches/:churchId/live-rundown/auto-advance',
+    requireChurchOrAdmin, requireFeature('planning_center'),
+    (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+
+      const { enabled } = req.body;
+      if (enabled === undefined || enabled === null) {
+        return res.status(400).json({ error: 'enabled is required (boolean)' });
+      }
+
+      const state = liveRundown.setAutoAdvance(churchId, enabled);
+      if (!state) {
+        return res.status(400).json({ error: 'No active rundown session' });
+      }
+      res.json(state);
     }
   );
 

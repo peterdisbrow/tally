@@ -96,6 +96,8 @@ class LiveRundownManager {
       // Per-item actual timing records
       itemTimings: [], // { index, startedAt, endedAt, actualDuration, plannedDuration }
       warningThresholdSec: 30, // seconds before end to show warning
+      autoAdvance: false, // when true, PP presentation changes can advance the rundown
+      lastAutoAdvanceAt: null, // debounce: timestamp of last auto-advance
     };
 
     this._sessions.set(churchId, session);
@@ -202,9 +204,79 @@ class LiveRundownManager {
     return this._sessions.has(churchId);
   }
 
+  /**
+   * Toggle auto-advance from ProPresenter for a church's session.
+   */
+  setAutoAdvance(churchId, enabled) {
+    const session = this._sessions.get(churchId);
+    if (!session) return null;
+    session.autoAdvance = !!enabled;
+    this._log(`[LiveRundown] Auto-advance ${session.autoAdvance ? 'enabled' : 'disabled'} for church ${churchId}`);
+    const state = this._buildState(session);
+    this._broadcast(churchId, { type: 'rundown_state', ...state });
+    return state;
+  }
+
+  /**
+   * Called when a ProPresenter presentation changes. If auto-advance is on,
+   * try to match the presentation name against upcoming rundown items and
+   * advance if a match is found.
+   *
+   * @param {string} churchId
+   * @param {string} presentationName - Name of the new PP presentation
+   * @returns {object|null} new state if advanced, null otherwise
+   */
+  onPresentationChange(churchId, presentationName) {
+    const session = this._sessions.get(churchId);
+    if (!session || session.state !== 'active' || !session.autoAdvance) return null;
+    if (!presentationName) return null;
+
+    // Debounce: ignore if last auto-advance was less than 2 seconds ago
+    const now = Date.now();
+    if (session.lastAutoAdvanceAt && (now - session.lastAutoAdvanceAt) < 2000) return null;
+
+    const normalized = presentationName.toLowerCase().trim();
+
+    // Look ahead from current position: check next 3 items (skip current)
+    const startIdx = session.currentIndex + 1;
+    const endIdx = Math.min(startIdx + 3, session.items.length);
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const item = session.items[i];
+      if (this._matchesPresentationName(normalized, item)) {
+        session.lastAutoAdvanceAt = now;
+        this._log(`[LiveRundown] Auto-advancing church ${churchId} to item ${i} ("${item.title}") — matched PP presentation "${presentationName}"`);
+        const state = this._moveTo(session, i, presentationName);
+        return state;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check if a normalized PP presentation name matches a rundown item.
+   * Compares against item title and songTitle using normalized containment.
+   */
+  _matchesPresentationName(normalizedPresName, item) {
+    if (!normalizedPresName) return false;
+
+    const candidates = [item.title, item.songTitle].filter(Boolean);
+    for (const candidate of candidates) {
+      const normalizedCandidate = candidate.toLowerCase().trim();
+      if (!normalizedCandidate) continue;
+      // Either direction containment: "Amazing Grace" matches "Amazing Grace (arr. Smith)"
+      // and "worship: Amazing Grace" matches "Amazing Grace"
+      if (normalizedPresName.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedPresName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ─── INTERNAL ──────────────────────────────────────────────────────────────
 
-  _moveTo(session, newIndex) {
+  _moveTo(session, newIndex, autoAdvancedFrom = null) {
     const now = Date.now();
 
     // Close timing for the item we're leaving
@@ -213,6 +285,9 @@ class LiveRundownManager {
     // Move to new position
     session.currentIndex = newIndex;
     session.currentItemStartedAt = now;
+
+    // Track auto-advance source (cleared on next manual move)
+    session.autoAdvancedFrom = autoAdvancedFrom || null;
 
     // Start timing for the new item
     session.itemTimings.push({
@@ -281,6 +356,8 @@ class LiveRundownManager {
       scheduledStart: session.scheduledStart,
       totalPlannedDuration: session.totalPlannedDuration,
       totalElapsed: Math.round((now - session.startedAt) / 1000),
+      autoAdvance: session.autoAdvance,
+      autoAdvancedFrom: session.autoAdvancedFrom || null,
       timestamp: now,
     };
   }
@@ -415,6 +492,8 @@ class LiveRundownManager {
         isWarning: currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= session.warningThresholdSec && remainingOnItem > 0,
         scheduleDelta: this._calculateScheduleDelta(session, now),
         totalElapsed: Math.round((now - session.startedAt) / 1000),
+        autoAdvance: session.autoAdvance,
+        autoAdvancedFrom: session.autoAdvancedFrom || null,
         timestamp: now,
       };
 

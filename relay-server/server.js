@@ -4556,6 +4556,10 @@ const _wsHandlers = createWebSocketHandlers({
         const slideData = { presentationName: msg.presentationName || '', slideIndex: msg.slideIndex ?? 0, slideCount: msg.slideCount ?? 0 };
         autoPilot.onSlideChange(church.churchId, slideData).catch(e => console.error('[AutoPilot] Slide change error:', e.message));
         scheduler.onSlideChange(church.churchId, slideData).catch(e => console.error('[Scheduler] Slide change error:', e.message));
+        // Auto-advance live rundown if presentation name changed and auto-advance is on
+        if (slideData.presentationName) {
+          liveRundown.onPresentationChange(church.churchId, slideData.presentationName);
+        }
         break;
       }
       case 'chat': {
@@ -4701,6 +4705,11 @@ function _handleRundownWsMessage(churchId, msg, ws) {
     case 'rundown_get_state': {
       const state = liveRundown.getState(churchId);
       _send({ type: 'rundown_state', messageId: msg.messageId, active: !!state, ...(state || {}) });
+      break;
+    }
+    case 'rundown_auto_advance': {
+      const state = liveRundown.setAutoAdvance(churchId, msg.enabled);
+      if (!state) _send({ type: 'rundown_error', error: 'No active session', messageId: msg.messageId });
       break;
     }
   }
