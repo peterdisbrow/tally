@@ -75,14 +75,21 @@
       </button>
     </div>
     <div class="sidebar-footer">
-      <div id="theme-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;margin-bottom:8px;border:1px solid #0d3320;border-radius:8px;cursor:pointer" data-action="toggleTheme" title="Switch between dark and light theme">
-        <span style="font-size:12px;color:#8B9DAF;font-weight:600" id="theme-label">&#9790; Dark</span>
-        <div id="theme-toggle-switch" style="width:36px;height:20px;border-radius:10px;background:#0d3320;position:relative;transition:background 0.2s">
-          <div id="theme-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#556270;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
+      <button class="sidebar-settings-toggle" id="sidebar-settings-toggle" data-action="toggleSidebarSettings">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+        <span>Settings</span>
+        <svg class="settings-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+      </button>
+      <div class="sidebar-settings-panel" id="sidebar-settings-panel">
+        <div id="theme-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;margin-bottom:8px;border:1px solid #0d3320;border-radius:8px;cursor:pointer" data-action="toggleTheme" title="Switch between dark and light theme">
+          <span style="font-size:12px;color:#8B9DAF;font-weight:600" id="theme-label">&#9790; Dark</span>
+          <div id="theme-toggle-switch" style="width:36px;height:20px;border-radius:10px;background:#0d3320;position:relative;transition:background 0.2s">
+            <div id="theme-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#556270;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
+          </div>
         </div>
+        <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+        <button id="btn-td-change-pw" class="btn-secondary" data-action="tdChangePassword" style="width:100%;margin-bottom:6px;font-size:11px;display:none">Change Password</button>
       </div>
-      <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
-      <button id="btn-td-change-pw" class="btn-secondary" data-action="tdChangePassword" style="width:100%;margin-bottom:6px;font-size:11px;display:none">Change Password</button>
       <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>

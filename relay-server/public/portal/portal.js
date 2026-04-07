@@ -9675,6 +9675,15 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   window.toggleMoreNav = toggleMoreNav;
 
+  // ── Sidebar Settings Toggle (mobile footer collapse) ──────────────
+  function toggleSidebarSettings() {
+    var btn = document.getElementById('sidebar-settings-toggle');
+    var panel = document.getElementById('sidebar-settings-panel');
+    if (!btn || !panel) return;
+    btn.classList.toggle('open');
+    panel.classList.toggle('open');
+  }
+
   // Auto-expand More section if a child page is active, or from localStorage
   // On mobile (<=768px), always start collapsed for a cleaner sidebar
   (function() {
@@ -9997,6 +10006,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = btn.dataset.action;
     if (action === 'toggleViewMode') toggleViewMode();
     if (action === 'toggleMoreNav') toggleMoreNav();
+    if (action === 'toggleSidebarSettings') toggleSidebarSettings();
   });
 
   // ── Restore last page/tab from localStorage ──────────────────────
