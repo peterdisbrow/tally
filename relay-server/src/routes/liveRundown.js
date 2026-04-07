@@ -131,7 +131,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   /**
    * POST /api/churches/:churchId/live-rundown/auto-advance
-   * Toggle auto-advance from ProPresenter.
+   * Toggle auto-advance mode (timer-based and ProPresenter-triggered).
    * Body: { enabled: boolean }
    */
   app.post('/api/churches/:churchId/live-rundown/auto-advance',
@@ -145,7 +145,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         return res.status(400).json({ error: 'enabled is required (boolean)' });
       }
 
-      const state = liveRundown.setAutoAdvance(churchId, enabled);
+      const state = liveRundown.setAutoAdvance(churchId, !!enabled);
       if (!state) {
         return res.status(400).json({ error: 'No active rundown session' });
       }

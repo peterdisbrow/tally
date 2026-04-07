@@ -60,6 +60,7 @@ class LiveRundownManager {
       servicePosition: item.servicePosition,
       lengthSeconds: item.lengthSeconds || 0,
       description: item.description || null,
+      notes: item.notes || [],
       songTitle: item.songTitle || null,
       author: item.author || null,
       arrangementKey: item.arrangementKey || null,
@@ -87,6 +88,7 @@ class LiveRundownManager {
       planTitle: plan.title,
       callerName,
       items,
+      team: plan.team || [],
       currentIndex: 0,
       state: 'active', // active | paused | ended
       startedAt: now,
@@ -96,8 +98,9 @@ class LiveRundownManager {
       // Per-item actual timing records
       itemTimings: [], // { index, startedAt, endedAt, actualDuration, plannedDuration }
       warningThresholdSec: 30, // seconds before end to show warning
-      autoAdvance: false, // when true, PP presentation changes can advance the rundown
+      autoAdvance: false, // when true, PP presentation changes or timer expiry can advance
       lastAutoAdvanceAt: null, // debounce: timestamp of last auto-advance
+      autoAdvancedFrom: null, // title of last auto-advanced item
     };
 
     this._sessions.set(churchId, session);
@@ -198,23 +201,24 @@ class LiveRundownManager {
   }
 
   /**
-   * Check if a church has an active session.
-   */
-  hasSession(churchId) {
-    return this._sessions.has(churchId);
-  }
-
-  /**
-   * Toggle auto-advance from ProPresenter for a church's session.
+   * Toggle auto-advance for a church's session (timer-based and PP-triggered).
    */
   setAutoAdvance(churchId, enabled) {
     const session = this._sessions.get(churchId);
-    if (!session) return null;
+    if (!session || session.state !== 'active') return null;
     session.autoAdvance = !!enabled;
+    if (!enabled) session.autoAdvancedFrom = null;
     this._log(`[LiveRundown] Auto-advance ${session.autoAdvance ? 'enabled' : 'disabled'} for church ${churchId}`);
     const state = this._buildState(session);
     this._broadcast(churchId, { type: 'rundown_state', ...state });
     return state;
+  }
+
+  /**
+   * Check if a church has an active session.
+   */
+  hasSession(churchId) {
+    return this._sessions.has(churchId);
   }
 
   /**
@@ -352,6 +356,7 @@ class LiveRundownManager {
       } : null,
       items: rippledItems,
       scheduleDelta,
+      team: session.team,
       startedAt: session.startedAt,
       scheduledStart: session.scheduledStart,
       totalPlannedDuration: session.totalPlannedDuration,
@@ -481,6 +486,15 @@ class LiveRundownManager {
         ? Math.max(0, currentItem.lengthSeconds - elapsedOnItem)
         : null;
 
+      // Auto-advance: when remaining hits 0 and auto-advance is on
+      if (session.autoAdvance && currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= 0) {
+        const nextIndex = session.currentIndex + 1;
+        if (nextIndex < session.items.length) {
+          this._moveTo(session, nextIndex, currentItem.title);
+          return; // _moveTo broadcasts rundown_position, skip the tick
+        }
+      }
+
       const tick = {
         type: 'rundown_tick',
         churchId,
@@ -496,6 +510,9 @@ class LiveRundownManager {
         autoAdvancedFrom: session.autoAdvancedFrom || null,
         timestamp: now,
       };
+
+      // Clear autoAdvancedFrom after broadcasting once
+      if (session.autoAdvancedFrom) session.autoAdvancedFrom = null;
 
       this._broadcast(churchId, tick);
     }, 1000);

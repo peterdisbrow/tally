@@ -2134,6 +2134,11 @@
 
       <!-- Active session view -->
       <div id="rundown-active" style="display:none">
+        <!-- Progress bar -->
+        <div style="margin-bottom:16px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);height:4px">
+          <div id="rundown-progress-bar" style="height:100%;background:#00E676;transition:width 0.5s ease;width:0%"></div>
+        </div>
+
         <!-- Plan title + caller info -->
         <div class="card" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -2146,6 +2151,17 @@
           <div id="rundown-progress" style="font-size:13px;color:#8B9DAF;font-weight:600"></div>
         </div>
 
+        <!-- Controls row: auto-advance toggle -->
+        <div class="card" id="rundown-controls" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;padding:10px 16px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <label for="rundown-auto-advance-toggle" style="font-size:13px;color:#8B9DAF;font-weight:600;cursor:pointer">Auto-Advance</label>
+            <div id="rundown-auto-advance-toggle" style="width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,0.1);cursor:pointer;position:relative;transition:background 0.2s" onclick="toggleAutoAdvance()">
+              <div style="width:16px;height:16px;border-radius:50%;background:#556270;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
+            </div>
+          </div>
+          <div id="rundown-auto-advanced-notice" style="display:none;font-size:12px;color:#42A5F5;max-width:60%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap"></div>
+        </div>
+
         <!-- Current item countdown hero -->
         <div id="rundown-countdown-hero" class="card" style="margin-bottom:16px;text-align:center;padding:24px">
           <div id="rundown-current-label" style="font-size:13px;color:#8B9DAF;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">NOW</div>
@@ -2156,6 +2172,12 @@
 
         <!-- Item list -->
         <div id="rundown-items-list" style="display:flex;flex-direction:column;gap:2px"></div>
+
+        <!-- Team panel -->
+        <div id="rundown-team-panel" class="card" style="margin-top:16px;display:none">
+          <div style="font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#8B9DAF;margin-bottom:12px">Team</div>
+          <div id="rundown-team-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
       </div>
     </div>
 
