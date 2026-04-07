@@ -1007,6 +1007,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
       if (id === 'automation') loadMacros();
       if (id === 'analytics') loadAnalytics();
+      if (id === 'network-topology') loadNetworkTopology();
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
       if (id === 'support') { loadSupportInfo(); initMigrationWizard(); loadRoomStreamKeys(); }
       if (id === 'reports') loadReports();
@@ -6607,6 +6608,197 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       loadAudienceAnalytics();
     }
 
+    // ── Network Topology ────────────────────────────────────────────────────────
+
+    var _netDevices = [];   // all devices from last fetch
+    var _netFilter  = 'all'; // current type filter
+
+    var NET_TYPE_LABEL = {
+      switcher: 'Switcher', recorder: 'Recorder', camera: 'Camera',
+      'ndi-source': 'NDI Source', 'ndi-converter': 'NDI Converter',
+      presentation: 'ProPresenter', 'audio-mixer': 'Audio Mixer',
+      'audio-network': 'Dante Audio', lighting: 'Lighting',
+      controller: 'Controller', software: 'Software',
+      infrastructure: 'Network Infra', computer: 'Computer',
+      mobile: 'Mobile', printer: 'Printer', 'smart-plug': 'Smart Plug',
+      unknown: 'Unknown',
+    };
+
+    // Which broad filter bucket each deviceType belongs to
+    var NET_TYPE_BUCKET = {
+      switcher: 'av', recorder: 'av', camera: 'av',
+      'ndi-source': 'av', 'ndi-converter': 'av', presentation: 'av',
+      'audio-mixer': 'audio', 'audio-network': 'audio',
+      lighting: 'other', controller: 'other', software: 'other',
+      infrastructure: 'network', computer: 'network',
+      mobile: 'other', printer: 'other', 'smart-plug': 'other',
+      unknown: 'other',
+    };
+
+    var NET_TYPE_COLOR = {
+      switcher: '#00E676', recorder: '#64B5F6', camera: '#FFB74D',
+      'ndi-source': '#E040FB', 'ndi-converter': '#CE93D8',
+      presentation: '#4FC3F7', 'audio-mixer': '#F48FB1',
+      'audio-network': '#FF8A65', lighting: '#FFF176',
+      controller: '#A5D6A7', infrastructure: '#546E7A',
+      software: '#80CBC4', computer: '#90A4AE',
+      unknown: '#455A64',
+    };
+
+    // SVG icons per device type (Heroicons outline)
+    var NET_TYPE_ICON = (function() {
+      var film = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>';
+      var hdd  = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>';
+      var cam  = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z"/></svg>';
+      var wifi = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>';
+      var pres = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3h16.5M3.75 3v16.5A2.25 2.25 0 0 0 6 21.75h12a2.25 2.25 0 0 0 2.25-2.25V3M3.75 3H2.25M20.25 3H21.75M9 12l2.25 2.25L15 9"/></svg>';
+      var slid = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 13.5V3.75m0 9.75a1.5 1.5 0 0 1 0 3m0-3a1.5 1.5 0 0 0 0 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 0 1 0 3m0-3a1.5 1.5 0 0 0 0 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 0 1 0 3m0-3a1.5 1.5 0 0 0 0 3m0 9.75V10.5"/></svg>';
+      var bolt = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg>';
+      var ctrl = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"/></svg>';
+      var srv  = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 6 0m-6 0H3m16.5 0H21m-1.5 0a3 3 0 0 0 3-3m-3 3a3 3 0 1 1-6 0m6 0h-1.5m-12 0h-1.5m15-3a3 3 0 0 0-3-3H6.75a3 3 0 0 0-3 3m15 0V9.75m-15 1.5V9.75m0 0a3 3 0 0 1 3-3h8.25a3 3 0 0 1 3 3m-15 0H3m18 0h1.5"/></svg>';
+      var comp = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0H3"/></svg>';
+      var ques = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg>';
+      return {
+        switcher: film, recorder: hdd, camera: cam,
+        'ndi-source': wifi, 'ndi-converter': wifi,
+        presentation: pres, 'audio-mixer': slid, 'audio-network': slid,
+        lighting: bolt, controller: ctrl, software: comp,
+        infrastructure: srv, computer: comp, mobile: comp,
+        printer: comp, 'smart-plug': bolt, unknown: ques,
+      };
+    })();
+
+    var _netLoaded = false;
+
+    async function loadNetworkTopology() {
+      if (!CHURCH_ID) return;
+      var bodyEl   = document.getElementById('net-device-body');
+      var emptyEl  = document.getElementById('net-empty-state');
+      var cardEl   = document.getElementById('net-device-table-card');
+      if (!bodyEl) return;
+      bodyEl.innerHTML = '<div style="color:#556270;text-align:center;padding:32px;font-size:13px">Loading\u2026</div>';
+      if (emptyEl) emptyEl.style.display = 'none';
+      if (cardEl) cardEl.style.display = '';
+      try {
+        var data = await api('GET', '/api/admin/network-topology/' + encodeURIComponent(CHURCH_ID));
+        _netDevices = data.allDevices || [];
+        _netLoaded = true;
+        // KPI
+        var avTypes = new Set(['switcher','recorder','camera','ndi-source','ndi-converter','presentation']);
+        var avCount = _netDevices.filter(function(d) { return avTypes.has(d.deviceType); }).length;
+        var roomCount = (data.scans || []).length;
+        var lastScan = data.scans && data.scans.length
+          ? data.scans.reduce(function(latest, s) { return (!latest || s.scanTime > latest) ? s.scanTime : latest; }, null)
+          : null;
+        _setNetKpi('net-total-devices', _netDevices.length || '0');
+        _setNetKpi('net-av-devices', avCount || '0');
+        _setNetKpi('net-rooms-count', roomCount || '0');
+        var lastEl = document.getElementById('net-last-scan');
+        if (lastEl) lastEl.textContent = lastScan ? _fmtRelTime(lastScan) : '\u2014';
+        if (!_netDevices.length) {
+          if (cardEl) cardEl.style.display = 'none';
+          if (emptyEl) emptyEl.style.display = '';
+          return;
+        }
+        renderNetworkDevices();
+      } catch (e) {
+        bodyEl.innerHTML = '<div style="color:#FF5252;text-align:center;padding:32px;font-size:13px">Failed to load network data. Try refreshing.</div>';
+      }
+    }
+
+    function _setNetKpi(id, val) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = val;
+    }
+
+    function _fmtRelTime(iso) {
+      if (!iso) return '\u2014';
+      var diff = Date.now() - new Date(iso).getTime();
+      var mins = Math.floor(diff / 60000);
+      if (mins < 1)  return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24)  return hrs + 'h ago';
+      return Math.floor(hrs / 24) + 'd ago';
+    }
+
+    function renderNetworkDevices() {
+      var bodyEl = document.getElementById('net-device-body');
+      if (!bodyEl) return;
+      var devices = _netFilter === 'all'
+        ? _netDevices
+        : _netDevices.filter(function(d) {
+            var bucket = NET_TYPE_BUCKET[d.deviceType] || 'other';
+            if (_netFilter === 'av')      return bucket === 'av';
+            if (_netFilter === 'audio')   return bucket === 'audio';
+            if (_netFilter === 'network') return bucket === 'network';
+            if (_netFilter === 'other')   return bucket === 'other';
+            return true;
+          });
+      if (!devices.length) {
+        bodyEl.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">No devices match this filter.</div>';
+        return;
+      }
+      // Sort: AV first, then alphabetically by deviceType, then by IP
+      devices = devices.slice().sort(function(a, b) {
+        var ba = NET_TYPE_BUCKET[a.deviceType] || 'other';
+        var bb = NET_TYPE_BUCKET[b.deviceType] || 'other';
+        var order = ['av','audio','network','other'];
+        var oa = order.indexOf(ba), ob = order.indexOf(bb);
+        if (oa !== ob) return oa - ob;
+        var ta = a.deviceType || 'unknown', tb = b.deviceType || 'unknown';
+        if (ta !== tb) return ta.localeCompare(tb);
+        return (a.ip || '').localeCompare(b.ip || '');
+      });
+      var html = '<div class="table-wrap"><table><thead><tr>'
+        + '<th style="width:28px"></th>'
+        + '<th>Name / IP</th>'
+        + '<th>Type</th>'
+        + '<th>Vendor</th>'
+        + '<th>Protocols</th>'
+        + '<th>Last Seen</th>'
+        + '</tr></thead><tbody>';
+      devices.forEach(function(d) {
+        var color  = NET_TYPE_COLOR[d.deviceType] || '#455A64';
+        var icon   = NET_TYPE_ICON[d.deviceType] || NET_TYPE_ICON.unknown;
+        var label  = NET_TYPE_LABEL[d.deviceType] || d.deviceType || 'Unknown';
+        var name   = d.hostname || d.model || d.ip;
+        var sub    = d.hostname ? d.ip : '';
+        var protos = (d.protocols || []).slice(0, 4).map(function(p) {
+          return '<span style="display:inline-block;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.2);border-radius:4px;padding:1px 5px;font-size:10px;color:#00E676;margin:1px">' + _escNetText(p) + '</span>';
+        }).join('');
+        html += '<tr>'
+          + '<td style="color:' + color + ';padding-right:0">' + icon + '</td>'
+          + '<td>'
+            + '<div style="font-weight:600;font-size:13px">' + _escNetText(name) + '</div>'
+            + (sub ? '<div style="font-size:11px;color:#556270">' + _escNetText(sub) + '</div>' : '')
+          + '</td>'
+          + '<td><span style="color:' + color + ';font-size:12px">' + _escNetText(label) + '</span>'
+            + (d.model && d.model !== name ? '<br><span style="font-size:11px;color:#556270">' + _escNetText(d.model) + '</span>' : '')
+          + '</td>'
+          + '<td style="font-size:12px;color:#8B9DAF">' + _escNetText(d.vendor || '') + '</td>'
+          + '<td style="white-space:nowrap">' + (protos || '<span style="color:#556270;font-size:11px">\u2014</span>') + '</td>'
+          + '<td style="font-size:11px;color:#556270;white-space:nowrap">' + _fmtRelTime(d.lastSeen) + '</td>'
+          + '</tr>';
+      });
+      html += '</tbody></table></div>';
+      bodyEl.innerHTML = html;
+    }
+
+    function filterNetworkDevices(btn) {
+      var f = btn.dataset.typeFilter || 'all';
+      _netFilter = f;
+      document.querySelectorAll('.net-type-filter').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      if (_netLoaded) renderNetworkDevices();
+    }
+
+    function _escNetText(s) {
+      return String(s || '').replace(/[<>&"']/g, function(c) {
+        return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];
+      });
+    }
+
     function renderAnalyticsKPI(d) {
       var upEl = document.getElementById('a-uptime');
       upEl.textContent = d.uptime_pct.toFixed(1) + '%';
@@ -9203,11 +9395,16 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = btn.dataset.action;
     if (action === 'toggleViewMode') toggleViewMode();
     if (action === 'toggleMoreNav') toggleMoreNav();
+    if (action === 'filterNetworkDevices') filterNetworkDevices(btn);
+    if (action === 'refreshNetworkTopology') { _netLoaded = false; loadNetworkTopology(); }
   });
 
-  // ── Restore last page/tab from localStorage ──────────────────────
+  // ── Restore last page/tab from localStorage (with URL ?page= deep link) ──
   try {
-    var savedPage = localStorage.getItem('portal_page');
+    // Allow the electron app (or any external link) to open a specific page
+    // via the ?page=<id> query parameter, e.g. /church-portal?page=network-topology
+    var deepLinkPage = new URLSearchParams(window.location.search).get('page');
+    var savedPage = deepLinkPage || localStorage.getItem('portal_page');
     if (savedPage && document.getElementById('page-' + savedPage)) {
       var navBtn = document.querySelector('.nav-item[data-page="' + savedPage + '"]');
       if (navBtn) showPage(savedPage, navBtn);
