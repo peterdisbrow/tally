@@ -509,10 +509,10 @@ input:checked + .slider:before { background: var(--primary); transform: translat
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
 @media (max-width: 768px) {
   .hamburger { display: flex; }
-  .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; width: 220px; height: 100vh; height: 100dvh; overflow-y: scroll; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .sidebar.open { display: flex; flex-direction: column; }
   .sidebar-overlay.open { display: block; }
-  body.sidebar-open { overflow: hidden; }
+  body.sidebar-open { overflow: hidden; touch-action: none; }
   .sidebar .sidebar-footer { margin-top: 16px; }
   .sidebar-settings-toggle { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--border); border-radius: 7px; color: var(--text-secondary); font-size: 12px; padding: 7px 10px; width: 100%; cursor: pointer; margin-bottom: 6px; transition: all 0.15s; }
   .sidebar-settings-toggle:hover { color: var(--text-primary); border-color: var(--primary); }
