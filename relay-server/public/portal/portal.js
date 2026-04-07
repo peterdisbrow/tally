@@ -994,6 +994,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       var open = sidebar.classList.toggle('open');
       overlay.classList.toggle('open', open);
+      document.body.classList.toggle('sidebar-open', open);
     }
 
     // ── navigation ──────────────────────────────────────────────────────────────
@@ -1008,6 +1009,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
+      document.body.classList.remove('sidebar-open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
       if (id === 'rooms') { loadRooms(); }
