@@ -200,8 +200,6 @@ async function fetchLatestPreviewFrame({ relay, adminKey, churchId, knownFrameId
   const headers = { 'x-api-key': adminKey };
   if (previewFetchState.lastDeliveredFrameId) {
     headers['if-none-match'] = previewFetchState.lastDeliveredFrameId;
-  } else if (knownFrameId) {
-    headers['if-none-match'] = knownFrameId;
   }
 
   const resp = await fetch(`${base}/api/admin/churches/${encodeURIComponent(churchId)}/preview/latest`, {
@@ -281,9 +279,7 @@ function sendPreviewCommand(command, params = {}) {
 
   return new Promise((resolve, reject) => {
     const mainWindow = _getMainWindow();
-    const previewSessionId = command === 'preview.start'
-      ? resetPreviewFetchState(churchId)
-      : previewFetchState.sessionId;
+    let previewSessionId = previewFetchState.sessionId;
 
     // Keep one controller socket while preview stream is active so frames can flow.
     if (command === 'preview.start' && previewControllerSocket) {
@@ -291,7 +287,6 @@ function sendPreviewCommand(command, params = {}) {
       try { previewControllerSocket.send(JSON.stringify({ type: 'command', churchId, command: 'preview.stop', params: {} })); } catch {}
       try { previewControllerSocket.terminate(); } catch {}
       previewControllerSocket = null;
-      resetPreviewFetchState();
     }
 
     if (command === 'preview.stop' && previewControllerSocket) {
@@ -299,6 +294,10 @@ function sendPreviewCommand(command, params = {}) {
       try { previewControllerSocket.close(); } catch {}
       previewControllerSocket = null;
       resetPreviewFetchState();
+    }
+
+    if (command === 'preview.start') {
+      previewSessionId = resetPreviewFetchState(churchId);
     }
 
     const socket = new WebSocket(`${relay.replace(/\/$/, '')}/controller?apikey=${encodeURIComponent(adminKey)}`);
@@ -315,10 +314,6 @@ function sendPreviewCommand(command, params = {}) {
       resolve(result);
       if (!isStart) {
         try { if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(); } catch {}
-      }
-      if (socket === previewControllerSocket) {
-        previewControllerSocket = null;
-        resetPreviewFetchState();
       }
     };
 
@@ -351,6 +346,11 @@ function sendPreviewCommand(command, params = {}) {
 
         if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
           if (msg.error) {
+            if (isStart && socket === previewControllerSocket) {
+              try { socket.close(); } catch {}
+              previewControllerSocket = null;
+              resetPreviewFetchState();
+            }
             done({ success: false, error: msg.error });
           } else {
             done({ success: true, result: msg.result });

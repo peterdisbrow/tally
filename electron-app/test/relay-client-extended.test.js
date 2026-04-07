@@ -703,13 +703,32 @@ test('sendPreviewCommand preview.snap ignores command_result for wrong command',
 
 // ─── sendPreviewCommand — preview.start: frame forwarding ────────────────────
 
-test('sendPreviewCommand preview.start forwards preview_frame to mainWindow renderer', async () => {
+test('sendPreviewCommand preview.start fetches preview_available frames and forwards them to the renderer', async () => {
   const { client, instances } = loadRelayClient();
   const sentToRenderer = [];
   const mockWindow = {
     webContents: {
       send: (channel, data) => sentToRenderer.push({ channel, data }),
     },
+  };
+  const originalFetch = global.fetch;
+  const fetchCalls = [];
+
+  global.fetch = async (url, opts) => {
+    fetchCalls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        frameId: 'frame-1',
+        churchId: 'ch_test',
+        timestamp: 12345,
+        width: 1280,
+        height: 720,
+        format: 'jpeg',
+        data: 'base64framedata',
+      }),
+    };
   };
 
   client.init({ loadConfig: () => makeConfig(), getMainWindow: () => mockWindow });
@@ -722,14 +741,11 @@ test('sendPreviewCommand preview.start forwards preview_frame to mainWindow rend
   await new Promise((r) => setImmediate(r));
 
   ws.simulateMessage({
-    type: 'preview_frame',
+    type: 'preview_available',
     churchId: 'ch_test',
-    timestamp: 12345,
-    width: 1280,
-    height: 720,
-    format: 'jpeg',
-    data: 'base64framedata',
+    frameId: 'frame-1',
   });
+  await new Promise((r) => setImmediate(r));
 
   // Filter to only preview-frame events (open also sends a 'log' event to renderer)
   const frames = sentToRenderer.filter((s) => s.channel === 'preview-frame');
@@ -739,10 +755,14 @@ test('sendPreviewCommand preview.start forwards preview_frame to mainWindow rend
   assert.equal(frames[0].data.format, 'jpeg');
   assert.equal(frames[0].data.data, 'base64framedata');
   assert.equal(frames[0].data.timestamp, 12345);
+  assert.equal(fetchCalls.length, 1);
+  assert.match(String(fetchCalls[0].url), /\/api\/admin\/churches\/ch_test\/preview\/latest$/);
+  assert.equal(fetchCalls[0].opts.headers['x-api-key'], 'test-api-key');
 
   // Clean up — resolve via close
   ws.simulateClose(1000);
   await promise;
+  global.fetch = originalFetch;
 });
 
 test('sendPreviewCommand preview.start subscribes before sending the preview command', async () => {
@@ -775,36 +795,16 @@ test('sendPreviewCommand preview.start does not forward frames for wrong churchI
       send: (channel, data) => sentToRenderer.push({ channel, data }),
     },
   };
+  const originalFetch = global.fetch;
+  let fetchCalled = false;
 
-  client.init({ loadConfig: () => makeConfig(), getMainWindow: () => mockWindow });
-
-  const promise = client.sendPreviewCommand('preview.start');
-  await new Promise((r) => setImmediate(r));
-
-  const ws = instances[0];
-  ws.simulateOpen();
-  await new Promise((r) => setImmediate(r));
-
-  ws.simulateMessage({
-    type: 'preview_frame',
-    churchId: 'WRONG_CHURCH_ID',
-    data: 'should_not_forward',
-  });
-
-  const frames = sentToRenderer.filter((s) => s.channel === 'preview-frame');
-  assert.equal(frames.length, 0, 'Frame for wrong churchId must not be forwarded');
-
-  ws.simulateClose(1000);
-  await promise;
-});
-
-test('sendPreviewCommand preview.start forwards multiple frames in sequence', async () => {
-  const { client, instances } = loadRelayClient();
-  const sentToRenderer = [];
-  const mockWindow = {
-    webContents: {
-      send: (channel, data) => sentToRenderer.push({ channel, data }),
-    },
+  global.fetch = async () => {
+    fetchCalled = true;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ frameId: 'ignored', churchId: 'WRONG_CHURCH_ID', data: 'should_not_forward' }),
+    };
   };
 
   client.init({ loadConfig: () => makeConfig(), getMainWindow: () => mockWindow });
@@ -816,24 +816,96 @@ test('sendPreviewCommand preview.start forwards multiple frames in sequence', as
   ws.simulateOpen();
   await new Promise((r) => setImmediate(r));
 
-  for (let i = 0; i < 5; i++) {
-    ws.simulateMessage({
-      type: 'preview_frame',
-      churchId: 'ch_test',
-      timestamp: i,
-      width: 1280,
-      height: 720,
-      format: 'jpeg',
-      data: `frame_${i}`,
-    });
-  }
+  ws.simulateMessage({
+    type: 'preview_available',
+    churchId: 'WRONG_CHURCH_ID',
+    frameId: 'frame-wrong',
+  });
+  await new Promise((r) => setImmediate(r));
 
   const frames = sentToRenderer.filter((s) => s.channel === 'preview-frame');
-  assert.equal(frames.length, 5, 'All 5 frames should be forwarded');
-  assert.equal(frames[4].data.data, 'frame_4');
+  assert.equal(frames.length, 0, 'Frame for wrong churchId must not be forwarded');
+  assert.equal(fetchCalled, false, 'Wrong-church preview should not trigger a fetch');
 
   ws.simulateClose(1000);
   await promise;
+  global.fetch = originalFetch;
+});
+
+test('sendPreviewCommand preview.start coalesces rapid preview_available notifications', async () => {
+  const { client, instances } = loadRelayClient();
+  const sentToRenderer = [];
+  const mockWindow = {
+    webContents: {
+      send: (channel, data) => sentToRenderer.push({ channel, data }),
+    },
+  };
+  const originalFetch = global.fetch;
+  let fetchCallCount = 0;
+  let resolveFirstFetch;
+
+  global.fetch = async () => {
+    fetchCallCount += 1;
+    if (fetchCallCount === 1) {
+      return new Promise((resolve) => {
+        resolveFirstFetch = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            frameId: 'frame-1',
+            churchId: 'ch_test',
+            timestamp: 1,
+            width: 1280,
+            height: 720,
+            format: 'jpeg',
+            data: 'frame_1',
+          }),
+        });
+      });
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        frameId: 'frame-3',
+        churchId: 'ch_test',
+        timestamp: 3,
+        width: 1280,
+        height: 720,
+        format: 'jpeg',
+        data: 'frame_3',
+      }),
+    };
+  };
+
+  client.init({ loadConfig: () => makeConfig(), getMainWindow: () => mockWindow });
+
+  const promise = client.sendPreviewCommand('preview.start');
+  await new Promise((r) => setImmediate(r));
+
+  const ws = instances[0];
+  ws.simulateOpen();
+  await new Promise((r) => setImmediate(r));
+
+  ws.simulateMessage({ type: 'preview_available', churchId: 'ch_test', frameId: 'frame-1' });
+  ws.simulateMessage({ type: 'preview_available', churchId: 'ch_test', frameId: 'frame-2' });
+  ws.simulateMessage({ type: 'preview_available', churchId: 'ch_test', frameId: 'frame-3' });
+  await new Promise((r) => setImmediate(r));
+
+  resolveFirstFetch();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  const frames = sentToRenderer.filter((s) => s.channel === 'preview-frame');
+  assert.equal(fetchCallCount, 2, 'Rapid notifications should collapse to the latest pending fetch');
+  assert.equal(frames.length, 2, 'Only the in-flight frame and latest pending frame should be forwarded');
+  assert.equal(frames[0].data.data, 'frame_1');
+  assert.equal(frames[1].data.data, 'frame_3');
+
+  ws.simulateClose(1000);
+  await promise;
+  global.fetch = originalFetch;
 });
 
 test('sendPreviewCommand preview.stop unsubscribes and closes the active preview socket first', async () => {

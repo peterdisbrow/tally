@@ -505,9 +505,15 @@ async function runTests() {
     const subscribedReceived = waitForMessage(controllerWS);
     churchWS.send(JSON.stringify(frame));
     const msg = await subscribedReceived;
-    assert.strictEqual(msg.type, 'preview_frame');
+    assert.strictEqual(msg.type, 'preview_available');
     assert.strictEqual(msg.churchId, churchId);
-    assert.strictEqual(msg.data, 'dGVzdA==');
+    assert.ok(msg.frameId);
+
+    const previewResp = await apiRequest('GET', `/api/admin/churches/${churchId}/preview/latest`);
+    assert.strictEqual(previewResp.status, 200);
+    assert.strictEqual(previewResp.body.churchId, churchId);
+    assert.strictEqual(previewResp.body.frameId, msg.frameId);
+    assert.strictEqual(previewResp.body.data, 'dGVzdA==');
     assert.strictEqual(await passiveReceived, false);
 
     await new Promise((resolve) => {

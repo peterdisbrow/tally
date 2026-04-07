@@ -104,6 +104,7 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 | `RUNTIME_COORDINATION_PREFIX` | Prefix for presence/pubsub keys (default: `tally:runtime`) |
 | `RUNTIME_COORDINATION_CHANNEL` | Pub/sub channel for runtime events |
 | `RUNTIME_PRESENCE_TTL_MS` | TTL for presence heartbeats (default: `45000`) |
+| `PREVIEW_FRAME_CACHE_TTL_MS` | How long the latest cached preview frame stays available for pull-based preview fetches (default: `30000`) |
 
 Raw Redis socket config is preferred. It powers both distributed rate limiting and the relay's runtime coordination foundation (church/controller presence plus pub/sub event fanout for future multi-instance work). Upstash/Vercel REST config is still supported, but only for rate limiting.
 
