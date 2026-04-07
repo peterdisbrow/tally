@@ -2401,6 +2401,32 @@
 
   <div id="toast"></div>
 
+  <!-- Companion Actions Config Modal -->
+  <div id="companion-actions-modal" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center">
+    <div style="background:#1C2833;border:1px solid rgba(255,255,255,0.08);border-radius:12px;width:520px;max-width:calc(100vw - 32px);max-height:calc(100vh - 64px);display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#F0F2F4">Companion Actions</div>
+          <div id="companion-modal-item-title" style="font-size:12px;color:#8B9DAF;margin-top:2px"></div>
+        </div>
+        <button id="companion-modal-close" style="background:none;border:none;color:#8B9DAF;cursor:pointer;padding:4px;line-height:0" title="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z"/></svg>
+        </button>
+      </div>
+      <div style="padding:16px 24px;overflow-y:auto;flex:1">
+        <div style="font-size:12px;color:#8B9DAF;margin-bottom:12px;line-height:1.5">
+          Actions fire automatically when this rundown item becomes active. The desktop app executes them via its Companion connection.
+        </div>
+        <div id="companion-actions-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        <button id="companion-add-action" style="margin-top:12px;padding:8px 14px;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);border-radius:6px;color:#00E676;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Add Action</button>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:8px;justify-content:flex-end">
+        <button id="companion-modal-cancel" style="padding:8px 16px;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8B9DAF;font-size:13px;cursor:pointer">Cancel</button>
+        <button id="companion-modal-save" style="padding:8px 16px;background:#00E676;border:none;border-radius:6px;color:#0D1117;font-size:13px;font-weight:700;cursor:pointer">Save Actions</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/portal/portal.js"></script>
 </body>
 </html>

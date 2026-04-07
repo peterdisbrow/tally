@@ -722,6 +722,19 @@ db.exec(`
   )
 `);
 
+// ─── COMPANION AUTOMATION TABLE ─────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS rundown_companion_actions (
+    id         TEXT PRIMARY KEY,
+    church_id  TEXT NOT NULL,
+    plan_id    TEXT NOT NULL,
+    item_id    TEXT NOT NULL,
+    actions_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`);
+try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_rundown_companion_actions_item ON rundown_companion_actions(church_id, plan_id, item_id)'); } catch { /* already exists */ }
+
 // ─── IN-MEMORY RUNTIME STATE ─────────────────────────────────────────────────
 
 // churchId → { churchId, name, email, token, ws, status, lastSeen, lastHeartbeat, registeredAt, disconnectedAt }
@@ -1314,10 +1327,12 @@ const rundownEngine = new RundownEngine(queryClient);
 let _liveRundownBroadcastMobile = () => {};
 let _liveRundownBroadcastPortal = () => {};
 let _liveRundownBroadcastControllers = () => {};
+let _liveRundownBroadcastChurch = () => {};
 const liveRundown = new LiveRundownManager({
   broadcastToMobile: (churchId, msg) => _liveRundownBroadcastMobile(churchId, msg),
   broadcastToPortal: (churchId, msg) => _liveRundownBroadcastPortal(churchId, msg),
   broadcastToControllers: (churchId, msg) => _liveRundownBroadcastControllers(churchId, msg),
+  broadcastToChurch: (churchId, msg) => _liveRundownBroadcastChurch(churchId, msg),
   log,
   queryClient,
 });
@@ -4733,6 +4748,20 @@ const _mobileWsHandler = createMobileWebSocketHandler({
 _liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
 _liveRundownBroadcastPortal = (churchId, msg) => broadcastToPortal(churchId, msg);
 _liveRundownBroadcastControllers = (churchId, msg) => broadcastToControllers({ ...msg, churchId });
+// Send companion_actions directly to the church-client (desktop app) WebSocket
+_liveRundownBroadcastChurch = (churchId, msg) => {
+  const church = churches.get(churchId);
+  if (!church) return;
+  // Send to all connected instances (handles multi-room; companion is per-room but
+  // the action should fire on whichever instance handles A/V)
+  if (church.sockets?.size) {
+    for (const ws of church.sockets.values()) {
+      safeSend(ws, msg);
+    }
+  } else if (church.ws) {
+    safeSend(church.ws, msg);
+  }
+};
 
 wss.on('connection', (ws, req) => {
   // Clear pong-timeout when client responds to a heartbeat ping

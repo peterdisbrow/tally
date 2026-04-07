@@ -664,6 +664,20 @@ function createWebSocketHandlers({
         break;
       }
 
+      case 'companion_action_result': {
+        // Church-client reports whether Companion actions fired successfully.
+        // Forward to portal so the operator sees confirmation.
+        broadcastToPortal(church.churchId, {
+          type: 'companion_action_result',
+          churchId: church.churchId,
+          itemId: msg.itemId,
+          currentIndex: msg.currentIndex,
+          results: msg.results,
+          timestamp: new Date().toISOString(),
+        });
+        break;
+      }
+
       // The following types are handled entirely by hooks — the routing layer
       // does not broadcast them directly (they're heavy subsystem concerns).
       case 'signal_event':

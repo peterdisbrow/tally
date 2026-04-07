@@ -1088,6 +1088,36 @@ class ChurchAVAgent {
         else if (msg.action === 'restart') this.streamProtection.manualRestart();
         break;
       }
+      case 'companion_actions': {
+        // Execute Companion automation actions triggered by rundown advance.
+        const { actions, itemId, itemTitle, currentIndex } = msg;
+        if (!this.companion || !Array.isArray(actions) || actions.length === 0) break;
+        (async () => {
+          const results = [];
+          for (const action of actions) {
+            try {
+              if (action.type === 'button_press') {
+                await this.companion.pressButton(action.page, action.row, action.col);
+                results.push({ type: 'button_press', page: action.page, row: action.row, col: action.col, success: true });
+              } else if (action.type === 'custom_variable') {
+                const ok = await this.companion.setCustomVariable(action.name, String(action.value ?? ''));
+                results.push({ type: 'custom_variable', name: action.name, success: ok });
+              } else {
+                results.push({ type: action.type, success: false, error: 'Unknown action type' });
+              }
+            } catch (e) {
+              results.push({ type: action.type, success: false, error: e.message });
+            }
+          }
+          this.sendToRelay({ type: 'companion_action_result', itemId, currentIndex, results });
+          const allOk = results.every(r => r.success);
+          console.log(`[Companion] Rundown actions for "${itemTitle}" — ${allOk ? '✅ all ok' : '⚠️ some failed'}`);
+          for (const r of results) {
+            if (!r.success) console.warn(`  ❌ ${r.type}: ${r.error}`);
+          }
+        })();
+        break;
+      }
       default:
         console.log('Relay msg:', msg.type);
     }

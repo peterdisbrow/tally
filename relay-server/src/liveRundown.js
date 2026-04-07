@@ -26,13 +26,14 @@
 'use strict';
 
 class LiveRundownManager {
-  constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, log = console.log, queryClient = null } = {}) {
+  constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, broadcastToChurch, log = console.log, queryClient = null } = {}) {
     // Map<churchId, RundownSession>
     this._sessions = new Map();
     this._tickTimers = new Map();
     this._broadcastToMobile = broadcastToMobile || (() => {});
     this._broadcastToPortal = broadcastToPortal || (() => {});
     this._broadcastToControllers = broadcastToControllers || (() => {});
+    this._broadcastToChurch = broadcastToChurch || (() => {});
     this._log = log;
     this._db = queryClient;
     this.ready = this._db ? this._init() : Promise.resolve();
@@ -144,14 +145,29 @@ class LiveRundownManager {
   }
 
   /**
+   * Update companion actions for an item in an active session.
+   * Called after the portal saves new actions so they take effect immediately.
+   *
+   * @param {string} churchId
+   * @param {string} itemId - PCO item ID
+   * @param {Array}  actions - array of action objects
+   */
+  setItemActions(churchId, itemId, actions) {
+    const session = this._sessions.get(churchId);
+    if (!session) return;
+    session.companionActions.set(itemId, actions || []);
+  }
+
+  /**
    * Start a new live rundown session for a church.
    *
    * @param {string} churchId
    * @param {object} plan - PCO plan object with items, title, times, etc.
    * @param {string} callerName - Name of the TD who started the session
+   * @param {object} companionActionsMap - optional { [itemId]: Action[] } loaded from DB
    * @returns {object} session state
    */
-  startSession(churchId, plan, callerName = 'TD') {
+  startSession(churchId, plan, callerName = 'TD', companionActionsMap = {}) {
     // End any existing session first
     if (this._sessions.has(churchId)) {
       this.endSession(churchId, 'replaced');
@@ -189,6 +205,9 @@ class LiveRundownManager {
     const scheduledStart = serviceTime?.startsAt ? new Date(serviceTime.startsAt).getTime() : null;
 
     const now = Date.now();
+    // Build Map<itemId, actions[]> from the provided map
+    const companionActions = new Map(Object.entries(companionActionsMap));
+
     const session = {
       churchId,
       planId: plan.id,
@@ -208,6 +227,8 @@ class LiveRundownManager {
       autoAdvance: false, // when true, PP presentation changes or timer expiry can advance
       lastAutoAdvanceAt: null, // debounce: timestamp of last auto-advance
       autoAdvancedFrom: null, // title of last auto-advanced item
+      // Companion automation: Map<itemId, Action[]>
+      companionActions,
     };
 
     this._sessions.set(churchId, session);
@@ -420,6 +441,24 @@ class LiveRundownManager {
 
     const state = this._buildState(session);
     this._broadcast(session.churchId, { type: 'rundown_position', ...state });
+
+    // Trigger Companion actions for the new item (if any are configured)
+    const newItem = session.items[newIndex];
+    if (newItem && session.companionActions.size > 0) {
+      const actions = session.companionActions.get(newItem.id);
+      if (actions && actions.length > 0) {
+        this._broadcastToChurch(session.churchId, {
+          type: 'companion_actions',
+          planId: session.planId,
+          itemId: newItem.id,
+          itemTitle: newItem.title,
+          currentIndex: newIndex,
+          actions,
+        });
+        this._log(`[LiveRundown] Triggered ${actions.length} Companion action(s) for item "${newItem.title}" (${session.churchId})`);
+      }
+    }
+
     return state;
   }
 

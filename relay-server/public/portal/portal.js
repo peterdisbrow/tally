@@ -7336,17 +7336,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Live Rundown ────────────────────────────────────────────────────────────
     var _rundownState = null;
+    // Cache of companion actions keyed by itemId, loaded when plan is known
+    var _companionActionsCache = {}; // { [itemId]: Action[] }
+    var _companionActionsPlanId = null; // planId for which cache was loaded
 
     function loadRundownPage() {
       api('GET', '/api/churches/' + churchId + '/live-rundown/state').then(function(data) {
         if (data && data.active) {
           _rundownState = data;
+          // Load companion actions for this plan if not cached yet
+          if (data.planId && data.planId !== _companionActionsPlanId) {
+            loadCompanionActionsCache(data.planId);
+          }
           renderRundownActive(data);
         } else {
           _rundownState = null;
           renderRundownInactive();
         }
       }).catch(function() { renderRundownInactive(); });
+    }
+
+    function loadCompanionActionsCache(planId) {
+      _companionActionsPlanId = planId;
+      api('GET', '/api/churches/' + churchId + '/live-rundown/actions/' + encodeURIComponent(planId)).then(function(data) {
+        _companionActionsCache = data || {};
+        // Re-render items list if rundown page is active
+        if (_rundownState && document.getElementById('page-rundown').classList.contains('active')) {
+          renderRundownItems(_rundownState);
+        }
+      }).catch(function() { _companionActionsCache = {}; });
     }
 
     function renderRundownInactive() {
@@ -7537,6 +7555,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         html += '</div>';
 
+        // Companion actions gear icon
+        var hasActions = _companionActionsCache[item.id] && _companionActionsCache[item.id].length > 0;
+        var gearColor = hasActions ? '#00E676' : '#556270';
+        var gearTitle = hasActions ? 'Edit Companion actions (' + _companionActionsCache[item.id].length + ')' : 'Configure Companion actions';
+        var safeItemId = item.id.replace(/'/g, "\\'");
+        var safeTitle = item.title.replace(/'/g, "\\'");
+        html += '<button onclick="openCompanionActionsModal(\'' + safeItemId + '\',\'' + safeTitle + '\')" title="' + gearTitle + '" style="flex-shrink:0;margin-left:6px;background:none;border:none;cursor:pointer;padding:4px;color:' + gearColor + ';opacity:0.8;line-height:0">';
+        html += SVG.gear;
+        html += '</button>';
+
         html += '</div>';
       }
       container.innerHTML = html;
@@ -7663,12 +7691,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function handleRundownSSE(data) {
       if (data.type === 'rundown_state' || data.type === 'rundown_position') {
         _rundownState = data;
+        // Load companion actions cache when a new plan session starts
+        if (data.planId && data.planId !== _companionActionsPlanId) {
+          loadCompanionActionsCache(data.planId);
+        }
         if (document.getElementById('page-rundown').classList.contains('active')) {
           renderRundownActive(data);
         }
         // Update sidebar indicator
         var indicator = document.getElementById('td-session-indicator');
         if (indicator) { indicator.style.display = ''; indicator.textContent = 'LIVE: ' + (data.planTitle || 'Rundown'); }
+      } else if (data.type === 'companion_action_result') {
+        // Show a brief toast indicating whether actions succeeded
+        var allOk = Array.isArray(data.results) && data.results.every(function(r) { return r.success; });
+        var failCount = Array.isArray(data.results) ? data.results.filter(function(r) { return !r.success; }).length : 0;
+        if (!allOk && failCount > 0) {
+          toast('Companion: ' + failCount + ' action(s) failed', true);
+        }
       } else if (data.type === 'rundown_tick') {
         if (!_rundownState) return;
         // Patch current state with tick data
@@ -7769,6 +7808,141 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
+    // ── Companion Actions Modal ───────────────────────────────────────────────
+    var _companionModalItemId = null;
+    var _companionModalItemTitle = null;
+    // Working copy of actions being edited in the modal (array of action objects)
+    var _companionModalActions = [];
+
+    function openCompanionActionsModal(itemId, itemTitle) {
+      _companionModalItemId = itemId;
+      _companionModalItemTitle = itemTitle;
+      // Clone current cached actions for this item (or start empty)
+      _companionModalActions = JSON.parse(JSON.stringify((_companionActionsCache[itemId] || [])));
+
+      var modal = document.getElementById('companion-actions-modal');
+      var titleEl = document.getElementById('companion-modal-item-title');
+      if (titleEl) titleEl.textContent = itemTitle;
+      renderCompanionActionsList();
+      if (modal) { modal.style.display = 'flex'; }
+    }
+
+    function closeCompanionActionsModal() {
+      var modal = document.getElementById('companion-actions-modal');
+      if (modal) modal.style.display = 'none';
+      _companionModalItemId = null;
+      _companionModalActions = [];
+    }
+
+    function renderCompanionActionsList() {
+      var container = document.getElementById('companion-actions-list');
+      if (!container) return;
+      if (!_companionModalActions.length) {
+        container.innerHTML = '<div style="text-align:center;padding:16px;color:#556270;font-size:13px">No actions configured. Click "+ Add Action" to add one.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < _companionModalActions.length; i++) {
+        var a = _companionModalActions[i];
+        html += '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px" data-action-index="' + i + '">';
+        // Action type selector
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
+        html += '<select onchange="companionActionChangeType(' + i + ',this.value)" style="flex:1;padding:6px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px">';
+        html += '<option value="button_press"' + (a.type === 'button_press' ? ' selected' : '') + '>Button Press</option>';
+        html += '<option value="custom_variable"' + (a.type === 'custom_variable' ? ' selected' : '') + '>Custom Variable</option>';
+        html += '</select>';
+        html += '<button onclick="companionActionRemove(' + i + ')" title="Remove action" style="background:none;border:none;cursor:pointer;color:#FF5252;padding:4px;line-height:0">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z"/></svg>';
+        html += '</button>';
+        html += '</div>';
+
+        if (a.type === 'button_press') {
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
+          html += '<label style="font-size:11px;color:#8B9DAF">Page<input type="number" min="1" max="99" value="' + (a.page || 1) + '" onchange="companionActionField(' + i + ',\'page\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Row<input type="number" min="0" max="99" value="' + (a.row != null ? a.row : 0) + '" onchange="companionActionField(' + i + ',\'row\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Column<input type="number" min="0" max="99" value="' + (a.col != null ? a.col : 0) + '" onchange="companionActionField(' + i + ',\'col\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '</div>';
+          html += '<label style="font-size:11px;color:#8B9DAF;display:block;margin-top:8px">Label (optional)<input type="text" value="' + escapeHtml(a.label || '') + '" placeholder="e.g. Cam 1 Wide" onchange="companionActionField(' + i + ',\'label\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+        } else if (a.type === 'custom_variable') {
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+          html += '<label style="font-size:11px;color:#8B9DAF">Variable Name<input type="text" value="' + escapeHtml(a.name || '') + '" placeholder="e.g. current_item" onchange="companionActionField(' + i + ',\'name\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Value<input type="text" value="' + escapeHtml(a.value || '') + '" placeholder="e.g. Welcome" onchange="companionActionField(' + i + ',\'value\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      container.innerHTML = html;
+    }
+
+    // Called from inline onchange handlers in the modal
+    window.companionActionChangeType = function(index, type) {
+      if (type === 'button_press') {
+        _companionModalActions[index] = { type: 'button_press', page: 1, row: 0, col: 0, label: '' };
+      } else {
+        _companionModalActions[index] = { type: 'custom_variable', name: '', value: '' };
+      }
+      renderCompanionActionsList();
+    };
+    window.companionActionField = function(index, field, value) {
+      if (_companionModalActions[index]) _companionModalActions[index][field] = value;
+    };
+    window.companionActionRemove = function(index) {
+      _companionModalActions.splice(index, 1);
+      renderCompanionActionsList();
+    };
+    window.openCompanionActionsModal = openCompanionActionsModal;
+
+    document.getElementById('companion-add-action') && document.getElementById('companion-add-action').addEventListener('click', function() {
+      _companionModalActions.push({ type: 'button_press', page: 1, row: 0, col: 0, label: '' });
+      renderCompanionActionsList();
+    });
+
+    document.getElementById('companion-modal-close') && document.getElementById('companion-modal-close').addEventListener('click', closeCompanionActionsModal);
+    document.getElementById('companion-modal-cancel') && document.getElementById('companion-modal-cancel').addEventListener('click', closeCompanionActionsModal);
+
+    document.getElementById('companion-modal-save') && document.getElementById('companion-modal-save').addEventListener('click', function() {
+      if (!_companionModalItemId || !_companionActionsPlanId) return;
+      var saveBtn = document.getElementById('companion-modal-save');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      var endpoint = '/api/churches/' + churchId + '/live-rundown/actions/' +
+        encodeURIComponent(_companionActionsPlanId) + '/' + encodeURIComponent(_companionModalItemId);
+
+      if (_companionModalActions.length === 0) {
+        api('DELETE', endpoint).then(function() {
+          _companionActionsCache[_companionModalItemId] = [];
+          closeCompanionActionsModal();
+          toast('Companion actions cleared');
+          if (_rundownState && document.getElementById('page-rundown').classList.contains('active')) {
+            renderRundownItems(_rundownState);
+          }
+        }).catch(function() {
+          toast('Failed to clear actions', true);
+        }).finally(function() {
+          saveBtn.disabled = false; saveBtn.textContent = 'Save Actions';
+        });
+      } else {
+        api('PUT', endpoint, { actions: _companionModalActions }).then(function() {
+          _companionActionsCache[_companionModalItemId] = JSON.parse(JSON.stringify(_companionModalActions));
+          closeCompanionActionsModal();
+          toast('Companion actions saved');
+          if (_rundownState && document.getElementById('page-rundown').classList.contains('active')) {
+            renderRundownItems(_rundownState);
+          }
+        }).catch(function(e) {
+          toast('Failed to save: ' + (e && e.message ? e.message : 'error'), true);
+        }).finally(function() {
+          saveBtn.disabled = false; saveBtn.textContent = 'Save Actions';
+        });
+      }
+    });
+
+    // Close modal when clicking the backdrop
+    document.getElementById('companion-actions-modal') && document.getElementById('companion-actions-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeCompanionActionsModal();
+    });
+
     // ── Real-time status push via SSE ─────────────────────────────────────────
     // Connect to the server-sent event stream for this church. When the server
     // pushes a status_update we patch the equipment table live, so the worship
@@ -7848,7 +8022,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                   }).join('');
                 }
               }
-            } else if (data.type && data.type.indexOf('rundown_') === 0) {
+            } else if (data.type && (data.type.indexOf('rundown_') === 0 || data.type === 'companion_action_result')) {
               handleRundownSSE(data);
             } else if (data.type === 'disconnected') {
               var dot2 = document.getElementById('stat-status-dot');
