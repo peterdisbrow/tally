@@ -281,7 +281,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
 
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
-  const isAdminRoute = (req.path.startsWith('/api/') && !req.path.startsWith('/api/public/')) || req.path.startsWith('/dashboard');
+  const isAdminRoute = (req.path.startsWith('/api/') && !req.path.startsWith('/api/public/') && !req.path.startsWith('/api/church/app/')) || req.path.startsWith('/dashboard');
 
   if (isAdminRoute) {
     // Admin routes: allow explicitly configured origins, localhost for dev, or same-origin flows (no Origin header).
