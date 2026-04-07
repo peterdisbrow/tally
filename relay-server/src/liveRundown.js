@@ -26,7 +26,7 @@
 'use strict';
 
 class LiveRundownManager {
-  constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, log = console.log } = {}) {
+  constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, log = console.log, queryClient = null } = {}) {
     // Map<churchId, RundownSession>
     this._sessions = new Map();
     this._tickTimers = new Map();
@@ -34,6 +34,113 @@ class LiveRundownManager {
     this._broadcastToPortal = broadcastToPortal || (() => {});
     this._broadcastToControllers = broadcastToControllers || (() => {});
     this._log = log;
+    this._db = queryClient;
+    this.ready = this._db ? this._init() : Promise.resolve();
+  }
+
+  // ─── DB INIT & RESTORE ─────────────────────────────────────────────────────
+
+  async _init() {
+    await this._ensureTable();
+    await this._restoreActiveSessions();
+  }
+
+  async _ensureTable() {
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_sessions (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        plan_id TEXT,
+        plan_title TEXT,
+        items TEXT NOT NULL DEFAULT '[]',
+        item_timings TEXT NOT NULL DEFAULT '[]',
+        current_index INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'active',
+        caller_name TEXT,
+        started_at INTEGER,
+        scheduled_start INTEGER,
+        current_item_started_at INTEGER,
+        total_planned_duration INTEGER,
+        updated_at INTEGER
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rundown_sessions_church_state
+        ON rundown_sessions(church_id, state)
+    `);
+  }
+
+  async _restoreActiveSessions() {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_sessions WHERE state != 'ended'`
+    );
+    for (const row of rows) {
+      const session = {
+        churchId: row.church_id,
+        planId: row.plan_id,
+        planTitle: row.plan_title,
+        callerName: row.caller_name,
+        items: this._parseJSON(row.items, []),
+        currentIndex: row.current_index,
+        state: row.state,
+        startedAt: row.started_at,
+        scheduledStart: row.scheduled_start,
+        currentItemStartedAt: row.current_item_started_at,
+        totalPlannedDuration: row.total_planned_duration,
+        itemTimings: this._parseJSON(row.item_timings, []),
+        warningThresholdSec: 30,
+      };
+      this._sessions.set(row.church_id, session);
+      this._startTick(row.church_id);
+      this._log(`[LiveRundown] Restored session for church ${row.church_id}: "${row.plan_title}"`);
+    }
+  }
+
+  _parseJSON(str, fallback) {
+    try { return JSON.parse(str || 'null') ?? fallback; } catch { return fallback; }
+  }
+
+  // ─── DB WRITE HELPERS ──────────────────────────────────────────────────────
+
+  _dbUpsert(session) {
+    if (!this._db) return;
+    const now = Date.now();
+    this._db.run(`
+      INSERT INTO rundown_sessions
+        (id, church_id, plan_id, plan_title, items, item_timings, current_index, state,
+         caller_name, started_at, scheduled_start, current_item_started_at, total_planned_duration, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        items = excluded.items,
+        item_timings = excluded.item_timings,
+        current_index = excluded.current_index,
+        state = excluded.state,
+        current_item_started_at = excluded.current_item_started_at,
+        updated_at = excluded.updated_at
+    `, [
+      session.churchId,
+      session.churchId,
+      session.planId,
+      session.planTitle,
+      JSON.stringify(session.items),
+      JSON.stringify(session.itemTimings),
+      session.currentIndex,
+      session.state,
+      session.callerName,
+      session.startedAt,
+      session.scheduledStart,
+      session.currentItemStartedAt,
+      session.totalPlannedDuration,
+      now,
+    ]).catch(err => this._log(`[LiveRundown] DB upsert failed: ${err.message}`));
+  }
+
+  _dbMarkEnded(churchId) {
+    if (!this._db) return;
+    this._db.run(
+      `UPDATE rundown_sessions SET state = 'ended', updated_at = ? WHERE id = ?`,
+      [Date.now(), churchId]
+    ).catch(err => this._log(`[LiveRundown] DB end-mark failed: ${err.message}`));
   }
 
   /**
@@ -114,6 +221,9 @@ class LiveRundownManager {
       plannedDuration: items[0]?.lengthSeconds || 0,
     });
 
+    // Persist to DB
+    this._dbUpsert(session);
+
     // Start the tick timer (broadcasts every second)
     this._startTick(churchId);
 
@@ -176,6 +286,9 @@ class LiveRundownManager {
 
     this._stopTick(churchId);
     this._sessions.delete(churchId);
+
+    // Persist ended state to DB
+    this._dbMarkEnded(churchId);
 
     const summary = {
       planId: session.planId,
@@ -301,6 +414,9 @@ class LiveRundownManager {
       actualDuration: null,
       plannedDuration: session.items[newIndex]?.lengthSeconds || 0,
     });
+
+    // Persist position change to DB
+    this._dbUpsert(session);
 
     const state = this._buildState(session);
     this._broadcast(session.churchId, { type: 'rundown_position', ...state });
@@ -470,11 +586,18 @@ class LiveRundownManager {
    */
   _startTick(churchId) {
     this._stopTick(churchId);
+    let tickCount = 0;
     const timer = setInterval(() => {
       const session = this._sessions.get(churchId);
       if (!session || session.state !== 'active') {
         this._stopTick(churchId);
         return;
+      }
+
+      // Persist to DB every 30 seconds
+      tickCount++;
+      if (tickCount % 30 === 0) {
+        this._dbUpsert(session);
       }
 
       const now = Date.now();

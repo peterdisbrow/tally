@@ -1319,6 +1319,7 @@ const liveRundown = new LiveRundownManager({
   broadcastToPortal: (churchId, msg) => _liveRundownBroadcastPortal(churchId, msg),
   broadcastToControllers: (churchId, msg) => _liveRundownBroadcastControllers(churchId, msg),
   log,
+  queryClient,
 });
 
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
@@ -5953,6 +5954,7 @@ async function startServer() {
     sessionRecap.ready,
     monthlyReport.ready,
     rundownEngine.ready,
+    liveRundown.ready,
     autoPilot.ready,
     scheduler.ready,
     chatEngine.ready,
