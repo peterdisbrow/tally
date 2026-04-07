@@ -32,6 +32,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   const runtimeMetrics = ctx.runtimeMetrics || null;
   const runtimeCoordinator = ctx.runtimeCoordinator || null;
   const messageQueues = ctx.messageQueues || null;
+  const listLocalChurches = () => Array.from(churches.values());
   const getPreviewCacheSummary = typeof ctx.getPreviewCacheSummary === 'function'
     ? ctx.getPreviewCacheSummary
     : () => ({ cachedChurches: 0, newestAgeMs: 0, oldestAgeMs: 0 });
@@ -57,9 +58,26 @@ module.exports = function setupHealthRoutes(app, ctx) {
     return listObservedChurches().filter(isConnected).length;
   }
 
+  function countLocalConnected() {
+    return listLocalChurches().filter(isConnected).length;
+  }
+
   function countOpenChurchInstances() {
     return listObservedChurches().reduce((total, church) => {
       if (Array.isArray(church.instances)) return total + church.instances.length;
+      if (church.sockets?.size) {
+        let count = 0;
+        for (const socket of church.sockets.values()) {
+          if (socket?.readyState === WebSocket.OPEN) count++;
+        }
+        return total + count;
+      }
+      return total + (church.ws?.readyState === WebSocket.OPEN ? 1 : 0);
+    }, 0);
+  }
+
+  function countLocalOpenChurchInstances() {
+    return listLocalChurches().reduce((total, church) => {
       if (church.sockets?.size) {
         let count = 0;
         for (const socket of church.sockets.values()) {
@@ -105,6 +123,8 @@ module.exports = function setupHealthRoutes(app, ctx) {
       sockets: {
         connectedChurches: countConnected(),
         connectedChurchInstances: countOpenChurchInstances(),
+        localConnectedChurches: countLocalConnected(),
+        localConnectedChurchInstances: countLocalOpenChurchInstances(),
         controllerConnections: controllers.size || 0,
         previewSubscriptions: countPreviewSubscriptions(),
       },
@@ -117,6 +137,8 @@ module.exports = function setupHealthRoutes(app, ctx) {
         enabled: !!runtimeCoordinator?.enabled,
         instanceId: runtimeCoordinator?.instanceId || null,
         channel: runtimeCoordinator?.publishChannel || null,
+        observedChurches: listObservedChurches().length,
+        localChurches: listLocalChurches().length,
       },
     };
   }

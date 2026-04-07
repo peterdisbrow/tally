@@ -216,6 +216,7 @@ describe('GET /api/health — detailed health', () => {
       messageQueues,
       runtimeMetrics,
       runtimeCoordinator,
+      getPreviewCacheSummary: () => ({ cachedChurches: 2, newestAgeMs: 150, oldestAgeMs: 950 }),
     });
     const { app, routes } = makeApp();
 
@@ -225,14 +226,19 @@ describe('GET /api/health — detailed health', () => {
     expect(body.realtime.eventLoop.p95_ms).toBe(12.5);
     expect(body.realtime.sockets.connectedChurches).toBe(2);
     expect(body.realtime.sockets.connectedChurchInstances).toBe(2);
+    expect(body.realtime.sockets.localConnectedChurches).toBe(2);
+    expect(body.realtime.sockets.localConnectedChurchInstances).toBe(2);
     expect(body.realtime.sockets.controllerConnections).toBe(2);
     expect(body.realtime.sockets.previewSubscriptions).toBe(3);
     expect(body.realtime.queues.queuedChurches).toBe(2);
     expect(body.realtime.queues.queuedMessages).toBe(3);
+    expect(body.realtime.previewCache.cachedChurches).toBe(2);
     expect(body.realtime.rates1m['church.status_update.in']).toBe(2);
     expect(body.realtime.totals['church.status_update.in']).toBe(512);
     expect(body.realtime.coordination.enabled).toBe(true);
     expect(body.realtime.coordination.instanceId).toBe('instance-a');
+    expect(body.realtime.coordination.observedChurches).toBe(3);
+    expect(body.realtime.coordination.localChurches).toBe(3);
   });
 });
 

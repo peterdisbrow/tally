@@ -468,6 +468,33 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await closeWs(ctrl);
     });
 
+    it('fires onStatusNoop when a status update is suppressed as a no-op', async () => {
+      const noopCalls = [];
+      const serverWithHooks = await buildTestServer({
+        onStatusNoop: (church, msg) => noopCalls.push({ church: church.churchId, msg }),
+      });
+      serverWithHooks.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${serverWithHooks.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const churchWs = await connect(`${serverWithHooks.url}/church?token=${signToken('church-1')}`);
+      await nextMessage(churchWs); // connected
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, { type: 'status_update', status: { obs: { connected: true, streaming: false } } });
+      await nextMessage(ctrl); // initial status_update
+
+      send(churchWs, { type: 'status_update', status: { obs: { connected: true, streaming: false } } });
+
+      await expect(nextMessage(ctrl, 150)).rejects.toThrow('nextMessage timeout');
+      expect(noopCalls).toHaveLength(1);
+      expect(noopCalls[0].church).toBe('church-1');
+      expect(noopCalls[0].msg.statusMode).toBe('delta');
+
+      await serverWithHooks.close();
+    });
+
     it('rehydrates inbound delta status updates before broadcasting and hooks', async () => {
       const hookCalls = [];
       const serverWithHooks = await buildTestServer({

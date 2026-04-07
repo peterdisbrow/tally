@@ -4326,6 +4326,12 @@ const _wsHandlers = createWebSocketHandlers({
   },
   onStatusUpdate(church, msg, statusEvent) {
     runtimeMetrics.record('church.status_update.in');
+    runtimeMetrics.record(`church.status_update.mode.${msg.statusMode || 'full'}`);
+    if (msg.statusMode === 'delta') {
+      runtimeMetrics.recordBytes('church.status_update.delta', Buffer.byteLength(JSON.stringify(msg.statusDelta || {})));
+    } else {
+      runtimeMetrics.recordBytes('church.status_update.full', Buffer.byteLength(JSON.stringify(msg.status || {})));
+    }
     // Onboarding milestone: first ATEM connection
     if (msg.status?.atem?.connected && !church._onboardingAtemTracked && !church._onboardingAtemTracking) {
       church._onboardingAtemTracking = true;
@@ -4402,6 +4408,10 @@ const _wsHandlers = createWebSocketHandlers({
       event: statusEvent,
     })).catch(() => {});
     totalMessagesRelayed++;
+  },
+  onStatusNoop(_church, msg) {
+    runtimeMetrics.record('church.status_update.noop');
+    runtimeMetrics.record(`church.status_update.noop.${msg.statusMode || 'full'}`);
   },
   onAlert(church, msg, alertEvent) {
     runtimeMetrics.record('church.alert.in');
@@ -5155,7 +5165,11 @@ function sendCommandToLocalChurch(churchId, payload, { instance = null, roomId =
 }
 
 async function publishRemoteCommand(payload, meta = {}) {
-  if (!runtimeCoordinator.enabled || !payload?.churchId) return false;
+  if (!runtimeCoordinator.enabled || !payload?.churchId) {
+    runtimeMetrics.record('command.remote.publish.skipped');
+    return false;
+  }
+  runtimeMetrics.record('command.remote.publish.attempt');
   await runtimeCoordinator.publishEvent('controller_command', {
     churchId: payload.churchId,
     roomId: meta.roomId || payload.roomId || null,
@@ -5164,6 +5178,7 @@ async function publishRemoteCommand(payload, meta = {}) {
     source: meta.source || 'controller',
     hasLocalDelivery: !!meta.hasLocalDelivery,
   });
+  runtimeMetrics.record('command.remote.publish.success');
   return true;
 }
 
@@ -5180,6 +5195,7 @@ async function dispatchCommandAcrossRuntime(payload, meta = {}) {
       hasLocalDelivery: localRecipients > 0,
     });
   } catch {
+    runtimeMetrics.record('command.remote.publish.error');
     remotePublished = false;
   }
   return {
@@ -5191,21 +5207,27 @@ async function dispatchCommandAcrossRuntime(payload, meta = {}) {
 
 function handleRuntimeCoordinationEvent(event) {
   if (!event || event.instanceId === runtimeCoordinator.instanceId) return;
+  runtimeMetrics.record('coordination.event.in');
+  runtimeMetrics.record(`coordination.event.${event.type || 'unknown'}.in`);
   const payload = event.payload || {};
 
   if (event.type === 'controller_command') {
     const forwarded = payload.event;
     if (!forwarded?.churchId) return;
-    sendCommandToLocalChurch(forwarded.churchId, forwarded, {
+    const localRecipients = sendCommandToLocalChurch(forwarded.churchId, forwarded, {
       instance: payload.instance || forwarded.instance || null,
       roomId: payload.roomId || forwarded.roomId || null,
     });
+    runtimeMetrics.record('command.remote.receive');
+    runtimeMetrics.record('command.remote.receive.local_recipients', localRecipients);
+    if (localRecipients === 0) runtimeMetrics.record('command.remote.receive.miss');
     return;
   }
 
   if (event.type === 'command_result') {
     const cmdResultMsg = payload.event;
     if (!cmdResultMsg?.churchId) return;
+    runtimeMetrics.record('command_result.remote.receive');
     broadcastToControllers(cmdResultMsg);
     _mobileWsHandler.broadcastToMobile(cmdResultMsg.churchId, {
       type: 'command_result',

@@ -108,6 +108,8 @@ function createWebSocketHandlers({
   onControllerDisconnected = () => {},
   // (church, msg, statusEvent) — fired after status_update is broadcast
   onStatusUpdate       = () => {},
+  // (church, msg) — fired when a status_update is a no-op after delta comparison
+  onStatusNoop         = () => {},
   // (church, msg, alertEvent) — fired after alert is broadcast
   onAlert              = () => {},
   // (church, cmdResultMsg) — fired after command_result is broadcast
@@ -492,6 +494,12 @@ function createWebSocketHandlers({
             };
 
         if (!statusDeltaResult.delta) {
+          onStatusNoop(church, {
+            ...msg,
+            status: effectiveStatus,
+            statusMode: statusDeltaResult.isFull ? 'full' : 'delta',
+            instance: senderInstance,
+          });
           break;
         }
 
