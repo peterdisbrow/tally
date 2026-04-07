@@ -21,6 +21,11 @@ const CHURCH_COUNT = Math.max(1, Number(process.env.CHURCH_COUNT || 1000));
 const INSTANCES_PER_CHURCH = Math.max(1, Number(process.env.INSTANCES_PER_CHURCH || 1));
 const CONTROLLER_CLIENTS = Math.max(0, Number(process.env.CONTROLLER_CLIENTS || 0));
 const STATUS_INTERVAL_MS = Math.max(1000, Number(process.env.STATUS_INTERVAL_MS || 10_000));
+const PREVIEW_PUBLISHER_COUNT = Math.max(0, Number(process.env.PREVIEW_PUBLISHER_COUNT || 0));
+const PREVIEW_PUBLISHER_RATIO = Math.max(0, Math.min(1, Number(process.env.PREVIEW_PUBLISHER_RATIO || 0)));
+const PREVIEW_INTERVAL_MS = Math.max(1000, Number(process.env.PREVIEW_INTERVAL_MS || 5000));
+const PREVIEW_FRAME_PAYLOAD_BYTES = Math.max(256, Number(process.env.PREVIEW_FRAME_PAYLOAD_BYTES || 4096));
+const PREVIEW_SUBSCRIBER_CONTROLLERS = Math.max(0, Number(process.env.PREVIEW_SUBSCRIBER_CONTROLLERS || 0));
 const WARMUP_MS = Math.max(0, Number(process.env.WARMUP_MS || 5_000));
 const DURATION_MS = Math.max(5000, Number(process.env.DURATION_MS || 60_000));
 const CONNECT_BATCH_SIZE = Math.max(1, Number(process.env.CONNECT_BATCH_SIZE || 25));
@@ -34,12 +39,15 @@ const MAX_CONTROLLER_CONNECT_FAIL_RATE = Math.max(0, Number(process.env.MAX_CONT
 const MAX_STATUS_FAIL_RATE = Math.max(0, Number(process.env.MAX_STATUS_FAIL_RATE || 0.01));
 const MAX_CHURCH_CONNECT_P95_MS = Math.max(1, Number(process.env.MAX_CHURCH_CONNECT_P95_MS || 5000));
 const MAX_STATUS_LAG_P95_MS = Math.max(1, Number(process.env.MAX_STATUS_LAG_P95_MS || 1000));
+const MAX_PREVIEW_FETCH_FAIL_RATE = Math.max(0, Number(process.env.MAX_PREVIEW_FETCH_FAIL_RATE || 0.02));
+const MAX_PREVIEW_LAG_P95_MS = Math.max(0, Number(process.env.MAX_PREVIEW_LAG_P95_MS || 0));
 const MAX_HEALTH_EVENT_LOOP_P95_MS = Math.max(0, Number(process.env.MAX_HEALTH_EVENT_LOOP_P95_MS || 0));
 const MAX_HEALTH_QUEUE_MESSAGES = Math.max(0, Number(process.env.MAX_HEALTH_QUEUE_MESSAGES || 0));
 const CONTROLLER_API_KEY = String(process.env.CONTROLLER_API_KEY || process.env.ADMIN_API_KEY || '').trim();
 const DRY_RUN = truthy(process.env.DRY_RUN || process.env.DRYRUN || process.argv.includes('--dry-run'));
 
 const wsOpen = WebSocket.OPEN;
+const PREVIEW_FRAME_DATA = Buffer.alloc(PREVIEW_FRAME_PAYLOAD_BYTES, 'p').toString('base64');
 
 function truthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ''));
@@ -97,6 +105,15 @@ function loadChurchSpecs() {
   );
 }
 
+function selectPreviewChurchIds(specs) {
+  const selected = specs.slice(0, CHURCH_COUNT);
+  const explicitCount = PREVIEW_PUBLISHER_COUNT > 0
+    ? PREVIEW_PUBLISHER_COUNT
+    : Math.round(selected.length * PREVIEW_PUBLISHER_RATIO);
+  const previewCount = Math.max(0, Math.min(selected.length, explicitCount));
+  return new Set(selected.slice(0, previewCount).map((entry) => entry.churchId));
+}
+
 function normalizeChurchSpec(entry, index) {
   const churchId = String(entry?.churchId || entry?.id || '').trim();
   const token = String(entry?.token || entry?.jwt || '').trim();
@@ -108,7 +125,7 @@ function normalizeChurchSpec(entry, index) {
   return { churchId, token, name };
 }
 
-function buildChurchClients(specs) {
+function buildChurchClients(specs, previewChurchIds = new Set()) {
   const selected = specs.slice(0, CHURCH_COUNT);
   const clients = [];
   for (let i = 0; i < selected.length; i++) {
@@ -128,6 +145,8 @@ function buildChurchClients(specs) {
         connectedAt: null,
         connectLatencyMs: null,
         statusSent: 0,
+        previewSent: 0,
+        publishesPreview: previewChurchIds.has(spec.churchId) && instanceIndex === 0,
         sendErrors: 0,
         closeReason: null,
         timers: [],
@@ -137,17 +156,25 @@ function buildChurchClients(specs) {
   return clients;
 }
 
-function buildControllerClients() {
+function buildControllerClients(previewChurchIds = new Set()) {
+  const previewTargets = Array.from(previewChurchIds);
   const clients = [];
   for (let i = 0; i < CONTROLLER_CLIENTS; i++) {
     clients.push({
       kind: i === 0 ? 'metrics' : 'load',
+      observeStatusLag: i === 0,
+      subscribePreview: i < PREVIEW_SUBSCRIBER_CONTROLLERS && previewTargets.length > 0,
+      previewChurchIds: previewTargets,
+      previewLastFrameIds: new Map(),
+      previewPendingByChurch: new Map(),
+      previewFetchingByChurch: new Set(),
       controllerIndex: i,
       ws: null,
       connectedAt: null,
       connectLatencyMs: null,
       churchListSeen: false,
       statusLagSamples: [],
+      previewLagSamples: [],
       messageCount: 0,
       closeReason: null,
     });
@@ -289,7 +316,94 @@ async function connectChurchClient(client, metrics) {
   }, firstSendDelay);
   client.timers.push(firstTimer);
 
+  if (client.publishesPreview) {
+    const sendPreview = () => {
+      if (!client.ws || client.ws.readyState !== wsOpen) return;
+      try {
+        client.ws.send(JSON.stringify({
+          type: 'preview_frame',
+          timestamp: new Date().toISOString(),
+          width: 960,
+          height: 540,
+          format: 'jpeg',
+          data: PREVIEW_FRAME_DATA,
+        }));
+        client.previewSent++;
+        metrics.previewSent++;
+      } catch (err) {
+        client.sendErrors++;
+        metrics.previewSendFailures++;
+        client.closeReason = err.message;
+      }
+    };
+
+    const previewDelay = WARMUP_MS + ((client.churchIndex * 131) % PREVIEW_INTERVAL_MS);
+    const previewTimer = setTimeout(() => {
+      sendPreview();
+      const interval = setInterval(sendPreview, PREVIEW_INTERVAL_MS);
+      client.timers.push(interval);
+    }, previewDelay);
+    client.timers.push(previewTimer);
+  }
+
   return client;
+}
+
+async function fetchPreviewFrame(client, churchId, metrics) {
+  const baseUrl = HEALTH_BASE_URL || relayHttpUrl(BASE_WS);
+  const headers = { 'x-api-key': CONTROLLER_API_KEY };
+  const knownFrameId = client.previewLastFrameIds.get(churchId);
+  if (knownFrameId) headers['if-none-match'] = knownFrameId;
+
+  const startedAt = Date.now();
+  metrics.previewFetchAttempts++;
+  const response = await fetch(`${baseUrl}/api/admin/churches/${encodeURIComponent(churchId)}/preview/latest`, {
+    headers,
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (response.status === 304) {
+    metrics.previewFetchNotModified++;
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const body = await response.json();
+  metrics.previewFetchLatencies.push(Date.now() - startedAt);
+  if (body?.timestamp) {
+    const sentAt = Date.parse(body.timestamp);
+    if (Number.isFinite(sentAt)) metrics.previewLagSamples.push(Date.now() - sentAt);
+  }
+  if (body?.data) metrics.previewBytesFetched += Buffer.byteLength(body.data);
+  return body;
+}
+
+async function queuePreviewFetch(client, msg, metrics) {
+  if (!client.subscribePreview || !msg?.churchId || !msg?.frameId) return;
+  if (client.previewLastFrameIds.get(msg.churchId) === msg.frameId) return;
+
+  client.previewPendingByChurch.set(msg.churchId, msg);
+  if (client.previewFetchingByChurch.has(msg.churchId)) return;
+
+  client.previewFetchingByChurch.add(msg.churchId);
+  try {
+    while (client.previewPendingByChurch.has(msg.churchId)) {
+      const next = client.previewPendingByChurch.get(msg.churchId);
+      client.previewPendingByChurch.delete(msg.churchId);
+      try {
+        const frame = await fetchPreviewFrame(client, next.churchId, metrics);
+        if (frame?.frameId) client.previewLastFrameIds.set(next.churchId, frame.frameId);
+        metrics.previewFetches++;
+      } catch (err) {
+        metrics.previewFetchFailures++;
+      }
+    }
+  } finally {
+    client.previewFetchingByChurch.delete(msg.churchId);
+  }
 }
 
 async function connectControllerClient(client, metrics) {
@@ -310,6 +424,13 @@ async function connectControllerClient(client, metrics) {
   client.connectLatencyMs = result.latencyMs;
   metrics.controllerConnectLatencies.push(result.latencyMs);
 
+  if (client.subscribePreview) {
+    for (const churchId of client.previewChurchIds) {
+      result.ws.send(JSON.stringify({ type: 'preview_subscribe', churchId }));
+    }
+    metrics.previewSubscriptionsRequested += client.previewChurchIds.length;
+  }
+
   client.ws.on('message', (raw) => {
     client.messageCount++;
     metrics.controllerMessages++;
@@ -320,12 +441,19 @@ async function connectControllerClient(client, metrics) {
         client.churchListSeen = true;
         metrics.churchListSeen++;
       }
-      if (client.kind === 'metrics' && msg.type === 'status_update') {
+      if (client.observeStatusLag && msg.type === 'status_update') {
         const sentAt = msg?.status?.metrics?.sentAt;
         if (typeof sentAt === 'number' && Number.isFinite(sentAt)) {
           metrics.statusLagSamples.push(Date.now() - sentAt);
           metrics.statusObserved++;
         }
+      }
+      if (msg.type === 'preview_subscription') {
+        metrics.previewSubscriptionAcks++;
+      }
+      if (msg.type === 'preview_available') {
+        metrics.previewAvailable++;
+        queuePreviewFetch(client, msg, metrics).catch(() => {});
       }
     } catch {
       // Ignore parse errors from unrelated messages
@@ -398,6 +526,7 @@ async function pollHealth(metrics) {
     if (typeof queues.queuedMessages === 'number') metrics.healthQueuedMessages.push(queues.queuedMessages);
     if (typeof sockets.previewSubscriptions === 'number') metrics.healthPreviewSubscriptions.push(sockets.previewSubscriptions);
     if (typeof sockets.connectedChurchInstances === 'number') metrics.healthConnectedInstances.push(sockets.connectedChurchInstances);
+    if (typeof realtime.previewCache?.cachedChurches === 'number') metrics.healthPreviewCacheChurches.push(realtime.previewCache.cachedChurches);
   } catch (err) {
     metrics.healthPollFailures++;
     metrics.lastHealth = { error: err.message };
@@ -406,14 +535,16 @@ async function pollHealth(metrics) {
 
 async function main() {
   const churchSpecs = loadChurchSpecs();
-  const churchClients = buildChurchClients(churchSpecs);
-  const controllerClients = buildControllerClients();
+  const previewChurchIds = selectPreviewChurchIds(churchSpecs);
+  const churchClients = buildChurchClients(churchSpecs, previewChurchIds);
+  const controllerClients = buildControllerClients(previewChurchIds);
 
   console.log(`BASE_WS=${BASE_WS}`);
   console.log(`HEALTH_BASE_URL=${HEALTH_BASE_URL || relayHttpUrl(BASE_WS)}`);
   console.log(`churches=${churchSpecs.length} selected=${Math.min(CHURCH_COUNT, churchSpecs.length)} instancesPerChurch=${INSTANCES_PER_CHURCH}`);
   console.log(`churchClients=${churchClients.length} controllerClients=${controllerClients.length}`);
   console.log(`statusIntervalMs=${STATUS_INTERVAL_MS} warmupMs=${WARMUP_MS} durationMs=${DURATION_MS}`);
+  console.log(`previewPublishers=${previewChurchIds.size} previewIntervalMs=${PREVIEW_INTERVAL_MS} previewSubscribers=${Math.min(PREVIEW_SUBSCRIBER_CONTROLLERS, controllerClients.length)}`);
 
   if (DRY_RUN) {
     console.log('DRY_RUN=1 — parsed token file and computed client plan only.');
@@ -434,6 +565,18 @@ async function main() {
     statusSent: 0,
     statusObserved: 0,
     statusSendFailures: 0,
+    previewSent: 0,
+    previewSendFailures: 0,
+    previewAvailable: 0,
+    previewSubscriptionsRequested: 0,
+    previewSubscriptionAcks: 0,
+    previewFetchAttempts: 0,
+    previewFetches: 0,
+    previewFetchFailures: 0,
+    previewFetchNotModified: 0,
+    previewFetchLatencies: [],
+    previewLagSamples: [],
+    previewBytesFetched: 0,
     controllerMessages: 0,
     churchListSeen: 0,
     healthPolls: 0,
@@ -442,6 +585,7 @@ async function main() {
     healthEventLoopUtilization: [],
     healthQueuedMessages: [],
     healthPreviewSubscriptions: [],
+    healthPreviewCacheChurches: [],
     healthConnectedInstances: [],
     lastHealth: null,
   };
@@ -461,8 +605,10 @@ async function main() {
       `[progress] churchConnected=${churchConnected}/${churchClients.length} ` +
       `controllerConnected=${controllerConnected}/${controllerClients.length} ` +
       `statusSent=${metrics.statusSent} observed=${metrics.statusObserved} ` +
+      `previewSent=${metrics.previewSent} previewFetches=${metrics.previewFetches} ` +
       `sentRate=${(metrics.statusSent / elapsedSec).toFixed(1)}/s ` +
-      `lagP95=${pct(metrics.statusLagSamples, 95).toFixed(1)}ms` +
+      `lagP95=${pct(metrics.statusLagSamples, 95).toFixed(1)}ms ` +
+      `previewLagP95=${pct(metrics.previewLagSamples, 95).toFixed(1)}ms` +
       healthSummary
     );
   }, LOG_EVERY_MS);
@@ -502,40 +648,48 @@ async function main() {
   const churchConnectStats = summarizeLatencies(metrics.churchConnectLatencies);
   const controllerConnectStats = summarizeLatencies(metrics.controllerConnectLatencies);
   const lagStats = summarizeLatencies(metrics.statusLagSamples);
+  const previewLagStats = summarizeLatencies(metrics.previewLagSamples);
+  const previewFetchStats = summarizeLatencies(metrics.previewFetchLatencies);
   const healthEventLoopStats = summarizeLatencies(metrics.healthEventLoopP95);
   const healthQueuedStats = summarizeLatencies(metrics.healthQueuedMessages);
   const healthPreviewStats = summarizeLatencies(metrics.healthPreviewSubscriptions);
+  const healthPreviewCacheStats = summarizeLatencies(metrics.healthPreviewCacheChurches);
   const benchmarkSeconds = Math.max(1, (Date.now() - startedAt) / 1000);
   const churchConnectAttempts = churchClients.length;
   const controllerConnectAttempts = controllerClients.length;
   const churchConnectFailRate = churchConnectAttempts ? metrics.churchConnectFailures / churchConnectAttempts : 0;
   const controllerConnectFailRate = controllerConnectAttempts ? metrics.controllerConnectFailures / controllerConnectAttempts : 0;
   const statusFailRate = metrics.statusSent ? metrics.statusSendFailures / metrics.statusSent : 0;
+  const previewFetchFailRate = metrics.previewFetchAttempts ? metrics.previewFetchFailures / metrics.previewFetchAttempts : 0;
 
   console.log('--- Summary ---');
   console.log(`church_connect: attempts=${churchConnectAttempts} failures=${metrics.churchConnectFailures} fail_rate=${(churchConnectFailRate * 100).toFixed(2)}% p50=${churchConnectStats.p50.toFixed(1)}ms p95=${churchConnectStats.p95.toFixed(1)}ms avg=${churchConnectStats.avg.toFixed(1)}ms`);
   console.log(`controller_connect: attempts=${controllerConnectAttempts} failures=${metrics.controllerConnectFailures} fail_rate=${(controllerConnectFailRate * 100).toFixed(2)}% p50=${controllerConnectStats.p50.toFixed(1)}ms p95=${controllerConnectStats.p95.toFixed(1)}ms avg=${controllerConnectStats.avg.toFixed(1)}ms`);
   console.log(`status_send: sent=${metrics.statusSent} failures=${metrics.statusSendFailures} fail_rate=${(statusFailRate * 100).toFixed(2)}% rate=${(metrics.statusSent / benchmarkSeconds).toFixed(1)}/s`);
   console.log(`status_observed: samples=${metrics.statusObserved} lag_p50=${lagStats.p50.toFixed(1)}ms lag_p95=${lagStats.p95.toFixed(1)}ms lag_avg=${lagStats.avg.toFixed(1)}ms`);
+  console.log(`preview_publish: sent=${metrics.previewSent} failures=${metrics.previewSendFailures} subscriptions=${metrics.previewSubscriptionsRequested} acked=${metrics.previewSubscriptionAcks} available=${metrics.previewAvailable}`);
+  console.log(`preview_fetch: attempts=${metrics.previewFetchAttempts} count=${metrics.previewFetches} failures=${metrics.previewFetchFailures} fail_rate=${(previewFetchFailRate * 100).toFixed(2)}% fetch_p95=${previewFetchStats.p95.toFixed(1)}ms lag_p95=${previewLagStats.p95.toFixed(1)}ms bytes=${metrics.previewBytesFetched}`);
   console.log(`church_list_seen=${metrics.churchListSeen} controller_messages=${metrics.controllerMessages}`);
   if (metrics.healthPolls > 0) {
-    console.log(`health: polls=${metrics.healthPolls} failures=${metrics.healthPollFailures} event_loop_p95_p50=${healthEventLoopStats.p50.toFixed(1)}ms event_loop_p95_p95=${healthEventLoopStats.p95.toFixed(1)}ms queue_p95=${healthQueuedStats.p95.toFixed(1)} preview_subscriptions_p95=${healthPreviewStats.p95.toFixed(1)}`);
+    console.log(`health: polls=${metrics.healthPolls} failures=${metrics.healthPollFailures} event_loop_p95_p50=${healthEventLoopStats.p50.toFixed(1)}ms event_loop_p95_p95=${healthEventLoopStats.p95.toFixed(1)}ms queue_p95=${healthQueuedStats.p95.toFixed(1)} preview_subscriptions_p95=${healthPreviewStats.p95.toFixed(1)} preview_cache_p95=${healthPreviewCacheStats.p95.toFixed(1)}`);
   }
 
   const churchOk = churchConnectFailRate <= MAX_CHURCH_CONNECT_FAIL_RATE;
   const controllerOk = controllerConnectFailRate <= MAX_CONTROLLER_CONNECT_FAIL_RATE;
   const statusOk = statusFailRate <= MAX_STATUS_FAIL_RATE;
   const lagOk = lagStats.p95 <= MAX_STATUS_LAG_P95_MS;
+  const previewOk = metrics.previewFetchAttempts === 0 || previewFetchFailRate <= MAX_PREVIEW_FETCH_FAIL_RATE;
+  const previewLagOk = MAX_PREVIEW_LAG_P95_MS <= 0 || previewLagStats.p95 <= MAX_PREVIEW_LAG_P95_MS;
   const connectOk = churchConnectStats.p95 <= MAX_CHURCH_CONNECT_P95_MS;
   const healthEventLoopOk = MAX_HEALTH_EVENT_LOOP_P95_MS <= 0 || healthEventLoopStats.p95 <= MAX_HEALTH_EVENT_LOOP_P95_MS;
   const healthQueueOk = MAX_HEALTH_QUEUE_MESSAGES <= 0 || healthQueuedStats.p95 <= MAX_HEALTH_QUEUE_MESSAGES;
 
-  console.log(`thresholds: churchFail<=${(MAX_CHURCH_CONNECT_FAIL_RATE * 100).toFixed(2)}% controllerFail<=${(MAX_CONTROLLER_CONNECT_FAIL_RATE * 100).toFixed(2)}% statusFail<=${(MAX_STATUS_FAIL_RATE * 100).toFixed(2)}% churchP95<=${MAX_CHURCH_CONNECT_P95_MS}ms lagP95<=${MAX_STATUS_LAG_P95_MS}ms`);
+  console.log(`thresholds: churchFail<=${(MAX_CHURCH_CONNECT_FAIL_RATE * 100).toFixed(2)}% controllerFail<=${(MAX_CONTROLLER_CONNECT_FAIL_RATE * 100).toFixed(2)}% statusFail<=${(MAX_STATUS_FAIL_RATE * 100).toFixed(2)}% previewFail<=${(MAX_PREVIEW_FETCH_FAIL_RATE * 100).toFixed(2)}% churchP95<=${MAX_CHURCH_CONNECT_P95_MS}ms lagP95<=${MAX_STATUS_LAG_P95_MS}ms previewLagP95<=${MAX_PREVIEW_LAG_P95_MS || 'disabled'}ms`);
   if (MAX_HEALTH_EVENT_LOOP_P95_MS > 0 || MAX_HEALTH_QUEUE_MESSAGES > 0) {
     console.log(`health_thresholds: eventLoopP95<=${MAX_HEALTH_EVENT_LOOP_P95_MS || 'disabled'}ms queueP95<=${MAX_HEALTH_QUEUE_MESSAGES || 'disabled'}`);
   }
 
-  if (!churchOk || !controllerOk || !statusOk || !lagOk || !connectOk || !healthEventLoopOk || !healthQueueOk) {
+  if (!churchOk || !controllerOk || !statusOk || !previewOk || !lagOk || !previewLagOk || !connectOk || !healthEventLoopOk || !healthQueueOk) {
     console.error('RESULT: FAIL');
     process.exit(1);
   }
