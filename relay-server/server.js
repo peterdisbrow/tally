@@ -1114,6 +1114,19 @@ db.exec(`
 db.exec('CREATE INDEX IF NOT EXISTS idx_viewer_snaps_church ON viewer_snapshots(church_id, captured_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_viewer_snaps_session ON viewer_snapshots(session_id, captured_at DESC)');
 
+// ─── CLOCK LAYOUTS TABLE ────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS clock_layouts (
+    id TEXT PRIMARY KEY,
+    church_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    layout_mode TEXT NOT NULL,
+    cells TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_clock_layouts_church ON clock_layouts(church_id)');
+
 /** Log an admin action to the audit table. Fire-and-forget — never throws. */
 function logAudit({ adminUserId, adminEmail, action, targetType, targetId, details, ip }) {
   queryClient.run(
@@ -3061,6 +3074,7 @@ require('./src/routes/roomEquipment')(app, routeCtx);
 require('./src/routes/networkTopology')(app, routeCtx);
 require('./src/routes/aiTriage')(app, routeCtx);
 require('./src/routes/mobile')(app, routeCtx);
+require('./src/routes/clockLayouts')(app, routeCtx);
 console.log('[Server] ✓ Route modules registered (including mobile)');
 
 // Admin auth, users, AI usage routes → src/routes/adminAuth.js
