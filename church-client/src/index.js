@@ -673,7 +673,7 @@ class ChurchAVAgent {
     await this.connectEncoder();
     await this.connectSmartPlugs();
 
-    this._track(setInterval(() => this.sendStatus(), 10_000));
+    this._track(setInterval(() => this.sendStatus(), 3_000));
     this._track(setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000));
 
     // System health monitoring (CPU, RAM, disk) — poll every 30s
@@ -2211,9 +2211,9 @@ class ChurchAVAgent {
     } catch { /* optional */ }
     await this._updateProPresenterStatus();
 
-    // Poll every 3s for rich status (timers, looks, screens, slide)
+    // Poll every 1s for rich status (timers, looks, screens, slide)
     if (this._proPollTimer) clearInterval(this._proPollTimer);
-    this._proPollTimer = this._track(setInterval(() => this._updateProPresenterStatus(), 3_000));
+    this._proPollTimer = this._track(setInterval(() => this._updateProPresenterStatus(), 1_000));
   }
 
   async _updateProPresenterStatus() {
