@@ -83,36 +83,6 @@ app.use('/portal', express.static(require('path').join(__dirname, 'public/portal
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin')));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools')));
 
-// ─── STREAMING CONFIG LEADS ─────────────────────────────────────────────────
-app.post('/api/tools/streaming-config/leads', (req, res) => {
-  const { email, churchName, platform, model } = req.body || {};
-  if (!email || !churchName) {
-    return res.status(400).json({ error: 'email and churchName required' });
-  }
-  const entry = {
-    email,
-    churchName,
-    platform: platform || 'unknown',
-    model: model || 'unknown',
-    timestamp: new Date().toISOString(),
-  };
-  const dataDir = path.join(__dirname, 'data');
-  const filePath = path.join(dataDir, 'streaming-leads.json');
-  try {
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    let leads = [];
-    if (fs.existsSync(filePath)) {
-      try { leads = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch (_) { leads = []; }
-    }
-    leads.push(entry);
-    fs.writeFileSync(filePath, JSON.stringify(leads, null, 2));
-  } catch (err) {
-    console.error('Failed to save streaming lead:', err);
-    return res.status(500).json({ error: 'Failed to save lead' });
-  }
-  res.json({ ok: true });
-});
-
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
