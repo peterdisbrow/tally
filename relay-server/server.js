@@ -2377,6 +2377,9 @@ function drainQueue(churchId, ws) {
 // Time endpoint (NTP-like sync for broadcast clock)
 require('./src/routes/time')(app);
 
+// Streaming config tool – email lead capture (public, no auth)
+require('./src/routes/streamingConfigLeads')(app, { rateLimit });
+
 // Health / root endpoints (extracted)
 require('./src/routes/health')(app, {
   churches, controllers, RELAY_VERSION, RELAY_BUILD, WebSocket,
