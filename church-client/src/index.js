@@ -2231,6 +2231,7 @@ class ChurchAVAgent {
         this.proPresenter.getCurrentSlide(),
         this.proPresenter.getActiveLook(),
         this.proPresenter.getTimerStatus(),
+        this.proPresenter.getVideoCountdown(),
         this.proPresenter.getAudienceScreenStatus(),
         this.proPresenter.getPlaylistFocused(),
       ]);

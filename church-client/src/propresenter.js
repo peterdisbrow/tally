@@ -25,6 +25,7 @@ class ProPresenter extends EventEmitter {
     this._version = null;
     this._activeLook = null;
     this._activeTimers = [];
+    this._videoCountdown = null; // { name, time, duration, isPlaying }
     this._screenStatus = null;
     this._playlistFocused = null;
 
@@ -212,6 +213,47 @@ class ProPresenter extends EventEmitter {
       this.emit('timerUpdate', list);
     }
     return list;
+  }
+
+  async getVideoCountdown() {
+    const data = await this._fetch('/v1/transport/presentation/current');
+    if (!data || typeof data !== 'object') {
+      this._videoCountdown = null;
+      return null;
+    }
+    // PP7 returns: { layer, is_playing, name, duration, time }
+    // duration and time are in seconds (float)
+    const duration = data.duration ?? 0;
+    const elapsed = data.time ?? 0;
+    const remaining = Math.max(0, duration - elapsed);
+    const isPlaying = !!data.is_playing;
+    const name = data.name || null;
+
+    // Only report if there's actual media with a duration
+    if (!duration || !name) {
+      this._videoCountdown = null;
+      return null;
+    }
+
+    const fmt = (sec) => {
+      const totalSec = Math.floor(sec);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      return h > 0
+        ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    this._videoCountdown = {
+      name,
+      time: fmt(remaining),
+      elapsed: fmt(elapsed),
+      duration: fmt(duration),
+      remaining,
+      isPlaying,
+    };
+    return this._videoCountdown;
   }
 
   async getAudienceScreenStatus() {
@@ -1103,8 +1145,16 @@ class ProPresenter extends EventEmitter {
       slideNotes: this._currentSlide?.slideNotes || null,
       // Active look
       activeLook: this._activeLook || null,
-      // Timers
-      timers: this._activeTimers || [],
+      // Timers — inject video countdown as a synthetic timer entry
+      timers: [
+        ...(this._videoCountdown ? [{
+          id: '__video_countdown__',
+          name: `Video: ${this._videoCountdown.name}`,
+          time: this._videoCountdown.time,
+          state: this._videoCountdown.isPlaying ? 'Running' : 'Stopped',
+        }] : []),
+        ...(this._activeTimers || []),
+      ],
       // Audience screens
       screens: this._screenStatus || null,
       // Playlist position
