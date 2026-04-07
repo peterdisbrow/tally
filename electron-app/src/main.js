@@ -1816,7 +1816,13 @@ ipcMain.handle('scan-network', async (event, options = {}) => {
 });
 
 // ─── DEEP NETWORK SCAN (ARP + mDNS + Protocol Port Scanning) ────────────────
-const { NetworkScanner: DeepNetworkScanner, listInterfaces: listNetInterfaces } = require('../../shared/network-scanner');
+// In packaged builds, shared/network-scanner lives in extraResources
+const _networkScannerDir = (() => {
+  const packaged = path.join(process.resourcesPath || '', 'shared', 'network-scanner');
+  if (fs.existsSync(packaged)) return packaged;
+  return path.join(__dirname, '..', '..', 'shared', 'network-scanner');
+})();
+const { NetworkScanner: DeepNetworkScanner, listInterfaces: listNetInterfaces } = require(_networkScannerDir);
 
 let _activeDeepScan = null;
 

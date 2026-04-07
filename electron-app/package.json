@@ -122,6 +122,14 @@
         ]
       },
       {
+        "from": "../shared/network-scanner",
+        "to": "shared/network-scanner",
+        "filter": [
+          "**/*",
+          "!node_modules/**"
+        ]
+      },
+      {
         "from": "../problem-finder-lab",
         "to": "problem-finder-lab",
         "filter": [
