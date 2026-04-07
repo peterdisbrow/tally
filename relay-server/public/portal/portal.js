@@ -7344,7 +7344,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownSelectedPlan = null;
 
     function loadRundownPage() {
-      api('GET', '/api/churches/' + churchId + '/live-rundown/state').then(function(data) {
+      api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state').then(function(data) {
         if (data && data.active) {
           _rundownState = data;
           // Load companion actions for this plan if not cached yet
@@ -7389,7 +7389,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function loadRundownManager() {
       showRundownView('manager');
-      api('GET', '/api/churches/' + churchId + '/rundown-plans').then(function(data) {
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans').then(function(data) {
         _rundownPlans = (data && data.plans) || [];
         renderRundownPlanList();
       }).catch(function() {
@@ -7443,7 +7443,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (itemsEl) itemsEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">PCO plan items are imported automatically.</div>';
       } else {
         // Load full manual plan with items
-        api('GET', '/api/churches/' + churchId + '/rundown-plans/' + planId).then(function(plan) {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId).then(function(plan) {
           _rundownSelectedPlan = plan;
           renderRundownEditor(plan);
         });
@@ -7514,7 +7514,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var title = prompt('Rundown title:', 'Sunday Service');
       if (!title || !title.trim()) return;
       var dateStr = prompt('Service date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      api('POST', '/api/churches/' + churchId + '/rundown-plans', { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
         toast('Rundown created');
         _rundownSelectedPlanId = plan.id;
         loadRundownManager();
@@ -7527,7 +7527,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var title = prompt('Plan title:', _rundownSelectedPlan.title);
       if (!title || !title.trim()) return;
       var dateStr = prompt('Service date (YYYY-MM-DD):', _rundownSelectedPlan.serviceDate || '');
-      api('PUT', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id, { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id, { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
         _rundownSelectedPlan = plan;
         renderRundownEditor(plan);
         loadRundownManager();
@@ -7538,7 +7538,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownDeletePlan() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
       if (!confirm('Delete this rundown? This cannot be undone.')) return;
-      api('DELETE', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id).then(function() {
+      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function() {
         toast('Rundown deleted');
         _rundownSelectedPlan = null;
         _rundownSelectedPlanId = null;
@@ -7556,13 +7556,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var durStr = prompt('Duration in minutes (e.g. 5):', '0');
       var durSec = Math.round(parseFloat(durStr || '0') * 60);
       var notes = prompt('Notes (optional):', '');
-      api('POST', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
         title: title.trim(),
         itemType: (typeStr || 'other').trim().toLowerCase(),
         lengthSeconds: durSec > 0 ? durSec : 0,
         notes: notes || '',
       }).then(function() {
-        api('GET', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
           _rundownSelectedPlan = plan;
           renderRundownEditor(plan);
           // Also update plan list item count
@@ -7582,7 +7582,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var durStr = prompt('Duration in minutes:', item.lengthSeconds > 0 ? (item.lengthSeconds / 60).toFixed(1) : '0');
       var durSec = Math.round(parseFloat(durStr || '0') * 60);
       var notes = prompt('Notes:', item.notes || '');
-      api('PUT', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, {
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, {
         title: title.trim(),
         itemType: (typeStr || 'other').trim().toLowerCase(),
         lengthSeconds: durSec > 0 ? durSec : 0,
@@ -7596,7 +7596,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownDeleteItem(itemId) {
       if (!_rundownSelectedPlan) return;
       if (!confirm('Remove this item?')) return;
-      api('DELETE', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId).then(function(plan) {
+      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId).then(function(plan) {
         _rundownSelectedPlan = plan;
         renderRundownEditor(plan);
         var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
@@ -7613,7 +7613,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (newIdx < 0 || newIdx >= items.length) return;
       var ids = items.map(function(x) { return x.id; });
       var tmp = ids[idx]; ids[idx] = ids[newIdx]; ids[newIdx] = tmp;
-      api('PUT', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/reorder', { itemIds: ids }).then(function(plan) {
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/reorder', { itemIds: ids }).then(function(plan) {
         _rundownSelectedPlan = plan;
         renderRundownEditor(plan);
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
@@ -7624,7 +7624,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownStartLive() {
       if (!_rundownSelectedPlan) return;
       var source = _rundownSelectedPlan.source || 'manual';
-      api('POST', '/api/churches/' + churchId + '/live-rundown/start', {
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/start', {
         planId: _rundownSelectedPlan.id,
         source: source,
         callerName: 'TD',
@@ -7638,7 +7638,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownEndSession() {
       if (!confirm('End the live rundown session?')) return;
-      api('POST', '/api/churches/' + churchId + '/live-rundown/end').then(function() {
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/end').then(function() {
         _rundownState = null;
         toast('Session ended');
         loadRundownManager();
@@ -7646,13 +7646,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function rundownAdvance() {
-      api('POST', '/api/churches/' + churchId + '/live-rundown/advance').then(function(data) {
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/advance').then(function(data) {
         if (data) { _rundownState = data; renderRundownActive(data); }
       }).catch(function(e) { toast(e.message, true); });
     }
 
     function rundownBack() {
-      api('POST', '/api/churches/' + churchId + '/live-rundown/back').then(function(data) {
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/back').then(function(data) {
         if (data) { _rundownState = data; renderRundownActive(data); }
       }).catch(function(e) { toast(e.message, true); });
     }
@@ -7661,7 +7661,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownShowTemplates() {
       showRundownView('templates');
-      api('GET', '/api/churches/' + churchId + '/rundown-templates').then(function(data) {
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-templates').then(function(data) {
         var templates = (data && data.templates) || [];
         var container = document.getElementById('rundown-templates-list');
         if (!container) return;
@@ -7695,7 +7695,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
       var name = prompt('Template name:', _rundownSelectedPlan.title);
       if (!name || !name.trim()) return;
-      api('POST', '/api/churches/' + churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/save-template', { templateName: name.trim() }).then(function() {
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/save-template', { templateName: name.trim() }).then(function() {
         toast('Template saved');
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
@@ -7704,7 +7704,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var title = prompt('Rundown title:', 'Sunday Service');
       if (!title || !title.trim()) return;
       var dateStr = prompt('Service date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      api('POST', '/api/churches/' + churchId + '/rundown-templates/' + templateId + '/create', {
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId + '/create', {
         title: title.trim(),
         serviceDate: dateStr || null,
       }).then(function(plan) {
@@ -7717,7 +7717,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownDeleteTemplate(templateId) {
       if (!confirm('Delete this template?')) return;
-      api('DELETE', '/api/churches/' + churchId + '/rundown-templates/' + templateId).then(function() {
+      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId).then(function() {
         toast('Template deleted');
         rundownShowTemplates();
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
@@ -7725,7 +7725,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function loadCompanionActionsCache(planId) {
       _companionActionsPlanId = planId;
-      api('GET', '/api/churches/' + churchId + '/live-rundown/actions/' + encodeURIComponent(planId)).then(function(data) {
+      api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/actions/' + encodeURIComponent(planId)).then(function(data) {
         _companionActionsCache = data || {};
         // Re-render items list if rundown page is active
         if (_rundownState && document.getElementById('page-rundown').classList.contains('active')) {
@@ -8003,7 +8003,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     window.toggleAutoAdvance = function() {
       if (!_rundownState) return;
       var newVal = !_rundownState.autoAdvance;
-      api('POST', '/api/churches/' + churchId + '/live-rundown/auto-advance', { enabled: newVal }).then(function(data) {
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/auto-advance', { enabled: newVal }).then(function(data) {
         if (data) {
           _rundownState = data;
           updateAutoAdvanceToggle(data);
@@ -8270,7 +8270,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
 
-      var endpoint = '/api/churches/' + churchId + '/live-rundown/actions/' +
+      var endpoint = '/api/churches/' + CHURCH_ID + '/live-rundown/actions/' +
         encodeURIComponent(_companionActionsPlanId) + '/' + encodeURIComponent(_companionModalItemId);
 
       if (_companionModalActions.length === 0) {

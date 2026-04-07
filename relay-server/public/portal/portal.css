@@ -508,7 +508,7 @@ input:checked + .slider:before { background: var(--primary); transform: translat
 @media (max-width: 768px) {
   .hamburger { display: flex; }
   .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
-  .sidebar.open { display: flex; flex-direction: column; min-height: 100vh; }
+  .sidebar.open { display: flex; flex-direction: column; }
   .sidebar-overlay.open { display: block; }
   .sidebar .sidebar-footer { margin-top: 16px; }
   .main { margin-left: 0; padding: 16px; padding-top: 56px; }
