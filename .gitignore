@@ -14,6 +14,7 @@ output/
 package-lock.json
 !relay-server/package-lock.json
 !relay-server/admin/package-lock.json
+!shared/network-scanner/package-lock.json
 problem-finder-lab/
 mockup-*.html
 TallyPortalMockup.jsx
