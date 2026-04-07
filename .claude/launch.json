@@ -23,7 +23,7 @@
       "runtimeExecutable": "/opt/homebrew/bin/python3",
       "runtimeArgs": ["-m", "http.server", "5558"],
       "port": 5558,
-      "cwd": "/Users/andrewdisbrow/Documents/TallyConnect/church-av/relay-server/public",
+      "cwd": "relay-server/public",
       "autoPort": false
     },
     {

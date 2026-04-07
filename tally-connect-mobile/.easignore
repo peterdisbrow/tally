@@ -1,0 +1,5 @@
+# Exclude Claude Code worktrees and local tooling from EAS build archives
+../.claude/worktrees/
+.claude/
+*.md
+node_modules/
