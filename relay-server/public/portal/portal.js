@@ -8481,6 +8481,19 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof tdChangePassword === 'function') tdChangePassword();
         break;
 
+      // Mobile settings panel
+      case 'toggleSidebarSettings': {
+        var panel = document.querySelector('.sidebar-settings-panel');
+        var toggler = document.querySelector('.sidebar-settings-toggle');
+        if (panel) panel.classList.toggle('open');
+        if (toggler) {
+          var expanded = panel && panel.classList.contains('open');
+          toggler.classList.toggle('open', expanded);
+          toggler.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
+        break;
+      }
+
       // Theme
       case 'toggleTheme':
         if (typeof toggleTheme === 'function') toggleTheme();
