@@ -180,6 +180,7 @@ const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { LiveRundownManager } = require('./src/liveRundown');
+const { ManualRundownStore } = require('./src/manualRundown');
 const { RundownScheduler } = require('./src/scheduler');
 const { PushNotificationService } = require('./src/pushNotifications');
 const { createMobileWebSocketHandler } = require('./src/mobileWebSocket');
@@ -1322,7 +1323,7 @@ const weeklyDigest = new WeeklyDigest(queryClient);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
 const rundownEngine = new RundownEngine(queryClient);
 
-// Live Rundown — PCO-backed show-calling with countdown timers.
+// Live Rundown — show-calling with PCO or manual service plans.
 // Broadcast functions are deferred because the WebSocket handlers aren't created yet.
 let _liveRundownBroadcastMobile = () => {};
 let _liveRundownBroadcastPortal = () => {};
@@ -1336,6 +1337,7 @@ const liveRundown = new LiveRundownManager({
   log,
   queryClient,
 });
+const manualRundown = new ManualRundownStore({ queryClient, log });
 
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
 
@@ -3067,7 +3069,7 @@ const routeCtx = {
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap, aiTriageEngine,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler, signalFailover,
-  guestTdMode, chatEngine, pushNotifications, liveRundown,
+  guestTdMode, chatEngine, pushNotifications, liveRundown, manualRundown,
   logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
@@ -5984,6 +5986,7 @@ async function startServer() {
     monthlyReport.ready,
     rundownEngine.ready,
     liveRundown.ready,
+    manualRundown.ready,
     autoPilot.ready,
     scheduler.ready,
     chatEngine.ready,

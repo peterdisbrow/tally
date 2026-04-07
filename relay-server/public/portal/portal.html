@@ -2118,22 +2118,90 @@
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title">Live Rundown</div>
-          <div class="page-sub">Follow along with the service in real time</div>
+          <div class="page-sub">Build and run your service order in real time</div>
         </div>
-        <div id="rundown-schedule-delta" style="display:none;padding:6px 14px;border-radius:8px;font-size:14px;font-weight:700;white-space:nowrap"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div id="rundown-schedule-delta" style="display:none;padding:6px 14px;border-radius:8px;font-size:14px;font-weight:700;white-space:nowrap"></div>
+          <button class="btn-primary" id="btn-rundown-new" data-action="rundownNew" style="display:none;font-size:13px;padding:6px 14px">New Rundown</button>
+        </div>
       </div>
 
-      <!-- No active session state -->
-      <div id="rundown-no-session" style="text-align:center;padding:60px 20px">
+      <!-- Plan manager view (shown when no live session is active) -->
+      <div id="rundown-manager" style="display:none">
+        <!-- Plan picker -->
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:15px;font-weight:700;color:#F0F2F4">Service Rundowns</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-secondary" data-action="rundownShowTemplates" style="font-size:12px;padding:4px 10px">Templates</button>
+            </div>
+          </div>
+          <div id="rundown-plan-list" style="display:flex;flex-direction:column;gap:4px">
+            <div style="color:#556270;text-align:center;padding:20px;font-size:13px">Loading plans...</div>
+          </div>
+        </div>
+
+        <!-- Plan editor (shown when a plan is selected) -->
+        <div id="rundown-editor" style="display:none">
+          <div class="card" style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div>
+                <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4"></div>
+                <div id="rundown-editor-date" style="font-size:12px;color:#556270;margin-top:2px"></div>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
+                <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
+                <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Items list -->
+          <div class="card" style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#8B9DAF">Items</div>
+              <button class="btn-secondary" data-action="rundownAddItem" style="font-size:12px;padding:4px 10px">Add Item</button>
+            </div>
+            <div id="rundown-editor-items" style="display:flex;flex-direction:column;gap:2px"></div>
+          </div>
+
+          <!-- Start Live button -->
+          <div style="text-align:center;padding:8px 0">
+            <button class="btn-primary" data-action="rundownStartLive" style="font-size:15px;padding:10px 32px;font-weight:700">Start Live</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates modal area -->
+      <div id="rundown-templates-modal" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:15px;font-weight:700;color:#F0F2F4">Rundown Templates</div>
+            <button class="btn-secondary" data-action="rundownHideTemplates" style="font-size:12px;padding:4px 10px">Back to Plans</button>
+          </div>
+          <div id="rundown-templates-list" style="display:flex;flex-direction:column;gap:4px">
+            <div style="color:#556270;text-align:center;padding:20px;font-size:13px">No templates saved yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- No active session state (empty state when no plans exist) -->
+      <div id="rundown-no-session" style="text-align:center;padding:60px 20px;display:none">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="48" height="48" style="color:#556270;margin-bottom:16px"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg>
         <div style="font-size:18px;font-weight:700;color:#F0F2F4;margin-bottom:8px">No Active Rundown</div>
         <div style="font-size:14px;color:#8B9DAF;line-height:1.5;max-width:400px;margin:0 auto">
-          When a TD starts a live service rundown from the mobile app, it will appear here in real time.
+          Create a rundown for your service or start one from a template.
         </div>
       </div>
 
       <!-- Active session view -->
       <div id="rundown-active" style="display:none">
+        <!-- End session button -->
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn-secondary" data-action="rundownEndSession" style="font-size:12px;padding:4px 12px;color:#FF5252">End Session</button>
+        </div>
+
         <!-- Progress bar -->
         <div style="margin-bottom:16px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);height:4px">
           <div id="rundown-progress-bar" style="height:100%;background:#00E676;transition:width 0.5s ease;width:0%"></div>
@@ -2151,15 +2219,19 @@
           <div id="rundown-progress" style="font-size:13px;color:#8B9DAF;font-weight:600"></div>
         </div>
 
-        <!-- Controls row: auto-advance toggle -->
+        <!-- Controls row: navigation + auto-advance toggle -->
         <div class="card" id="rundown-controls" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;padding:10px 16px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="btn-secondary" data-action="rundownBack" style="font-size:12px;padding:4px 10px">Back</button>
+            <button class="btn-primary" data-action="rundownAdvance" style="font-size:12px;padding:4px 10px">Next</button>
+          </div>
           <div style="display:flex;align-items:center;gap:8px">
             <label for="rundown-auto-advance-toggle" style="font-size:13px;color:#8B9DAF;font-weight:600;cursor:pointer">Auto-Advance</label>
-            <div id="rundown-auto-advance-toggle" style="width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,0.1);cursor:pointer;position:relative;transition:background 0.2s" onclick="toggleAutoAdvance()">
+            <div id="rundown-auto-advance-toggle" data-action="rundownToggleAutoAdvance" style="width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,0.1);cursor:pointer;position:relative;transition:background 0.2s">
               <div style="width:16px;height:16px;border-radius:50%;background:#556270;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
             </div>
           </div>
-          <div id="rundown-auto-advanced-notice" style="display:none;font-size:12px;color:#42A5F5;max-width:60%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap"></div>
+          <div id="rundown-auto-advanced-notice" style="display:none;font-size:12px;color:#42A5F5;max-width:40%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap"></div>
         </div>
 
         <!-- Current item countdown hero -->
