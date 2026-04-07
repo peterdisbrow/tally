@@ -129,6 +129,7 @@ class AtemSwitcher extends Switcher {
     this._recordingDuration = null;
     this._recordingTimeAvailable = null;
     this._recordingError = null;
+    this._timecode = null; // HH:MM:SS:FF from ATEM time-of-day
   }
 
   /** Expose the raw Atem instance for backward compatibility (agent.atem). */
@@ -163,6 +164,7 @@ class AtemSwitcher extends Switcher {
     this._stopping = true;
     this._reconnecting = false;
     if (this._stabilityTimer) { clearTimeout(this._stabilityTimer); this._stabilityTimer = null; }
+    if (this._timecodeInterval) { clearInterval(this._timecodeInterval); this._timecodeInterval = null; }
     try { if (this._atem) await this._atem.disconnect(); } catch { /* ignore */ }
     try { if (this._atem) this._atem.destroy(); } catch { /* ignore */ }
     this.connected = false;
@@ -217,6 +219,7 @@ class AtemSwitcher extends Switcher {
       recordingDuration: this._recordingDuration,
       recordingTimeAvailable: this._recordingTimeAvailable,
       recordingError: this._recordingError,
+      timecode: this._timecode,
     };
   }
 
@@ -318,6 +321,24 @@ class AtemSwitcher extends Switcher {
         }
       }
     });
+
+    // ATEM timecode (time-of-day)
+    atem.on('updatedTime', (timeInfo) => {
+      if (timeInfo) {
+        const h = String(timeInfo.hour ?? 0).padStart(2, '0');
+        const m = String(timeInfo.minute ?? 0).padStart(2, '0');
+        const s = String(timeInfo.second ?? 0).padStart(2, '0');
+        const f = String(timeInfo.frame ?? 0).padStart(2, '0');
+        this._timecode = `${h}:${m}:${s}:${f}`;
+      }
+    });
+
+    // Poll timecode every second
+    this._timecodeInterval = setInterval(() => {
+      if (this.connected && this._atem) {
+        try { this._atem.requestTime(); } catch { /* non-critical */ }
+      }
+    }, 1000);
 
     // Camera Control Protocol (CCdP) — detect Blackmagic cameras
     atem.on('receivedCommands', (commands) => {
