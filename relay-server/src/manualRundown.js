@@ -73,7 +73,7 @@ class ManualRundownStore {
   }
 
   async getPlan(planId) {
-    const row = await this._db.get(
+    const row = await this._db.queryOne(
       `SELECT * FROM manual_rundown_plans WHERE id = ?`, [planId]
     );
     if (!row) return null;
@@ -147,7 +147,7 @@ class ManualRundownStore {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
-    const max = await this._db.get(
+    const max = await this._db.queryOne(
       `SELECT COALESCE(MAX(sort_order), -1) as mx FROM manual_rundown_items WHERE plan_id = ?`, [planId]
     );
     const sortOrder = (max?.mx ?? -1) + 1;
@@ -176,12 +176,12 @@ class ManualRundownStore {
       `UPDATE manual_rundown_items SET ${sets.join(', ')} WHERE id = ?`, params
     );
     // Update parent plan timestamp
-    const item = await this._db.get(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
+    const item = await this._db.queryOne(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
     if (item) await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, item.plan_id]);
   }
 
   async deleteItem(itemId) {
-    const item = await this._db.get(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
+    const item = await this._db.queryOne(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE id = ?`, [itemId]);
     if (item) await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [Date.now(), item.plan_id]);
   }
