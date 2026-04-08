@@ -371,6 +371,58 @@ async function ecammGetOverlays(agent) {
   return overlays;
 }
 
+// ─── OBS STREAMING CONFIG COMMANDS ─────────────────────────────────────────
+
+async function obsGetStreamServiceSettings(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'obs');
+  const settings = await adapter.getStreamServiceSettings();
+  if (!settings) return 'Stream service settings not available';
+  return settings;
+}
+
+async function obsSetStreamServiceSettings(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'obs');
+  const config = params.config || {};
+  if (!params.config) {
+    if (params.server) config.server = params.server;
+    if (params.key) config.key = params.key;
+    if (params.type) config.type = params.type;
+    if (params.url) config.server = params.url; // url alias for server
+  }
+  if (!Object.keys(config).length) throw new Error('config object or individual params (server, key, type) required');
+  const result = await adapter.setStreamServiceSettings(config);
+  if (!result.ok) throw new Error('Failed to set OBS stream service settings');
+  return 'OBS stream service settings updated';
+}
+
+// ─── VMIX STREAMING CONFIG COMMANDS ────────────────────────────────────────
+
+async function vmixGetStreamingConfig(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'vmix');
+  const channel = toInt(params?.channel ?? 0, 'channel');
+  const config = await adapter.getStreamingConfig(channel);
+  if (!config) return 'Streaming config not available';
+  return config;
+}
+
+async function vmixSetStreamingConfig(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'vmix');
+  const channel = toInt(params?.channel ?? 0, 'channel');
+  const server = params.server || params.url || null;
+  const key = params.key || null;
+  if (!server && !key) throw new Error('server/url and/or key required');
+  const results = [];
+  if (server) {
+    await adapter.setStreamingUrl(server, channel);
+    results.push('URL');
+  }
+  if (key) {
+    await adapter.setStreamingKey(key, channel);
+    results.push('key');
+  }
+  return `vMix streaming ${results.join(' and ')} updated`;
+}
+
 // ─── NDI ENCODER COMMANDS ───────────────────────────────────────────────────
 
 function ndiGetSource(agent) {
@@ -431,6 +483,14 @@ module.exports = {
   'ecamm.setInput': ecammSetInput,
   'ecamm.togglePIP': ecammTogglePIP,
   'ecamm.getOverlays': ecammGetOverlays,
+
+  // OBS streaming config
+  'obs.getStreamServiceSettings': obsGetStreamServiceSettings,
+  'obs.setStreamServiceSettings': obsSetStreamServiceSettings,
+
+  // vMix streaming config
+  'vmix.getStreamingConfig': vmixGetStreamingConfig,
+  'vmix.setStreamingConfig': vmixSetStreamingConfig,
 
   // NDI
   'ndi.getSource': ndiGetSource,

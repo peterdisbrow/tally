@@ -388,6 +388,7 @@ const FALLBACK_COMMANDS = [
   // ── OBS ──
   'obs.configureMonitorStream',
   'obs.getInputList',
+  'obs.getStreamServiceSettings',
   'obs.getSceneItems',
   'obs.getScenes',
   'obs.getSourceFilters',
@@ -398,6 +399,7 @@ const FALLBACK_COMMANDS = [
   'obs.setInputVolume',
   'obs.setPreviewScene',
   'obs.setScene',
+  'obs.setStreamServiceSettings',
   'obs.setSceneItemEnabled',
   'obs.setSourceFilterEnabled',
   'obs.setStudioMode',
@@ -485,6 +487,7 @@ const FALLBACK_COMMANDS = [
   'vmix.audioLevels',
   'vmix.cut',
   'vmix.fade',
+  'vmix.getStreamingConfig',
   'vmix.fadeToBlack',
   'vmix.function',
   'vmix.isRunning',
@@ -498,6 +501,7 @@ const FALLBACK_COMMANDS = [
   'vmix.setInputVolume',
   'vmix.setPreview',
   'vmix.setProgram',
+  'vmix.setStreamingConfig',
   'vmix.setText',
   'vmix.setVolume',
   'vmix.startPlaylist',
@@ -568,11 +572,11 @@ const CMD_SIGS = {
   hyperdeck: `hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), stopRecord(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N), status(hyperdeck:N), selectSlot(hyperdeck:N,slot:N), setPlaySpeed(hyperdeck:N,speed:N), goToClip(hyperdeck:N,clip:N), goToTimecode(hyperdeck:N,timecode:X), jog(hyperdeck:N,timecode:X)`,
   ptz: `ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N), autoFocus(camera:N), manualFocus(camera:N), focusNear(camera:N,speed:0-7), focusFar(camera:N,speed:0-7), focusStop(camera:N), autoWhiteBalance(camera:N), indoorWhiteBalance(camera:N), outdoorWhiteBalance(camera:N), onePushWb(camera:N), backlightComp(camera:N,enabled:bool)`,
   camera: `camera: setIris(camera:N,value:0-1), autoIris(camera:N), setGain(camera:N,gain:N), setISO(camera:N,iso:N), setWhiteBalance(camera:N,kelvin:N,tint:N), autoWhiteBalance(camera:N), setShutter(camera:N,speed:N), setFocus(camera:N,value:0-1), autoFocus(camera:N), setLift(camera:N,r:N,g:N,b:N,y:N), setGamma(camera:N,r:N,g:N,b:N,y:N), setColorGain(camera:N,r:N,g:N,b:N,y:N), setContrast(camera:N,pivot:N,adjust:N), setSaturation(camera:N,saturation:N), resetColorCorrection(camera:N)`,
-  obs: `obs: startStream(), stopStream(), startRecording(), stopRecording(), pauseRecording(), resumeRecording(), setScene(scene:X), getScenes(), getInputList(), setInputVolume(input:X,volume:0-1), setInputMute(input:X,muted:bool), setTransition(transition:X), setTransitionDuration(duration:N), getSourceFilters(source:X), setSourceFilterEnabled(source:X,filter:X,enabled:bool), setStudioMode(enabled:bool), setPreviewScene(scene:X), toggleVirtualCam(), getSceneItems(scene:X), setSceneItemEnabled(scene:X,itemId:N,enabled:bool), reduceBitrate(), configureMonitorStream()`,
+  obs: `obs: startStream(), stopStream(), startRecording(), stopRecording(), pauseRecording(), resumeRecording(), setScene(scene:X), getScenes(), getInputList(), setInputVolume(input:X,volume:0-1), setInputMute(input:X,muted:bool), setTransition(transition:X), setTransitionDuration(duration:N), getSourceFilters(source:X), setSourceFilterEnabled(source:X,filter:X,enabled:bool), setStudioMode(enabled:bool), setPreviewScene(scene:X), toggleVirtualCam(), getSceneItems(scene:X), setSceneItemEnabled(scene:X,itemId:N,enabled:bool), reduceBitrate(), configureMonitorStream(), getStreamServiceSettings(), setStreamServiceSettings(config:{server:X,key:X,type:X})`,
   encoder: `encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()`,
   webPresenter: `blackmagic (Web Presenter): getActivePlatform(), setActivePlatform(config:{platform:X,server:X,key:X,quality:X}), getPlatforms(), getPlatformConfig(name:X), getVideoFormat(), setVideoFormat(format:X), getSupportedVideoFormats(), getAudioSources(), setAudioSource(source:X)`,
   companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections(), getVariable(connection:X,variable:X), getCustomVariable(name:X), setCustomVariable(name:X,value:X), getWatchedVariables(). Use getVariable to read device state through Companion (e.g. getVariable("atem","pgm1_input") for current program source, getVariable("obs","current_scene") for OBS scene).`,
-  vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X)`,
+  vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X), getStreamingConfig(channel:N), setStreamingConfig(server:X,key:X,channel:N)`,
   videohub: `videohub: route(input:N,output:N), getRoutes(), setInputLabel(index:N,label:X), setOutputLabel(index:N,label:X), getInputLabels(), getOutputLabels()`,
   propresenter: `propresenter: next(), previous(), goToSlide(index:N), lastSlide(), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
   resolume: `resolume: playClip(name:X OR layer:N,clip:N), stopClip(layer:N,clip:N), triggerColumn(column:N OR name:X), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
@@ -755,7 +759,13 @@ OBS:
 - "Reduce bitrate" / "stream is buffering" → obs.reduceBitrate(). Reduces current bitrate by 20%.
 - OBS volume is 0-1 (normalized). "Mute desktop audio" → obs.setInputMute(input:"Desktop Audio",muted:true).
 - Transition duration is in MILLISECONDS: obs.setTransitionDuration(duration:1000) = 1 second.
-- "Enable studio mode" → obs.setStudioMode(enabled:true). "Preview scene X" requires studio mode on first.` : '';
+- "Enable studio mode" → obs.setStudioMode(enabled:true). "Preview scene X" requires studio mode on first.
+- RTMP CREDENTIAL PUSH: When a user provides an RTMP URL or stream key for OBS, use obs.setStreamServiceSettings to push them directly.
+  - "Set the OBS stream URL to rtmp://x.com/live with key abc123" → obs.setStreamServiceSettings(config:{server:"rtmp://x.com/live",key:"abc123"})
+  - "Push this key to OBS: xxxx-xxxx" → first obs.getStreamServiceSettings() to get current server, then obs.setStreamServiceSettings(config:{key:"xxxx-xxxx"}) to merge
+  - "Where is OBS streaming to?" / "OBS stream URL" → obs.getStreamServiceSettings()
+  - If only a URL or only a key is provided, the command merges with existing settings automatically.
+  - NEVER tell the user to configure OBS manually — YOU push the settings directly.` : '';
 
   // vMix detail rules
   const vmixRules = s.vmix?.connected ? `
@@ -767,7 +777,13 @@ VMIX:
 - Master volume is 0-100: vmix.setVolume(value:80). Per-input: vmix.setInputVolume(input:X,volume:80).
 - "Update lower third text" / "change title" → vmix.setText(input:X,text:"New text").
 - vmix.function(function:X) is the escape hatch for any vMix function not explicitly listed.
-- "Replay" → vmix.replay(action:"PlayLastEvent"). Other actions: "PlayAllEvents", "StopEvents".` : '';
+- "Replay" → vmix.replay(action:"PlayLastEvent"). Other actions: "PlayAllEvents", "StopEvents".
+- RTMP CREDENTIAL PUSH: When a user provides an RTMP URL or stream key for vMix, use vmix.setStreamingConfig to push them directly.
+  - "Set the vMix stream URL to rtmp://x.com/live with key abc123" → vmix.setStreamingConfig(server:"rtmp://x.com/live",key:"abc123")
+  - "Push this key to vMix: xxxx-xxxx" → vmix.setStreamingConfig(key:"xxxx-xxxx")
+  - "Where is vMix streaming to?" / "vMix stream destination" → vmix.getStreamingConfig()
+  - Channel parameter is optional (defaults to 0). Use channel:N for multi-destination setups.
+  - NEVER tell the user to configure vMix manually — YOU push the settings directly.` : '';
 
   // HyperDeck detail rules
   const hyperdeckRules = s.hyperdeck?.connected ? `
@@ -1411,6 +1427,16 @@ function buildCommandConfirmation(command, params, result, status) {
       return 'vMix stream started.';
     case 'vmix.stopStream':
       return 'vMix stream stopped.';
+
+    case 'obs.setStreamServiceSettings':
+      return 'OBS streaming destination updated.';
+    case 'obs.getStreamServiceSettings':
+      return null; // data response, no confirmation needed
+
+    case 'vmix.setStreamingConfig':
+      return 'vMix streaming destination updated.';
+    case 'vmix.getStreamingConfig':
+      return null; // data response
 
     case 'mixer.mute':
       return params?.channel === 'master' ? 'Master muted.' : `Channel ${params?.channel} muted.`;
