@@ -9344,6 +9344,10 @@ function _portalFriendlyAlertType(alertType) {
   return map[alertType] || (alertType || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
 }
 
+// ── Commands page ─────────────────────────────────────────────────────────────
+var _commandsLoaded = false;
+var loadCommandsPage; // assigned inside DOMContentLoaded; callable from showPage
+
 // ── CSP-safe event delegation ─────────────────────────────────────────────────
 // Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
 // removed from portal.html so that 'unsafe-inline' can be dropped from CSP.
@@ -9795,8 +9799,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return map[context] || (context || '').replace(/_/g, ' ');
   }
 
-  var _commandsLoaded = false;
-  function loadCommandsPage() {
+  loadCommandsPage = function() {
     if (_commandsLoaded) return;
     _commandsLoaded = true;
 
