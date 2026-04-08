@@ -2223,31 +2223,45 @@
 
         <!-- Plan editor (shown when a plan is selected) -->
         <div id="rundown-editor" style="display:none">
-          <div class="card" style="margin-bottom:12px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div>
-                <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4"></div>
-                <div id="rundown-editor-date" style="font-size:12px;color:#556270;margin-top:2px"></div>
+          <!-- Header card with plan info -->
+          <div class="card" style="margin-bottom:12px;padding:14px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:0">
+                <div style="flex:1;min-width:0">
+                  <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4;cursor:pointer" data-action="rundownEditPlanTitle" title="Click to edit title"></div>
+                  <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+                    <span id="rundown-editor-date" style="font-size:12px;color:#556270"></span>
+                    <span id="rundown-editor-item-count" style="font-size:12px;color:#556270"></span>
+                    <span id="rundown-editor-total-duration" style="font-size:12px;color:#8B9DAF;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;font-weight:600"></span>
+                  </div>
+                </div>
               </div>
-              <div style="display:flex;gap:6px">
+              <div style="display:flex;gap:6px;align-items:center">
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
                 <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
+                <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:4px 10px">Share</button>
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
               </div>
             </div>
           </div>
 
-          <!-- Items list -->
-          <div class="card" style="margin-bottom:12px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div style="font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#8B9DAF">Items</div>
-              <button class="btn-secondary" data-action="rundownAddItem" style="font-size:12px;padding:4px 10px">Add Item</button>
-            </div>
-            <div id="rundown-editor-items" style="display:flex;flex-direction:column;gap:2px"></div>
+          <!-- Timing bar -->
+          <div class="card" style="margin-bottom:12px;padding:10px 18px;display:flex;align-items:center;gap:16px">
+            <label style="font-size:12px;color:#8B9DAF;font-weight:600;white-space:nowrap">Start Time</label>
+            <input type="time" id="rundown-start-time" value="09:00" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark" data-action="rundownStartTimeChange">
+            <div style="flex:1"></div>
+            <label style="font-size:12px;color:#8B9DAF;font-weight:600;white-space:nowrap">Target End</label>
+            <input type="time" id="rundown-end-time" value="" placeholder="--:--" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark" data-action="rundownEndTimeChange">
+            <div id="rundown-over-under" style="font-size:13px;font-weight:700;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;min-width:80px;text-align:right"></div>
+          </div>
+
+          <!-- Table container -->
+          <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
+            <div id="rundown-editor-items"></div>
           </div>
 
           <!-- Start Live button -->
-          <div style="text-align:center;padding:8px 0">
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 0">
             <button class="btn-primary" data-action="rundownStartLive" style="font-size:15px;padding:10px 32px;font-weight:700">Start Live</button>
           </div>
         </div>
@@ -2409,11 +2423,17 @@
           <div class="field" style="margin-bottom:14px">
             <label for="rundown-item-type-input">Type</label>
             <select id="rundown-item-type-input" style="width:100%;background:var(--bg-surface-solid);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;outline:none">
-              <option value="song">Song</option>
-              <option value="sermon">Sermon</option>
-              <option value="media">Media</option>
+              <option value="song">Song / Worship</option>
+              <option value="sermon">Sermon / Message</option>
+              <option value="media">Media / Video</option>
               <option value="prayer">Prayer</option>
-              <option value="break">Break</option>
+              <option value="announcement">Announcement</option>
+              <option value="transition">Transition</option>
+              <option value="welcome">Welcome</option>
+              <option value="offering">Offering</option>
+              <option value="communion">Communion</option>
+              <option value="scripture">Scripture</option>
+              <option value="section">--- Section Header ---</option>
               <option value="other">Other</option>
             </select>
           </div>
