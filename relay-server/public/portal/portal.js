@@ -1197,6 +1197,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'connections') loadConnections();
       if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'rundown') loadRundownPage();
+      if (id === 'commands') loadCommandsPage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
 
@@ -9500,6 +9501,300 @@ document.addEventListener('DOMContentLoaded', function() {
   function _portalFriendlyTimeContext(context) {
     var map = { 'pre_service': 'Before service', 'in_service': 'During service', 'off_hours': 'Off hours' };
     return map[context] || (context || '').replace(/_/g, ' ');
+  }
+
+  var _commandsLoaded = false;
+  function loadCommandsPage() {
+    if (_commandsLoaded) return;
+    _commandsLoaded = true;
+
+    var COMMANDS = [
+      {
+        category: 'ATEM',
+        commands: [
+          { syntax: 'cut to camera 2', desc: 'Cut program to input N' },
+          { syntax: 'camera 3 to preview', desc: 'Set preview to input N' },
+          { syntax: 'auto transition', desc: 'Perform auto transition / take' },
+          { syntax: 'fade to black', desc: 'Toggle fade to black (FTB)' },
+          { syntax: 'run macro 3', desc: 'Run ATEM macro by number' },
+          { syntax: 'stop macro', desc: 'Abort the running macro' },
+          { syntax: 'dsk 1 on', desc: 'Put downstream keyer on air (use "off" to remove)' },
+          { syntax: 'dsk 1 tie on', desc: 'Enable/disable DSK tie' },
+          { syntax: 'dsk 1 rate 25', desc: 'Set DSK transition rate (frames)' },
+          { syntax: 'set aux 1 to camera 4', desc: 'Route aux output N to input N' },
+          { syntax: 'set transition style mix', desc: 'Set transition style: mix, dip, wipe, dve, stinger' },
+          { syntax: 'set transition rate 25', desc: 'Set transition rate in frames' },
+          { syntax: 'start ATEM recording', desc: 'Start recording on ATEM (device-specific)' },
+          { syntax: 'stop ATEM recording', desc: 'Stop recording on ATEM (device-specific)' },
+          { syntax: 'rename camera 4 to "Fog GFX"', desc: 'Rename an input label on the ATEM' },
+        ]
+      },
+      {
+        category: 'OBS',
+        commands: [
+          { syntax: 'start OBS stream', desc: 'Start streaming in OBS (device-specific)' },
+          { syntax: 'stop OBS stream', desc: 'Stop streaming in OBS (device-specific)' },
+          { syntax: 'switch to scene "Scene Name"', desc: 'Switch OBS to a named scene' },
+        ]
+      },
+      {
+        category: 'HyperDeck',
+        commands: [
+          { syntax: 'hyperdeck 1 play', desc: 'Play on HyperDeck N' },
+          { syntax: 'hyperdeck 1 stop', desc: 'Stop playback on HyperDeck N' },
+          { syntax: 'hyperdeck 1 record', desc: 'Start recording on HyperDeck N' },
+          { syntax: 'hyperdeck 1 next', desc: 'Next clip on HyperDeck N' },
+          { syntax: 'hyperdeck 1 prev', desc: 'Previous clip on HyperDeck N' },
+        ]
+      },
+      {
+        category: 'Camera Control',
+        commands: [
+          { syntax: 'cam 1 iris 80%', desc: 'Set camera iris (0–100%, or "open"/"close")' },
+          { syntax: 'cam 1 auto iris', desc: 'Enable auto iris on camera N' },
+          { syntax: 'cam 2 gain 12', desc: 'Set gain in dB on camera N' },
+          { syntax: 'cam 1 iso 800', desc: 'Set ISO on camera N' },
+          { syntax: 'cam 1 wb 5600', desc: 'Set white balance in Kelvin on camera N' },
+          { syntax: 'cam 1 auto wb', desc: 'Trigger auto white balance on camera N' },
+          { syntax: 'cam 1 shutter 180', desc: 'Set shutter angle/speed on camera N' },
+          { syntax: 'cam 1 auto focus', desc: 'Trigger auto focus on camera N' },
+          { syntax: 'cam 1 focus 75%', desc: 'Set focus manually (0–100%) on camera N' },
+          { syntax: 'cam 1 saturation 1.2', desc: 'Set color saturation on camera N' },
+          { syntax: 'cam 1 contrast 0.5', desc: 'Set contrast on camera N' },
+          { syntax: 'cam 1 reset color', desc: 'Reset color correction on camera N' },
+        ]
+      },
+      {
+        category: 'PTZ',
+        commands: [
+          { syntax: 'ptz 1 preset 3', desc: 'Recall preset N on PTZ camera N' },
+          { syntax: 'ptz 1 save preset 3', desc: 'Save current position as preset N' },
+          { syntax: 'ptz 1 home', desc: 'Move PTZ camera N to home position' },
+          { syntax: 'ptz 1 stop', desc: 'Stop PTZ movement on camera N' },
+          { syntax: 'ptz 1 zoom in', desc: 'Zoom in on PTZ camera N (use "out" or "stop")' },
+          { syntax: 'ptz 1 pan left', desc: 'Pan PTZ camera N left (use "right" or "stop")' },
+          { syntax: 'ptz 1 tilt up', desc: 'Tilt PTZ camera N up (use "down" or "stop")' },
+        ]
+      },
+      {
+        category: 'vMix',
+        commands: [
+          { syntax: 'start vMix stream', desc: 'Start streaming in vMix' },
+          { syntax: 'stop vMix stream', desc: 'Stop streaming in vMix' },
+          { syntax: 'start vMix recording', desc: 'Start recording in vMix' },
+          { syntax: 'stop vMix recording', desc: 'Stop recording in vMix' },
+          { syntax: 'vmix mute', desc: 'Mute vMix master audio' },
+          { syntax: 'vmix unmute', desc: 'Unmute vMix master audio' },
+          { syntax: 'vmix volume 80%', desc: 'Set vMix master volume (0–100%)' },
+          { syntax: 'vmix to program input 3', desc: 'Cut to input N in vMix program' },
+          { syntax: 'vmix preview input 2', desc: 'Set input N to vMix preview' },
+          { syntax: 'vmix cut', desc: 'Execute a cut transition in vMix' },
+          { syntax: 'vmix fade 500', desc: 'Fade to preview in vMix (ms optional)' },
+          { syntax: 'list vmix inputs', desc: 'List available vMix inputs' },
+          { syntax: 'vmix status', desc: 'Check if vMix is running' },
+          { syntax: 'vmix snapshot', desc: 'Take a vMix preview snapshot' },
+        ]
+      },
+      {
+        category: 'Encoder',
+        commands: [
+          { syntax: 'start encoder stream', desc: 'Start the hardware encoder stream' },
+          { syntax: 'stop encoder stream', desc: 'Stop the hardware encoder stream' },
+          { syntax: 'start encoder recording', desc: 'Start recording on the encoder' },
+          { syntax: 'stop encoder recording', desc: 'Stop recording on the encoder' },
+          { syntax: 'encoder status', desc: 'Get encoder status' },
+        ]
+      },
+      {
+        category: 'ProPresenter',
+        commands: [
+          { syntax: 'next slide', desc: 'Advance to the next slide' },
+          { syntax: 'previous slide', desc: 'Go back one slide' },
+          { syntax: 'go to slide 3', desc: 'Jump to a specific slide number' },
+          { syntax: 'last slide', desc: 'Jump to the last slide' },
+          { syntax: 'current slide', desc: "What's currently on screen?" },
+          { syntax: 'playlist', desc: "What's loaded in ProPresenter?" },
+          { syntax: 'clear all', desc: 'Clear all layers (blank everything)' },
+          { syntax: 'clear slide', desc: 'Clear the slide layer only' },
+          { syntax: 'stage message [name]', desc: 'Show a named stage message' },
+          { syntax: 'clear message', desc: 'Hide stage messages' },
+          { syntax: 'looks', desc: 'List available looks' },
+          { syntax: 'set look [name]', desc: 'Switch to a named look' },
+          { syntax: 'timers', desc: 'List available timers' },
+          { syntax: 'start timer [name]', desc: 'Start a named timer' },
+          { syntax: 'stop timer [name]', desc: 'Stop a named timer' },
+        ]
+      },
+      {
+        category: 'Audio Mixer',
+        commands: [
+          { syntax: 'mute channel 4', desc: 'Mute a channel on the console' },
+          { syntax: 'unmute channel 4', desc: 'Unmute a channel on the console' },
+          { syntax: 'mute master', desc: 'Mute master output' },
+          { syntax: 'unmute master', desc: 'Unmute master output' },
+          { syntax: 'channel 1 fader to 70%', desc: 'Set a channel fader level (0–100%)' },
+          { syntax: 'recall scene 2', desc: 'Recall a saved mixer scene by number' },
+          { syntax: 'save scene 2', desc: 'Save current state as scene N' },
+          { syntax: 'mixer status', desc: 'Get audio console status' },
+          { syntax: 'channel 3 status', desc: 'Get status of a specific channel' },
+          { syntax: 'name channel 3 to "Vocals"', desc: 'Set channel label' },
+          { syntax: 'enable HPF on channel 3', desc: 'Enable high-pass filter on channel N' },
+          { syntax: 'set HPF on channel 3 to 80hz', desc: 'Set HPF cutoff frequency' },
+          { syntax: 'pan channel 2 left', desc: 'Pan channel left, right, or center' },
+          { syntax: 'pan channel 2 to 50%', desc: 'Pan channel to position (-100 to 100%)' },
+          { syntax: 'set preamp gain on channel 1 to 12db', desc: 'Set preamp/trim gain' },
+          { syntax: 'enable phantom on channel 1', desc: 'Enable 48V phantom power on channel N' },
+          { syntax: 'set send from channel 1 to bus 3 to 80%', desc: 'Set channel send level to a bus' },
+          { syntax: 'mute DCA 2', desc: 'Mute a DCA group' },
+          { syntax: 'unmute DCA 2', desc: 'Unmute a DCA group' },
+          { syntax: 'set DCA 2 to 85%', desc: 'Set DCA fader level' },
+          { syntax: 'assign channel 5 to DCA 2', desc: 'Assign a channel to a DCA' },
+          { syntax: 'assign channel 5 to bus 2', desc: 'Assign a channel to a mix bus' },
+          { syntax: 'activate mute group 1', desc: 'Activate a mute group' },
+          { syntax: 'deactivate mute group 1', desc: 'Deactivate a mute group' },
+          { syntax: 'set channel 3 color red', desc: 'Set channel strip color' },
+          { syntax: 'clear solos', desc: 'Clear all soloed channels' },
+          { syntax: 'enable compressor on channel 3', desc: 'Enable dynamics/compressor on channel N' },
+          { syntax: 'enable gate on channel 3', desc: 'Enable noise gate on channel N' },
+          { syntax: 'enable EQ on channel 3', desc: 'Enable EQ on channel N' },
+          { syntax: 'press softkey 3', desc: 'Press a console softkey by number' },
+        ]
+      },
+      {
+        category: 'Video Hub',
+        commands: [
+          { syntax: 'route camera 2 to monitor 3', desc: 'Route a Video Hub input to an output' },
+          { syntax: "what's on monitor 1?", desc: 'Check what is routed to an output' },
+          { syntax: 'show routing', desc: 'Show all current Video Hub routes' },
+          { syntax: 'rename input 3 to "Stage Cam"', desc: 'Rename a Video Hub input' },
+          { syntax: 'rename output 2 to "FOH Screen"', desc: 'Rename a Video Hub output' },
+        ]
+      },
+      {
+        category: 'Companion',
+        commands: [
+          { syntax: 'press "button name"', desc: 'Press a named Companion button' },
+          { syntax: 'play the "video name"', desc: 'Play a video via Companion' },
+        ]
+      },
+      {
+        category: 'Dante',
+        commands: [
+          { syntax: 'load dante scene [name]', desc: 'Load a saved Dante routing scene via Companion' },
+        ]
+      },
+      {
+        category: 'Resolume',
+        commands: [
+          { syntax: 'trigger column 3', desc: 'Trigger a Resolume column by number' },
+          { syntax: 'trigger column "Opener"', desc: 'Trigger a Resolume column by name' },
+          { syntax: 'play clip "My Clip"', desc: 'Play a clip by name in Resolume' },
+          { syntax: 'clear resolume', desc: 'Black out / clear all Resolume output' },
+          { syntax: 'set bpm 120', desc: 'Set Resolume BPM' },
+        ]
+      },
+      {
+        category: 'System & Status',
+        commands: [
+          { syntax: 'status', desc: 'Get a full system status overview' },
+          { syntax: "show me what's on screen", desc: 'Get a live screenshot from the switcher' },
+          { syntax: 'pre-service check', desc: 'Run automated pre-service checklist' },
+          { syntax: 'msg [text]', desc: 'Send a message to the rest of your team' },
+        ]
+      },
+      {
+        category: 'Troubleshooting (/fix)',
+        commands: [
+          { syntax: '/fix obs', desc: 'OBS connection troubleshooting guide' },
+          { syntax: '/fix atem', desc: 'ATEM connection troubleshooting guide' },
+          { syntax: '/fix stream', desc: 'Stream not working — step-by-step fix' },
+          { syntax: '/fix audio', desc: 'Audio problem troubleshooting guide' },
+          { syntax: '/fix encoder', desc: 'Encoder troubleshooting guide' },
+          { syntax: '/fix recording', desc: 'Recording issue troubleshooting guide' },
+          { syntax: '/fix companion', desc: 'Bitfocus Companion troubleshooting guide' },
+          { syntax: '/fix network', desc: 'Network troubleshooting guide' },
+          { syntax: '/fix preservice', desc: 'Pre-service checklist' },
+          { syntax: '/fix restart', desc: 'Full system restart guide (order matters)' },
+        ]
+      },
+      {
+        category: 'Support',
+        commands: [
+          { syntax: '/support', desc: 'List your latest open support tickets' },
+          { syntax: '/support [summary]', desc: 'Open a new support ticket with a description' },
+          { syntax: '/diagnose [category]', desc: 'Run quick diagnostics for a device category' },
+        ]
+      },
+    ];
+
+    var list = document.getElementById('commands-list');
+    var noResults = document.getElementById('commands-no-results');
+    var search = document.getElementById('commands-search');
+
+    function renderCommands(filter) {
+      filter = (filter || '').toLowerCase().trim();
+      list.innerHTML = '';
+      var anyVisible = false;
+      COMMANDS.forEach(function(cat) {
+        var cmds = filter
+          ? cat.commands.filter(function(c) {
+              return c.syntax.toLowerCase().includes(filter) || c.desc.toLowerCase().includes(filter) || cat.category.toLowerCase().includes(filter);
+            })
+          : cat.commands;
+        if (!cmds.length) return;
+        anyVisible = true;
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.style.marginBottom = '12px';
+        var title = document.createElement('div');
+        title.className = 'card-title';
+        title.style.marginBottom = '10px';
+        title.textContent = cat.category;
+        card.appendChild(title);
+        var table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse';
+        cmds.forEach(function(cmd) {
+          var tr = document.createElement('tr');
+          tr.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.04)';
+          var tdSyntax = document.createElement('td');
+          tdSyntax.style.cssText = 'padding:8px 0;width:45%;vertical-align:top';
+          tdSyntax.innerHTML = '<code style="font-size:12px;color:#00E676;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.15);border-radius:4px;padding:2px 7px;white-space:nowrap">' + _escHtml(cmd.syntax) + '</code>';
+          var tdDesc = document.createElement('td');
+          tdDesc.style.cssText = 'padding:8px 8px;color:#8B9DAF;font-size:13px;vertical-align:top';
+          tdDesc.textContent = cmd.desc;
+          var tdCopy = document.createElement('td');
+          tdCopy.style.cssText = 'padding:8px 0;text-align:right;white-space:nowrap;vertical-align:top';
+          var btn = document.createElement('button');
+          btn.textContent = 'Copy';
+          btn.style.cssText = 'font-size:11px;font-weight:600;color:#556270;background:transparent;border:1px solid #0d3320;border-radius:5px;padding:2px 9px;cursor:pointer;transition:color 0.15s,border-color 0.15s';
+          btn.addEventListener('mouseenter', function() { btn.style.color = '#00E676'; btn.style.borderColor = 'rgba(0,230,118,0.3)'; });
+          btn.addEventListener('mouseleave', function() { btn.style.color = '#556270'; btn.style.borderColor = '#0d3320'; });
+          btn.addEventListener('click', function() {
+            navigator.clipboard.writeText(cmd.syntax).then(function() {
+              btn.textContent = 'Copied!';
+              btn.style.color = '#00E676';
+              setTimeout(function() { btn.textContent = 'Copy'; btn.style.color = '#556270'; btn.style.borderColor = '#0d3320'; }, 1500);
+            }).catch(function() {
+              btn.textContent = 'Copy';
+            });
+          });
+          tdCopy.appendChild(btn);
+          tr.appendChild(tdSyntax);
+          tr.appendChild(tdDesc);
+          tr.appendChild(tdCopy);
+          table.appendChild(tr);
+        });
+        card.appendChild(table);
+        list.appendChild(card);
+      });
+      noResults.style.display = anyVisible ? 'none' : 'block';
+    }
+
+    renderCommands('');
+
+    search.addEventListener('input', function() {
+      renderCommands(search.value);
+    });
   }
 
   async function loadAiTriagePage() {
