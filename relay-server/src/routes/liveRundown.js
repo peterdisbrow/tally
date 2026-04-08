@@ -503,7 +503,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
   /**
    * POST /api/churches/:churchId/rundown-plans/:planId/items
    * Add an item to a manual plan.
-   * Body: { title: string, itemType?: string, lengthSeconds?: number, notes?: string }
+   * Body: { title: string, itemType?: string, lengthSeconds?: number, notes?: string, assignee?: string }
    */
   app.post('/api/churches/:churchId/rundown-plans/:planId/items',
     requireChurchOrAdmin,
@@ -511,7 +511,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, itemType, lengthSeconds, notes } = req.body;
+      const { title, itemType, lengthSeconds, notes, assignee } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
@@ -524,6 +524,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           itemType: itemType || 'other',
           lengthSeconds: parseInt(lengthSeconds, 10) || 0,
           notes: notes || '',
+          assignee: assignee || '',
         });
         res.json(item);
       } catch (e) {
@@ -536,7 +537,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
   /**
    * PUT /api/churches/:churchId/rundown-plans/:planId/items/:itemId
    * Update an item.
-   * Body: { title?: string, itemType?: string, lengthSeconds?: number, notes?: string }
+   * Body: { title?: string, itemType?: string, lengthSeconds?: number, notes?: string, assignee?: string }
    */
   app.put('/api/churches/:churchId/rundown-plans/:planId/items/:itemId',
     requireChurchOrAdmin,
@@ -549,11 +550,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!plan || plan.churchId !== churchId) {
           return res.status(404).json({ error: 'Plan not found' });
         }
-        const { title, itemType, lengthSeconds, notes } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee } = req.body;
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
           lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
-          notes,
+          notes, assignee,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
