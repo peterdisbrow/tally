@@ -151,7 +151,7 @@ async function flushOfflineQueue() {
 // ─── PORTAL DISCOVERY ─────────────────────────────────────────────────────────
 
 function openPortal(path) {
-  const base = 'https://tallyconnect.app/portal';
+  const base = 'https://tallyconnect.app/church-portal';
   const url = path ? base + path : base;
   if (api.openExternal) {
     api.openExternal(url);
