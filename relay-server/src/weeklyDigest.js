@@ -691,7 +691,7 @@ class WeeklyDigest {
         try {
           await this.saveDigest();
           await this.sendChurchDigests();
-        } catch (e) { console.error('[WeeklyDigest] Error:', e.message); }
+        } catch (e) { console.error('[WeeklyDigest] Error:', e); }
       }
     }, 5 * 60 * 1000);
   }

@@ -287,7 +287,7 @@ async function runAnalysis(opts = {}) {
     }
 
     // Push results to relay server (fire-and-forget)
-    pushReportToRelay(report, goNoGo, runEntry).catch(() => {});
+    pushReportToRelay(report, goNoGo, runEntry).catch(err => console.error('[ProblemFinder] Error:', err));
 
     return { report, goNoGo, runEntry };
   } catch (err) {
@@ -323,7 +323,7 @@ function onAgentEvent(text) {
   for (const trigger of EVENT_TRIGGERS) {
     if (trigger.pattern.test(text)) {
       _lastEventRunAt = now;
-      runAnalysis({ triggerType: 'event', triggerReason: trigger.reason }).catch(() => {});
+      runAnalysis({ triggerType: 'event', triggerReason: trigger.reason }).catch(err => console.error('[ProblemFinder] Error:', err));
       return; // Only trigger once per event batch
     }
   }
@@ -342,7 +342,7 @@ function startScheduledSweeps(opts = {}) {
     if (!engine) return;
     if (!getFeatureFlags().problemFinderDesktopEnabled) return;
 
-    runAnalysis({ triggerType: 'schedule', triggerReason: 'scheduled-sweep' }).catch(() => {});
+    runAnalysis({ triggerType: 'schedule', triggerReason: 'scheduled-sweep' }).catch(err => console.error('[ProblemFinder] Error:', err));
 
     // Re-schedule with appropriate interval
     const interval = isInLiveWindow() ? liveIntervalMs : idleIntervalMs;
@@ -380,7 +380,7 @@ function schedulePreflight(streamAt) {
           triggerType: 'preflight',
           triggerReason: `T-${offset / 60_000}min`,
           scheduledStreamAt: new Date(streamTime).toISOString(),
-        }).catch(() => {});
+        }).catch(err => console.error('[ProblemFinder] Error:', err));
       }, runAt - now);
       _preflightTimers.push(timer);
     }

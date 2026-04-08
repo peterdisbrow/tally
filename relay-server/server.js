@@ -1694,31 +1694,19 @@ app.get('/api/notifications/unsubscribe', async (req, res) => {
     if (!churchId || !email || !type) throw new Error('Invalid token payload');
 
     const church = await queryClient.queryOne(
-      'SELECT notifications FROM churches WHERE churchId = ?',
+      'SELECT churchId FROM churches WHERE churchId = ?',
       [churchId],
     );
     if (!church) {
       return res.status(404).type('html').send('<!doctype html><html><body><h1>Church not found</h1><p>This unsubscribe link is no longer valid.</p></body></html>');
     }
 
-    let notifications = {};
-    try { notifications = JSON.parse(church.notifications || '{}'); } catch {}
-    if (type === 'digest') notifications.digest = false;
-    if (type === 'report') notifications.monthlyReport = false;
-
-    await queryClient.run(
-      'UPDATE churches SET notifications = ? WHERE churchId = ?',
-      [JSON.stringify(notifications), churchId],
-    );
-    lifecycleEmails.setPreference(
-      churchId,
-      type === 'digest' ? 'weekly-digest' : 'monthly-reports',
-      false,
-    );
+    const category = type === 'digest' ? 'weekly-digest' : 'monthly-reports';
+    lifecycleEmails.unsubscribeRecipient(churchId, email, category);
 
     const label = type === 'digest' ? 'weekly digest emails' : 'monthly report emails';
     return res.type('html').send(
-      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(label)} for this church.</p></body></html>`,
+      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(label)}.</p></body></html>`,
     );
   } catch {
     return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is invalid or has expired.</p></body></html>');

@@ -991,24 +991,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── mobile nav ──────────────────────────────────────────────────────────────
-    function preventBodyScroll(e) {
-      if (!e.target.closest('.sidebar')) {
-        e.preventDefault();
-      }
-    }
-
     function toggleMobileNav() {
       var sidebar = document.getElementById('sidebar-nav');
       var overlay = document.getElementById('sidebar-overlay');
       var open = sidebar.classList.toggle('open');
       overlay.classList.toggle('open', open);
-      document.body.classList.toggle('sidebar-open', open);
-      document.documentElement.classList.toggle('sidebar-open', open);
-      if (open) {
-        document.addEventListener('touchmove', preventBodyScroll, { passive: false });
-      } else {
-        document.removeEventListener('touchmove', preventBodyScroll);
-      }
     }
 
     // ── Overview Sections: Collapse + Drag-and-Drop ────────────────────────────
@@ -1031,7 +1018,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (rawOrder) savedOrder = JSON.parse(rawOrder);
         var rawCollapsed = localStorage.getItem('portal_section_collapsed');
         if (rawCollapsed) savedCollapsed = JSON.parse(rawCollapsed);
-      } catch(e) {}
+      } catch(e) { console.warn('[Portal] Section reorder failed:', e); }
 
       // Reorder DOM according to saved order
       if (savedOrder && Array.isArray(savedOrder)) {
@@ -1172,16 +1159,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function _saveOverviewSectionOrder(container) {
       var order = Array.from(container.querySelectorAll(':scope > .card[data-section-id]'))
         .map(function(c) { return c.getAttribute('data-section-id'); });
-      try { localStorage.setItem('portal_section_order', JSON.stringify(order)); } catch(e) {}
+      try { localStorage.setItem('portal_section_order', JSON.stringify(order)); } catch(e) { console.warn('[Portal] localStorage save failed:', e); }
     }
 
     function _saveOverviewCollapsed(sectionId, collapsed) {
       try {
         var state = {};
-        try { state = JSON.parse(localStorage.getItem('portal_section_collapsed') || '{}'); } catch(e) {}
+        try { state = JSON.parse(localStorage.getItem('portal_section_collapsed') || '{}'); } catch(e) { console.warn('[Portal] JSON parse failed:', e); }
         state[sectionId] = collapsed;
         localStorage.setItem('portal_section_collapsed', JSON.stringify(state));
-      } catch(e) {}
+      } catch(e) { console.warn('[Portal] localStorage save failed:', e); }
     }
 
     // ── navigation ──────────────────────────────────────────────────────────────
@@ -1196,9 +1183,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
-      document.body.classList.remove('sidebar-open');
-      document.documentElement.classList.remove('sidebar-open');
-      document.removeEventListener('touchmove', preventBodyScroll);
       if (id === 'overview') { initOverviewSections(); loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
       if (id === 'rooms') { loadRooms(); }
@@ -2879,48 +2863,69 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Auto-refresh polling ─────────────────────────────────────────────────
     var _overviewPollTimer = null;
+    var _overviewPollActive = false;
+    var _overviewPollBackoff = 1000;
     var OVERVIEW_POLL_MS = 15000;
+
+    function scheduleOverviewPoll(delay) {
+      if (!_overviewPollActive) return;
+      _overviewPollTimer = setTimeout(async function() {
+        if (!_overviewPollActive) return;
+        try {
+          await refreshOverviewData();
+          _overviewPollBackoff = 1000;
+          scheduleOverviewPoll(OVERVIEW_POLL_MS);
+        } catch (e) {
+          console.warn('[Portal] Poll failed, backing off:', e.message);
+          var delayMs = Math.min(_overviewPollBackoff, 30000);
+          _overviewPollBackoff = Math.min(_overviewPollBackoff * 2, 30000);
+          scheduleOverviewPoll(delayMs);
+        }
+      }, delay);
+    }
 
     function startOverviewPoll() {
       stopOverviewPoll();
-      _overviewPollTimer = setInterval(refreshOverviewData, OVERVIEW_POLL_MS);
+      _overviewPollActive = true;
+      _overviewPollBackoff = 1000;
+      scheduleOverviewPoll(OVERVIEW_POLL_MS);
     }
     function stopOverviewPoll() {
-      if (_overviewPollTimer) { clearInterval(_overviewPollTimer); _overviewPollTimer = null; }
+      _overviewPollActive = false;
+      if (_overviewPollTimer) { clearTimeout(_overviewPollTimer); _overviewPollTimer = null; }
+      _overviewPollBackoff = 1000;
     }
 
     async function refreshOverviewData() {
-      try {
-        var d = await api('GET', '/api/church/me' + roomParam());
-        var status = d.status || {};
-        var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
-        var audioViaAtem = !!(d.audio_via_atem);
+      var d = await api('GET', '/api/church/me' + roomParam());
+      var status = d.status || {};
+      var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
+      var audioViaAtem = !!(d.audio_via_atem);
 
-        // Connection status
-        var statusText = document.getElementById('stat-status-text');
-        var statusDot = document.getElementById('stat-status-dot');
-        if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
-        if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
+      // Connection status
+      var statusText = document.getElementById('stat-status-text');
+      var statusDot = document.getElementById('stat-status-dot');
+      if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+      if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
 
-        // Staleness
-        var stalenessEl = document.getElementById('equip-staleness');
-        if (stalenessEl && d.lastSeen) {
-          var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
-          if (ago < 60) stalenessEl.textContent = 'Updated just now';
-          else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
-          else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
-          stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
-        }
+      // Staleness
+      var stalenessEl = document.getElementById('equip-staleness');
+      if (stalenessEl && d.lastSeen) {
+        var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
+        if (ago < 60) stalenessEl.textContent = 'Updated just now';
+        else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
+        else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
+        stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
+      }
 
-        // Cards
-        updateStreamStats(status, enc);
-        updateBroadcastHealthCard(window._lastBroadcastHealth || null);
-        updateAtemDetailCard(status);
-        updateAudioHealthCard(status, audioViaAtem);
-        loadRundown();
-        loadIncidents();
-        loadActivityFeed();
-      } catch (e) { /* silent fail on poll */ }
+      // Cards
+      updateStreamStats(status, enc);
+      updateBroadcastHealthCard(window._lastBroadcastHealth || null);
+      updateAtemDetailCard(status);
+      updateAudioHealthCard(status, audioViaAtem);
+      loadRundown();
+      loadIncidents();
+      loadActivityFeed();
     }
 
     document.addEventListener('visibilitychange', function() {
@@ -3739,19 +3744,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var redirectUri = d.redirectUri;
         var polls = 0;
         var maxPolls = 60;
-        clearInterval(_portalFbPollTimer);
-        _portalFbPollTimer = setInterval(async function() {
+        var pollBackoff = 1000;
+        clearTimeout(_portalFbPollTimer);
+        async function pollPortalFacebook() {
           polls++;
           if (polls > maxPolls) {
-            clearInterval(_portalFbPollTimer);
+            clearTimeout(_portalFbPollTimer);
             if (status) { status.textContent = 'Timed out — try again'; status.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             return;
           }
           try {
             var pending = await api('GET', '/api/church/oauth/facebook/pending?state=' + encodeURIComponent(state));
+            pollBackoff = 1000;
             if (pending.ready && pending.code) {
-              clearInterval(_portalFbPollTimer);
+              clearTimeout(_portalFbPollTimer);
               if (status) { status.textContent = 'Exchanging token…'; }
               var result = await api('POST', '/api/church/oauth/facebook/exchange', { code: pending.code, redirectUri: redirectUri });
               if (result.success && result.pages && result.pages.length) {
@@ -3765,9 +3772,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+              return;
             }
-          } catch (e) { /* keep polling */ }
-        }, 2000);
+            _portalFbPollTimer = setTimeout(pollPortalFacebook, 2000);
+          } catch (e) {
+            console.warn('[Portal] Poll failed, backing off:', e.message);
+            var delay = Math.min(pollBackoff, 30000);
+            pollBackoff = Math.min(pollBackoff * 2, 30000);
+            _portalFbPollTimer = setTimeout(pollPortalFacebook, delay);
+          }
+        }
+        _portalFbPollTimer = setTimeout(pollPortalFacebook, 2000);
       } catch (e) {
         if (status) { status.textContent = e.message || 'Failed to start'; status.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
@@ -4017,16 +4032,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var popup = window.open(d.authUrl, 'pco_oauth', 'width=600,height=700,scrollbars=yes');
 
         // Poll for popup close, then reload status
-        var pollTimer = setInterval(function() {
+        var pollTimer = null;
+        var pollBackoff = 1000;
+        function pollPlanningCenter() {
           try {
             if (!popup || popup.closed) {
-              clearInterval(pollTimer);
+              clearTimeout(pollTimer);
               if (btn) { btn.disabled = false; }
               if (msg) { msg.textContent = ''; }
               loadPcoStatus();
+              return;
             }
-          } catch (e) { /* cross-origin — keep polling */ }
-        }, 1000);
+            pollBackoff = 1000;
+            pollTimer = setTimeout(pollPlanningCenter, 1000);
+          } catch (e) {
+            console.warn('[Portal] Poll failed, backing off:', e.message);
+            var delay = Math.min(pollBackoff, 30000);
+            pollBackoff = Math.min(pollBackoff * 2, 30000);
+            pollTimer = setTimeout(pollPlanningCenter, delay);
+          }
+        }
+        pollTimer = setTimeout(pollPlanningCenter, 1000);
       } catch (e) {
         if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect Planning Center'; }
@@ -4054,19 +4080,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var redirectUri = d.redirectUri;
         var polls = 0;
         var maxPolls = 60;
-        clearInterval(_connYtPollTimer);
-        _connYtPollTimer = setInterval(async function() {
+        var pollBackoff = 1000;
+        clearTimeout(_connYtPollTimer);
+        async function pollYouTubeConnect() {
           polls++;
           if (polls > maxPolls) {
-            clearInterval(_connYtPollTimer);
+            clearTimeout(_connYtPollTimer);
             if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
             return;
           }
           try {
             var pending = await api('GET', '/api/church/oauth/youtube/pending?state=' + encodeURIComponent(state));
+            pollBackoff = 1000;
             if (pending.ready && pending.code) {
-              clearInterval(_connYtPollTimer);
+              clearTimeout(_connYtPollTimer);
               if (msg) { msg.textContent = 'Exchanging token\u2026'; }
               var result = await api('POST', '/api/church/oauth/youtube/exchange', { code: pending.code, redirectUri: redirectUri });
               if (result.success) {
@@ -4076,9 +4104,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; }
+              return;
             }
-          } catch (e) { /* keep polling */ }
-        }, 2000);
+            _connYtPollTimer = setTimeout(pollYouTubeConnect, 2000);
+          } catch (e) {
+            console.warn('[Portal] Poll failed, backing off:', e.message);
+            var delay = Math.min(pollBackoff, 30000);
+            pollBackoff = Math.min(pollBackoff * 2, 30000);
+            _connYtPollTimer = setTimeout(pollYouTubeConnect, delay);
+          }
+        }
+        _connYtPollTimer = setTimeout(pollYouTubeConnect, 2000);
       } catch (e) {
         if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
@@ -4108,19 +4144,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var redirectUri = d.redirectUri;
         var polls = 0;
         var maxPolls = 60;
-        clearInterval(_connFbPollTimer);
-        _connFbPollTimer = setInterval(async function() {
+        var pollBackoff = 1000;
+        clearTimeout(_connFbPollTimer);
+        async function pollFacebookConnect() {
           polls++;
           if (polls > maxPolls) {
-            clearInterval(_connFbPollTimer);
+            clearTimeout(_connFbPollTimer);
             if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             return;
           }
           try {
             var pending = await api('GET', '/api/church/oauth/facebook/pending?state=' + encodeURIComponent(state));
+            pollBackoff = 1000;
             if (pending.ready && pending.code) {
-              clearInterval(_connFbPollTimer);
+              clearTimeout(_connFbPollTimer);
               if (msg) { msg.textContent = 'Exchanging token\u2026'; }
               var result = await api('POST', '/api/church/oauth/facebook/exchange', { code: pending.code, redirectUri: redirectUri });
               if (result.success && result.pages && result.pages.length) {
@@ -4134,9 +4172,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+              return;
             }
-          } catch (e) { /* keep polling */ }
-        }, 2000);
+            _connFbPollTimer = setTimeout(pollFacebookConnect, 2000);
+          } catch (e) {
+            console.warn('[Portal] Poll failed, backing off:', e.message);
+            var delay = Math.min(pollBackoff, 30000);
+            pollBackoff = Math.min(pollBackoff * 2, 30000);
+            _connFbPollTimer = setTimeout(pollFacebookConnect, delay);
+          }
+        }
+        _connFbPollTimer = setTimeout(pollFacebookConnect, 2000);
       } catch (e) {
         if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
@@ -4346,7 +4392,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('eng-backup-switcher').value = ep.backupSwitcher || '';
         document.getElementById('eng-special-notes').value = ep.specialNotes || '';
         updateTrainingBadge(ep);
-      } catch(e) { /* silent — profile may not have loaded yet */ }
+      } catch(e) {
+        console.warn('[Portal] Profile load failed:', e);
+        toast('Failed to load profile', true);
+      }
     }
     loadEngineerProfile();
     loadCoaching();
@@ -4400,7 +4449,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           renderEngineerChat();
         }
-      } catch(e) { /* silent */ }
+      } catch(e) {
+        console.warn('[Portal] Engineer chat load failed:', e);
+        if (!engineerChatMsgs.length) toast('Failed to load chat', true);
+      }
     }
 
     async function startEngineerChatPoll() {
@@ -4425,7 +4477,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           hideEngineerThinking();
           renderEngineerChat();
         }
-      } catch(e) { /* silent */ }
+      } catch(e) {
+        console.warn('[Portal] Engineer chat load failed:', e);
+        if (!engineerChatMsgs.length) toast('Failed to load chat', true);
+      }
     }
 
     function renderEngineerChat() {

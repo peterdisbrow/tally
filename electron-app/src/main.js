@@ -1540,6 +1540,11 @@ ipcMain.handle('upload-chat-file', async (_, { message, filePath, fileName, mime
 
   try {
     // Read file and base64-encode
+    const resolvedPath = require('path').resolve(filePath);
+    const homeDir = require('os').homedir();
+    if (resolvedPath !== homeDir && !resolvedPath.startsWith(homeDir + require('path').sep)) {
+      throw new Error('File path outside home directory');
+    }
     const fileData = require('fs').readFileSync(filePath);
     const base64Data = fileData.toString('base64');
 

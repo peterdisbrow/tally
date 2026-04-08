@@ -83,7 +83,7 @@ class EventMode {
    */
   async createEvent({ name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail }) {
     await this.ready;
-    const JWT_SECRET  = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+    const JWT_SECRET  = process.env.JWT_SECRET;
     const churchId    = uuidv4();
     const now         = new Date();
     const expiresAt   = new Date(now.getTime() + durationHours * 60 * 60 * 1000).toISOString();

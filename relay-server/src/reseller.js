@@ -659,7 +659,7 @@ class ResellerSystem {
       if (existing) throw new Error(`A church named "${churchName}" already exists`);
 
       const churchId = uuidv4();
-      const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+      const jwtSecret = process.env.JWT_SECRET;
       const token = jwt.sign({ churchId, name: churchName }, jwtSecret, { expiresIn: '365d' });
       const registeredAt = new Date().toISOString();
       const regCode = crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -682,7 +682,7 @@ class ResellerSystem {
     if (existing) throw new Error(`A church named "${churchName}" already exists`);
 
     const churchId = uuidv4();
-    const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+    const jwtSecret = process.env.JWT_SECRET;
     const token = jwt.sign({ churchId, name: churchName }, jwtSecret, { expiresIn: '365d' });
     const registeredAt = new Date().toISOString();
     const regCode = crypto.randomBytes(3).toString('hex').toUpperCase();

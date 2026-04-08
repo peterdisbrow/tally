@@ -6,6 +6,10 @@
  */
 const { createQueryClient } = require('./db');
 
+const intervals = [];
+process.on('SIGTERM', () => intervals.forEach(clearInterval));
+process.on('SIGINT', () => intervals.forEach(clearInterval));
+
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
   isSqlite: true,
@@ -65,6 +69,7 @@ class MonthlyReport {
   start() {
     // Check every 15 minutes — fires when it's the 1st at 9 AM
     this._timer = setInterval(() => this._tick(), 15 * 60 * 1000);
+    intervals.push(this._timer);
     console.log('[MonthlyReport] Started — fires on 1st of each month at 9 AM');
 
     // Catch-up: if the relay restarted on the 1st between 9:00 and 9:14 we would
@@ -228,6 +233,7 @@ class MonthlyReport {
       try {
         const church = await this._one('SELECT * FROM churches WHERE churchId = ?', [churchId]);
         if (church) {
+          // Per-recipient opt-out is handled in sendEmail() via _isRecipientUnsubscribed()
           const [year, mon] = month.split('-').map(Number);
           const startDate = new Date(year, mon - 1, 1).toISOString();
           const endDate = new Date(year, mon, 1).toISOString();

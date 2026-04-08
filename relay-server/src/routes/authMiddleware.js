@@ -142,7 +142,7 @@ module.exports = function createAuthMiddleware(ctx) {
         if (!reseller) return res.status(403).json({ error: 'Invalid or deactivated reseller key' });
         req.reseller = reseller;
         next();
-      })();
+      })().catch(next);
     }
 
     const key = req.headers['x-reseller-key'];

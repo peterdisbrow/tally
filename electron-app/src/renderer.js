@@ -610,7 +610,8 @@ function asyncStreamGuardConfirm(action, severity = 'critical') {
     body.style.cssText = 'padding:18px;';
     const desc = document.createElement('div');
     desc.style.cssText = 'margin-bottom:6px;font-size:14px;';
-    desc.innerHTML = `You're about to <strong>${action}</strong>.`;
+    const safeAction = action.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    desc.innerHTML = `You're about to <strong>${safeAction}</strong>.`;
     const sub = document.createElement('div');
     sub.style.cssText = 'font-size:12px;color:var(--muted,#94a3b8);margin-bottom:20px;';
     sub.textContent = isCritical
@@ -637,13 +638,13 @@ function asyncStreamGuardConfirm(action, severity = 'critical') {
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
-    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    const cleanup = (val) => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
     btnCancel.addEventListener('click', () => cleanup(false));
     btnOk.addEventListener('click', () => cleanup(true));
     // Clicking outside dismisses as cancel (safe default)
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
     // ESC key = cancel
-    const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(false); } };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
     document.addEventListener('keydown', onKey);
   });
 }

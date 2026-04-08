@@ -14,6 +14,8 @@
  * Duplicate prevention via `email_sends` table — each email type sent once per church.
  */
 
+const jwt = require('jsonwebtoken');
+
 const DOWNLOAD_MAC_URL = 'https://github.com/peterdisbrow/tally/releases/download/v1.0.1/Tally-signed.dmg';
 
 class LifecycleEmails {
@@ -87,6 +89,17 @@ class LifecycleEmails {
       )
     `);
 
+    // Per-recipient unsubscribe table — individual recipients can opt out
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS email_unsubscribes (
+        church_id TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        category TEXT NOT NULL,
+        unsubscribed_at TEXT NOT NULL,
+        PRIMARY KEY (church_id, recipient, category)
+      )
+    `);
+
     // Sales leads table for lead capture + drip nurture sequences
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sales_leads (
@@ -156,12 +169,13 @@ class LifecycleEmails {
   async refreshCache() {
     if (!this.queryClient) return this._cache;
 
-    const [churches, preferences, overrides, emailSends, leads] = await Promise.all([
+    const [churches, preferences, overrides, emailSends, leads, unsubscribes] = await Promise.all([
       this._queryAll('SELECT churchId, name FROM churches'),
       this._queryAll('SELECT church_id, category, enabled, updated_at FROM email_preferences'),
       this._queryAll('SELECT email_type, subject, html, updated_at FROM email_template_overrides'),
       this._queryAll('SELECT id, church_id, email_type, recipient, sent_at, resend_id, subject FROM email_sends'),
       this._queryAll('SELECT id, email, name, church_name, source, captured_at, status FROM sales_leads'),
+      this._queryAll('SELECT church_id, recipient, category, unsubscribed_at FROM email_unsubscribes'),
     ].map(async (promise) => {
       try { return await promise; } catch { return []; }
     }));
@@ -189,6 +203,8 @@ class LifecycleEmails {
     this._cache.salesLeadsByEmail = new Map(
       (leads || []).map((row) => [row.email, row])
     );
+
+    this._cache.recipientUnsubscribes = unsubscribes || [];
 
     return this._cache;
   }
@@ -318,9 +334,12 @@ class LifecycleEmails {
       return { sent: false, reason: 'no-recipient' };
     }
 
-    // Check email preferences — respect opt-outs
+    // Check email preferences — respect opt-outs (church-wide and per-recipient)
     if (this._isOptedOut(churchId, emailType)) {
       return { sent: false, reason: 'opted-out' };
+    }
+    if (this._isRecipientUnsubscribed(churchId, to, emailType)) {
+      return { sent: false, reason: 'recipient-unsubscribed' };
     }
 
     // Check for admin template overrides
@@ -390,6 +409,8 @@ class LifecycleEmails {
   _getCategoryForType(emailType) {
     // Session recaps have dynamic keys like session-recap-{id}
     if (emailType.startsWith('session-recap')) return 'service-recaps';
+    if (emailType.startsWith('weekly-digest-email-') || emailType.startsWith('weekly-digest-')) return 'weekly-digest';
+    if (emailType.startsWith('monthly-report-email-') || emailType.startsWith('monthly-roi-summary-')) return 'monthly-reports';
     for (const [cat, def] of Object.entries(LifecycleEmails.EMAIL_CATEGORIES)) {
       if (def.types.includes(emailType)) return cat;
     }
@@ -454,6 +475,56 @@ class LifecycleEmails {
       this.db.prepare(
         'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)'
       ).run(churchId, category, enabled ? 1 : 0, now);
+      return true;
+    } catch { return false; }
+  }
+
+  /** Check if a specific recipient has unsubscribed from a category */
+  _isRecipientUnsubscribed(churchId, recipient, emailType) {
+    if (!recipient) return false;
+    const category = this._getCategoryForType(emailType);
+    if (!category) return false;
+    const normalizedEmail = recipient.trim().toLowerCase();
+    if (this.queryClient) {
+      const unsubs = this._cache.recipientUnsubscribes;
+      return unsubs ? unsubs.some(r =>
+        (r.church_id || r.churchId) === churchId &&
+        r.recipient === normalizedEmail &&
+        r.category === category
+      ) : false;
+    }
+    try {
+      const row = this.db.prepare(
+        'SELECT 1 FROM email_unsubscribes WHERE church_id = ? AND recipient = ? AND category = ?'
+      ).get(churchId, normalizedEmail, category);
+      return !!row;
+    } catch { return false; }
+  }
+
+  /** Unsubscribe a specific recipient from a category */
+  unsubscribeRecipient(churchId, recipient, category) {
+    const normalizedEmail = recipient.trim().toLowerCase();
+    const now = new Date().toISOString();
+    if (this.queryClient) {
+      if (!this._cache.recipientUnsubscribes) this._cache.recipientUnsubscribes = [];
+      const existing = this._cache.recipientUnsubscribes.find(r =>
+        (r.church_id || r.churchId) === churchId &&
+        r.recipient === normalizedEmail &&
+        r.category === category
+      );
+      if (!existing) {
+        this._cache.recipientUnsubscribes.push({ church_id: churchId, recipient: normalizedEmail, category, unsubscribed_at: now });
+      }
+      void this._queueWrite(() => this._run(
+        'INSERT OR REPLACE INTO email_unsubscribes (church_id, recipient, category, unsubscribed_at) VALUES (?, ?, ?, ?)',
+        [churchId, normalizedEmail, category, now],
+      ));
+      return true;
+    }
+    try {
+      this.db.prepare(
+        'INSERT OR REPLACE INTO email_unsubscribes (church_id, recipient, category, unsubscribed_at) VALUES (?, ?, ?, ?)'
+      ).run(churchId, normalizedEmail, category, now);
       return true;
     } catch { return false; }
   }
@@ -584,6 +655,7 @@ class LifecycleEmails {
     const topAlertType = digestData.topAlertType || null;
 
     const subject = `Your Week in Review — ${church.name || 'Your Church'}`;
+    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'digest');
     const patternRows = patterns.length > 0
       ? patterns.map(p => `<li style="margin-bottom:6px;">${this._esc(p.pattern)} <span style="color:#475569;">— ${this._esc(p.timeWindow || '')}</span>${p.recommendation ? `<br><span style="color:#22c55e; font-size:12px;">&rarr; ${this._esc(p.recommendation)}</span>` : ''}</li>`).join('')
       : '<li style="color:#22c55e;">No recurring issues this week</li>';
@@ -605,6 +677,7 @@ class LifecycleEmails {
           <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
         <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
+        ${unsubscribeFooter}
       </div>
     `;
 
@@ -632,6 +705,7 @@ class LifecycleEmails {
     const monthLabel = reportData.monthLabel || month;
 
     const subject = `Monthly Production Report — ${church.name || 'Your Church'}`;
+    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'report');
 
     // Build narrative insight line
     const recoveryRate = alertsTriggered > 0 ? Math.round((autoRecovered / alertsTriggered) * 100) : 100;
@@ -666,6 +740,7 @@ class LifecycleEmails {
           <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
         <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
+        ${unsubscribeFooter}
       </div>
     `;
 
@@ -690,6 +765,17 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   /** HTML escape helper */
   _esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  _buildUnsubscribeFooter(churchId, email, type) {
+    if (!churchId || !email || !type || !process.env.JWT_SECRET) return '';
+    try {
+      const token = jwt.sign({ churchId, email, type }, process.env.JWT_SECRET, { expiresIn: '365d' });
+      const unsubscribeUrl = `${process.env.RELAY_URL || 'https://api.tallyconnect.app'}/api/notifications/unsubscribe?token=${encodeURIComponent(token)}`;
+      return `<p style="font-size:12px;color:#888;text-align:center;margin-top:32px;"><a href="${unsubscribeUrl}" style="color:#888;">Unsubscribe</a> from these emails.</p>`;
+    } catch {
+      return '';
+    }
   }
 
   // ─── HOURLY CHECK ───────────────────────────────────────────────────────────

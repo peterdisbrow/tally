@@ -18,6 +18,10 @@
 const crypto = require('crypto');
 const { createQueryClient } = require('./db');
 
+const intervals = [];
+process.on('SIGTERM', () => intervals.forEach(clearInterval));
+process.on('SIGINT', () => intervals.forEach(clearInterval));
+
 const PC_API_BASE = 'https://api.planningcenteronline.com/services/v2';
 const PC_OAUTH_AUTHORIZE = 'https://api.planningcenteronline.com/oauth/authorize';
 const PC_OAUTH_TOKEN = 'https://api.planningcenteronline.com/oauth/token';
@@ -2066,6 +2070,7 @@ class PlanningCenter {
       runSync,
       6 * 60 * 60 * 1000
     );
+    intervals.push(this._syncTimer);
 
     console.log('[PlanningCenter] Started — syncing every 6 hours');
   }
