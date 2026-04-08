@@ -335,6 +335,56 @@ class LiveRundownManager {
   }
 
   /**
+   * Get a compact timer state for the countdown timer display.
+   * Returns null if no active session or no matching planId.
+   */
+  getTimerState(churchId, planId) {
+    const session = this._sessions.get(churchId);
+    if (!session || session.state !== 'active') return null;
+    if (planId && session.planId !== planId) return null;
+
+    const now = Date.now();
+    const currentItem = session.items[session.currentIndex] || null;
+    const nextItem = session.items[session.currentIndex + 1] || null;
+    const elapsedOnItem = currentItem ? (now - session.currentItemStartedAt) / 1000 : 0;
+    const duration = currentItem?.lengthSeconds || 0;
+    const remaining = duration > 0 ? Math.max(0, duration - elapsedOnItem) : null;
+    const isOvertime = duration > 0 && elapsedOnItem > duration;
+
+    return {
+      plan_id: session.planId,
+      plan_title: session.planTitle,
+      cue_title: currentItem?.title || '',
+      cue_index: session.currentIndex,
+      total_cues: session.items.length,
+      cue_duration_seconds: duration,
+      elapsed_seconds: Math.round(elapsedOnItem),
+      remaining_seconds: remaining !== null ? Math.round(remaining) : null,
+      overtime_seconds: isOvertime ? Math.round(elapsedOnItem - duration) : 0,
+      is_overtime: isOvertime,
+      is_warning: duration > 0 && remaining !== null && remaining <= session.warningThresholdSec && remaining > 0,
+      is_live: true,
+      next_cue_title: nextItem?.title || null,
+      next_cue_duration: nextItem?.lengthSeconds || null,
+      started_at: session.startedAt,
+      timestamp: now,
+    };
+  }
+
+  /**
+   * Find session by planId (for public token lookups).
+   * Returns { churchId } or null.
+   */
+  findSessionByPlanId(planId) {
+    for (const [churchId, session] of this._sessions) {
+      if (session.planId === planId && session.state === 'active') {
+        return { churchId };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Toggle auto-advance for a church's session (timer-based and PP-triggered).
    */
   setAutoAdvance(churchId, enabled) {
@@ -677,6 +727,12 @@ class LiveRundownManager {
       if (session.autoAdvancedFrom) session.autoAdvancedFrom = null;
 
       this._broadcast(churchId, tick);
+
+      // Also broadcast a compact rundown_timer message for countdown displays
+      const timerState = this.getTimerState(churchId);
+      if (timerState) {
+        this._broadcast(churchId, { type: 'rundown_timer', ...timerState });
+      }
     }, 1000);
 
     this._tickTimers.set(churchId, timer);

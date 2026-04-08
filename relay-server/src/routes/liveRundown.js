@@ -615,12 +615,14 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!plan || plan.churchId !== churchId) {
           return res.status(404).json({ error: 'Plan not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance } = req.body;
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
           lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
           notes: notes !== undefined ? sanitizeHtml(notes) : undefined,
           assignee,
+          startType, hardStartTime,
+          autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -779,8 +781,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         const expiresInDays = Number(req.body?.expiresInDays) || 7;
         const share = await manualRundown.createShare(planId, churchId, { expiresInDays });
+        // Also ensure the plan has a share_token for timer URLs
+        const shareToken = await manualRundown.getOrCreateShareToken(planId);
         const baseUrl = process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
-        res.json({ ...share, url: `${baseUrl}/rundown/view/${share.token}` });
+        res.json({ ...share, url: `${baseUrl}/rundown/view/${share.token}`, share_token: shareToken, timer_url: `/rundown/timer/${shareToken}` });
       } catch (e) {
         console.error('[rundown] share error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -1086,4 +1090,45 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   // Export sanitizeHtml for use by existing update handler
   app._rundownSanitizeHtml = sanitizeHtml;
+
+  // ─── COUNTDOWN TIMER ENDPOINTS ─────────────────────────────────────────────
+
+  /**
+   * GET /api/church/rundown-plans/:planId/live/timer
+   * Authenticated timer state for the portal.
+   */
+  app.get('/api/church/rundown-plans/:planId/live/timer',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const churchId = req.churchId;
+      const planId = req.params.planId;
+      const timer = liveRundown.getTimerState(churchId, planId);
+      if (!timer) return res.json({ is_live: false });
+      res.json(timer);
+    }
+  );
+
+  /**
+   * GET /api/public/rundown/:token/timer
+   * Public countdown timer endpoint (no auth, uses share token).
+   */
+  app.get('/api/public/rundown/:token/timer',
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlanByShareToken(req.params.token);
+        if (!plan) return res.status(404).json({ error: 'Invalid share token' });
+
+        // Find the active session for this plan
+        const found = liveRundown.findSessionByPlanId(plan.id);
+        if (!found) return res.json({ is_live: false, plan_title: plan.title });
+
+        const timer = liveRundown.getTimerState(found.churchId, plan.id);
+        if (!timer) return res.json({ is_live: false, plan_title: plan.title });
+        res.json(timer);
+      } catch (e) {
+        console.error('[rundown] public timer error:', e);
+        res.status(500).json({ error: 'Internal error' });
+      }
+    }
+  );
 };

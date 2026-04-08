@@ -88,6 +88,11 @@ app.get('/rundown/view/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-view.html'));
 });
 
+// Serve the standalone rundown timer page at /rundown/timer/:token
+app.get('/rundown/timer/:token', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-timer.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
@@ -765,6 +770,8 @@ const sseClients = new Set();
 const portalSseClients = new Map();
 // WebSocket clients for church portal live status (churchId → Set of ws)
 const portalWsClients = new Map();
+// WebSocket clients for public rundown timer displays (planId → Set of ws)
+const timerWsClients = new Map();
 const roomRegistry = new Map();
 const previewFrameCache = new Map();
 
@@ -4860,7 +4867,22 @@ const _mobileWsHandler = createMobileWebSocketHandler({
 
 // Wire up deferred broadcast functions for LiveRundownManager
 _liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
-_liveRundownBroadcastPortal = (churchId, msg) => broadcastToPortal(churchId, msg);
+_liveRundownBroadcastPortal = (churchId, msg) => {
+  broadcastToPortal(churchId, msg);
+  // Also forward rundown_timer messages to public timer WS clients
+  if (msg?.type === 'rundown_timer' || msg?.type === 'rundown_ended') {
+    const planId = msg.plan_id || msg.planId;
+    if (planId) {
+      const clients = timerWsClients.get(planId);
+      if (clients?.size) {
+        const payload = JSON.stringify(msg);
+        for (const ws of clients) {
+          try { if (ws.readyState === WebSocket.OPEN) ws.send(payload); } catch {}
+        }
+      }
+    }
+  }
+};
 _liveRundownBroadcastControllers = (churchId, msg) => broadcastToControllers({ ...msg, churchId });
 // Send companion_actions directly to the church-client (desktop app) WebSocket
 _liveRundownBroadcastChurch = (churchId, msg) => {
@@ -4898,6 +4920,8 @@ wss.on('connection', (ws, req) => {
     handlePortalWsConnection(ws, url);
   } else if (role === 'mobile') {
     _mobileWsHandler.handleMobileConnection(ws, url, req);
+  } else if (role === 'rundown-timer') {
+    handleTimerWsConnection(ws, url);
   } else {
     ws.close(1008, 'Unknown role');
   }
@@ -4975,6 +4999,55 @@ function handlePortalWsConnection(ws, url) {
     if (clients) {
       clients.delete(ws);
       if (clients.size === 0) portalWsClients.delete(churchId);
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN TIMER WEBSOCKET (public, share-token auth) ───────────────────────
+function handleTimerWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+  let churchId = null;
+
+  // Resolve share token to plan asynchronously
+  manualRundown.getPlanByShareToken(token).then(plan => {
+    if (!plan) return ws.close(1008, 'invalid share token');
+    planId = plan.id;
+
+    // Register in timer clients map (keyed by planId for targeted broadcasts)
+    if (!timerWsClients.has(planId)) timerWsClients.set(planId, new Set());
+    timerWsClients.get(planId).add(ws);
+
+    // Send initial state
+    const found = liveRundown.findSessionByPlanId(planId);
+    if (found) {
+      churchId = found.churchId;
+      const timer = liveRundown.getTimerState(churchId, planId);
+      if (timer) safeSend(ws, { type: 'timer_state', ...timer });
+      else safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = timerWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) timerWsClients.delete(planId);
+      }
     }
   });
 
