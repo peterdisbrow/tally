@@ -5437,6 +5437,297 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Macros ────────────────────────────────────────────────────────────────
     var editingMacroId = null;
+    var macroWizardStep = 1;
+    var macroWizardSteps = [];
+
+    var MACRO_COMMANDS = {
+      'Streaming': [
+        { label: 'Start stream (OBS)', value: 'start stream' },
+        { label: 'Stop stream (OBS)', value: 'stop stream' },
+        { label: 'Start vMix stream', value: 'start vmix stream' },
+        { label: 'Stop vMix stream', value: 'stop vmix stream' },
+      ],
+      'Recording': [
+        { label: 'Start recording', value: 'start recording' },
+        { label: 'Stop recording', value: 'stop recording' },
+        { label: 'Start vMix recording', value: 'vmix recording start' },
+        { label: 'Stop vMix recording', value: 'vmix recording stop' },
+      ],
+      'Encoder': [
+        { label: 'Start encoder stream', value: 'start encoder stream' },
+        { label: 'Stop encoder stream', value: 'stop encoder stream' },
+        { label: 'Start encoder recording', value: 'start encoder recording' },
+        { label: 'Stop encoder recording', value: 'stop encoder recording' },
+      ],
+      'ATEM Switcher': [
+        { label: 'Cut to camera N', value: 'cut to camera 1' },
+        { label: 'Camera N to preview', value: 'camera 1 to preview' },
+        { label: 'Fade to black', value: 'fade to black' },
+        { label: 'Auto transition', value: 'auto transition' },
+        { label: 'DSK N on', value: 'dsk 1 on' },
+        { label: 'DSK N off', value: 'dsk 1 off' },
+        { label: 'Set transition style', value: 'set transition style mix' },
+        { label: 'Set transition rate', value: 'set transition rate 25' },
+        { label: 'Run ATEM macro N', value: 'run macro 1' },
+      ],
+      'OBS': [
+        { label: 'Switch to scene', value: 'switch to scene "Scene Name"' },
+      ],
+      'vMix': [
+        { label: 'Cut to input N', value: 'vmix cut to input 1' },
+        { label: 'Preview input N', value: 'vmix preview input 1' },
+        { label: 'Cut', value: 'vmix cut' },
+        { label: 'Fade', value: 'vmix fade' },
+        { label: 'Mute', value: 'vmix mute' },
+        { label: 'Unmute', value: 'vmix unmute' },
+        { label: 'Set volume N%', value: 'vmix volume 80%' },
+      ],
+      'ProPresenter': [
+        { label: 'Next slide', value: 'next slide' },
+        { label: 'Previous slide', value: 'previous slide' },
+        { label: 'Clear all layers', value: 'clear all' },
+        { label: 'Go to slide N', value: 'go to slide 1' },
+        { label: 'Set look', value: 'set look "Look Name"' },
+        { label: 'Stage message', value: 'stage message "Message Name"' },
+        { label: 'Clear message', value: 'clear message' },
+        { label: 'Start timer', value: 'start timer "Timer Name"' },
+        { label: 'Stop timer', value: 'stop timer "Timer Name"' },
+      ],
+      'Mixer / Audio': [
+        { label: 'Mute channel N', value: 'mute channel 1' },
+        { label: 'Unmute channel N', value: 'unmute channel 1' },
+        { label: 'Mute master', value: 'mute master' },
+        { label: 'Unmute master', value: 'unmute master' },
+        { label: 'Recall mixer scene N', value: 'recall mixer scene 1' },
+        { label: 'Channel N fader to N%', value: 'channel 1 fader to 100%' },
+        { label: 'Mute DCA N', value: 'mute dca 1' },
+        { label: 'Unmute DCA N', value: 'unmute dca 1' },
+        { label: 'Enable phantom on channel N', value: 'enable phantom on channel 1' },
+        { label: 'Disable phantom on channel N', value: 'disable phantom on channel 1' },
+      ],
+      'PTZ / Cameras': [
+        { label: 'PTZ N recall preset N', value: 'ptz 1 preset 1' },
+        { label: 'PTZ N home', value: 'ptz 1 home' },
+        { label: 'Cam N auto iris', value: 'cam 1 auto iris' },
+        { label: 'Cam N auto white balance', value: 'cam 1 auto wb' },
+        { label: 'Cam N iris N%', value: 'cam 1 iris 50%' },
+      ],
+      'Rundown': [
+        { label: 'Start rundown', value: 'start rundown' },
+        { label: 'Next cue', value: 'next cue' },
+        { label: 'Pause rundown', value: 'pause rundown' },
+        { label: 'Resume rundown', value: 'resume rundown' },
+        { label: 'End rundown', value: 'end rundown' },
+      ],
+      'Autopilot': [
+        { label: 'Pause autopilot', value: 'pause autopilot' },
+        { label: 'Resume autopilot', value: 'resume autopilot' },
+      ],
+      'System': [
+        { label: 'System status', value: 'status' },
+        { label: 'Pre-service check', value: 'pre-service check' },
+      ],
+      'Custom': [
+        { label: 'Custom command…', value: '' },
+      ],
+    };
+
+    function openMacroWizard() {
+      editingMacroId = null;
+      document.getElementById('macro-edit-id').value = '';
+      document.getElementById('macro-name').value = '';
+      document.getElementById('macro-description').value = '';
+      document.getElementById('macro-modal-title').textContent = 'New Macro';
+      macroWizardSteps = [];
+      macroWizardGoToStep(1);
+      document.getElementById('modal-add-macro').classList.add('open');
+    }
+
+    function macroWizardGoToStep(step) {
+      [1, 2, 3].forEach(function(n) {
+        var el = document.getElementById('macro-step-' + n);
+        if (el) el.style.display = n === step ? '' : 'none';
+      });
+      macroWizardStep = step;
+      macroWizardUpdateIndicators();
+      if (step === 2) {
+        macroWizardInitPicker();
+        macroWizardRenderStepsList();
+      }
+      if (step === 3) macroWizardRenderReview();
+    }
+
+    function macroWizardUpdateIndicators() {
+      var s = macroWizardStep;
+      var checkSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+      [1, 2, 3].forEach(function(n) {
+        var ind = document.getElementById('macro-ind-' + n);
+        if (!ind) return;
+        var dot = ind.querySelector('.macro-wiz-dot');
+        var lbl = ind.querySelector('.macro-wiz-lbl');
+        if (n < s) {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#00E676;border:1px solid #00E676;box-sizing:border-box';
+          dot.innerHTML = checkSvg;
+          lbl.style.color = '#00E676';
+        } else if (n === s) {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#00E676;color:#060D08;border:none;box-sizing:border-box';
+          dot.innerHTML = String(n);
+          lbl.style.color = '#00E676';
+        } else {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#556270;border:1px solid #1a4030;box-sizing:border-box';
+          dot.innerHTML = String(n);
+          lbl.style.color = '#556270';
+        }
+      });
+      var counter = document.getElementById('macro-step-counter');
+      if (counter) counter.textContent = 'Step ' + s + ' of 3';
+    }
+
+    function macroWizardNext() {
+      if (macroWizardStep === 1) {
+        var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (!name) return toast('Shortcut name is required', true);
+        var reserved = ['start', 'stop', 'status', 'help', 'register', 'fix', 'menu', 'history', 'macros'];
+        if (reserved.indexOf(name) !== -1) return toast('"/' + name + '" is a reserved command name', true);
+        macroWizardGoToStep(2);
+      } else if (macroWizardStep === 2) {
+        if (!macroWizardSteps.length) return toast('Add at least one command step', true);
+        macroWizardGoToStep(3);
+      }
+    }
+
+    function macroWizardBack() {
+      if (macroWizardStep > 1) macroWizardGoToStep(macroWizardStep - 1);
+    }
+
+    function macroWizardInitPicker() {
+      var catSel = document.getElementById('macro-cmd-category');
+      if (!catSel || catSel.options.length > 1) return;
+      catSel.innerHTML = '<option value="">Category\u2026</option>'
+        + Object.keys(MACRO_COMMANDS).map(function(cat) {
+          return '<option value="' + escapeHtml(cat) + '">' + escapeHtml(cat) + '</option>';
+        }).join('');
+    }
+
+    function macroWizardCategoryChange() {
+      var cat = document.getElementById('macro-cmd-category').value;
+      var tmplSel = document.getElementById('macro-cmd-template');
+      tmplSel.innerHTML = '<option value="">Command\u2026</option>';
+      if (cat && MACRO_COMMANDS[cat]) {
+        MACRO_COMMANDS[cat].forEach(function(cmd) {
+          var opt = document.createElement('option');
+          opt.value = cmd.value;
+          opt.textContent = cmd.label;
+          tmplSel.appendChild(opt);
+        });
+      }
+      document.getElementById('macro-cmd-text').value = '';
+    }
+
+    function macroWizardTemplateChange() {
+      var val = document.getElementById('macro-cmd-template').value;
+      var input = document.getElementById('macro-cmd-text');
+      input.value = val;
+      if (val) {
+        input.focus();
+        var firstQuote = val.indexOf('"');
+        if (firstQuote >= 0) {
+          var lastQuote = val.lastIndexOf('"');
+          setTimeout(function() { input.setSelectionRange(firstQuote + 1, lastQuote); }, 10);
+        }
+      }
+    }
+
+    function macroWizardAddStep() {
+      var text = (document.getElementById('macro-cmd-text').value || '').trim();
+      if (!text) return toast('Enter a command first', true);
+      macroWizardSteps.push(text);
+      macroWizardRenderStepsList();
+      document.getElementById('macro-cmd-category').value = '';
+      document.getElementById('macro-cmd-template').innerHTML = '<option value="">Command\u2026</option>';
+      document.getElementById('macro-cmd-text').value = '';
+      document.getElementById('macro-cmd-text').focus();
+    }
+
+    function macroWizardRemoveStep(i) {
+      macroWizardSteps.splice(i, 1);
+      macroWizardRenderStepsList();
+    }
+
+    function macroWizardMoveStep(i, dir) {
+      var j = i + dir;
+      if (j < 0 || j >= macroWizardSteps.length) return;
+      var tmp = macroWizardSteps[i];
+      macroWizardSteps[i] = macroWizardSteps[j];
+      macroWizardSteps[j] = tmp;
+      macroWizardRenderStepsList();
+    }
+
+    function macroWizardRenderStepsList() {
+      var el = document.getElementById('macro-steps-list');
+      if (!el) return;
+      if (!macroWizardSteps.length) {
+        el.innerHTML = '<div style="text-align:center;color:#556270;font-size:12px;padding:16px 12px;border:1px dashed #1a4030;border-radius:6px">No commands yet \u2014 pick one above or type your own</div>';
+        return;
+      }
+      var upSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>';
+      var downSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+      var xSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+      el.innerHTML = macroWizardSteps.map(function(step, i) {
+        var total = macroWizardSteps.length;
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#0A1A10;border:1px solid #0d3320;border-radius:6px;margin-bottom:6px">'
+          + '<span style="color:#556270;font-size:11px;font-weight:600;min-width:18px;text-align:right">' + (i + 1) + '</span>'
+          + '<span style="font-family:monospace;font-size:13px;color:#E8F5E9;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(step) + '">' + escapeHtml(step) + '</span>'
+          + '<div style="display:flex;gap:3px;flex-shrink:0">'
+          + (i > 0 ? '<button onclick="macroWizardMoveStep(' + i + ',-1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move up">' + upSvg + '</button>' : '<span style="width:26px"></span>')
+          + (i < total - 1 ? '<button onclick="macroWizardMoveStep(' + i + ',1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move down">' + downSvg + '</button>' : '<span style="width:26px"></span>')
+          + '<button onclick="macroWizardRemoveStep(' + i + ')" style="background:none;border:1px solid #2a0d0d;color:#FF5252;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0;margin-left:2px" title="Remove">' + xSvg + '</button>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    function macroWizardRenderReview() {
+      var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || 'unnamed';
+      var desc = document.getElementById('macro-description').value.trim();
+      var isEdit = !!document.getElementById('macro-edit-id').value;
+      var saveBtn = document.getElementById('btn-save-macro');
+      if (saveBtn) saveBtn.textContent = isEdit ? 'Update Macro' : 'Save Macro';
+      var el = document.getElementById('macro-review-content');
+      if (!el) return;
+      var stepCount = macroWizardSteps.length;
+      el.innerHTML = ''
+        + '<div style="margin-bottom:14px">'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Macro</div>'
+        + '<div style="background:#0A1A10;border:1px solid #0d3320;border-radius:8px;padding:12px 14px">'
+        + '<span style="font-family:monospace;font-size:17px;font-weight:700;color:#00E676">/' + escapeHtml(name) + '</span>'
+        + (desc ? '<div style="font-size:13px;color:#8B9DAF;margin-top:4px">' + escapeHtml(desc) + '</div>' : '')
+        + '</div>'
+        + '</div>'
+        + '<div style="margin-bottom:14px">'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Command Sequence (' + stepCount + ' step' + (stepCount !== 1 ? 's' : '') + ')</div>'
+        + '<div style="background:#0A1A10;border:1px solid #0d3320;border-radius:8px;padding:12px 14px">'
+        + macroWizardSteps.map(function(step, i) {
+          return '<div style="display:flex;gap:10px;align-items:baseline' + (i < stepCount - 1 ? ';margin-bottom:8px' : '') + '">'
+            + '<span style="color:#556270;font-size:11px;font-weight:600;min-width:16px;text-align:right">' + (i + 1) + '</span>'
+            + '<span style="font-family:monospace;font-size:13px;color:#E8F5E9">' + escapeHtml(step) + '</span>'
+            + '</div>';
+        }).join('')
+        + '</div>'
+        + '</div>'
+        + '<div>'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Telegram Preview</div>'
+        + '<div style="background:#111f16;border:1px solid #0d3320;border-radius:8px;padding:12px 14px;font-size:12px">'
+        + '<div style="color:#556270;margin-bottom:8px;font-family:monospace">you: /macros</div>'
+        + '<div style="font-family:monospace;white-space:pre;line-height:1.7;color:#E8F5E9">'
+        + '<span style="color:#00E676;font-weight:700">/' + escapeHtml(name) + '</span>'
+        + (desc ? ' <span style="color:#8B9DAF">\u2014 ' + escapeHtml(desc) + '</span>' : '')
+        + '\n'
+        + macroWizardSteps.map(function(s) { return '  <span style="color:#556270">\u2192</span> ' + escapeHtml(s); }).join('\n')
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
 
     async function loadMacros() {
       var el = document.getElementById('macros-list');
@@ -5474,9 +5765,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.getElementById('macro-edit-id').value = '';
       document.getElementById('macro-name').value = '';
       document.getElementById('macro-description').value = '';
-      document.getElementById('macro-steps').value = '';
       document.getElementById('macro-modal-title').textContent = 'New Macro';
       editingMacroId = null;
+      macroWizardSteps = [];
+      macroWizardGoToStep(1);
     }
 
     async function editMacro(id) {
@@ -5486,8 +5778,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('macro-edit-id').value = id;
         document.getElementById('macro-name').value = m.name || '';
         document.getElementById('macro-description').value = m.description || '';
-        document.getElementById('macro-steps').value = (m.steps || []).join('\\n');
+        macroWizardSteps = (m.steps || []).slice();
         document.getElementById('macro-modal-title').textContent = 'Edit Macro';
+        macroWizardGoToStep(1);
         document.getElementById('modal-add-macro').classList.add('open');
       } catch(e) { toast('Failed to load macro', true); }
     }
@@ -5504,8 +5797,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function saveMacro() {
       var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
       var description = document.getElementById('macro-description').value.trim();
-      var stepsRaw = document.getElementById('macro-steps').value;
-      var steps = stepsRaw.split('\\n').map(function(s) { return s.trim(); }).filter(Boolean);
+      var steps = macroWizardSteps.filter(Boolean);
       if (!name) return toast('Shortcut name is required', true);
       if (!steps.length) return toast('Add at least one command step', true);
       var editId = document.getElementById('macro-edit-id').value;
@@ -5515,7 +5807,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           toast('Macro updated');
         } else {
           await api('POST', '/api/church/macros', { name, description, steps });
-          toast('Macro created — TDs can now use /' + name + ' in Telegram');
+          toast('Macro created \u2014 TDs can now use /' + name + ' in Telegram');
         }
         closeMacroModal();
         loadMacros();
