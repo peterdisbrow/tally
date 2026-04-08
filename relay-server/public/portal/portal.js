@@ -1122,42 +1122,50 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           _saveOverviewSectionOrder(container);
         });
 
-        card.addEventListener('dragover', function(e) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          if (!_sectionDragSrc || _sectionDragSrc === card) return;
-          card.classList.add('section-drag-over');
-          // Move placeholder to show insertion point
-          if (_dragPlaceholder) {
-            var rect = card.getBoundingClientRect();
-            var mid = rect.top + rect.height / 2;
-            if (e.clientY < mid) {
-              container.insertBefore(_dragPlaceholder, card);
-            } else {
-              container.insertBefore(_dragPlaceholder, card.nextSibling);
-            }
-          }
-        });
+      });
 
-        card.addEventListener('dragleave', function(e) {
-          if (!card.contains(e.relatedTarget)) {
-            card.classList.remove('section-drag-over');
+      // Container-level dragover/drop so drops on the placeholder or gaps between
+      // cards are also handled — per-card dragover alone misses those targets.
+      container.addEventListener('dragover', function(e) {
+        if (!_sectionDragSrc) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // Walk up from the event target to find the direct child card
+        var targetCard = null;
+        var node = e.target;
+        while (node && node !== container) {
+          if (node.classList && node.classList.contains('card') && node.dataset.sectionId) {
+            targetCard = node;
+            break;
           }
+          node = node.parentNode;
+        }
+        // Clear any existing drag-over highlights
+        container.querySelectorAll('.section-drag-over').forEach(function(el) {
+          el.classList.remove('section-drag-over');
         });
-
-        card.addEventListener('drop', function(e) {
-          e.preventDefault();
-          card.classList.remove('section-drag-over');
-          if (!_sectionDragSrc || _sectionDragSrc === card) return;
-          var rect = card.getBoundingClientRect();
+        if (!targetCard || targetCard === _sectionDragSrc) return;
+        targetCard.classList.add('section-drag-over');
+        if (_dragPlaceholder) {
+          var rect = targetCard.getBoundingClientRect();
           var mid = rect.top + rect.height / 2;
           if (e.clientY < mid) {
-            container.insertBefore(_sectionDragSrc, card);
+            container.insertBefore(_dragPlaceholder, targetCard);
           } else {
-            container.insertBefore(_sectionDragSrc, card.nextSibling);
+            container.insertBefore(_dragPlaceholder, targetCard.nextSibling);
           }
-          _saveOverviewSectionOrder(container);
+        }
+      });
+
+      container.addEventListener('drop', function(e) {
+        e.preventDefault();
+        container.querySelectorAll('.section-drag-over').forEach(function(el) {
+          el.classList.remove('section-drag-over');
         });
+        if (!_sectionDragSrc || !_dragPlaceholder || !_dragPlaceholder.parentNode) return;
+        // Insert the dragged card where the placeholder currently sits
+        container.insertBefore(_sectionDragSrc, _dragPlaceholder);
+        _saveOverviewSectionOrder(container);
       });
     }
 
