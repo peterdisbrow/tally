@@ -3,6 +3,12 @@
     "name": "Tally Connect",
     "slug": "tally-connect-mobile",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0c3a1fe4-2836-4e46-8b14-19fe5590a39d"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
