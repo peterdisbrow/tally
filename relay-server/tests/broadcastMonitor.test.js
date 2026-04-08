@@ -629,4 +629,31 @@ describe('setupBroadcastMonitor', () => {
     await queryClient.close();
     db.close();
   });
+
+  it('coalesces overlapping pollAll runs into one in-flight sweep', async () => {
+    let releaseQuery;
+    const queryClient = {
+      query: vi.fn(() => new Promise((resolve) => {
+        releaseQuery = () => resolve([{ churchId: 'c1', yt_access_token: null, fb_access_token: null }]);
+      })),
+      queryOne: vi.fn().mockResolvedValue(null),
+      run: vi.fn().mockResolvedValue({ changes: 0 }),
+    };
+    const churches = new Map([['c1', { churchId: 'c1', name: 'Test Church' }]]);
+    const alertEngine = {
+      sendAlert: vi.fn().mockResolvedValue({ alertId: 'test', severity: 'WARNING' }),
+    };
+    const notifyUpdate = vi.fn();
+    const { setupBroadcastMonitor } = await import('../src/broadcastMonitor.js');
+    const monitor = setupBroadcastMonitor(queryClient, { churches }, alertEngine, notifyUpdate);
+
+    const firstRun = monitor.pollAll();
+    const secondRun = monitor.pollAll();
+
+    expect(secondRun).toBe(firstRun);
+    expect(queryClient.query).toHaveBeenCalledTimes(1);
+
+    releaseQuery();
+    await firstRun;
+  });
 });

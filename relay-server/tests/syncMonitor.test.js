@@ -323,4 +323,32 @@ describe('syncMonitor', () => {
     const churchObj = relay.churches.get('c1');
     expect(churchObj.syncStatus?.status).toBe('unavailable');
   });
+
+  it('coalesces overlapping poll cycles into a single in-flight run', async () => {
+    const church = makeChurch('c1');
+    let releaseFetch;
+    fetchMock.mockImplementation(() => new Promise((resolve) => {
+      releaseFetch = () => resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ avOffsetMs: 12, status: 'ok' }),
+      });
+    }));
+
+    const { setupSyncMonitor, relay, db, notifyUpdate } = makeMonitor({ churches: { c1: church } });
+    let pollAll;
+    vi.spyOn(global, 'setInterval').mockImplementation((fn) => { pollAll = fn; return 99; });
+    vi.spyOn(global, 'setTimeout').mockImplementation(() => 100);
+    setupSyncMonitor(db, relay, null, notifyUpdate);
+
+    const firstRun = pollAll();
+    const secondRun = pollAll();
+
+    expect(secondRun).toBe(firstRun);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseFetch();
+    await firstRun;
+    expect(relay.churches.get('c1').syncStatus?.status).toBe('ok');
+  });
 });

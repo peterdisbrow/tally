@@ -10,9 +10,12 @@
  *   - notifyUpdate — function(churchId?) to push SSE dashboard update
  */
 
+const { runWithConcurrency } = require('./asyncPool');
+
 const POLL_INTERVAL_MS   = 5_000;   // how often to poll each encoder
 const HISTORY_WINDOW_MS  = 60_000;  // rolling 60-second window
 const WARN_THROTTLE_MS   = 5 * 60 * 1000; // once per 5 min for "warn"
+const MAX_POLL_CONCURRENCY = Math.max(1, Number(process.env.SYNC_MONITOR_MAX_CONCURRENCY || 10));
 
 /**
  * @param {import('better-sqlite3').Database} db
@@ -28,6 +31,7 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
   // ── Telegram alert helper ───────────────────────────────────────────────────
   const BOT_TOKEN  = process.env.ALERT_BOT_TOKEN;
   const CHAT_ID    = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
+  let pollInFlight = null;
 
   async function sendTelegram(message) {
     if (!BOT_TOKEN || !CHAT_ID) return;
@@ -157,15 +161,27 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
   }
 
   // ── Main poll loop ─────────────────────────────────────────────────────────
-  async function pollAll() {
+  async function pollAllInternal() {
     const { churches } = relay;
-    for (const church of churches.values()) {
+    await runWithConcurrency(Array.from(churches.values()), MAX_POLL_CONCURRENCY, async (church) => {
       try {
         await pollChurch(church);
       } catch (e) {
         console.error(`[SyncMonitor] Error polling ${church.name || church.churchId}:`, e.message);
       }
-    }
+    });
+  }
+
+  function pollAll() {
+    if (pollInFlight) return pollInFlight;
+    pollInFlight = (async () => {
+      try {
+        await pollAllInternal();
+      } finally {
+        pollInFlight = null;
+      }
+    })();
+    return pollInFlight;
   }
 
   setInterval(pollAll, POLL_INTERVAL_MS);
@@ -173,6 +189,8 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
   setTimeout(pollAll, 3000);
 
   console.log('[SyncMonitor] A/V sync monitor started (poll interval: 5s)');
+
+  return { pollAll };
 }
 
 module.exports = { setupSyncMonitor };

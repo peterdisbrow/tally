@@ -15,9 +15,11 @@ const YT_STREAMS_URL    = 'https://www.googleapis.com/youtube/v3/liveStreams';
 const YT_TOKEN_URL      = 'https://oauth2.googleapis.com/token';
 const FB_GRAPH_URL      = 'https://graph.facebook.com/v19.0';
 const { SqliteQueryClient } = require('./db/queryClient');
+const { runWithConcurrency } = require('./asyncPool');
 
 const POLL_INTERVAL_MS  = 60_000;  // poll every 60s (API quota friendly)
 const ALERT_THROTTLE_MS = 5 * 60 * 1000; // 5 min between repeated alerts
+const MAX_POLL_CONCURRENCY = Math.max(1, Number(process.env.BROADCAST_MONITOR_MAX_CONCURRENCY || 6));
 
 /**
  * Derive a health status from YouTube stream health data.
@@ -68,6 +70,7 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
   // (same pattern as signalFailover Phase 1)
   const state = new Map();
   let schemaNotReadyLogged = false;
+  let pollInFlight = null;
 
   function _compositeKey(churchId, instanceName) {
     return instanceName ? `${churchId}::${instanceName}` : churchId;
@@ -134,8 +137,8 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
     }
   }
 
-  async function pollYouTube(churchId, church, instanceName, roomId) {
-    const row = await qOne(
+  async function pollYouTube(churchId, church, churchRow = null, instanceName, roomId) {
+    const row = churchRow || await qOne(
       'SELECT yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name FROM churches WHERE churchId = ?',
       [churchId]
     );
@@ -261,8 +264,8 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
 
   // ── Facebook broadcast health polling ─────────────────────────────────────
 
-  async function pollFacebook(churchId, church, instanceName, roomId) {
-    const row = await qOne(
+  async function pollFacebook(churchId, church, churchRow = null, instanceName, roomId) {
+    const row = churchRow || await qOne(
       'SELECT fb_access_token, fb_page_id, fb_page_name FROM churches WHERE churchId = ?',
       [churchId]
     );
@@ -364,14 +367,18 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
 
   // ── Main poll loop ────────────────────────────────────────────────────────
 
-  async function pollAll() {
+  async function pollAllInternal() {
     const { churches } = relay;
 
     // Find churches with YouTube or Facebook tokens
     let connectedChurches = [];
     try {
       connectedChurches = await qAll(
-        'SELECT churchId, room_id, room_name FROM churches WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL'
+        `SELECT churchId, room_id, room_name,
+                yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name,
+                fb_access_token, fb_page_id, fb_page_name
+         FROM churches
+         WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL`
       );
       schemaNotReadyLogged = false;
     } catch (error) {
@@ -386,22 +393,22 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       throw error;
     }
 
-    for (const row of connectedChurches) {
+    await runWithConcurrency(connectedChurches, MAX_POLL_CONCURRENCY, async (row) => {
       const { churchId } = row;
       const church = churches.get(churchId);
       // Derive instanceName from the church runtime (the connected client's instance)
       const instanceName = church?.instanceName || null;
       const roomId = row.room_id || church?.roomId || null;
 
-      try {
-        await pollYouTube(churchId, church, instanceName, roomId);
-      } catch (e) {
-        console.error(`[BroadcastMonitor] YT poll error for ${churchId}:`, e.message);
+      const [ytResult, fbResult] = await Promise.allSettled([
+        pollYouTube(churchId, church, row, instanceName, roomId),
+        pollFacebook(churchId, church, row, instanceName, roomId),
+      ]);
+      if (ytResult.status === 'rejected') {
+        console.error(`[BroadcastMonitor] YT poll error for ${churchId}:`, ytResult.reason?.message || ytResult.reason);
       }
-      try {
-        await pollFacebook(churchId, church, instanceName, roomId);
-      } catch (e) {
-        console.error(`[BroadcastMonitor] FB poll error for ${churchId}:`, e.message);
+      if (fbResult.status === 'rejected') {
+        console.error(`[BroadcastMonitor] FB poll error for ${churchId}:`, fbResult.reason?.message || fbResult.reason);
       }
 
       // Attach health data to church runtime so portal can read it
@@ -415,12 +422,24 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
 
       // Notify dashboard SSE
       try { notifyUpdate(churchId); } catch { /* ignore */ }
-    }
+    });
   }
 
-  setInterval(pollAll, POLL_INTERVAL_MS);
+  function pollAll() {
+    if (pollInFlight) return pollInFlight;
+    pollInFlight = (async () => {
+      try {
+        await pollAllInternal();
+      } finally {
+        pollInFlight = null;
+      }
+    })();
+    return pollInFlight;
+  }
+
+  setInterval(() => { void pollAll(); }, POLL_INTERVAL_MS);
   // Initial poll after a short delay
-  setTimeout(pollAll, 5000);
+  setTimeout(() => { void pollAll(); }, 5000);
 
   console.log('[BroadcastMonitor] YouTube/Facebook broadcast monitor started (poll interval: 60s)');
 

@@ -95,13 +95,15 @@ module.exports = function setupOfflineDetection(ctx) {
   function checkOfflineChurches() {
     const now = Date.now();
     if (hasQueryClient) {
+      const nowIso = new Date(now).toISOString();
       return queryClient.query('SELECT * FROM churches')
         .then(async (allChurches) => {
-          const filtered = [];
-          for (const row of allChurches) {
-            if (await isInMaintenanceWindow(row.churchId)) continue;
-            filtered.push(row);
-          }
+          const maintenanceRows = await queryClient.query(
+            'SELECT DISTINCT churchId FROM maintenance_windows WHERE churchId IS NOT NULL AND startTime <= ? AND endTime >= ?',
+            [nowIso, nowIso],
+          ).catch(() => []);
+          const maintenanceChurches = new Set(maintenanceRows.map((row) => row.churchId));
+          const filtered = allChurches.filter((row) => !maintenanceChurches.has(row.churchId));
           processRows(filtered, now);
         });
     }
