@@ -2240,6 +2240,7 @@
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
                 <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
                 <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:4px 10px">Share</button>
+                <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:4px 10px" title="Open countdown timer for speakers">Timer Display</button>
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
               </div>
             </div>
@@ -2326,6 +2327,10 @@
             </div>
           </div>
           <div id="rundown-auto-advanced-notice" style="display:none;font-size:12px;color:#42A5F5;max-width:40%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+            <span id="rundown-mini-timer" style="font-size:16px;font-weight:700;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color:#00E676"></span>
+            <button class="btn-secondary" id="btn-rundown-live-timer" style="font-size:11px;padding:3px 8px" title="Open countdown timer display">Timer</button>
+          </div>
         </div>
 
         <!-- Current item countdown hero -->

@@ -716,4 +716,71 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── SHARE TOKEN ENDPOINTS ─────────────────────────────────────────────────
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/share
+   * Generate or return the share token for a plan.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/share',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== churchId) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        const token = await manualRundown.getOrCreateShareToken(plan.id);
+        res.json({ share_token: token, timer_url: `/rundown/timer/${token}` });
+      } catch (e) {
+        console.error('[rundown] share error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── COUNTDOWN TIMER ENDPOINTS ─────────────────────────────────────────────
+
+  /**
+   * GET /api/church/rundown-plans/:planId/live/timer
+   * Authenticated timer state for the portal.
+   */
+  app.get('/api/church/rundown-plans/:planId/live/timer',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const churchId = req.churchId;
+      const planId = req.params.planId;
+      const timer = liveRundown.getTimerState(churchId, planId);
+      if (!timer) return res.json({ is_live: false });
+      res.json(timer);
+    }
+  );
+
+  /**
+   * GET /api/public/rundown/:token/timer
+   * Public countdown timer endpoint (no auth, uses share token).
+   */
+  app.get('/api/public/rundown/:token/timer',
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlanByShareToken(req.params.token);
+        if (!plan) return res.status(404).json({ error: 'Invalid share token' });
+
+        // Find the active session for this plan
+        const found = liveRundown.findSessionByPlanId(plan.id);
+        if (!found) return res.json({ is_live: false, plan_title: plan.title });
+
+        const timer = liveRundown.getTimerState(found.churchId, plan.id);
+        if (!timer) return res.json({ is_live: false, plan_title: plan.title });
+        res.json(timer);
+      } catch (e) {
+        console.error('[rundown] public timer error:', e);
+        res.status(500).json({ error: 'Internal error' });
+      }
+    }
+  );
 };

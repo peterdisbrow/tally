@@ -71,6 +71,13 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN assignee TEXT DEFAULT ''`);
     } catch { /* column already exists — safe to ignore */ }
+    // Add share_token column for public timer/share links
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN share_token TEXT`);
+    } catch { /* column already exists — safe to ignore */ }
+    try {
+      await this._db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mrp_share_token ON manual_rundown_plans(share_token) WHERE share_token IS NOT NULL`);
+    } catch { /* index already exists or SQLite partial index limitation — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
@@ -268,6 +275,32 @@ class ManualRundownStore {
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
+  // ─── SHARE TOKENS ──────────────────────────────────────────────────────────
+
+  async getOrCreateShareToken(planId) {
+    const row = await this._db.queryOne(
+      `SELECT share_token FROM manual_rundown_plans WHERE id = ?`, [planId]
+    );
+    if (!row) return null;
+    if (row.share_token) return row.share_token;
+    const token = uuidv4().replace(/-/g, '').slice(0, 16);
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET share_token = ?, updated_at = ? WHERE id = ?`,
+      [token, Date.now(), planId]
+    );
+    return token;
+  }
+
+  async getPlanByShareToken(token) {
+    if (!token) return null;
+    const row = await this._db.queryOne(
+      `SELECT * FROM manual_rundown_plans WHERE share_token = ?`, [token]
+    );
+    if (!row) return null;
+    const items = await this.getItems(row.id);
+    return this._toPlan(row, items);
+  }
+
   _toPlan(row, items = []) {
     return {
       id: row.id,
@@ -276,6 +309,7 @@ class ManualRundownStore {
       serviceDate: row.service_date || null,
       isTemplate: !!row.is_template,
       templateName: row.template_name || null,
+      shareToken: row.share_token || null,
       source: 'manual',
       items,
       createdAt: row.created_at,
