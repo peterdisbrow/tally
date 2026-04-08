@@ -71,6 +71,14 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN assignee TEXT DEFAULT ''`);
     } catch { /* column already exists — safe to ignore */ }
+    // Add status column: draft, rehearsal, show_ready, live, archived
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'`);
+    } catch { /* column already exists — safe to ignore */ }
+    // Add room_id column: links plan to a specific room
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
+    } catch { /* column already exists — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
@@ -79,15 +87,15 @@ class ManualRundownStore {
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
 
-  async createPlan(churchId, { title, serviceDate, isTemplate = false, templateName = null }) {
+  async createPlan(churchId, { title, serviceDate, isTemplate = false, templateName = null, status = 'draft', roomId = '' }) {
     await this.ready;
     const id = uuidv4();
     const now = Date.now();
     try {
       await this._db.run(`
-        INSERT INTO manual_rundown_plans (id, church_id, title, service_date, is_template, template_name, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `, [id, churchId, title, serviceDate || null, isTemplate ? 1 : 0, templateName || null, now, now]);
+        INSERT INTO manual_rundown_plans (id, church_id, title, service_date, is_template, template_name, status, room_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [id, churchId, title, serviceDate || null, isTemplate ? 1 : 0, templateName || null, status || 'draft', roomId || '', now, now]);
     } catch (err) {
       console.error('[ManualRundownStore] createPlan INSERT failed:', err);
       throw err;
@@ -136,12 +144,14 @@ class ManualRundownStore {
     return templates;
   }
 
-  async updatePlan(planId, { title, serviceDate, templateName }) {
+  async updatePlan(planId, { title, serviceDate, templateName, status, roomId }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
     if (serviceDate !== undefined) { sets.push('service_date = ?'); params.push(serviceDate); }
     if (templateName !== undefined) { sets.push('template_name = ?'); params.push(templateName); }
+    if (status !== undefined) { sets.push('status = ?'); params.push(status); }
+    if (roomId !== undefined) { sets.push('room_id = ?'); params.push(roomId); }
     if (sets.length === 0) return this.getPlan(planId);
     sets.push('updated_at = ?');
     params.push(Date.now());
@@ -150,6 +160,38 @@ class ManualRundownStore {
       `UPDATE manual_rundown_plans SET ${sets.join(', ')} WHERE id = ?`, params
     );
     return this.getPlan(planId);
+  }
+
+  async updateStatus(planId, status) {
+    const valid = ['draft', 'rehearsal', 'show_ready', 'live', 'archived'];
+    if (!valid.includes(status)) throw new Error('Invalid status: ' + status);
+    const now = Date.now();
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET status = ?, updated_at = ? WHERE id = ?`,
+      [status, now, planId]
+    );
+    return this.getPlan(planId);
+  }
+
+  async duplicatePlan(planId) {
+    const plan = await this.getPlan(planId);
+    if (!plan) return null;
+    const newPlan = await this.createPlan(plan.churchId, {
+      title: plan.title + ' (Copy)',
+      serviceDate: plan.serviceDate,
+      status: 'draft',
+      roomId: plan.roomId || '',
+    });
+    for (const item of plan.items) {
+      await this.addItem(newPlan.id, {
+        title: item.title,
+        itemType: item.itemType,
+        lengthSeconds: item.lengthSeconds,
+        notes: item.notes,
+        assignee: item.assignee,
+      });
+    }
+    return this.getPlan(newPlan.id);
   }
 
   async deletePlan(planId) {
@@ -276,6 +318,8 @@ class ManualRundownStore {
       serviceDate: row.service_date || null,
       isTemplate: !!row.is_template,
       templateName: row.template_name || null,
+      status: row.status || 'draft',
+      roomId: row.room_id || '',
       source: 'manual',
       items,
       createdAt: row.created_at,

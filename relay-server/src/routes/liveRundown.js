@@ -38,7 +38,14 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupLiveRundownRoutes(app, ctx) {
-  const { db, churches, requireChurchOrAdmin, requireFeature, planningCenter, liveRundown, manualRundown, safeErrorMessage, uuidv4 } = ctx;
+  const { db, churches, requireChurchOrAdmin, requireFeature, planningCenter, liveRundown, manualRundown, safeErrorMessage, uuidv4, broadcastToPortal, rundownPresence } = ctx;
+
+  // ─── Helper: broadcast a rundown collaboration event to all portal clients ───
+  function broadcastRundownEvent(churchId, type, payload) {
+    if (broadcastToPortal) {
+      broadcastToPortal(churchId, { type, ...payload });
+    }
+  }
 
   // ─── Helper: load companion actions for a plan from DB ──────────────────────
   function loadPlanActions(churchId, planId) {
@@ -132,6 +139,15 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         // Load companion actions for this plan from DB
         const companionActionsMap = loadPlanActions(churchId, planId);
         const state = liveRundown.startSession(churchId, plan, callerName || 'TD', companionActionsMap);
+
+        // Auto-update status to 'live' for manual plans
+        if (plan.source === 'manual') {
+          try {
+            await manualRundown.updateStatus(planId, 'live');
+            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live' } });
+          } catch { /* non-critical */ }
+        }
+
         res.json(state);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -202,7 +218,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
    */
   app.post('/api/churches/:churchId/live-rundown/end',
     requireChurchOrAdmin,
-    (req, res) => {
+    async (req, res) => {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
@@ -210,6 +226,18 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       if (!summary) {
         return res.status(400).json({ error: 'No active rundown session' });
       }
+
+      // Auto-revert manual plan status from 'live' back to 'show_ready'
+      if (summary.planId) {
+        try {
+          const plan = await manualRundown.getPlan(summary.planId);
+          if (plan && plan.status === 'live') {
+            await manualRundown.updateStatus(summary.planId, 'show_ready');
+            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
+          }
+        } catch { /* non-critical */ }
+      }
+
       res.json(summary);
     }
   );
@@ -386,14 +414,23 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         // Combine: manual first, then PCO
         const plans = [
-          ...manualPlans.map(p => ({
-            id: p.id,
-            title: p.title,
-            serviceDate: p.serviceDate,
-            source: 'manual',
-            itemCount: p.items.length,
-            isTemplate: p.isTemplate,
-          })),
+          ...manualPlans.map(p => {
+            const totalDuration = (p.items || []).reduce((sum, it) => sum + (it.lengthSeconds || 0), 0);
+            const editors = rundownPresence ? (rundownPresence.get(p.id) || []).length : 0;
+            return {
+              id: p.id,
+              title: p.title,
+              serviceDate: p.serviceDate,
+              source: 'manual',
+              itemCount: p.items.length,
+              isTemplate: p.isTemplate,
+              status: p.status || 'draft',
+              roomId: p.roomId || '',
+              totalDuration,
+              updatedAt: p.updatedAt,
+              activeEditors: editors,
+            };
+          }),
           ...pcoPlans,
         ];
 
@@ -416,11 +453,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, serviceDate } = req.body;
+      const { title, serviceDate, roomId } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
-        const plan = await manualRundown.createPlan(churchId, { title: title.trim(), serviceDate });
+        const plan = await manualRundown.createPlan(churchId, { title: title.trim(), serviceDate, roomId: roomId || '' });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -469,6 +506,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           return res.status(404).json({ error: 'Plan not found' });
         }
         const plan = await manualRundown.updatePlan(req.params.planId, req.body);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: plan.id, plan: { id: plan.id, title: plan.title, status: plan.status, serviceDate: plan.serviceDate, roomId: plan.roomId, updatedAt: plan.updatedAt } });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -501,6 +539,114 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
   );
 
   /**
+   * PUT /api/churches/:churchId/rundown-plans/:planId/status
+   * Update a plan's status.
+   * Body: { status: 'draft'|'rehearsal'|'show_ready'|'live'|'archived' }
+   */
+  app.put('/api/churches/:churchId/rundown-plans/:planId/status',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+
+      const { status } = req.body;
+      const valid = ['draft', 'rehearsal', 'show_ready', 'live', 'archived'];
+      if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status. Must be one of: ' + valid.join(', ') });
+
+      try {
+        const existing = await manualRundown.getPlan(req.params.planId);
+        if (!existing || existing.churchId !== churchId) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        const plan = await manualRundown.updateStatus(req.params.planId, status);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: plan.id, plan: { id: plan.id, title: plan.title, status: plan.status, serviceDate: plan.serviceDate, roomId: plan.roomId, updatedAt: plan.updatedAt } });
+        res.json(plan);
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/duplicate
+   * Duplicate a plan.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/duplicate',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+
+      try {
+        const existing = await manualRundown.getPlan(req.params.planId);
+        if (!existing || existing.churchId !== churchId) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        const plan = await manualRundown.duplicatePlan(req.params.planId);
+        res.json(plan);
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/subscribe
+   * Subscribe to collaborative editing for a plan (presence tracking).
+   * Body: { userName?: string }
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/subscribe',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const { churchId, planId } = req.params;
+      const userName = req.body.userName || 'TD';
+      const sessionId = req.body.sessionId || req.headers['x-session-id'] || uuidv4();
+
+      if (!rundownPresence) return res.json({ ok: true });
+
+      if (!rundownPresence.has(planId)) rundownPresence.set(planId, []);
+      const editors = rundownPresence.get(planId);
+      // Remove stale entry for same session
+      const idx = editors.findIndex(e => e.sessionId === sessionId);
+      if (idx >= 0) editors.splice(idx, 1);
+      editors.push({ sessionId, churchId, userName, joinedAt: Date.now() });
+
+      // Broadcast presence update
+      broadcastRundownEvent(churchId, 'rundown_presence', { planId, editors: editors.map(e => ({ userName: e.userName, sessionId: e.sessionId })) });
+
+      res.json({ ok: true, sessionId, editors: editors.map(e => ({ userName: e.userName, sessionId: e.sessionId })) });
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/unsubscribe
+   * Unsubscribe from collaborative editing.
+   * Body: { sessionId: string }
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/unsubscribe',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const { churchId, planId } = req.params;
+      const sessionId = req.body.sessionId || req.headers['x-session-id'];
+
+      if (!rundownPresence) return res.json({ ok: true });
+
+      const editors = rundownPresence.get(planId);
+      if (editors) {
+        const idx = editors.findIndex(e => e.sessionId === sessionId);
+        if (idx >= 0) editors.splice(idx, 1);
+        if (editors.length === 0) rundownPresence.delete(planId);
+
+        broadcastRundownEvent(churchId, 'rundown_presence', { planId, editors: editors.map(e => ({ userName: e.userName, sessionId: e.sessionId })) });
+      }
+
+      res.json({ ok: true });
+    }
+  );
+
+  /**
    * POST /api/churches/:churchId/rundown-plans/:planId/items
    * Add an item to a manual plan.
    * Body: { title: string, itemType?: string, lengthSeconds?: number, notes?: string, assignee?: string }
@@ -526,6 +672,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           notes: notes || '',
           assignee: assignee || '',
         });
+        broadcastRundownEvent(churchId, 'rundown_item_added', { planId: req.params.planId, item });
         res.json(item);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -558,6 +705,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
+        broadcastRundownEvent(churchId, 'rundown_item_updated', { planId: req.params.planId, itemId: req.params.itemId, item: { title, itemType, lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined, notes, assignee } });
         res.json(updated);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -582,6 +730,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         await manualRundown.deleteItem(req.params.itemId);
         const updated = await manualRundown.getPlan(req.params.planId);
+        broadcastRundownEvent(churchId, 'rundown_item_deleted', { planId: req.params.planId, itemId: req.params.itemId });
         res.json(updated);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -611,6 +760,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         await manualRundown.reorderItems(req.params.planId, itemIds);
         const updated = await manualRundown.getPlan(req.params.planId);
+        broadcastRundownEvent(churchId, 'rundown_item_reordered', { planId: req.params.planId, itemIds });
         res.json(updated);
       } catch (e) {
         console.error('[rundown] error:', e);

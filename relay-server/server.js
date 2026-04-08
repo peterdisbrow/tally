@@ -3123,6 +3123,19 @@ require('./src/routes/statusComponents')(app, {
 });
 
 // ─── EXTRACTED ROUTE MODULES ───────────────────────────────────────────────
+// ─── Rundown presence tracking (planId → [{ sessionId, churchId, userName, joinedAt }]) ─
+const rundownPresence = new Map();
+
+// Periodic cleanup: remove stale presence entries older than 5 minutes without heartbeat
+setInterval(() => {
+  const staleThreshold = Date.now() - 5 * 60 * 1000;
+  for (const [planId, editors] of rundownPresence) {
+    const fresh = editors.filter(e => e.joinedAt > staleThreshold);
+    if (fresh.length === 0) rundownPresence.delete(planId);
+    else rundownPresence.set(planId, fresh);
+  }
+}, 60_000);
+
 const routeCtx = {
   db, queryClient, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth, requireChurchWriteAccess,
   requireChurchOrAdmin, requireReseller, requireFeature, rateLimit,
@@ -3141,6 +3154,7 @@ const routeCtx = {
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
   BILLING_TIERS, BILLING_STATUSES, QUEUE_TTL_MS, totalMessagesRelayed,
+  broadcastToPortal, rundownPresence,
   log,
 };
 require('./src/routes/churchAuth')(app, routeCtx);
