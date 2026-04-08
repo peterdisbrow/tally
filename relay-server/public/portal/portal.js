@@ -39,6 +39,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clip-rule="evenodd"/></svg>',
       xMark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z"/></svg>',
       arrowRight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.97 4.78a.75.75 0 0 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.47-2.47H2.75A.75.75 0 0 1 2 8Z" clip-rule="evenodd"/></svg>',
+      arrowLeft: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M14 8a.75.75 0 0 1-.75.75H4.56l2.47 2.47a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 1.06L4.56 7.25h8.69A.75.75 0 0 1 14 8Z" clip-rule="evenodd"/></svg>',
+      play: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path d="M3 3.732a1.5 1.5 0 0 1 2.305-1.265l6.706 4.267a1.5 1.5 0 0 1 0 2.531l-6.706 4.268A1.5 1.5 0 0 1 3 12.267V3.732Z"/></svg>',
       arrowUp: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 0 1-1.06 1.06L6.75 4.31V10a.75.75 0 0 1-1.5 0V4.31L3.28 6.28a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg>',
       arrowDown: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 10.25a.75.75 0 0 1-.53-.22L2.22 6.78a.75.75 0 0 1 1.06-1.06L5.25 7.69V2a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 0 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-.53.22Z" clip-rule="evenodd"/></svg>',
       // Rating
@@ -7957,6 +7959,72 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var items = plan.items || [];
       var realItems = items.filter(function(x) { return x.itemType !== 'section'; });
       if (countEl) countEl.textContent = realItems.length + ' item' + (realItems.length !== 1 ? 's' : '');
+
+      // ── Live show mode bar ──────────────────────────────────────────────────
+      var liveBar = document.getElementById('rundown-live-bar');
+      if (!liveBar) {
+        // Create it before the table card
+        var tableCard = document.querySelector('#rundown-editor > .card:last-of-type');
+        if (tableCard) {
+          liveBar = document.createElement('div');
+          liveBar.id = 'rundown-live-bar';
+          tableCard.parentNode.insertBefore(liveBar, tableCard);
+        }
+      }
+      var isLive = _liveShowState && _liveShowState.isLive;
+      if (liveBar) {
+        if (isLive) {
+          liveBar.innerHTML = '<div class="live-show-bar live-show-bar--active">'
+            + '<div style="display:flex;align-items:center;gap:12px">'
+            + '<span class="live-badge-pulse">LIVE</span>'
+            + '<span id="live-show-elapsed" style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:14px;color:#F0F2F4;font-weight:600">0:00</span>'
+            + '</div>'
+            + '<div style="display:flex;align-items:center;gap:8px">'
+            + '<button class="btn-live-back" data-action="liveShowBack" title="Previous cue (Left Arrow)">' + SVG.arrowLeft + ' Back</button>'
+            + '<button class="btn-live-go" data-action="liveShowGo" title="Next cue (Space / Right Arrow)">GO ' + SVG.arrowRight + '</button>'
+            + '<button class="btn-live-end" data-action="liveShowStop" title="End Show (Esc)">End Show</button>'
+            + '</div>'
+            + '</div>';
+          liveBar.style.marginBottom = '12px';
+        } else {
+          liveBar.innerHTML = '';
+          liveBar.style.marginBottom = '0';
+        }
+      }
+
+      // Update the start live button area
+      var startLiveArea = document.getElementById('rundown-start-show-area');
+      if (!startLiveArea) {
+        // Find the existing Start Live button and replace its container
+        var existingBtn = document.querySelector('[data-action="rundownStartLive"]');
+        if (existingBtn && existingBtn.parentNode) {
+          existingBtn.parentNode.id = 'rundown-start-show-area';
+          startLiveArea = existingBtn.parentNode;
+        }
+      }
+      if (startLiveArea) {
+        if (isLive) {
+          startLiveArea.style.display = 'none';
+        } else {
+          startLiveArea.style.display = '';
+          startLiveArea.innerHTML = '<button class="btn-primary" data-action="liveShowStart" style="font-size:15px;padding:10px 32px;font-weight:700">'
+            + SVG.play + ' Start Show</button>'
+            + '<button class="btn-secondary" data-action="rundownStartLive" style="font-size:13px;padding:8px 20px">Start Live Session</button>';
+        }
+      }
+
+      // Check for existing live state on plan load
+      if (!_liveShowState && plan.id) {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/live/state').then(function(data) {
+          if (data && data.isLive) {
+            _liveShowState = data;
+            _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+            renderRundownEditor(_rundownSelectedPlan);
+            _startLiveShowTimer();
+          }
+        }).catch(function() {});
+      }
+
       renderRundownEditorItems(items);
     }
 
@@ -7964,19 +8032,31 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var container = document.getElementById('rundown-editor-items');
       if (!container) return;
 
-      // Calculate timing
+      var isLive = _liveShowState && _liveShowState.isLive;
+      var activeCueIdx = isLive ? _liveShowState.currentCueIndex : -1;
+
+      // Calculate timing with hard/soft start support
       var startTime = _rundownStartTime || '09:00';
       var totalSeconds = 0;
       var timingData = [];
       var currentTime = startTime;
       for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var dur = item.lengthSeconds || 0;
+        // Hard start: anchor to wall clock time
+        if (item.startType === 'hard' && item.hardStartTime) {
+          currentTime = item.hardStartTime;
+        }
         var st = currentTime;
-        var dur = items[i].lengthSeconds || 0;
         var et = _rundownTimeAdd(currentTime, dur);
-        timingData.push({ start: st, end: et });
+        timingData.push({ start: st, end: et, isHard: item.startType === 'hard' && !!item.hardStartTime });
         totalSeconds += dur;
         currentTime = et;
       }
+
+      // Check if behind schedule (for hard-start items)
+      var now = new Date();
+      var nowHHMM = (now.getHours() < 10 ? '0' : '') + now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
 
       // Update total duration display
       var totalEl = document.getElementById('rundown-editor-total-duration');
@@ -8011,6 +8091,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
 
+      // Column count depends on live mode
+      var colCount = 12;
+
       // Build table
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
@@ -8023,25 +8106,29 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;width:60px;text-align:center">Duration</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">Start</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">End</th>';
+      html += '<th style="padding:8px 6px;width:28px;text-align:center" title="Hard start (clock icon) or Auto-advance (play icon)">' + SVG.clock + '</th>';
       html += '<th style="padding:8px 6px;text-align:left">Notes</th>';
+      if (isLive) html += '<th style="padding:8px 6px;width:72px;text-align:center">Timer</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
       html += '</tr></thead>';
 
       html += '<tbody id="rundown-table-body">';
       if (items.length === 0) {
-        html += '<tr><td colspan="10" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
+        html += '<tr><td colspan="' + colCount + '" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
       }
       var rowNum = 0;
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         var color = RUNDOWN_TYPE_COLORS[item.itemType] || RUNDOWN_TYPE_COLORS.other;
         var t = timingData[i];
+        var isCurrent = (i === activeCueIdx);
+        var isPast = isLive && i < activeCueIdx;
 
         // Section header — full-width divider row
         if (item.itemType === 'section') {
           html += '<tr data-item-id="' + item.id + '" draggable="true" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="8" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 2) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
           html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
           html += '</td>';
           html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -8050,18 +8137,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
 
         rowNum++;
-        html += '<tr data-item-id="' + item.id + '" draggable="true" style="border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid ' + color + ';transition:background 0.15s"'
-          + ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'none\'">';
+
+        // Row styling based on live state
+        var rowBg = 'none';
+        var borderLeft = '3px solid ' + color;
+        var rowOpacity = '1';
+        if (isCurrent) {
+          rowBg = 'rgba(0,230,118,0.08)';
+          borderLeft = '4px solid #00E676';
+        } else if (isPast) {
+          rowOpacity = '0.45';
+        }
+
+        var rowStyle = 'border-bottom:1px solid rgba(255,255,255,0.04);border-left:' + borderLeft + ';transition:background 0.15s;background:' + rowBg + ';opacity:' + rowOpacity;
+        if (isLive) rowStyle += ';cursor:pointer';
+        html += '<tr data-item-id="' + item.id + '" data-cue-index="' + i + '" draggable="true"'
+          + ' class="' + (isCurrent ? 'live-cue-active' : '') + '"'
+          + ' style="' + rowStyle + '"'
+          + (isCurrent ? '' : ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'' + rowBg + '\'"')
+          + (isLive ? ' onclick="if(typeof liveShowGoto===\'function\')liveShowGoto(' + i + ')"' : '') + '>';
 
         // Drag handle
         html += '<td style="padding:4px 4px;cursor:grab;color:#556270;vertical-align:middle" class="rundown-drag-handle">' + SVG.grip + '</td>';
 
         // Row number
-        html += '<td style="padding:4px 2px;text-align:center;color:#556270;font-size:11px;font-weight:600;vertical-align:middle">' + rowNum + '</td>';
+        html += '<td style="padding:4px 2px;text-align:center;color:' + (isCurrent ? '#00E676' : '#556270') + ';font-size:11px;font-weight:600;vertical-align:middle">' + rowNum + '</td>';
 
         // Title (inline editable)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
-        html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text;font-weight:600;color:#F0F2F4;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + escapeHtml(item.title) + '</span>';
+        html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text;font-weight:600;color:' + (isCurrent ? '#F0F2F4' : isPast ? '#8B9DAF' : '#F0F2F4') + ';display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + escapeHtml(item.title) + '</span>';
         html += '</td>';
 
         // Type (inline select)
@@ -8079,17 +8183,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="duration" data-item-id="' + item.id + '" style="cursor:text;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF" title="Click to edit">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
         html += '</td>';
 
-        // Start time (auto-calculated)
-        html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.start) + '</td>';
+        // Start time — show hard start indicator
+        var startDisplay = _rundownFormatTime12(t.start);
+        var startColor = '#556270';
+        if (t.isHard) {
+          startDisplay = SVG.clock + ' ' + startDisplay;
+          startColor = '#64B5F6';
+          // Check if behind schedule during live mode
+          if (isLive && isCurrent && nowHHMM > t.start) {
+            startColor = '#FF5252';
+          }
+        }
+        html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:' + startColor + ';vertical-align:middle">' + startDisplay + '</td>';
 
         // End time (auto-calculated)
         html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.end) + '</td>';
+
+        // Hard/Soft start + Auto-advance indicators column
+        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle">';
+        var indicators = [];
+        if (item.startType === 'hard' && item.hardStartTime) {
+          indicators.push('<span title="Hard start: ' + escapeHtml(item.hardStartTime) + '" style="color:#64B5F6;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
+        } else {
+          indicators.push('<span title="Soft start (click for hard)" style="color:#3A4556;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
+        }
+        if (item.autoAdvance) {
+          indicators.push('<span title="Auto-advance ON (click to toggle)" style="color:#00E676;cursor:pointer" class="rundown-toggle-auto" data-item-id="' + item.id + '">' + SVG.play + '</span>');
+        } else {
+          indicators.push('<span title="Auto-advance OFF (click to toggle)" style="color:#3A4556;cursor:pointer" class="rundown-toggle-auto" data-item-id="' + item.id + '">' + SVG.play + '</span>');
+        }
+        html += '<div style="display:flex;gap:2px;justify-content:center">' + indicators.join('') + '</div>';
+        html += '</td>';
 
         // Notes (expandable)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
         var notesPreview = item.notes ? (item.notes.length > 40 ? item.notes.substring(0, 40) + '...' : item.notes) : '';
         html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(item.notes || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
+
+        // Live timer column
+        if (isLive) {
+          html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:13px;font-weight:700">';
+          if (isCurrent) {
+            html += '<span id="live-cue-timer" style="color:#00E676">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
+            html += '<div id="live-cue-elapsed" style="font-size:10px;color:#556270;font-weight:400;margin-top:1px">0:00</div>';
+          } else if (isPast) {
+            html += '<span style="color:#556270">' + SVG.check + '</span>';
+          } else {
+            html += '<span style="color:#3A4556">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
+          }
+          html += '</td>';
+        }
 
         // Delete
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -8099,7 +8243,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Add item ghost row
       html += '<tr id="rundown-add-row" style="border-top:1px solid rgba(255,255,255,0.06)">';
-      html += '<td colspan="10" style="padding:8px 6px">';
+      html += '<td colspan="' + colCount + '" style="padding:8px 6px">';
       html += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add item">';
       html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
       html += 'Add item</span>';
@@ -8113,6 +8257,54 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _attachRundownInlineEditing(container);
       // Attach drag-and-drop
       _attachRundownDragDrop();
+      // Attach hard/soft start and auto-advance toggles
+      _attachRundownCueToggles(container);
+
+      // Auto-scroll active cue into view during live mode
+      if (isLive && activeCueIdx >= 0) {
+        var activeRow = container.querySelector('.live-cue-active');
+        if (activeRow) {
+          activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    // ── Hard/soft start and auto-advance toggle handlers ──────────────────────
+    function _attachRundownCueToggles(container) {
+      // Toggle start type (soft <-> hard)
+      container.querySelectorAll('.rundown-toggle-start-type').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item) return;
+          if (item.startType === 'hard') {
+            // Switch to soft
+            _rundownInlineSave(itemId, { startType: 'soft', hardStartTime: null });
+          } else {
+            // Prompt for hard start time
+            styledPrompt('Hard Start Time', 'Enter wall-clock time (HH:MM, 24h)', '09:00').then(function(val) {
+              if (!val) return;
+              val = val.trim();
+              if (!/^\d{1,2}:\d{2}$/.test(val)) { toast('Invalid time format. Use HH:MM', true); return; }
+              _rundownInlineSave(itemId, { startType: 'hard', hardStartTime: val });
+            });
+          }
+        });
+      });
+
+      // Toggle auto-advance
+      container.querySelectorAll('.rundown-toggle-auto').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item) return;
+          _rundownInlineSave(itemId, { autoAdvance: !item.autoAdvance });
+        });
+      });
     }
 
     // ── Inline editing ────────────────────────────────────────────────────────
@@ -8633,7 +8825,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
-    // ── Start Live ────────────────────────────────────────────────────────────
+    // ── Start Live (existing session-based flow) ───────────────────────────────
 
     function rundownStartLive() {
       if (!_rundownSelectedPlan) return;
@@ -8672,6 +8864,165 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (data) { _rundownState = data; renderRundownActive(data); }
       }).catch(function(e) { toast(e.message, true); });
     }
+
+    // ── LIVE SHOW MODE (per-plan cueing in editor) ───────────────────────────
+    var _liveShowState = null;     // { isLive, currentCueIndex, startedAt, currentCueStartedAt, planId }
+    var _liveShowTimer = null;     // setInterval ref for countdown tick
+    var _liveAutoAdvanceTimer = null; // timeout ref for auto-advance
+
+    function liveShowStart() {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/start').then(function(data) {
+        _liveShowState = data;
+        _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        renderRundownEditor(_rundownSelectedPlan);
+        _startLiveShowTimer();
+        toast('Show started');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function liveShowStop() {
+      if (!_rundownSelectedPlan || !_liveShowState) return;
+      styledConfirm('End Show', 'End live show mode?').then(function(ok) {
+        if (!ok) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/stop').then(function() {
+          _stopLiveShowTimer();
+          _liveShowState = null;
+          renderRundownEditor(_rundownSelectedPlan);
+          toast('Show ended');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    function liveShowGo() {
+      if (!_rundownSelectedPlan || !_liveShowState) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/go').then(function(data) {
+        _liveShowState = data;
+        _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        _resetAutoAdvanceTimer();
+      }).catch(function(e) { toast(e.message, true); });
+    }
+
+    function liveShowBack() {
+      if (!_rundownSelectedPlan || !_liveShowState) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/back').then(function(data) {
+        _liveShowState = data;
+        _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        _resetAutoAdvanceTimer();
+      }).catch(function(e) { toast(e.message, true); });
+    }
+
+    function liveShowGoto(index) {
+      if (!_rundownSelectedPlan || !_liveShowState) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/goto/' + index).then(function(data) {
+        _liveShowState = data;
+        _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        _resetAutoAdvanceTimer();
+      }).catch(function(e) { toast(e.message, true); });
+    }
+
+    function _startLiveShowTimer() {
+      _stopLiveShowTimer();
+      _liveShowTimer = setInterval(function() {
+        if (!_liveShowState || !_liveShowState.isLive) { _stopLiveShowTimer(); return; }
+        _updateLiveTimerDisplay();
+        _checkAutoAdvance();
+      }, 250);
+    }
+
+    function _stopLiveShowTimer() {
+      if (_liveShowTimer) { clearInterval(_liveShowTimer); _liveShowTimer = null; }
+      if (_liveAutoAdvanceTimer) { clearTimeout(_liveAutoAdvanceTimer); _liveAutoAdvanceTimer = null; }
+    }
+
+    function _resetAutoAdvanceTimer() {
+      if (_liveAutoAdvanceTimer) { clearTimeout(_liveAutoAdvanceTimer); _liveAutoAdvanceTimer = null; }
+    }
+
+    function _checkAutoAdvance() {
+      if (!_liveShowState || !_rundownSelectedPlan) return;
+      var items = _rundownSelectedPlan.items || [];
+      var idx = _liveShowState.currentCueIndex;
+      if (idx < 0 || idx >= items.length) return;
+      var item = items[idx];
+      if (!item.autoAdvance || !item.lengthSeconds) return;
+      var elapsed = (Date.now() - _liveShowState.currentCueStartedAt) / 1000;
+      if (elapsed >= item.lengthSeconds) {
+        // Auto-advance to next cue
+        liveShowGo();
+      }
+    }
+
+    function _updateLiveTimerDisplay() {
+      if (!_liveShowState || !_rundownSelectedPlan) return;
+      var items = _rundownSelectedPlan.items || [];
+      var idx = _liveShowState.currentCueIndex;
+      if (idx < 0 || idx >= items.length) return;
+      var item = items[idx];
+      var elapsed = Math.floor((Date.now() - _liveShowState.currentCueStartedAt) / 1000);
+      var remaining = Math.max(0, (item.lengthSeconds || 0) - elapsed);
+      var isOvertime = elapsed > (item.lengthSeconds || 0) && item.lengthSeconds > 0;
+      var overtimeSec = isOvertime ? elapsed - item.lengthSeconds : 0;
+      var pct = item.lengthSeconds > 0 ? Math.min(1, elapsed / item.lengthSeconds) : 0;
+
+      // Update timer display in active cue row
+      var timerEl = document.getElementById('live-cue-timer');
+      if (timerEl) {
+        if (item.lengthSeconds > 0) {
+          if (isOvertime) {
+            timerEl.textContent = '+' + _rundownFormatMMSS(overtimeSec);
+            timerEl.style.color = '#FF5252';
+          } else {
+            timerEl.textContent = _rundownFormatMMSS(remaining);
+            if (pct > 0.9) timerEl.style.color = '#FF5252';
+            else if (pct > 0.5) timerEl.style.color = '#FFB74D';
+            else timerEl.style.color = '#00E676';
+          }
+        } else {
+          timerEl.textContent = _rundownFormatMMSS(elapsed);
+          timerEl.style.color = '#8B9DAF';
+        }
+      }
+
+      // Update elapsed display
+      var elapsedEl = document.getElementById('live-cue-elapsed');
+      if (elapsedEl) elapsedEl.textContent = _rundownFormatMMSS(elapsed);
+
+      // Update show elapsed
+      var showEl = document.getElementById('live-show-elapsed');
+      if (showEl && _liveShowState.startedAt) {
+        var showElapsed = Math.floor((Date.now() - _liveShowState.startedAt) / 1000);
+        var sh = Math.floor(showElapsed / 3600);
+        var sm = Math.floor((showElapsed % 3600) / 60);
+        var ss = showElapsed % 60;
+        showEl.textContent = (sh > 0 ? sh + ':' : '') + (sm < 10 && sh > 0 ? '0' : '') + sm + ':' + (ss < 10 ? '0' : '') + ss;
+      }
+    }
+
+    // ── Keyboard shortcuts for live show mode ─────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (!_liveShowState || !_liveShowState.isLive) return;
+      // Don't capture if user is typing in an input/textarea/select
+      var tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      // Only capture on the rundown page
+      var rundownPage = document.getElementById('page-rundown');
+      if (!rundownPage || !rundownPage.classList.contains('active')) return;
+
+      if (e.key === ' ' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        liveShowGo();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        liveShowBack();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        liveShowStop();
+      }
+    });
 
     // ── Templates ─────────────────────────────────────────────────────────────
 
@@ -9625,6 +9976,21 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownDeleteTemplate':
         if (typeof rundownDeleteTemplate === 'function') rundownDeleteTemplate(btn.dataset.templateId);
+        break;
+      case 'liveShowStart':
+        if (typeof liveShowStart === 'function') liveShowStart();
+        break;
+      case 'liveShowStop':
+        if (typeof liveShowStop === 'function') liveShowStop();
+        break;
+      case 'liveShowGo':
+        if (typeof liveShowGo === 'function') liveShowGo();
+        break;
+      case 'liveShowBack':
+        if (typeof liveShowBack === 'function') liveShowBack();
+        break;
+      case 'liveShowGoto':
+        if (typeof liveShowGoto === 'function') liveShowGoto(parseInt(btn.dataset.cueIndex, 10));
         break;
 
       // Profile
