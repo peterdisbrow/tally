@@ -206,8 +206,11 @@
         </div>
       </div>
 
+      <!-- Draggable / collapsible overview sections -->
+      <div id="overview-sections-container">
+
       <!-- Simple view: Equipment at a glance (friendly list) -->
-      <div class="card simple-only" id="equipment-simple-card">
+      <div class="card simple-only" id="equipment-simple-card" data-section-id="equipment-simple-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0">Equipment</div>
           <button class="btn-secondary" id="btn-refresh-equip-simple" data-action="refreshEquipmentStatus" style="padding:4px 10px;font-size:11px">Refresh</button>
@@ -233,7 +236,7 @@
       </div>
 
       <!-- Live Viewer Count (visible during active sessions) -->
-      <div class="card" id="live-viewers-card" style="display:none;margin-bottom:16px">
+      <div class="card" id="live-viewers-card" data-section-id="live-viewers-card" style="display:none;margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:10px">
             <div class="card-title" style="margin:0">Live Viewers</div>
@@ -245,7 +248,7 @@
       </div>
 
       <!-- System Health Check Card — advanced-only; hidden until desktop app has connected -->
-      <div class="card advanced-only" id="preservice-card-dashboard">
+      <div class="card advanced-only" id="preservice-card-dashboard" data-section-id="preservice-card-dashboard">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:10px">
             <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime." data-i18n="overview.preservice.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg> System Health Check</span></div>
@@ -263,7 +266,7 @@
       </div>
 
       <!-- Live Incident Commander (shown only during active sessions) -->
-      <div class="card" id="incident-card" style="display:none">
+      <div class="card" id="incident-card" data-section-id="incident-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span id="incident-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#00E676;margin-right:8px;animation:pulse 2s infinite"></span>LIVE SESSION</div>
           <span id="incident-duration" style="font-size:12px;color:#8B9DAF"></span>
@@ -272,7 +275,7 @@
         <div id="incident-body"></div>
       </div>
 
-      <div class="card advanced-only" id="equipment-status-card">
+      <div class="card advanced-only" id="equipment-status-card" data-section-id="equipment-status-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)" data-i18n="overview.equip.title">Equipment Status</span> <span id="equip-room-label" style="font-size:12px;color:#00E676;font-weight:normal;margin-left:8px"></span></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -291,7 +294,7 @@
       </div>
 
       <!-- Smart Plugs Card (shown when plugs are discovered) -->
-      <div class="card advanced-only" id="smart-plugs-card" style="display:none">
+      <div class="card advanced-only" id="smart-plugs-card" data-section-id="smart-plugs-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0">&#128268; Smart Plugs</div>
           <button class="btn-secondary" id="btn-refresh-plugs" data-action="refreshSmartPlugs" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
@@ -300,7 +303,7 @@
       </div>
 
       <!-- Stream Protection (shown when protection is available) -->
-      <div class="card advanced-only" id="stream-protection-card" style="display:none">
+      <div class="card advanced-only" id="stream-protection-card" data-section-id="stream-protection-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0">
             <span id="sp-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#556270;margin-right:8px"></span>Stream Protection
@@ -327,7 +330,7 @@
       </div>
 
       <!-- Live Stream Stats (shown when any source is streaming) -->
-      <div class="card advanced-only" id="stream-stats-card" style="display:none">
+      <div class="card advanced-only" id="stream-stats-card" data-section-id="stream-stats-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#FF5252;margin-right:8px;animation:pulse 2s infinite"></span><span data-i18n="overview.stream.title">Live Stream</span></div>
           <span id="stream-source-label" style="font-size:12px;color:#8B9DAF;background:#0a1610;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
@@ -354,7 +357,7 @@
       </div>
 
       <!-- Broadcast Platform Health (YouTube / Facebook) -->
-      <div class="card advanced-only" id="broadcast-health-card" style="display:none">
+      <div class="card advanced-only" id="broadcast-health-card" data-section-id="broadcast-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0">Broadcast Platforms</div>
         </div>
@@ -362,7 +365,7 @@
       </div>
 
       <!-- ATEM Switcher Detail Card -->
-      <div class="card advanced-only" id="atem-detail-card" style="display:none">
+      <div class="card advanced-only" id="atem-detail-card" data-section-id="atem-detail-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status" data-i18n="overview.atem.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M3 3.5a.5.5 0 0 1 1 0V6a2 2 0 0 1 0 4v2.5a.5.5 0 0 1-1 0V10a2 2 0 0 1 0-4V3.5ZM8.5 3.5a.5.5 0 0 1 1 0v1A2 2 0 0 1 9.5 8.5v4a.5.5 0 0 1-1 0v-4a2 2 0 0 1 0-4v-1ZM12.5 5.5a.5.5 0 0 1 1 0v2a2 2 0 0 1 0 4v1a.5.5 0 0 1-1 0v-1a2 2 0 0 1 0-4v-2Z"/></svg> ATEM Switcher</span></div>
           <span id="atem-model-label" style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
@@ -399,7 +402,7 @@
       </div>
 
       <!-- ProPresenter Detail Card -->
-      <div class="card advanced-only" id="propresenter-detail-card" style="display:none">
+      <div class="card advanced-only" id="propresenter-detail-card" data-section-id="propresenter-detail-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="ProPresenter presentation state — current slide, timers, looks, and screen status"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H10l-2 2.5L6 11H3.5A1.5 1.5 0 0 1 2 9.5v-6Z"/></svg> ProPresenter</span></div>
           <span id="pp-version-label" style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
@@ -434,7 +437,7 @@
       </div>
 
       <!-- VideoHub Routing Card -->
-      <div class="card advanced-only" id="videohub-detail-card" style="display:none">
+      <div class="card advanced-only" id="videohub-detail-card" data-section-id="videohub-detail-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="VideoHub routing table — current input-to-output signal path"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h11A1.5 1.5 0 0 1 15 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9ZM4 5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm3 1a1 1 0 1 0 2 0 1 1 0 0 0-2 0ZM4 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm3 1a1 1 0 1 0 2 0 1 1 0 0 0-2 0Z"/></svg> VideoHub Routing</span></div>
           <span id="vh-name-label" style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
@@ -453,7 +456,7 @@
       <div id="switchers-cards-container"></div>
 
       <!-- Audio Health Card -->
-      <div class="card advanced-only" id="audio-health-card" style="display:none">
+      <div class="card advanced-only" id="audio-health-card" data-section-id="audio-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg> Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
@@ -478,7 +481,7 @@
       <!-- System Health Check Card (legacy placeholder — real card is at top of overview) -->
 
       <!-- Service Checklist Card -->
-      <div class="card" id="rundown-card">
+      <div class="card" id="rundown-card" data-section-id="rundown-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Service Checklist</span></div>
           <span id="rundown-status-badge" class="badge badge-gray">—</span>
@@ -489,7 +492,7 @@
       </div>
 
       <!-- Activity Feed (advanced-only — not a Sunday-morning quick action) -->
-      <div class="card advanced-only" id="activity-feed-card">
+      <div class="card advanced-only" id="activity-feed-card" data-section-id="activity-feed-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg> Activity Feed</span></div>
           <span id="activity-feed-count" style="font-size:11px;color:#556270"></span>
@@ -500,7 +503,7 @@
       </div>
 
       <!-- AI Assistant Card -->
-      <div class="card advanced-only" id="pf-card">
+      <div class="card advanced-only" id="pf-card" data-section-id="pf-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from the AI Assistant — shows what was found, what was auto-fixed, and what still needs attention" data-i18n="overview.engineer.title">AI Assistant</span></div>
           <span id="pf-badge" class="badge badge-gray">—</span>
@@ -510,13 +513,14 @@
         </div>
       </div>
 
-      <div class="card advanced-only" id="schedule-overview-card">
+      <div class="card advanced-only" id="schedule-overview-card" data-section-id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
           <button class="btn-secondary" data-action="showPage" data-page="schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#8B9DAF">Loading schedule…</div>
       </div>
+      </div><!-- /overview-sections-container -->
       <!-- Quick Info moved to Billing page -->
     </div>
 

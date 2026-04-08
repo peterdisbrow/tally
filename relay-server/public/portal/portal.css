@@ -1198,3 +1198,77 @@ body.light-theme .nav-more-items .nav-item { color: var(--text-secondary); }
   .equip-simple-row { gap: 10px; }
   .view-mode-toggle { font-size: 11px; padding: 3px 10px 3px 12px; }
 }
+
+/* ─── OVERVIEW SECTIONS: Collapse + Drag-and-Drop ────────────────────────── */
+.section-body {
+  overflow: hidden;
+  max-height: 3000px;
+  transition: max-height 0.35s ease, opacity 0.25s ease;
+  opacity: 1;
+}
+.section-collapsed .section-body {
+  max-height: 0 !important;
+  opacity: 0;
+}
+.section-collapsed > :first-child {
+  margin-bottom: 0 !important;
+}
+
+.section-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  opacity: 0.35;
+  cursor: grab;
+  padding: 2px 8px 2px 0;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  touch-action: none;
+}
+.section-drag-handle:hover { opacity: 0.75; }
+.section-drag-handle:active { cursor: grabbing; opacity: 1; }
+
+.section-chevron {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--text-secondary);
+  opacity: 0.45;
+  transition: transform 0.25s ease, opacity 0.15s;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.section-collapsed .section-chevron {
+  transform: rotate(-90deg);
+  opacity: 0.65;
+}
+
+.section-header-row {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.section-header-row:hover .section-drag-handle { opacity: 0.65; }
+.section-header-row:hover .section-chevron { opacity: 0.75; }
+
+.section-dragging {
+  opacity: 0.45;
+  cursor: grabbing !important;
+}
+.section-drag-over {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(0,230,118,0.25), 0 4px 24px rgba(0,0,0,0.4) !important;
+}
+.section-drag-placeholder {
+  border: 2px dashed rgba(0,230,118,0.4);
+  border-radius: var(--radius);
+  background: rgba(0,230,118,0.04);
+  margin-bottom: 20px;
+  pointer-events: none;
+}
+
+body.light-theme .section-drag-handle { color: var(--text-muted); }
+body.light-theme .section-chevron { color: var(--text-muted); }
+body.light-theme .section-drag-over { border-color: rgba(22,163,74,0.5) !important; box-shadow: 0 0 0 2px rgba(22,163,74,0.15) !important; }
+body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); background: rgba(22,163,74,0.03); }

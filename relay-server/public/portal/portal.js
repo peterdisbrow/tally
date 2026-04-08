@@ -60,6 +60,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       docItem: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L9.94 2.439A1.5 1.5 0 0 0 8.878 2H4Zm1 5.75A.75.75 0 0 1 5.75 7h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 5 7.75Zm0 3a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg>',
       people: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.255 1.139.872 1.139h9.47Z"/></svg>',
       clock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8Zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5v-3.5Z" clip-rule="evenodd"/></svg>',
+      grip: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="5.5" cy="3.5" r="1.25"/><circle cx="10.5" cy="3.5" r="1.25"/><circle cx="5.5" cy="8" r="1.25"/><circle cx="10.5" cy="8" r="1.25"/><circle cx="5.5" cy="12.5" r="1.25"/><circle cx="10.5" cy="12.5" r="1.25"/></svg>',
+      chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path fill-rule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>',
     };
 
     // ── Global room context ─────────────────────────────────────────────────────
@@ -1009,6 +1011,171 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
+    // ── Overview Sections: Collapse + Drag-and-Drop ────────────────────────────
+    var _sectionDragSrc = null;
+    var _dragPlaceholder = null;
+
+    function initOverviewSections() {
+      var container = document.getElementById('overview-sections-container');
+      if (!container || container.dataset.sectionsInit) return;
+      container.dataset.sectionsInit = '1';
+
+      var cards = Array.from(container.querySelectorAll(':scope > .card[data-section-id]'));
+      if (!cards.length) return;
+
+      // Load saved state from localStorage
+      var savedOrder = null;
+      var savedCollapsed = {};
+      try {
+        var rawOrder = localStorage.getItem('portal_section_order');
+        if (rawOrder) savedOrder = JSON.parse(rawOrder);
+        var rawCollapsed = localStorage.getItem('portal_section_collapsed');
+        if (rawCollapsed) savedCollapsed = JSON.parse(rawCollapsed);
+      } catch(e) {}
+
+      // Reorder DOM according to saved order
+      if (savedOrder && Array.isArray(savedOrder)) {
+        savedOrder.forEach(function(sid) {
+          var card = container.querySelector(':scope > .card[data-section-id="' + sid + '"]');
+          if (card) container.appendChild(card);
+        });
+      }
+
+      // Set up each card
+      cards.forEach(function(card) {
+        var sectionId = card.getAttribute('data-section-id');
+        var headerRow = card.firstElementChild;
+        if (!headerRow) return;
+
+        // Mark header row for styling
+        headerRow.classList.add('section-header-row');
+
+        // Prepend drag handle
+        var handle = document.createElement('span');
+        handle.className = 'section-drag-handle';
+        handle.innerHTML = SVG.grip;
+        handle.title = 'Drag to reorder';
+        headerRow.insertBefore(handle, headerRow.firstChild);
+
+        // Append chevron
+        var chevron = document.createElement('span');
+        chevron.className = 'section-chevron';
+        chevron.innerHTML = SVG.chevronDown;
+        headerRow.appendChild(chevron);
+
+        // Wrap body children in .section-body
+        var bodyChildren = Array.from(card.children).slice(1);
+        if (bodyChildren.length) {
+          var bodyWrap = document.createElement('div');
+          bodyWrap.className = 'section-body';
+          bodyChildren.forEach(function(child) { bodyWrap.appendChild(child); });
+          card.appendChild(bodyWrap);
+        }
+
+        // Apply saved collapsed state
+        if (savedCollapsed[sectionId]) {
+          card.classList.add('section-collapsed');
+        }
+
+        // Collapse toggle: click header (but not buttons/inputs/links inside it)
+        headerRow.addEventListener('click', function(e) {
+          if (e.target.closest('button, a, input, label, select, .section-drag-handle')) return;
+          var collapsed = card.classList.toggle('section-collapsed');
+          _saveOverviewCollapsed(sectionId, collapsed);
+        });
+
+        // Drag-and-drop via the handle
+        handle.addEventListener('mousedown', function(e) {
+          card.setAttribute('draggable', 'true');
+        });
+        handle.addEventListener('mouseleave', function() {
+          // Only remove draggable if not currently dragging
+          if (!_sectionDragSrc) card.setAttribute('draggable', 'false');
+        });
+
+        card.addEventListener('dragstart', function(e) {
+          _sectionDragSrc = card;
+          card.classList.add('section-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', sectionId);
+          // Create placeholder sized to the card
+          _dragPlaceholder = document.createElement('div');
+          _dragPlaceholder.className = 'section-drag-placeholder';
+          _dragPlaceholder.style.height = card.offsetHeight + 'px';
+          // Insert placeholder after card
+          card.parentNode.insertBefore(_dragPlaceholder, card.nextSibling);
+          // Defer opacity so browser captures the non-dimmed element as drag image
+          setTimeout(function() { card.classList.add('section-dragging'); }, 0);
+        });
+
+        card.addEventListener('dragend', function() {
+          card.setAttribute('draggable', 'false');
+          card.classList.remove('section-dragging');
+          _sectionDragSrc = null;
+          if (_dragPlaceholder && _dragPlaceholder.parentNode) {
+            _dragPlaceholder.parentNode.removeChild(_dragPlaceholder);
+          }
+          _dragPlaceholder = null;
+          container.querySelectorAll('.section-drag-over').forEach(function(el) {
+            el.classList.remove('section-drag-over');
+          });
+          _saveOverviewSectionOrder(container);
+        });
+
+        card.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (!_sectionDragSrc || _sectionDragSrc === card) return;
+          card.classList.add('section-drag-over');
+          // Move placeholder to show insertion point
+          if (_dragPlaceholder) {
+            var rect = card.getBoundingClientRect();
+            var mid = rect.top + rect.height / 2;
+            if (e.clientY < mid) {
+              container.insertBefore(_dragPlaceholder, card);
+            } else {
+              container.insertBefore(_dragPlaceholder, card.nextSibling);
+            }
+          }
+        });
+
+        card.addEventListener('dragleave', function(e) {
+          if (!card.contains(e.relatedTarget)) {
+            card.classList.remove('section-drag-over');
+          }
+        });
+
+        card.addEventListener('drop', function(e) {
+          e.preventDefault();
+          card.classList.remove('section-drag-over');
+          if (!_sectionDragSrc || _sectionDragSrc === card) return;
+          var rect = card.getBoundingClientRect();
+          var mid = rect.top + rect.height / 2;
+          if (e.clientY < mid) {
+            container.insertBefore(_sectionDragSrc, card);
+          } else {
+            container.insertBefore(_sectionDragSrc, card.nextSibling);
+          }
+          _saveOverviewSectionOrder(container);
+        });
+      });
+    }
+
+    function _saveOverviewSectionOrder(container) {
+      var order = Array.from(container.querySelectorAll(':scope > .card[data-section-id]'))
+        .map(function(c) { return c.getAttribute('data-section-id'); });
+      try { localStorage.setItem('portal_section_order', JSON.stringify(order)); } catch(e) {}
+    }
+
+    function _saveOverviewCollapsed(sectionId, collapsed) {
+      try {
+        var state = {};
+        try { state = JSON.parse(localStorage.getItem('portal_section_collapsed') || '{}'); } catch(e) {}
+        state[sectionId] = collapsed;
+        localStorage.setItem('portal_section_collapsed', JSON.stringify(state));
+      } catch(e) {}
+    }
+
     // ── navigation ──────────────────────────────────────────────────────────────
     function showPage(id, el) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1024,7 +1191,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.body.classList.remove('sidebar-open');
       document.documentElement.classList.remove('sidebar-open');
       document.removeEventListener('touchmove', preventBodyScroll);
-      if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
+      if (id === 'overview') { initOverviewSections(); loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
       if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
@@ -10079,5 +10246,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (savedTab && document.getElementById(savedTab)) switchTab(savedTab);
     }
   } catch(e) {}
+
+  // Init overview sections on first load (overview is active by default)
+  initOverviewSections();
 
 });
