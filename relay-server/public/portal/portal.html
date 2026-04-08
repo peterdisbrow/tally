@@ -2293,6 +2293,82 @@
       </div>
     </div>
 
+    <!-- Styled Confirm Modal -->
+    <div class="modal-backdrop" id="modal-styled-confirm">
+      <div class="modal" style="max-width:380px">
+        <div class="modal-header">
+          <div class="modal-title" id="styled-confirm-title">Confirm</div>
+          <button class="modal-close" id="styled-confirm-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div id="styled-confirm-message" style="color:#8B9DAF;font-size:14px;margin-bottom:20px;line-height:1.5"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" id="styled-confirm-cancel">Cancel</button>
+            <button class="btn-primary" id="styled-confirm-ok" style="background:#EF4444;border-color:#EF4444">Confirm</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Styled Prompt Modal -->
+    <div class="modal-backdrop" id="modal-styled-prompt">
+      <div class="modal" style="max-width:400px">
+        <div class="modal-header">
+          <div class="modal-title" id="styled-prompt-title">Enter Value</div>
+          <button class="modal-close" id="styled-prompt-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div class="field" style="margin-bottom:20px">
+            <label id="styled-prompt-label" for="styled-prompt-input"></label>
+            <input type="text" id="styled-prompt-input">
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" id="styled-prompt-cancel">Cancel</button>
+            <button class="btn-primary" id="styled-prompt-ok">OK</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add / Edit Rundown Item Modal -->
+    <div class="modal-backdrop" id="modal-rundown-item">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-header">
+          <div class="modal-title" id="rundown-item-modal-title">Add Item</div>
+          <button class="modal-close" id="rundown-item-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div class="field" style="margin-bottom:14px">
+            <label for="rundown-item-title-input">Title</label>
+            <input type="text" id="rundown-item-title-input" placeholder="Item title">
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label for="rundown-item-type-input">Type</label>
+            <select id="rundown-item-type-input" style="width:100%;background:var(--bg-surface-solid);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;outline:none">
+              <option value="song">Song</option>
+              <option value="sermon">Sermon</option>
+              <option value="media">Media</option>
+              <option value="prayer">Prayer</option>
+              <option value="break">Break</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label for="rundown-item-duration-input">Duration (minutes)</label>
+            <input type="number" id="rundown-item-duration-input" placeholder="0" min="0" step="0.5">
+          </div>
+          <div class="field" style="margin-bottom:20px">
+            <label for="rundown-item-notes-input">Notes (optional)</label>
+            <input type="text" id="rundown-item-notes-input" placeholder="">
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" id="rundown-item-modal-cancel">Cancel</button>
+            <button class="btn-primary" id="rundown-item-modal-save">Add Item</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- CONNECTIONS -->
     <div class="page" id="page-connections">
       <div class="page-header">

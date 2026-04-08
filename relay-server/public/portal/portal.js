@@ -7752,6 +7752,117 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) _closeRundownPlanModal(null); });
     })();
 
+    // ── Reusable styled dialog helpers ────────────────────────────────────────
+    var _styledConfirmResolve = null;
+    var _styledPromptResolve = null;
+
+    function styledConfirm(title, message) {
+      var backdrop = document.getElementById('modal-styled-confirm');
+      var titleEl = document.getElementById('styled-confirm-title');
+      var messageEl = document.getElementById('styled-confirm-message');
+      if (titleEl) titleEl.textContent = title || 'Confirm';
+      if (messageEl) messageEl.textContent = message || '';
+      if (backdrop) backdrop.classList.add('open');
+      return new Promise(function(resolve) { _styledConfirmResolve = resolve; });
+    }
+
+    function _closeStyledConfirm(result) {
+      var backdrop = document.getElementById('modal-styled-confirm');
+      if (backdrop) backdrop.classList.remove('open');
+      if (_styledConfirmResolve) { _styledConfirmResolve(result); _styledConfirmResolve = null; }
+    }
+
+    function styledPrompt(title, label, defaultValue) {
+      var backdrop = document.getElementById('modal-styled-prompt');
+      var titleEl = document.getElementById('styled-prompt-title');
+      var labelEl = document.getElementById('styled-prompt-label');
+      var input = document.getElementById('styled-prompt-input');
+      if (titleEl) titleEl.textContent = title || 'Enter Value';
+      if (labelEl) labelEl.textContent = label || '';
+      if (input) input.value = defaultValue || '';
+      if (backdrop) backdrop.classList.add('open');
+      setTimeout(function() { if (input) { input.focus(); input.select(); } }, 100);
+      return new Promise(function(resolve) { _styledPromptResolve = resolve; });
+    }
+
+    function _closeStyledPrompt(result) {
+      var backdrop = document.getElementById('modal-styled-prompt');
+      if (backdrop) backdrop.classList.remove('open');
+      if (_styledPromptResolve) { _styledPromptResolve(result); _styledPromptResolve = null; }
+    }
+
+    (function() {
+      var confirmOk = document.getElementById('styled-confirm-ok');
+      var confirmCancel = document.getElementById('styled-confirm-cancel');
+      var confirmClose = document.getElementById('styled-confirm-close');
+      var confirmBackdrop = document.getElementById('modal-styled-confirm');
+      if (confirmOk) confirmOk.addEventListener('click', function() { _closeStyledConfirm(true); });
+      if (confirmCancel) confirmCancel.addEventListener('click', function() { _closeStyledConfirm(false); });
+      if (confirmClose) confirmClose.addEventListener('click', function() { _closeStyledConfirm(false); });
+      if (confirmBackdrop) confirmBackdrop.addEventListener('click', function(e) { if (e.target === confirmBackdrop) _closeStyledConfirm(false); });
+
+      var promptOk = document.getElementById('styled-prompt-ok');
+      var promptCancel = document.getElementById('styled-prompt-cancel');
+      var promptClose = document.getElementById('styled-prompt-close');
+      var promptBackdrop = document.getElementById('modal-styled-prompt');
+      var promptInput = document.getElementById('styled-prompt-input');
+      if (promptOk) promptOk.addEventListener('click', function() {
+        _closeStyledPrompt(promptInput ? promptInput.value : null);
+      });
+      if (promptCancel) promptCancel.addEventListener('click', function() { _closeStyledPrompt(null); });
+      if (promptClose) promptClose.addEventListener('click', function() { _closeStyledPrompt(null); });
+      if (promptBackdrop) promptBackdrop.addEventListener('click', function(e) { if (e.target === promptBackdrop) _closeStyledPrompt(null); });
+      if (promptInput) promptInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') _closeStyledPrompt(promptInput.value); });
+    })();
+
+    // ── Rundown item modal helper ──────────────────────────────────────────────
+    var _rundownItemModalResolve = null;
+
+    function _openRundownItemModal(mode, defaults) {
+      var backdrop = document.getElementById('modal-rundown-item');
+      var titleEl = document.getElementById('rundown-item-modal-title');
+      var saveBtn = document.getElementById('rundown-item-modal-save');
+      var titleInput = document.getElementById('rundown-item-title-input');
+      var typeSelect = document.getElementById('rundown-item-type-input');
+      var durInput = document.getElementById('rundown-item-duration-input');
+      var notesInput = document.getElementById('rundown-item-notes-input');
+      if (titleEl) titleEl.textContent = mode === 'edit' ? 'Edit Item' : 'Add Item';
+      if (saveBtn) saveBtn.textContent = mode === 'edit' ? 'Save' : 'Add Item';
+      if (titleInput) titleInput.value = (defaults && defaults.title) || '';
+      if (typeSelect) typeSelect.value = (defaults && defaults.itemType) || 'other';
+      if (durInput) durInput.value = (defaults && defaults.durationMinutes != null) ? defaults.durationMinutes : '0';
+      if (notesInput) notesInput.value = (defaults && defaults.notes) || '';
+      if (backdrop) backdrop.classList.add('open');
+      setTimeout(function() { if (titleInput) { titleInput.focus(); titleInput.select(); } }, 100);
+      return new Promise(function(resolve) { _rundownItemModalResolve = resolve; });
+    }
+
+    function _closeRundownItemModal(result) {
+      var backdrop = document.getElementById('modal-rundown-item');
+      if (backdrop) backdrop.classList.remove('open');
+      if (_rundownItemModalResolve) { _rundownItemModalResolve(result); _rundownItemModalResolve = null; }
+    }
+
+    (function() {
+      var saveBtn = document.getElementById('rundown-item-modal-save');
+      var cancelBtn = document.getElementById('rundown-item-modal-cancel');
+      var closeBtn = document.getElementById('rundown-item-modal-close');
+      var backdrop = document.getElementById('modal-rundown-item');
+      if (saveBtn) saveBtn.addEventListener('click', function() {
+        var title = document.getElementById('rundown-item-title-input').value;
+        if (!title || !title.trim()) { document.getElementById('rundown-item-title-input').focus(); return; }
+        _closeRundownItemModal({
+          title: title.trim(),
+          itemType: document.getElementById('rundown-item-type-input').value || 'other',
+          durationMinutes: parseFloat(document.getElementById('rundown-item-duration-input').value || '0') || 0,
+          notes: document.getElementById('rundown-item-notes-input').value || '',
+        });
+      });
+      if (cancelBtn) cancelBtn.addEventListener('click', function() { _closeRundownItemModal(null); });
+      if (closeBtn) closeBtn.addEventListener('click', function() { _closeRundownItemModal(null); });
+      if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) _closeRundownItemModal(null); });
+    })();
+
     function rundownNew() {
       _openRundownPlanModal('create', { title: 'Sunday Service', date: new Date().toISOString().slice(0, 10) }).then(function(result) {
         if (!result) return;
@@ -7779,71 +7890,76 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownDeletePlan() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
-      if (!confirm('Delete this rundown? This cannot be undone.')) return;
-      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function() {
-        toast('Rundown deleted');
-        _rundownSelectedPlan = null;
-        _rundownSelectedPlanId = null;
-        var editor = document.getElementById('rundown-editor');
-        if (editor) editor.style.display = 'none';
-        loadRundownManager();
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      styledConfirm('Delete Rundown', 'Delete this rundown? This cannot be undone.').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function() {
+          toast('Rundown deleted');
+          _rundownSelectedPlan = null;
+          _rundownSelectedPlanId = null;
+          var editor = document.getElementById('rundown-editor');
+          if (editor) editor.style.display = 'none';
+          loadRundownManager();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownAddItem() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
-      var title = prompt('Item title:');
-      if (!title || !title.trim()) return;
-      var typeStr = prompt('Type (song, sermon, media, prayer, break, other):', 'other');
-      var durStr = prompt('Duration in minutes (e.g. 5):', '0');
-      var durSec = Math.round(parseFloat(durStr || '0') * 60);
-      var notes = prompt('Notes (optional):', '');
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
-        title: title.trim(),
-        itemType: (typeStr || 'other').trim().toLowerCase(),
-        lengthSeconds: durSec > 0 ? durSec : 0,
-        notes: notes || '',
-      }).then(function() {
-        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
-          _rundownSelectedPlan = plan;
-          renderRundownEditor(plan);
-          // Also update plan list item count
-          var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
-          if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
-        });
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      _openRundownItemModal('add', null).then(function(result) {
+        if (!result) return;
+        var durSec = Math.round(result.durationMinutes * 60);
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+          title: result.title,
+          itemType: result.itemType,
+          lengthSeconds: durSec > 0 ? durSec : 0,
+          notes: result.notes,
+        }).then(function() {
+          api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+            _rundownSelectedPlan = plan;
+            renderRundownEditor(plan);
+            // Also update plan list item count
+            var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+            if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
+          });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownEditItem(itemId) {
       if (!_rundownSelectedPlan) return;
       var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
       if (!item) return;
-      var title = prompt('Item title:', item.title);
-      if (!title || !title.trim()) return;
-      var typeStr = prompt('Type (song, sermon, media, prayer, break, other):', item.itemType);
-      var durStr = prompt('Duration in minutes:', item.lengthSeconds > 0 ? (item.lengthSeconds / 60).toFixed(1) : '0');
-      var durSec = Math.round(parseFloat(durStr || '0') * 60);
-      var notes = prompt('Notes:', item.notes || '');
-      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, {
-        title: title.trim(),
-        itemType: (typeStr || 'other').trim().toLowerCase(),
-        lengthSeconds: durSec > 0 ? durSec : 0,
-        notes: notes || '',
-      }).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditor(plan);
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      _openRundownItemModal('edit', {
+        title: item.title,
+        itemType: item.itemType,
+        durationMinutes: item.lengthSeconds > 0 ? parseFloat((item.lengthSeconds / 60).toFixed(1)) : 0,
+        notes: item.notes || '',
+      }).then(function(result) {
+        if (!result) return;
+        var durSec = Math.round(result.durationMinutes * 60);
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, {
+          title: result.title,
+          itemType: result.itemType,
+          lengthSeconds: durSec > 0 ? durSec : 0,
+          notes: result.notes,
+        }).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownDeleteItem(itemId) {
       if (!_rundownSelectedPlan) return;
-      if (!confirm('Remove this item?')) return;
-      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditor(plan);
-        var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
-        if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      styledConfirm('Remove Item', 'Remove this item from the rundown?').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+          if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownMoveItem(itemId, direction) {
@@ -7879,12 +7995,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function rundownEndSession() {
-      if (!confirm('End the live rundown session?')) return;
-      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/end').then(function() {
-        _rundownState = null;
-        toast('Session ended');
-        loadRundownManager();
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      styledConfirm('End Session', 'End the live rundown session?').then(function(ok) {
+        if (!ok) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/end').then(function() {
+          _rundownState = null;
+          toast('Session ended');
+          loadRundownManager();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownAdvance() {
@@ -7935,34 +8053,37 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownSaveTemplate() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
-      var name = prompt('Template name:', _rundownSelectedPlan.title);
-      if (!name || !name.trim()) return;
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/save-template', { templateName: name.trim() }).then(function() {
-        toast('Template saved');
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      styledPrompt('Save Template', 'Template name', _rundownSelectedPlan.title).then(function(name) {
+        if (!name || !name.trim()) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/save-template', { templateName: name.trim() }).then(function() {
+          toast('Template saved');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownCreateFromTemplate(templateId) {
-      var title = prompt('Rundown title:', 'Sunday Service');
-      if (!title || !title.trim()) return;
-      var dateStr = prompt('Service date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId + '/create', {
-        title: title.trim(),
-        serviceDate: dateStr || null,
-      }).then(function(plan) {
-        toast('Rundown created from template');
-        _rundownSelectedPlanId = plan.id;
-        loadRundownManager();
-        setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      _openRundownPlanModal('create', { title: 'Sunday Service', date: new Date().toISOString().slice(0, 10) }).then(function(result) {
+        if (!result) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId + '/create', {
+          title: result.title,
+          serviceDate: result.date || null,
+        }).then(function(plan) {
+          toast('Rundown created from template');
+          _rundownSelectedPlanId = plan.id;
+          loadRundownManager();
+          setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownDeleteTemplate(templateId) {
-      if (!confirm('Delete this template?')) return;
-      api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId).then(function() {
-        toast('Template deleted');
-        rundownShowTemplates();
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      styledConfirm('Delete Template', 'Delete this template?').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-templates/' + templateId).then(function() {
+          toast('Template deleted');
+          rundownShowTemplates();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function loadCompanionActionsCache(planId) {
