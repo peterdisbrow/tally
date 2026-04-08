@@ -1,5 +1,6 @@
 const { getPrimarySocket, getSocketForInstance } = require('./runtimeSockets');
 const { createQueryClient } = require('./db');
+const { runWithConcurrency } = require('./asyncPool');
 
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
@@ -21,9 +22,10 @@ const CREATE_PRESERVICE_CHECK_RESULTS_SQL = `
 `;
 
 const CHURCH_SELECT_SQL = `
-  SELECT churchId AS "churchId", name, service_times
+  SELECT churchId AS "churchId", name, service_times, timezone
   FROM churches
 `;
+const MAX_CHECK_CONCURRENCY = Math.max(1, Number(process.env.PRE_SERVICE_CHECK_MAX_CONCURRENCY || 4));
 
 function isDuplicateColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
@@ -61,6 +63,7 @@ class PreServiceCheck {
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
+    this._tickPromise = null;
     if (this.db) {
       this._ensureTableSync();
       // Restore last-check timestamps from DB so relay restarts don't re-fire
@@ -252,7 +255,7 @@ class PreServiceCheck {
    * without waiting up to 5 minutes for the first tick.
    */
   start() {
-    this._timer = setInterval(() => this._tick(), 5 * 60 * 1000);
+    this._timer = setInterval(() => { void this._tick(); }, 5 * 60 * 1000);
     console.log('[PreServiceCheck] Started — polling every 5 min');
     // Startup sweep: run immediately so a restart inside the service window
     // doesn't silently skip the pre-service check.
@@ -316,23 +319,38 @@ class PreServiceCheck {
   }
 
   async _tick() {
-    try {
-      await this.ready;
-      const allChurches = this.db
-        ? this.db.prepare(CHURCH_SELECT_SQL).all()
-        : await this._requireClient().query(CHURCH_SELECT_SQL, []);
-      for (const church of allChurches) {
-        await this._checkChurch(church).catch(e =>
-          console.error(`[PreServiceCheck] Error for ${church.name}:`, e.message)
-        );
+    if (this._tickPromise) return this._tickPromise;
+    this._tickPromise = (async () => {
+      try {
+        await this.ready;
+        const allChurches = this.db
+          ? this.db.prepare(CHURCH_SELECT_SQL).all()
+          : await this._requireClient().query(CHURCH_SELECT_SQL, []);
+        await runWithConcurrency(allChurches, MAX_CHECK_CONCURRENCY, async (church) => {
+          await this._checkChurch(church).catch(e =>
+            console.error(`[PreServiceCheck] Error for ${church.name}:`, e.message)
+          );
+        });
+      } catch (e) {
+        console.error('[PreServiceCheck] Tick error:', e.message);
+      } finally {
+        this._tickPromise = null;
       }
-    } catch (e) {
-      console.error('[PreServiceCheck] Tick error:', e.message);
-    }
+    })();
+    return this._tickPromise;
   }
 
   async _checkChurch(church) {
-    const schedule = await this._getSchedule(church.churchId);
+    let schedule = [];
+    if (church?.service_times) {
+      try {
+        schedule = JSON.parse(church.service_times);
+      } catch {
+        schedule = [];
+      }
+    } else {
+      schedule = await this._getSchedule(church.churchId);
+    }
     const upcoming = this._serviceStartingIn25to35(schedule);
     if (!upcoming) return;
 

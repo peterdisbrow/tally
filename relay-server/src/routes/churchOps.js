@@ -62,6 +62,7 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     }
 
     let remotePublished = false;
+    let delivered = localRecipients > 0;
     if (dispatchRemoteCommand) {
       const remoteResult = await dispatchRemoteCommand(msg, {
         churchId,
@@ -69,9 +70,10 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
         hasLocalDelivery: localRecipients > 0,
       });
       remotePublished = !!remoteResult?.remotePublished;
+      delivered = !!remoteResult?.delivered;
     }
 
-    if (localRecipients === 0 && !remotePublished) {
+    if (!delivered) {
       if (church.disconnectedAt && (Date.now() - church.disconnectedAt) < QUEUE_TTL_MS) {
         queueMessage(churchId, msg);
         log(`CMD → ${church.name}: ${command} (queued — church offline)`);

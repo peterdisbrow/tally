@@ -200,12 +200,18 @@ const { createStatusBatcher } = require('./src/statusBatcher');
 const { createRuntimeCoordinator } = require('./src/runtimeCoordination');
 const { createRuntimeMetrics } = require('./src/runtimeMetrics');
 const { createRuntimeMirror } = require('./src/runtimeMirror');
+const { createSharedRuntimeState } = require('./src/sharedRuntimeState');
 const createAuthMiddleware = require('./src/routes/authMiddleware');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
+
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
-const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+const JWT_SECRET    = process.env.JWT_SECRET;
 const ADMIN_SESSION_COOKIE = 'tally_admin_key';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const CHURCH_APP_TOKEN_TTL = process.env.TALLY_CHURCH_APP_TOKEN_TTL || '30d';
@@ -228,16 +234,16 @@ const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}
 // deploys with dev credentials — a leak of those secrets is an account takeover.
 const _isDevEnv = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !!process.env.VITEST;
 if (!_isDevEnv) {
-  if (!process.env.ADMIN_API_KEY || !process.env.JWT_SECRET) {
+  if (!process.env.ADMIN_API_KEY) {
     throw new Error(
-      `[STARTUP] ADMIN_API_KEY and JWT_SECRET are required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
-      '  Generate secure values with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+      `[STARTUP] ADMIN_API_KEY is required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
+      '  Generate a secure value with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
     );
   }
-  if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
+  if (ADMIN_API_KEY === 'dev-admin-key-change-me') {
     throw new Error(
-      '[STARTUP] Default development credentials detected in a non-development environment! ' +
-      'Set ADMIN_API_KEY and JWT_SECRET to unique, cryptographically random values.'
+      '[STARTUP] Default development admin credential detected in a non-development environment! ' +
+      'Set ADMIN_API_KEY to a unique, cryptographically random value.'
     );
   }
   if (!process.env.SESSION_SECRET) {
@@ -259,8 +265,8 @@ if (!_isDevEnv) {
     console.warn('   Users will NOT receive emails. Get a key from https://resend.com\n');
   }
 }
-if (_isDevEnv && (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me')) {
-  console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars before deploying.\n');
+if (_isDevEnv && ADMIN_API_KEY === 'dev-admin-key-change-me') {
+  console.warn('\n⚠️  WARNING: Using default dev admin key! Set ADMIN_API_KEY before deploying.\n');
 }
 
 // ─── CONNECTION LIMITS ───────────────────────────────────────────────────────
@@ -510,6 +516,7 @@ Tally Connect — tallyconnect.app`;
 
 const { db, config: dbConfig, queryClient } = createAppDatabase({ env: process.env, onInfo: log });
 const runtimeCoordinator = createRuntimeCoordinator({ env: process.env, logger: console });
+const sharedRuntimeState = createSharedRuntimeState({ env: process.env, logger: console });
 const runtimeMetrics = createRuntimeMetrics();
 const DB_PATH = dbConfig?.sqlitePath || null;
 const SQL_AUTOINCREMENT_PRIMARY_KEY = queryClient.driver === 'postgres'
@@ -1673,6 +1680,51 @@ const lifecycleEmails = new LifecycleEmails(queryClient, {
   appUrl: APP_URL,
 });
 
+app.get('/api/notifications/unsubscribe', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) {
+    return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is missing a token.</p></body></html>');
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) || {};
+    const churchId = String(payload.churchId || '').trim();
+    const email = String(payload.email || '').trim().toLowerCase();
+    const type = payload.type === 'digest' || payload.type === 'report' ? payload.type : '';
+    if (!churchId || !email || !type) throw new Error('Invalid token payload');
+
+    const church = await queryClient.queryOne(
+      'SELECT notifications FROM churches WHERE churchId = ?',
+      [churchId],
+    );
+    if (!church) {
+      return res.status(404).type('html').send('<!doctype html><html><body><h1>Church not found</h1><p>This unsubscribe link is no longer valid.</p></body></html>');
+    }
+
+    let notifications = {};
+    try { notifications = JSON.parse(church.notifications || '{}'); } catch {}
+    if (type === 'digest') notifications.digest = false;
+    if (type === 'report') notifications.monthlyReport = false;
+
+    await queryClient.run(
+      'UPDATE churches SET notifications = ? WHERE churchId = ?',
+      [JSON.stringify(notifications), churchId],
+    );
+    lifecycleEmails.setPreference(
+      churchId,
+      type === 'digest' ? 'weekly-digest' : 'monthly-reports',
+      false,
+    );
+
+    const label = type === 'digest' ? 'weekly digest emails' : 'monthly report emails';
+    return res.type('html').send(
+      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(label)} for this church.</p></body></html>`,
+    );
+  } catch {
+    return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is invalid or has expired.</p></body></html>');
+  }
+});
+
 // ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
 chatEngine.pruneOldMessages(30).catch((e) => {
   console.error('[ChatEngine] Initial prune failed:', e.message);
@@ -2355,22 +2407,49 @@ function queueMessage(churchId, msg) {
   if (!messageQueues.has(churchId)) messageQueues.set(churchId, []);
   const queue = messageQueues.get(churchId);
   if (queue.length >= MAX_QUEUE_SIZE) queue.shift(); // drop oldest
-  queue.push({ msg, queuedAt: Date.now() });
+  const item = { msg, queuedAt: Date.now() };
+  queue.push(item);
+  Promise.resolve(sharedRuntimeState.enqueueMessage(churchId, item, {
+    maxQueueSize: MAX_QUEUE_SIZE,
+    ttlMs: QUEUE_TTL_MS,
+  })).catch((error) => {
+    logWarn(`[queue] shared enqueue failed for ${churchId}: ${error.message}`);
+  });
 }
 
 function drainQueue(churchId, ws) {
-  const queue = messageQueues.get(churchId);
-  if (!queue || queue.length === 0) return;
-  const now = Date.now();
-  let delivered = 0;
-  for (const item of queue) {
-    if (now - item.queuedAt < QUEUE_TTL_MS) {
+  const localQueue = messageQueues.get(churchId) || [];
+  messageQueues.delete(churchId);
+
+  const deliverQueuedItems = (items) => {
+    if (!Array.isArray(items) || items.length === 0) return;
+    const now = Date.now();
+    let delivered = 0;
+    const seen = new Set();
+    for (const item of items) {
+      const dedupKey = item?.msg?.id || item?.msg?.messageId || JSON.stringify(item?.msg || item);
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      if (now - Number(item?.queuedAt || 0) >= QUEUE_TTL_MS) continue;
       safeSend(ws, item.msg);
       delivered++;
     }
+    if (delivered > 0) log(`Delivered ${delivered} queued messages to church ${churchId}`);
+  };
+
+  if (!sharedRuntimeState.enabled) {
+    deliverQueuedItems(localQueue);
+    return;
   }
-  messageQueues.delete(churchId);
-  if (delivered > 0) log(`Delivered ${delivered} queued messages to church ${churchId}`);
+
+  Promise.resolve(sharedRuntimeState.drainQueuedMessages(churchId))
+    .then((sharedQueue) => {
+      deliverQueuedItems([...localQueue, ...sharedQueue]);
+    })
+    .catch((error) => {
+      logWarn(`[queue] shared drain failed for ${churchId}: ${error.message}`);
+      deliverQueuedItems(localQueue);
+    });
 }
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
@@ -4604,7 +4683,17 @@ const _wsHandlers = createWebSocketHandlers({
         church.status.previewActive = true;
         const frameMsg = { type: 'preview_frame', churchId: church.churchId, churchName: church.name, timestamp: msg.timestamp, width: msg.width, height: msg.height, format: msg.format, data: msg.data };
         const cachedFrame = cachePreviewFrame(frameMsg);
-        broadcastPreviewAvailability(buildPreviewAvailability(cachedFrame));
+        const availability = buildPreviewAvailability(cachedFrame);
+        broadcastPreviewAvailability(availability);
+        Promise.resolve(sharedRuntimeState.setPreviewFrame(
+          church.churchId,
+          cachedFrame,
+          PREVIEW_FRAME_CACHE_TTL_MS,
+        )).catch(() => {});
+        Promise.resolve(runtimeCoordinator.publishEvent('preview_available', {
+          churchId: church.churchId,
+          event: availability,
+        })).catch(() => {});
         if (tallyBot) tallyBot.onPreviewFrame(frameMsg);
         totalMessagesRelayed++;
         break;
@@ -4620,6 +4709,10 @@ const _wsHandlers = createWebSocketHandlers({
       const cachedFrame = getCachedPreviewFrame(msg.churchId);
       if (cachedFrame) {
         safeSend(ws, buildPreviewAvailability(cachedFrame));
+      } else if (sharedRuntimeState.enabled) {
+        Promise.resolve(sharedRuntimeState.getPreviewFrame(msg.churchId)).then((sharedFrame) => {
+          if (sharedFrame) safeSend(ws, buildPreviewAvailability(sharedFrame));
+        }).catch(() => {});
       }
       return;
     }
@@ -4991,6 +5084,17 @@ function getCachedPreviewFrame(churchId) {
   return cached;
 }
 
+async function getPreviewFrameForRequest(churchId) {
+  const local = getCachedPreviewFrame(churchId);
+  if (local) return local;
+  if (!sharedRuntimeState.enabled) return null;
+  const shared = await sharedRuntimeState.getPreviewFrame(churchId);
+  if (shared) {
+    previewFrameCache.set(churchId, { ...shared, storedAt: Date.now() });
+  }
+  return shared;
+}
+
 function buildPreviewAvailability(cached) {
   return {
     type: 'preview_available',
@@ -5219,9 +5323,32 @@ function sendCommandToLocalChurch(churchId, payload, { instance = null, roomId =
   return sent;
 }
 
+function hasObservedConnectionForCommand(churchId, { instance = null, roomId = null } = {}) {
+  const observed = getObservedChurch(churchId);
+  if (!observed?.connected) return false;
+
+  if (instance) {
+    return Array.isArray(observed.instances) ? observed.instances.includes(instance) : true;
+  }
+
+  if (roomId) {
+    return !!observed.roomInstanceMap?.[roomId];
+  }
+
+  return true;
+}
+
 async function publishRemoteCommand(payload, meta = {}) {
   if (!runtimeCoordinator.enabled || !payload?.churchId) {
     runtimeMetrics.record('command.remote.publish.skipped');
+    return false;
+  }
+  const shouldPublish = !!meta.hasLocalDelivery || hasObservedConnectionForCommand(payload.churchId, {
+    instance: meta.instance || payload.instance || null,
+    roomId: meta.roomId || payload.roomId || null,
+  });
+  if (!shouldPublish) {
+    runtimeMetrics.record('command.remote.publish.skipped.no_target');
     return false;
   }
   runtimeMetrics.record('command.remote.publish.attempt');
@@ -5243,6 +5370,10 @@ async function dispatchCommandAcrossRuntime(payload, meta = {}) {
     instance: meta.instance || payload.instance || null,
     roomId: meta.roomId || payload.roomId || null,
   });
+  const remoteLikelyConnected = hasObservedConnectionForCommand(payload.churchId, {
+    instance: meta.instance || payload.instance || null,
+    roomId: meta.roomId || payload.roomId || null,
+  });
   let remotePublished = false;
   try {
     remotePublished = await publishRemoteCommand(payload, {
@@ -5256,7 +5387,8 @@ async function dispatchCommandAcrossRuntime(payload, meta = {}) {
   return {
     localRecipients,
     remotePublished,
-    delivered: localRecipients > 0 || remotePublished,
+    remoteLikelyConnected,
+    delivered: localRecipients > 0 || remoteLikelyConnected,
   };
 }
 
@@ -5290,6 +5422,13 @@ function handleRuntimeCoordinationEvent(event) {
       result: cmdResultMsg.result,
       error: cmdResultMsg.error,
     });
+  }
+
+  if (event.type === 'preview_available') {
+    const previewMsg = payload.event;
+    if (!previewMsg?.churchId) return;
+    runtimeMetrics.record('preview_available.remote.receive');
+    broadcastPreviewAvailability(previewMsg);
   }
 }
 
@@ -5398,7 +5537,7 @@ require('./src/routes/slack')(app, {
 
 // Offline between-service detection (extracted)
 const offlineDetection = require('./src/crons/offlineDetection')({
-  db, churches, scheduleEngine, alertEngine, eventMode, tallyBot, log, _intervals,
+  db, queryClient, churches, scheduleEngine, alertEngine, eventMode, tallyBot, log, _intervals,
 });
 offlineDetection.start();
 
@@ -5722,7 +5861,7 @@ app.get('/api/admin/churches/:churchId/preview/latest', requireAdmin, async (req
   const church = getObservedChurch(churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
 
-  const cached = getCachedPreviewFrame(churchId);
+  const cached = await getPreviewFrameForRequest(churchId);
   if (!cached) return res.status(404).json({ error: 'Preview not available' });
 
   const knownFrameId = String(req.query.frameId || req.headers['if-none-match'] || '').trim();
@@ -6098,6 +6237,12 @@ function gracefulShutdown(signal, exitCode = 0) {
   try { tallyBot?.stop?.(); } catch (e) {
     logWarn('tallyBot.stop() threw during shutdown', { error: e?.message });
   }
+  try { monthlyReport.stop(); } catch (e) {
+    logWarn('monthlyReport.stop() threw during shutdown', { error: e?.message });
+  }
+  try { planningCenter.stop(); } catch (e) {
+    logWarn('planningCenter.stop() threw during shutdown', { error: e?.message });
+  }
   try { shutdownRtmpIngest(); } catch (e) {
     logWarn('shutdownRtmpIngest() threw during shutdown', { error: e?.message });
   }
@@ -6167,6 +6312,7 @@ function gracefulShutdown(signal, exitCode = 0) {
     Promise.allSettled([
       runtimeMirror.close(),
       runtimeCoordinator.close(),
+      sharedRuntimeState.close(),
       closeRedisRateLimitClient(),
       Promise.resolve(runtimeMetrics.close()),
     ]).finally(() => {

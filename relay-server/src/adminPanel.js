@@ -812,7 +812,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (existing) return res.status(409).json({ error: `Church "${name}" already exists` });
     try {
       const churchId = uuidv4();
-      const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret';
+      const jwtSecret = process.env.JWT_SECRET;
       const token = jwt.sign({ churchId, name }, jwtSecret, { expiresIn: '365d' });
       const registeredAt = new Date().toISOString();
       await qRun(
@@ -866,7 +866,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     try {
-      const jwtSecret = process.env.JWT_SECRET || 'dev-jwt-secret';
+      const jwtSecret = process.env.JWT_SECRET;
       const token = jwt.sign({ churchId: id, name: row.name }, jwtSecret, { expiresIn: '365d' });
       await qRun('UPDATE churches SET token=? WHERE churchId=?', [token, id]);
       const church = churches.get(id);
@@ -1997,6 +1997,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     const commandId = uuidv4();
     let remotePublished = false;
+    let delivered = openSockets.length > 0;
     if (dispatchRemoteCommand) {
       const remoteResult = await dispatchRemoteCommand(
         {
@@ -2010,26 +2011,15 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         { churchId, roomId: roomId || null, source: 'admin_portal', hasLocalDelivery: openSockets.length > 0 },
       );
       remotePublished = !!remoteResult?.remotePublished;
+      delivered = !!remoteResult?.delivered;
     }
 
-    if (openSockets.length === 0 && !remotePublished) {
+    if (!delivered) {
       return res.status(409).json({ error: 'Church client is not connected' });
     }
 
-    const payload = JSON.stringify({
-      type: 'command',
-      id: commandId,
-      command,
-      params: params || {},
-      source: 'admin',
-    });
-    try {
-      for (const sock of openSockets) sock.send(payload);
-      auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId, roomId: roomId || null });
-      res.json({ sent: true, commandId, targetedRoom: roomId || null, instanceCount: openSockets.length, remotePublished });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
-    }
+    auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId, roomId: roomId || null });
+    res.json({ sent: true, commandId, targetedRoom: roomId || null, instanceCount: openSockets.length, remotePublished });
   });
 
   // POST /api/admin/church/:churchId/send-message

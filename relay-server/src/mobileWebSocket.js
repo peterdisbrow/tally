@@ -253,7 +253,7 @@ function createMobileWebSocketHandler({
                 { ...cmdPayload, churchId, roomId: roomId || null },
                 { churchId, roomId: roomId || null, source: 'mobile', hasLocalDelivery: sent },
               );
-              remoteDelivered = !!remoteResult?.remotePublished;
+              remoteDelivered = !!remoteResult?.delivered;
             }
 
             if (!sent && !remoteDelivered) {
