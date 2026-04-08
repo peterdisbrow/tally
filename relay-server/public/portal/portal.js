@@ -125,7 +125,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       else { url.searchParams.delete('room'); }
       window.history.replaceState({}, '', url);
       // Sync all room selectors
-      ['overview-room-selector', 'alerts-room-selector', 'analytics-room-selector'].forEach(function(id) {
+      ['overview-room-selector', 'alerts-room-selector', 'analytics-room-selector', 'reports-room-selector'].forEach(function(id) {
         var sel = document.getElementById(id);
         if (sel && sel.value !== _selectedRoomId) sel.value = _selectedRoomId;
       });
@@ -1280,6 +1280,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         _tabLoaded['tab-sessions'] = false; // force reload on next tab switch
         _tabLoaded['tab-analytics-data'] = false;
         loadAnalytics();
+      }
+      if (e.target.id === 'reports-room-selector') {
+        setSelectedRoom(e.target.value);
+        _tabLoaded = {}; // force reload on next tab switch
+        loadReportsSummary();
       }
     });
 
@@ -9491,16 +9496,29 @@ document.addEventListener('DOMContentLoaded', function() {
   var _reportsWindowsDays = 7;
   var _reportsHealthDays = 7;
   var _reportsAiPage = 1;
+  var _reportsRoomsLoaded = false;
 
-  function loadReports() {
+  async function loadReportsRoomSelector() {
+    if (_reportsRoomsLoaded) return;
+    await fetchRoomList();
+    populateRoomSelector(
+      document.getElementById('reports-room-selector'),
+      document.getElementById('reports-room-selector-wrap'),
+      { allowAll: true }
+    );
+    _reportsRoomsLoaded = true;
+  }
+
+  async function loadReports() {
     _tabLoaded = {};
+    await loadReportsRoomSelector();
     loadReportsSummary();
   }
 
   // ── Weekly Summary ──────────────────────────────────────────────────────────
   async function loadReportsSummary() {
     try {
-      var data = await api('GET', '/api/church/reports/weekly-summary?days=' + _reportsSummaryDays);
+      var data = await api('GET', '/api/church/reports/weekly-summary?days=' + _reportsSummaryDays + roomParamAmp());
       document.getElementById('rpt-sessions').textContent = data.sessions || 0;
       document.getElementById('rpt-events').textContent = data.eventsDetected || 0;
       document.getElementById('rpt-recovery').textContent = data.autoRecoveryRate ? data.autoRecoveryRate + '%' : '—';
@@ -9595,7 +9613,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var params = 'page=' + _reportsEventsPage + '&limit=25';
     var search = document.getElementById('rpt-event-search').value.trim();
     var severity = document.getElementById('rpt-event-severity').value;
-    var room = document.getElementById('rpt-event-room').value;
+    var room = _selectedRoomId || document.getElementById('rpt-event-room').value;
     var since = document.getElementById('rpt-event-since').value;
     var until = document.getElementById('rpt-event-until').value;
 
@@ -9653,7 +9671,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function loadReportsWindows() {
     try {
-      var data = await api('GET', '/api/church/reports/service-windows?days=' + _reportsWindowsDays);
+      var data = await api('GET', '/api/church/reports/service-windows?days=' + _reportsWindowsDays + roomParamAmp());
 
       // Schedule display
       var schedEl = document.getElementById('rpt-windows-schedule');
@@ -9718,7 +9736,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Device Health ───────────────────────────────────────────────────────────
   async function loadReportsHealth() {
     try {
-      var data = await api('GET', '/api/church/reports/device-health?days=' + _reportsHealthDays);
+      var data = await api('GET', '/api/church/reports/device-health?days=' + _reportsHealthDays + roomParamAmp());
 
       // Uptime cards
       var uptimeEl = document.getElementById('rpt-health-uptime');
@@ -9775,7 +9793,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── AI Activity ─────────────────────────────────────────────────────────────
   async function loadReportsAi() {
     try {
-      var data = await api('GET', '/api/church/reports/ai-activity?days=7&page=' + _reportsAiPage);
+      var data = await api('GET', '/api/church/reports/ai-activity?days=7&page=' + _reportsAiPage + roomParamAmp());
 
       if (!data.aiEnabled) {
         document.getElementById('rpt-ai-disabled').style.display = 'block';
