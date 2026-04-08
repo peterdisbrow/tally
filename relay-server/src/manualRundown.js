@@ -34,10 +34,16 @@ class ManualRundownStore {
         service_date TEXT,
         is_template INTEGER NOT NULL DEFAULT 0,
         template_name TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )
     `);
+    // Migrate existing tables that were created with INTEGER instead of BIGINT for timestamps.
+    // Date.now() exceeds the 32-bit INTEGER max (~2.1B) — millisecond timestamps require BIGINT.
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ALTER COLUMN created_at TYPE BIGINT`);
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ALTER COLUMN updated_at TYPE BIGINT`);
+    } catch { /* already BIGINT, or SQLite (which ignores column types) — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mrp_church
         ON manual_rundown_plans(church_id, is_template, service_date)
@@ -51,11 +57,16 @@ class ManualRundownStore {
         length_seconds INTEGER NOT NULL DEFAULT 0,
         notes TEXT,
         sort_order INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
         FOREIGN KEY (plan_id) REFERENCES manual_rundown_plans(id) ON DELETE CASCADE
       )
     `);
+    // Same migration for items table.
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN created_at TYPE BIGINT`);
+      await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN updated_at TYPE BIGINT`);
+    } catch { /* already BIGINT, or SQLite — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
@@ -68,10 +79,15 @@ class ManualRundownStore {
     await this.ready;
     const id = uuidv4();
     const now = Date.now();
-    await this._db.run(`
-      INSERT INTO manual_rundown_plans (id, church_id, title, service_date, is_template, template_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, churchId, title, serviceDate || null, isTemplate ? 1 : 0, templateName || null, now, now]);
+    try {
+      await this._db.run(`
+        INSERT INTO manual_rundown_plans (id, church_id, title, service_date, is_template, template_name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [id, churchId, title, serviceDate || null, isTemplate ? 1 : 0, templateName || null, now, now]);
+    } catch (err) {
+      console.error('[ManualRundownStore] createPlan INSERT failed:', err);
+      throw err;
+    }
     return this.getPlan(id);
   }
 
