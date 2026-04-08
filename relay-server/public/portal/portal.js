@@ -8078,6 +8078,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownPlans = [];
     var _rundownSelectedPlanId = null;
     var _rundownSelectedPlan = null;
+    // Custom columns state
+    var _rundownColumns = [];    // [{ id, name, department, sortOrder }]
+    var _rundownColumnValues = {}; // { itemId_colId: value }
+    // Attachments state — keyed by itemId
+    var _rundownAttachments = {}; // { itemId: [{ id, filename, mimetype, size }] }
 
     function loadRundownPage() {
       api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state').then(function(data) {
@@ -8179,10 +8184,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var itemsEl = document.getElementById('rundown-editor-items');
         if (itemsEl) itemsEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">PCO plan items are imported automatically.</div>';
       } else {
-        // Load full manual plan with items
+        // Load full manual plan with items, columns, and attachments
         api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId).then(function(plan) {
           _rundownSelectedPlan = plan;
-          renderRundownEditor(plan);
+          // Load columns and attachments in parallel
+          Promise.all([
+            api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/columns').catch(function() { return { columns: [], values: [] }; }),
+            api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/attachments').catch(function() { return { attachments: [] }; })
+          ]).then(function(results) {
+            _rundownColumns = (results[0] && results[0].columns) || [];
+            // Build value lookup map
+            _rundownColumnValues = {};
+            var vals = (results[0] && results[0].values) || [];
+            for (var v = 0; v < vals.length; v++) {
+              _rundownColumnValues[vals[v].itemId + '_' + vals[v].columnId] = vals[v].value;
+            }
+            // Build attachment lookup by itemId
+            _rundownAttachments = {};
+            var atts = (results[1] && results[1].attachments) || [];
+            for (var a = 0; a < atts.length; a++) {
+              if (!_rundownAttachments[atts[a].itemId]) _rundownAttachments[atts[a].itemId] = [];
+              _rundownAttachments[atts[a].itemId].push(atts[a]);
+            }
+            renderRundownEditor(plan);
+          });
         });
       }
     }
@@ -8311,7 +8336,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
 
-      // Build table
+      // Build table — compute total column count
+      var colCount = 10 + _rundownColumns.length + 1; // base 10 + custom cols + attachments col
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
@@ -8320,16 +8346,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;text-align:left">Title</th>';
       html += '<th style="padding:8px 6px;width:90px;text-align:left">Type</th>';
       html += '<th style="padding:8px 6px;width:100px;text-align:left">Who</th>';
+      // Custom department columns (between Assignee and Duration)
+      for (var ci = 0; ci < _rundownColumns.length; ci++) {
+        html += '<th style="padding:8px 6px;width:100px;text-align:left;position:relative" data-col-id="' + _rundownColumns[ci].id + '">';
+        html += '<span style="display:inline-flex;align-items:center;gap:4px">';
+        html += escapeHtml(_rundownColumns[ci].name);
+        html += '<span class="rundown-col-gear" data-col-id="' + _rundownColumns[ci].id + '" data-col-name="' + escapeHtml(_rundownColumns[ci].name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Rename or delete column">' + SVG.wrench + '</span>';
+        html += '</span></th>';
+      }
+      // Add column button header
+      html += '<th style="padding:8px 2px;width:28px;text-align:center">';
+      html += '<span data-action="rundownAddColumn" style="cursor:pointer;color:#556270;display:inline-flex" title="Add department column">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
+      html += '</span></th>';
       html += '<th style="padding:8px 6px;width:60px;text-align:center">Duration</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">Start</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">End</th>';
       html += '<th style="padding:8px 6px;text-align:left">Notes</th>';
+      html += '<th style="padding:8px 6px;width:32px"></th>'; // attachments
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
       html += '</tr></thead>';
 
       html += '<tbody id="rundown-table-body">';
       if (items.length === 0) {
-        html += '<tr><td colspan="10" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
+        html += '<tr><td colspan="' + colCount + '" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
       }
       var rowNum = 0;
       for (var i = 0; i < items.length; i++) {
@@ -8341,7 +8381,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (item.itemType === 'section') {
           html += '<tr data-item-id="' + item.id + '" draggable="true" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="8" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 2) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
           html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
           html += '</td>';
           html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -8374,6 +8414,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="assignee" data-item-id="' + item.id + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (item.assignee ? escapeHtml(item.assignee) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
 
+        // Custom column cells (inline editable)
+        for (var ci = 0; ci < _rundownColumns.length; ci++) {
+          var colId = _rundownColumns[ci].id;
+          var cellVal = _rundownColumnValues[item.id + '_' + colId] || '';
+          html += '<td style="padding:4px 6px;vertical-align:middle">';
+          html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
+          html += '</td>';
+        }
+        // Empty cell under the add-column header
+        html += '<td style="padding:4px 2px"></td>';
+
         // Duration (inline editable, MM:SS)
         html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle">';
         html += '<span class="rundown-inline-edit" data-field="duration" data-item-id="' + item.id + '" style="cursor:text;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF" title="Click to edit">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
@@ -8385,10 +8436,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // End time (auto-calculated)
         html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.end) + '</td>';
 
-        // Notes (expandable)
+        // Notes (rich text — expandable)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
-        var notesPreview = item.notes ? (item.notes.length > 40 ? item.notes.substring(0, 40) + '...' : item.notes) : '';
-        html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(item.notes || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
+        var notesHtml = item.notes || '';
+        var notesPlain = notesHtml.replace(/<[^>]*>/g, '');
+        var notesPreview = notesPlain ? (notesPlain.length > 40 ? notesPlain.substring(0, 40) + '...' : notesPlain) : '';
+        html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(notesPlain || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
+        html += '</td>';
+
+        // Attachments (paperclip icon with count badge)
+        var itemAtts = _rundownAttachments[item.id] || [];
+        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle;position:relative">';
+        html += '<span class="rundown-attachment-btn" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270;display:inline-flex;position:relative" title="Attachments">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M11.986 3.012a2.25 2.25 0 0 0-3.178.002L3.562 8.262a3.5 3.5 0 0 0 4.95 4.95l4.5-4.5a.75.75 0 1 1 1.061 1.06l-4.5 4.501a5 5 0 0 1-7.072-7.072l5.246-5.248a3.75 3.75 0 1 1 5.303 5.305l-5.246 5.247a2.5 2.5 0 0 1-3.535-3.535l4.5-4.5a.75.75 0 0 1 1.06 1.061l-4.5 4.5a1 1 0 0 0 1.414 1.414l5.247-5.247a2.25 2.25 0 0 0-.004-3.186Z" clip-rule="evenodd"/></svg>';
+        if (itemAtts.length > 0) {
+          html += '<span style="position:absolute;top:-6px;right:-8px;background:#42A5F5;color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center">' + itemAtts.length + '</span>';
+        }
+        html += '</span>';
         html += '</td>';
 
         // Delete
@@ -8399,7 +8463,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Add item ghost row
       html += '<tr id="rundown-add-row" style="border-top:1px solid rgba(255,255,255,0.06)">';
-      html += '<td colspan="10" style="padding:8px 6px">';
+      html += '<td colspan="' + colCount + '" style="padding:8px 6px">';
       html += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add item">';
       html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
       html += 'Add item</span>';
@@ -8411,6 +8475,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Attach inline editing listeners
       _attachRundownInlineEditing(container);
+      // Attach custom column inline editing
+      _attachRundownColumnEditing(container);
+      // Attach attachment button listeners
+      _attachRundownAttachmentButtons(container);
+      // Attach column gear menu listeners
+      _attachRundownColumnGearMenus(container);
       // Attach drag-and-drop
       _attachRundownDragDrop();
     }
@@ -8500,19 +8570,80 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownInlineTextarea(el, item, itemId) {
-      var ta = document.createElement('textarea');
-      ta.value = item.notes || '';
-      ta.style.cssText = 'width:100%;min-width:160px;min-height:48px;max-height:120px;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:4px 6px;font-size:11px;outline:none;font-family:inherit;resize:vertical';
-      el.innerHTML = '';
-      el.appendChild(ta);
-      ta.focus();
+      // Rich text editor with toolbar
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'min-width:220px;background:rgba(255,255,255,0.08);border:1px solid rgba(66,165,245,0.5);border-radius:4px;overflow:hidden';
 
+      // Mini toolbar
+      var toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;gap:2px;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04)';
+      var btns = [
+        { cmd: 'bold', label: 'B', style: 'font-weight:700' },
+        { cmd: 'italic', label: 'I', style: 'font-style:italic' },
+        { cmd: 'underline', label: 'U', style: 'text-decoration:underline' },
+        { cmd: 'insertUnorderedList', label: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M2.5 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm2.25-.75a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1-.75-.75ZM5.5 8a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7A.75.75 0 0 1 5.5 8Zm.75 3.25a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7ZM2.5 8.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM2.5 12.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd"/></svg>', isHtml: true },
+      ];
+      btns.forEach(function(b) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        if (b.isHtml) btn.innerHTML = b.label;
+        else { btn.textContent = b.label; btn.style.cssText = b.style + ';'; }
+        btn.style.cssText += 'background:none;border:none;color:#8B9DAF;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center';
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          document.execCommand(b.cmd, false, null);
+        });
+        toolbar.appendChild(btn);
+      });
+      // Text color picker
+      var colorBtn = document.createElement('button');
+      colorBtn.type = 'button';
+      colorBtn.textContent = 'A';
+      colorBtn.style.cssText = 'background:none;border:none;color:#FF5252;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;font-weight:700;line-height:1';
+      var colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = '#FF5252';
+      colorInput.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:0;height:0';
+      colorBtn.appendChild(colorInput);
+      colorBtn.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        colorInput.style.pointerEvents = 'auto';
+        colorInput.click();
+      });
+      colorInput.addEventListener('input', function() {
+        document.execCommand('foreColor', false, colorInput.value);
+        colorBtn.style.color = colorInput.value;
+        colorInput.style.pointerEvents = 'none';
+      });
+      toolbar.appendChild(colorBtn);
+      wrapper.appendChild(toolbar);
+
+      // Editable area
+      var editor = document.createElement('div');
+      editor.contentEditable = 'true';
+      editor.innerHTML = item.notes || '';
+      editor.style.cssText = 'min-height:48px;max-height:140px;overflow-y:auto;padding:4px 6px;font-size:11px;color:#F0F2F4;outline:none;font-family:inherit;line-height:1.5';
+      wrapper.appendChild(editor);
+
+      el.innerHTML = '';
+      el.appendChild(wrapper);
+      editor.focus();
+
+      var saving = false;
       function save() {
-        _rundownInlineSave(itemId, { notes: ta.value });
+        if (saving) return;
+        saving = true;
+        _rundownInlineSave(itemId, { notes: editor.innerHTML });
       }
-      ta.addEventListener('blur', save);
-      ta.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { ta.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      editor.addEventListener('blur', function(e) {
+        // Don't save if clicking toolbar
+        if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
+        setTimeout(function() {
+          if (!wrapper.contains(document.activeElement)) save();
+        }, 100);
+      });
+      editor.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
     }
 
@@ -8552,6 +8683,275 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
+    // ── Custom column inline editing ──────────────────────────────────────────
+    function _attachRundownColumnEditing(container) {
+      container.querySelectorAll('.rundown-inline-col').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          var colId = el.getAttribute('data-col-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var currentVal = _rundownColumnValues[itemId + '_' + colId] || '';
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.value = currentVal;
+          input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:12px;outline:none;font-family:inherit';
+          el.innerHTML = '';
+          el.appendChild(input);
+          input.focus();
+          input.select();
+
+          function save() {
+            var val = input.value.trim();
+            _rundownColumnValues[itemId + '_' + colId] = val;
+            api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/columns/' + colId, { value: val })
+              .then(function() { renderRundownEditorItems(_rundownSelectedPlan.items || []); })
+              .catch(function(err) { toast('Failed: ' + err.message, true); });
+          }
+          input.addEventListener('blur', save);
+          input.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+            if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+          });
+        });
+      });
+    }
+
+    // ── Column gear menu (rename/delete) ────────────────────────────────────
+    function _attachRundownColumnGearMenus(container) {
+      container.querySelectorAll('.rundown-col-gear').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var colId = el.getAttribute('data-col-id');
+          var colName = el.getAttribute('data-col-name');
+          _showColumnMenu(el, colId, colName);
+        });
+      });
+    }
+
+    function _showColumnMenu(anchor, colId, colName) {
+      // Remove any existing menu
+      var old = document.getElementById('rundown-col-menu');
+      if (old) old.remove();
+
+      var menu = document.createElement('div');
+      menu.id = 'rundown-col-menu';
+      menu.style.cssText = 'position:absolute;z-index:999;background:#1a2332;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:4px;min-width:120px;box-shadow:0 4px 12px rgba(0,0,0,0.4)';
+
+      var renameBtn = document.createElement('div');
+      renameBtn.textContent = 'Rename';
+      renameBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      renameBtn.addEventListener('mouseenter', function() { renameBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      renameBtn.addEventListener('mouseleave', function() { renameBtn.style.background = 'none'; });
+      renameBtn.addEventListener('click', function() {
+        menu.remove();
+        styledPrompt('Rename Column', 'Column name', colName).then(function(newName) {
+          if (!newName || !newName.trim()) return;
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, { name: newName.trim() }).then(function(data) {
+            _rundownColumns = data.columns || _rundownColumns;
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(renameBtn);
+
+      var deleteBtn = document.createElement('div');
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#FF5252;cursor:pointer;border-radius:4px';
+      deleteBtn.addEventListener('mouseenter', function() { deleteBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      deleteBtn.addEventListener('mouseleave', function() { deleteBtn.style.background = 'none'; });
+      deleteBtn.addEventListener('click', function() {
+        menu.remove();
+        styledConfirm('Delete Column', 'Remove "' + colName + '" column? All data in this column will be lost.').then(function(ok) {
+          if (!ok) return;
+          api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId).then(function() {
+            _rundownColumns = _rundownColumns.filter(function(c) { return c.id !== colId; });
+            // Remove values for this column
+            Object.keys(_rundownColumnValues).forEach(function(k) {
+              if (k.endsWith('_' + colId)) delete _rundownColumnValues[k];
+            });
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+            toast('Column deleted');
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(deleteBtn);
+
+      // Position near the gear icon
+      var rect = anchor.getBoundingClientRect();
+      menu.style.top = (rect.bottom + 4) + 'px';
+      menu.style.left = rect.left + 'px';
+      menu.style.position = 'fixed';
+      document.body.appendChild(menu);
+
+      // Close on outside click
+      function closeMenu(ev) {
+        if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', closeMenu); }
+      }
+      setTimeout(function() { document.addEventListener('mousedown', closeMenu); }, 10);
+    }
+
+    function rundownAddColumn() {
+      if (!_rundownSelectedPlan) return;
+      var defaults = ['Audio', 'Video', 'Lighting', 'Stage'];
+      // Find a default that isn't already added
+      var existing = _rundownColumns.map(function(c) { return c.name.toLowerCase(); });
+      var suggestion = '';
+      for (var d = 0; d < defaults.length; d++) {
+        if (existing.indexOf(defaults[d].toLowerCase()) < 0) { suggestion = defaults[d]; break; }
+      }
+      styledPrompt('Add Column', 'Column name (e.g. Audio, Video, Lighting)', suggestion).then(function(name) {
+        if (!name || !name.trim()) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns', { name: name.trim(), department: name.trim() }).then(function(col) {
+          _rundownColumns.push(col);
+          renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          toast('Column added: ' + col.name);
+        }).catch(function(err) { toast('Failed: ' + err.message, true); });
+      });
+    }
+
+    // ── Attachment popover ───────────────────────────────────────────────────
+    function _attachRundownAttachmentButtons(container) {
+      container.querySelectorAll('.rundown-attachment-btn').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          _showAttachmentPopover(el, itemId);
+        });
+      });
+    }
+
+    function _showAttachmentPopover(anchor, itemId) {
+      // Remove any existing popover
+      var old = document.getElementById('rundown-att-popover');
+      if (old) old.remove();
+
+      var pop = document.createElement('div');
+      pop.id = 'rundown-att-popover';
+      pop.style.cssText = 'position:fixed;z-index:999;background:#1a2332;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:12px;min-width:260px;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
+
+      var title = document.createElement('div');
+      title.textContent = 'Attachments';
+      title.style.cssText = 'font-size:13px;font-weight:700;color:#F0F2F4;margin-bottom:8px';
+      pop.appendChild(title);
+
+      var atts = _rundownAttachments[itemId] || [];
+      if (atts.length > 0) {
+        var list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px;max-height:180px;overflow-y:auto';
+        for (var a = 0; a < atts.length; a++) {
+          (function(att) {
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.04)';
+            var icon = att.mimetype && att.mimetype.startsWith('image/') ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm10.5 5.707L10.146 7.354a.5.5 0 0 0-.708 0l-2.646 2.647-1.146-1.147a.5.5 0 0 0-.707 0L3.5 10.293V12a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5V9.707ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>' : SVG.docItem;
+            var iconEl = document.createElement('span');
+            iconEl.innerHTML = icon;
+            iconEl.style.cssText = 'color:#8B9DAF;display:flex;flex-shrink:0';
+            row.appendChild(iconEl);
+
+            var info = document.createElement('div');
+            info.style.cssText = 'flex:1;min-width:0';
+            var nameEl = document.createElement('a');
+            nameEl.textContent = att.filename;
+            nameEl.href = '/api/church/rundown-attachments/' + att.id;
+            nameEl.target = '_blank';
+            nameEl.style.cssText = 'color:#42A5F5;font-size:12px;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+            info.appendChild(nameEl);
+            var sizeEl = document.createElement('div');
+            sizeEl.textContent = _formatFileSize(att.size);
+            sizeEl.style.cssText = 'font-size:10px;color:#556270';
+            info.appendChild(sizeEl);
+            row.appendChild(info);
+
+            var delBtn = document.createElement('span');
+            delBtn.innerHTML = SVG.xMark;
+            delBtn.style.cssText = 'cursor:pointer;color:#FF5252;flex-shrink:0;display:flex';
+            delBtn.title = 'Delete';
+            delBtn.addEventListener('click', function() {
+              api('DELETE', '/api/church/rundown-attachments/' + att.id).then(function() {
+                _rundownAttachments[itemId] = (_rundownAttachments[itemId] || []).filter(function(x) { return x.id !== att.id; });
+                pop.remove();
+                renderRundownEditorItems(_rundownSelectedPlan.items || []);
+                toast('Attachment deleted');
+              }).catch(function(err) { toast('Failed: ' + err.message, true); });
+            });
+            row.appendChild(delBtn);
+
+            list.appendChild(row);
+          })(atts[a]);
+        }
+        pop.appendChild(list);
+      } else {
+        var empty = document.createElement('div');
+        empty.textContent = 'No attachments yet.';
+        empty.style.cssText = 'font-size:12px;color:#556270;margin-bottom:8px';
+        pop.appendChild(empty);
+      }
+
+      // Drop zone + upload button
+      var dropZone = document.createElement('div');
+      dropZone.style.cssText = 'border:2px dashed rgba(255,255,255,0.12);border-radius:6px;padding:12px;text-align:center;cursor:pointer;transition:border-color 0.2s';
+      dropZone.innerHTML = '<div style="font-size:12px;color:#8B9DAF;margin-bottom:4px">Drop file here or click to upload</div><div style="font-size:10px;color:#556270">Max 10MB. Images, PDFs, Office docs</div>';
+
+      var fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.style.display = 'none';
+      fileInput.accept = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt';
+      dropZone.appendChild(fileInput);
+
+      dropZone.addEventListener('click', function() { fileInput.click(); });
+      dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.style.borderColor = '#42A5F5'; });
+      dropZone.addEventListener('dragleave', function() { dropZone.style.borderColor = 'rgba(255,255,255,0.12)'; });
+      dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.style.borderColor = 'rgba(255,255,255,0.12)';
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) _uploadAttachment(itemId, e.dataTransfer.files[0], pop);
+      });
+      fileInput.addEventListener('change', function() {
+        if (fileInput.files && fileInput.files.length > 0) _uploadAttachment(itemId, fileInput.files[0], pop);
+      });
+      pop.appendChild(dropZone);
+
+      // Position
+      var rect = anchor.getBoundingClientRect();
+      pop.style.top = (rect.bottom + 4) + 'px';
+      pop.style.left = Math.max(8, rect.left - 200) + 'px';
+      document.body.appendChild(pop);
+
+      // Close on outside click
+      function closePop(ev) {
+        if (!pop.contains(ev.target) && !anchor.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', closePop); }
+      }
+      setTimeout(function() { document.addEventListener('mousedown', closePop); }, 10);
+    }
+
+    function _uploadAttachment(itemId, file, popover) {
+      if (!_rundownSelectedPlan) return;
+      if (file.size > 10 * 1024 * 1024) { toast('File too large (max 10MB)', true); return; }
+      var formData = new FormData();
+      formData.append('file', file);
+      // Use raw fetch for multipart upload
+      fetch('/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/attachments', {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+        credentials: 'include',
+        body: formData,
+      }).then(function(r) { return r.json(); }).then(function(att) {
+        if (att.error) { toast(att.error, true); return; }
+        if (!_rundownAttachments[itemId]) _rundownAttachments[itemId] = [];
+        _rundownAttachments[itemId].push(att);
+        if (popover) popover.remove();
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        toast('Attached: ' + att.filename);
+      }).catch(function(err) { toast('Upload failed: ' + err.message, true); });
+    }
+
+    function _formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
     // ── Drag and drop reorder ─────────────────────────────────────────────────
     var _rundownDragItem = null;
 
@@ -8582,7 +8982,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           tbody.querySelectorAll('.rundown-drag-placeholder').forEach(function(p) { p.remove(); });
           var ph = document.createElement('tr');
           ph.className = 'rundown-drag-placeholder';
-          ph.innerHTML = '<td colspan="10" style="height:2px;background:#42A5F5;padding:0"></td>';
+          ph.innerHTML = '<td colspan="' + (10 + (_rundownColumns ? _rundownColumns.length : 0) + 1) + '" style="height:2px;background:#42A5F5;padding:0"></td>';
           var rect = row.getBoundingClientRect();
           var midY = rect.top + rect.height / 2;
           if (e.clientY < midY) {
@@ -9289,11 +9689,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (item.arrangementKey) {
           html += '<span style="font-size:10px;color:#42A5F5;background:rgba(66,165,245,0.1);padding:1px 5px;border-radius:3px;margin-top:2px;display:inline-block">Key: ' + escapeHtml(item.arrangementKey) + '</span> ';
         }
-        // Notes
+        // Notes (may contain safe HTML from rich text editor)
         var notes = item.notes || [];
         for (var n = 0; n < notes.length; n++) {
           if (notes[n]) {
-            html += '<div style="font-size:11px;color:#8B9DAF;margin-top:3px;line-height:1.3;font-style:italic">' + escapeHtml(notes[n]) + '</div>';
+            // If note contains HTML tags, render as-is (already sanitized server-side); otherwise escape
+            var noteHasHtml = /<[a-z][\s\S]*>/i.test(notes[n]);
+            html += '<div style="font-size:11px;color:#8B9DAF;margin-top:3px;line-height:1.3;font-style:italic">' + (noteHasHtml ? notes[n] : escapeHtml(notes[n])) + '</div>';
           }
         }
         html += '</div>';
@@ -10024,6 +10426,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownDeleteTemplate':
         if (typeof rundownDeleteTemplate === 'function') rundownDeleteTemplate(btn.dataset.templateId);
+        break;
+      case 'rundownAddColumn':
+        if (typeof rundownAddColumn === 'function') rundownAddColumn();
         break;
 
       // Profile

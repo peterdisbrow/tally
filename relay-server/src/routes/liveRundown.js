@@ -37,6 +37,71 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+// ── HTML sanitizer for rich text notes ───────────────────────────────────────
+const ALLOWED_TAGS = new Set(['b', 'i', 'u', 'strong', 'em', 'ul', 'ol', 'li', 'span', 'br', 'p']);
+function sanitizeHtml(html) {
+  if (!html) return '';
+  // Strip script tags and their content
+  let clean = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  // Strip event handlers
+  clean = clean.replace(/\s+on\w+\s*=\s*(['"]?)[\s\S]*?\1/gi, '');
+  // Strip javascript: urls
+  clean = clean.replace(/href\s*=\s*(['"]?)javascript:[\s\S]*?\1/gi, '');
+  // Remove disallowed tags but keep their text content
+  clean = clean.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, function(match, tag) {
+    tag = tag.toLowerCase();
+    if (ALLOWED_TAGS.has(tag)) {
+      // For span, only allow style attribute
+      if (tag === 'span') {
+        var styleMatch = match.match(/style\s*=\s*"([^"]*)"/i);
+        if (styleMatch) {
+          // Only allow color in style
+          var colorMatch = styleMatch[1].match(/color\s*:\s*[^;"]+/i);
+          return match.startsWith('</') ? '</span>' : '<span' + (colorMatch ? ' style="' + colorMatch[0] + '"' : '') + '>';
+        }
+        return match.startsWith('</') ? '</span>' : '<span>';
+      }
+      return match;
+    }
+    return '';
+  });
+  return clean;
+}
+
+// ── File upload configuration ────────────────────────────────────────────────
+const UPLOAD_DIR = path.join(__dirname, '../../uploads/rundown');
+// Ensure upload directory exists
+try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* exists */ }
+
+const ALLOWED_MIMETYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+]);
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: function(req, file, cb) {
+      const ext = path.extname(file.originalname);
+      cb(null, Date.now() + '-' + Math.random().toString(36).slice(2, 8) + ext);
+    },
+  }),
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: function(req, file, cb) {
+    if (ALLOWED_MIMETYPES.has(file.mimetype)) cb(null, true);
+    else cb(new Error('File type not allowed: ' + file.mimetype));
+  },
+});
+
 module.exports = function setupLiveRundownRoutes(app, ctx) {
   const { db, churches, requireChurchOrAdmin, requireFeature, planningCenter, liveRundown, manualRundown, safeErrorMessage, uuidv4 } = ctx;
 
@@ -554,7 +619,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
           lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
-          notes, assignee,
+          notes: notes !== undefined ? sanitizeHtml(notes) : undefined,
+          assignee,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -793,4 +859,231 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── CUSTOM COLUMNS ──────────────────────────────────────────────────────
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/columns
+   * List all custom columns for a plan.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/columns',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const columns = await manualRundown.getColumns(planId);
+        const values = await manualRundown.getColumnValues(planId);
+        res.json({ columns, values });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/columns
+   * Add a custom column.
+   * Body: { name: string, department?: string }
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/columns',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      const { name, department } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const col = await manualRundown.addColumn(planId, churchId, { name: name.trim(), department: department || '' });
+        res.json(col);
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/churches/:churchId/rundown-plans/:planId/columns/:colId
+   * Update a column (rename/reorder).
+   * Body: { name?: string, sortOrder?: number }
+   */
+  app.put('/api/churches/:churchId/rundown-plans/:planId/columns/:colId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, colId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        await manualRundown.updateColumn(colId, req.body);
+        const columns = await manualRundown.getColumns(planId);
+        res.json({ columns });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/churches/:churchId/rundown-plans/:planId/columns/:colId
+   * Delete a custom column.
+   */
+  app.delete('/api/churches/:churchId/rundown-plans/:planId/columns/:colId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, colId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        await manualRundown.deleteColumn(colId);
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * PUT /api/churches/:churchId/rundown-plans/:planId/items/:itemId/columns/:colId
+   * Set a cell value for a custom column.
+   * Body: { value: string }
+   */
+  app.put('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/columns/:colId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, itemId, colId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        await manualRundown.setColumnValue(itemId, colId, req.body.value || '');
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── ATTACHMENTS ─────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/items/:itemId/attachments
+   * Upload a file attachment to a rundown item.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/attachments',
+    requireChurchOrAdmin,
+    function(req, res, next) {
+      upload.single('file')(req, res, function(err) {
+        if (err) {
+          if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File too large (max 10MB)' });
+          return res.status(400).json({ error: err.message });
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      const { churchId, planId, itemId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const att = await manualRundown.addAttachment(itemId, planId, churchId, {
+          filename: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          storagePath: req.file.filename,
+        });
+        res.json(att);
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/church/rundown-attachments/:attachmentId
+   * Serve an attachment file (auth required).
+   */
+  app.get('/api/church/rundown-attachments/:attachmentId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const att = await manualRundown.getAttachment(req.params.attachmentId);
+        if (!att) return res.status(404).json({ error: 'Attachment not found' });
+        const filePath = path.join(UPLOAD_DIR, att.storagePath);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+        res.setHeader('Content-Disposition', 'inline; filename="' + att.filename.replace(/"/g, '\\"') + '"');
+        if (att.mimetype) res.setHeader('Content-Type', att.mimetype);
+        res.sendFile(filePath);
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/church/rundown-attachments/:attachmentId
+   * Delete an attachment.
+   */
+  app.delete('/api/church/rundown-attachments/:attachmentId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const att = await manualRundown.deleteAttachment(req.params.attachmentId);
+        if (!att) return res.status(404).json({ error: 'Attachment not found' });
+        // Try to clean up the file
+        try { fs.unlinkSync(path.join(UPLOAD_DIR, att.storagePath)); } catch { /* file already gone */ }
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/attachments
+   * List all attachments for a plan (used by frontend to batch-load).
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/attachments',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const attachments = await manualRundown.getAttachmentsByPlan(planId);
+        res.json({ attachments });
+      } catch (e) {
+        console.error('[rundown] error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── RICH TEXT NOTES (sanitized HTML) ─────────────────────────────────────
+
+  /**
+   * PUT /api/churches/:churchId/rundown-plans/:planId/items/:itemId
+   * Already exists above — we enhance the existing item update route to sanitize HTML notes.
+   * This is handled by adding sanitization in the existing route handler.
+   * (No new route needed — we patch the existing one's notes handling.)
+   */
+
+  // Export sanitizeHtml for use by existing update handler
+  app._rundownSanitizeHtml = sanitizeHtml;
 };
