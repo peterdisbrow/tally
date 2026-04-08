@@ -84,6 +84,10 @@ class ManualRundownStore {
       await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN created_at TYPE BIGINT`);
       await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN updated_at TYPE BIGINT`);
     } catch { /* already BIGINT, or SQLite — safe to ignore */ }
+    // Add assignee column (migration for existing tables)
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN assignee TEXT DEFAULT ''`);
+    } catch { /* column already exists — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
@@ -180,7 +184,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '' }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '' }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -189,21 +193,22 @@ class ManualRundownStore {
     );
     const sortOrder = (max?.mx ?? -1) + 1;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', sortOrder, now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', sort_order: sortOrder, created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
     if (itemType !== undefined) { sets.push('item_type = ?'); params.push(itemType); }
     if (lengthSeconds !== undefined) { sets.push('length_seconds = ?'); params.push(lengthSeconds); }
     if (notes !== undefined) { sets.push('notes = ?'); params.push(notes); }
+    if (assignee !== undefined) { sets.push('assignee = ?'); params.push(assignee); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -251,6 +256,7 @@ class ManualRundownStore {
         itemType: item.itemType,
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
+        assignee: item.assignee,
       });
     }
     return this.getPlan(newPlan.id);
@@ -271,6 +277,7 @@ class ManualRundownStore {
         itemType: item.itemType,
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
+        assignee: item.assignee,
       });
     }
     return this.getPlan(newPlan.id);
@@ -349,6 +356,7 @@ class ManualRundownStore {
       itemType: row.item_type,
       lengthSeconds: row.length_seconds,
       notes: row.notes || '',
+      assignee: row.assignee || '',
       sortOrder: row.sort_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

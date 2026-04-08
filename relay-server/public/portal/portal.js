@@ -8187,6 +8187,56 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
+    // ── Color map for item types ────────────────────────────────────────────
+    var RUNDOWN_TYPE_COLORS = {
+      song: '#9b59b6', sermon: '#3498db', message: '#3498db', media: '#e67e22',
+      prayer: '#27ae60', transition: '#7f8c8d', welcome: '#1abc9c',
+      offering: '#f39c12', communion: '#c0392b', scripture: '#8e44ad',
+      announcement: '#00bcd4', section: '#556270', other: '#95a5a6'
+    };
+    var RUNDOWN_TYPE_LABELS = {
+      song: 'Song', sermon: 'Sermon', message: 'Message', media: 'Media',
+      prayer: 'Prayer', transition: 'Transition', welcome: 'Welcome',
+      offering: 'Offering', communion: 'Communion', scripture: 'Scripture',
+      announcement: 'Announce', section: 'Section', other: 'Other'
+    };
+    var RUNDOWN_TYPE_OPTIONS = ['song','sermon','media','prayer','announcement','transition','welcome','offering','communion','scripture','section','other'];
+
+    var _rundownStartTime = '09:00';
+    var _rundownEndTime = '';
+
+    function _rundownTimeAdd(hhmm, seconds) {
+      var parts = hhmm.split(':');
+      var totalMin = parseInt(parts[0],10) * 60 + parseInt(parts[1],10) + seconds / 60;
+      var h = Math.floor(totalMin / 60) % 24;
+      var m = Math.floor(totalMin % 60);
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
+    function _rundownFormatTime12(hhmm) {
+      if (!hhmm) return '--:--';
+      var parts = hhmm.split(':');
+      var h = parseInt(parts[0],10);
+      var m = parts[1];
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return h + ':' + m + ' ' + ampm;
+    }
+
+    function _rundownFormatMMSS(seconds) {
+      var s = Math.max(0, Math.round(seconds));
+      var mm = Math.floor(s / 60);
+      var ss = s % 60;
+      return mm + ':' + (ss < 10 ? '0' : '') + ss;
+    }
+
+    function _rundownParseMMSS(str) {
+      if (!str) return 0;
+      var parts = str.split(':');
+      if (parts.length === 2) return Math.max(0, parseInt(parts[0],10) * 60 + parseInt(parts[1],10));
+      return Math.max(0, parseInt(parts[0],10) * 60);
+    }
+
     function renderRundownEditor(plan) {
       var editor = document.getElementById('rundown-editor');
       if (editor) editor.style.display = '';
@@ -8196,7 +8246,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var dateEl = document.getElementById('rundown-editor-date');
       if (titleEl) titleEl.textContent = plan.title;
       if (dateEl) dateEl.textContent = plan.serviceDate || '';
-      renderRundownEditorItems(plan.items || []);
+      // Item count
+      var countEl = document.getElementById('rundown-editor-item-count');
+      var items = plan.items || [];
+      var realItems = items.filter(function(x) { return x.itemType !== 'section'; });
+      if (countEl) countEl.textContent = realItems.length + ' item' + (realItems.length !== 1 ? 's' : '');
+      renderRundownEditorItems(items);
       // Check share status and update badge
       _rundownShareData = null;
       api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/share').then(function(data) {
@@ -8208,48 +8263,379 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderRundownEditorItems(items) {
       var container = document.getElementById('rundown-editor-items');
       if (!container) return;
-      if (items.length === 0) {
-        container.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">No items yet. Click "Add Item" to build your rundown.</div>';
-        return;
+
+      // Calculate timing
+      var startTime = _rundownStartTime || '09:00';
+      var totalSeconds = 0;
+      var timingData = [];
+      var currentTime = startTime;
+      for (var i = 0; i < items.length; i++) {
+        var st = currentTime;
+        var dur = items[i].lengthSeconds || 0;
+        var et = _rundownTimeAdd(currentTime, dur);
+        timingData.push({ start: st, end: et });
+        totalSeconds += dur;
+        currentTime = et;
       }
-      var html = '';
+
+      // Update total duration display
+      var totalEl = document.getElementById('rundown-editor-total-duration');
+      if (totalEl) {
+        var totalH = Math.floor(totalSeconds / 3600);
+        var totalM = Math.floor((totalSeconds % 3600) / 60);
+        totalEl.textContent = (totalH > 0 ? totalH + 'h ' : '') + totalM + 'm total';
+      }
+
+      // Over/under
+      var ouEl = document.getElementById('rundown-over-under');
+      if (ouEl) {
+        if (_rundownEndTime) {
+          var endParts = _rundownEndTime.split(':');
+          var endMin = parseInt(endParts[0],10) * 60 + parseInt(endParts[1],10);
+          var startParts = startTime.split(':');
+          var startMin = parseInt(startParts[0],10) * 60 + parseInt(startParts[1],10);
+          var targetSec = (endMin - startMin) * 60;
+          var diff = totalSeconds - targetSec;
+          if (diff > 0) {
+            ouEl.textContent = '+' + _rundownFormatMMSS(diff) + ' over';
+            ouEl.style.color = '#EF4444';
+          } else if (diff < 0) {
+            ouEl.textContent = _rundownFormatMMSS(-diff) + ' under';
+            ouEl.style.color = '#00E676';
+          } else {
+            ouEl.textContent = 'On time';
+            ouEl.style.color = '#00E676';
+          }
+        } else {
+          ouEl.textContent = '';
+        }
+      }
+
+      // Build table
+      var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+      // Header row
+      html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
+      html += '<th style="padding:8px 4px;width:24px"></th>'; // drag
+      html += '<th style="padding:8px 2px;width:28px;text-align:center">#</th>';
+      html += '<th style="padding:8px 6px;text-align:left">Title</th>';
+      html += '<th style="padding:8px 6px;width:90px;text-align:left">Type</th>';
+      html += '<th style="padding:8px 6px;width:100px;text-align:left">Who</th>';
+      html += '<th style="padding:8px 6px;width:60px;text-align:center">Duration</th>';
+      html += '<th style="padding:8px 6px;width:72px;text-align:center">Start</th>';
+      html += '<th style="padding:8px 6px;width:72px;text-align:center">End</th>';
+      html += '<th style="padding:8px 6px;text-align:left">Notes</th>';
+      html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
+      html += '</tr></thead>';
+
+      html += '<tbody id="rundown-table-body">';
+      if (items.length === 0) {
+        html += '<tr><td colspan="10" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
+      }
+      var rowNum = 0;
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
-        var iconColor = '#556270';
-        if (item.itemType === 'song') iconColor = '#42A5F5';
-        else if (item.itemType === 'media') iconColor = '#FFB74D';
-        else if (item.itemType === 'sermon' || item.itemType === 'message') iconColor = '#AB47BC';
-        var durLabel = item.lengthSeconds > 0 ? formatRundownDuration(item.lengthSeconds) : '--';
-        html += '<div style="display:flex;align-items:center;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);gap:8px">';
-        // Reorder arrows
-        html += '<div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0">';
-        if (i > 0) html += '<span data-action="rundownMoveItem" data-item-id="' + item.id + '" data-direction="up" style="cursor:pointer;color:#556270;line-height:1">' + SVG.arrowUp + '</span>';
-        else html += '<span style="visibility:hidden;line-height:1">' + SVG.arrowUp + '</span>';
-        if (i < items.length - 1) html += '<span data-action="rundownMoveItem" data-item-id="' + item.id + '" data-direction="down" style="cursor:pointer;color:#556270;line-height:1">' + SVG.arrowDown + '</span>';
-        else html += '<span style="visibility:hidden;line-height:1">' + SVG.arrowDown + '</span>';
-        html += '</div>';
-        // Index
-        html += '<div style="width:20px;font-size:12px;color:#556270;font-weight:600;flex-shrink:0;text-align:center">' + (i + 1) + '</div>';
-        // Icon
-        html += '<div style="flex-shrink:0;color:' + iconColor + '">' + getRundownItemIcon(item.itemType) + '</div>';
-        // Title + notes
-        html += '<div style="flex:1;min-width:0">';
-        html += '<div style="font-size:13px;font-weight:600;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.title) + '</div>';
-        if (item.notes) html += '<div style="font-size:11px;color:#556270;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.notes) + '</div>';
-        html += '</div>';
-        // Type badge
-        html += '<div style="font-size:10px;color:#8B9DAF;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;flex-shrink:0">' + escapeHtml(item.itemType) + '</div>';
-        // Duration
-        html += '<div style="font-size:12px;color:#8B9DAF;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;flex-shrink:0;width:48px;text-align:right">' + durLabel + '</div>';
-        // Edit / Delete
-        html += '<div style="display:flex;gap:4px;flex-shrink:0">';
-        html += '<span data-action="rundownEditItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Edit">' + SVG.gear + '</span>';
-        html += '<span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span>';
-        html += '</div>';
-        html += '</div>';
+        var color = RUNDOWN_TYPE_COLORS[item.itemType] || RUNDOWN_TYPE_COLORS.other;
+        var t = timingData[i];
+
+        // Section header — full-width divider row
+        if (item.itemType === 'section') {
+          html += '<tr data-item-id="' + item.id + '" draggable="true" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
+          html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
+          html += '<td colspan="8" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
+          html += '</td>';
+          html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
+          html += '</tr>';
+          continue;
+        }
+
+        rowNum++;
+        html += '<tr data-item-id="' + item.id + '" draggable="true" style="border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid ' + color + ';transition:background 0.15s"'
+          + ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'none\'">';
+
+        // Drag handle
+        html += '<td style="padding:4px 4px;cursor:grab;color:#556270;vertical-align:middle" class="rundown-drag-handle">' + SVG.grip + '</td>';
+
+        // Row number
+        html += '<td style="padding:4px 2px;text-align:center;color:#556270;font-size:11px;font-weight:600;vertical-align:middle">' + rowNum + '</td>';
+
+        // Title (inline editable)
+        html += '<td style="padding:4px 6px;vertical-align:middle">';
+        html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text;font-weight:600;color:#F0F2F4;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + escapeHtml(item.title) + '</span>';
+        html += '</td>';
+
+        // Type (inline select)
+        html += '<td style="padding:4px 6px;vertical-align:middle">';
+        html += '<span class="rundown-inline-type" data-item-id="' + item.id + '" style="cursor:pointer;font-size:11px;color:' + color + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;display:inline-block" title="Click to change">' + escapeHtml(RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType) + '</span>';
+        html += '</td>';
+
+        // Who / Assignee (inline editable)
+        html += '<td style="padding:4px 6px;vertical-align:middle">';
+        html += '<span class="rundown-inline-edit" data-field="assignee" data-item-id="' + item.id + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (item.assignee ? escapeHtml(item.assignee) : '<span style="color:#3A4556">--</span>') + '</span>';
+        html += '</td>';
+
+        // Duration (inline editable, MM:SS)
+        html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle">';
+        html += '<span class="rundown-inline-edit" data-field="duration" data-item-id="' + item.id + '" style="cursor:text;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF" title="Click to edit">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
+        html += '</td>';
+
+        // Start time (auto-calculated)
+        html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.start) + '</td>';
+
+        // End time (auto-calculated)
+        html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.end) + '</td>';
+
+        // Notes (expandable)
+        html += '<td style="padding:4px 6px;vertical-align:middle">';
+        var notesPreview = item.notes ? (item.notes.length > 40 ? item.notes.substring(0, 40) + '...' : item.notes) : '';
+        html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(item.notes || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
+        html += '</td>';
+
+        // Delete
+        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
+
+        html += '</tr>';
       }
+
+      // Add item ghost row
+      html += '<tr id="rundown-add-row" style="border-top:1px solid rgba(255,255,255,0.06)">';
+      html += '<td colspan="10" style="padding:8px 6px">';
+      html += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add item">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
+      html += 'Add item</span>';
+      html += '</td>';
+      html += '</tr>';
+
+      html += '</tbody></table>';
       container.innerHTML = html;
+
+      // Attach inline editing listeners
+      _attachRundownInlineEditing(container);
+      // Attach drag-and-drop
+      _attachRundownDragDrop();
     }
+
+    // ── Inline editing ────────────────────────────────────────────────────────
+    function _attachRundownInlineEditing(container) {
+      // Text fields: title, assignee, notes, duration
+      container.querySelectorAll('.rundown-inline-edit').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var field = el.getAttribute('data-field');
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item) return;
+
+          if (field === 'notes') {
+            _rundownInlineTextarea(el, item, itemId);
+          } else if (field === 'duration') {
+            _rundownInlineDuration(el, item, itemId);
+          } else {
+            _rundownInlineText(el, item, field, itemId);
+          }
+        });
+      });
+
+      // Type selectors
+      container.querySelectorAll('.rundown-inline-type').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item) return;
+          _rundownInlineType(el, item, itemId);
+        });
+      });
+    }
+
+    function _rundownInlineText(el, item, field, itemId) {
+      var currentVal = field === 'assignee' ? (item.assignee || '') : (item[field] || '');
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentVal;
+      input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:13px;outline:none;font-family:inherit';
+      if (field === 'assignee') input.style.fontSize = '12px';
+      el.innerHTML = '';
+      el.appendChild(input);
+      input.focus();
+      input.select();
+
+      function save() {
+        var val = input.value.trim();
+        if (field === 'title' && !val) val = item.title; // don't allow empty title
+        var body = {};
+        if (field === 'assignee') body.assignee = val;
+        else body[field] = val;
+        _rundownInlineSave(itemId, body);
+      }
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      });
+    }
+
+    function _rundownInlineDuration(el, item, itemId) {
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.value = _rundownFormatMMSS(item.lengthSeconds);
+      input.placeholder = '0:00';
+      input.style.cssText = 'width:56px;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 4px;font-size:12px;outline:none;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;text-align:center';
+      el.innerHTML = '';
+      el.appendChild(input);
+      input.focus();
+      input.select();
+
+      function save() {
+        var seconds = _rundownParseMMSS(input.value);
+        _rundownInlineSave(itemId, { lengthSeconds: seconds });
+      }
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      });
+    }
+
+    function _rundownInlineTextarea(el, item, itemId) {
+      var ta = document.createElement('textarea');
+      ta.value = item.notes || '';
+      ta.style.cssText = 'width:100%;min-width:160px;min-height:48px;max-height:120px;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:4px 6px;font-size:11px;outline:none;font-family:inherit;resize:vertical';
+      el.innerHTML = '';
+      el.appendChild(ta);
+      ta.focus();
+
+      function save() {
+        _rundownInlineSave(itemId, { notes: ta.value });
+      }
+      ta.addEventListener('blur', save);
+      ta.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { ta.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      });
+    }
+
+    function _rundownInlineType(el, item, itemId) {
+      var select = document.createElement('select');
+      select.style.cssText = 'background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 4px;font-size:11px;outline:none;font-family:inherit';
+      RUNDOWN_TYPE_OPTIONS.forEach(function(t) {
+        var opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = RUNDOWN_TYPE_LABELS[t] || t;
+        if (t === item.itemType) opt.selected = true;
+        select.appendChild(opt);
+      });
+      el.innerHTML = '';
+      el.appendChild(select);
+      select.focus();
+
+      function save() {
+        _rundownInlineSave(itemId, { itemType: select.value });
+      }
+      select.addEventListener('change', save);
+      select.addEventListener('blur', function() {
+        // Re-render after small delay to let change fire first
+        setTimeout(function() {
+          if (document.activeElement !== select) {
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          }
+        }, 50);
+      });
+    }
+
+    function _rundownInlineSave(itemId, body) {
+      if (!_rundownSelectedPlan) return;
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, body).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditorItems(plan.items || []);
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    // ── Drag and drop reorder ─────────────────────────────────────────────────
+    var _rundownDragItem = null;
+
+    function _attachRundownDragDrop() {
+      var tbody = document.getElementById('rundown-table-body');
+      if (!tbody) return;
+
+      var rows = tbody.querySelectorAll('tr[data-item-id]');
+      rows.forEach(function(row) {
+        row.addEventListener('dragstart', function(e) {
+          _rundownDragItem = row.getAttribute('data-item-id');
+          row.style.opacity = '0.4';
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', _rundownDragItem);
+        });
+        row.addEventListener('dragend', function() {
+          row.style.opacity = '1';
+          _rundownDragItem = null;
+          // Remove all placeholders
+          tbody.querySelectorAll('.rundown-drag-placeholder').forEach(function(p) { p.remove(); });
+        });
+        row.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          var targetId = row.getAttribute('data-item-id');
+          if (targetId === _rundownDragItem) return;
+          // Show placeholder
+          tbody.querySelectorAll('.rundown-drag-placeholder').forEach(function(p) { p.remove(); });
+          var ph = document.createElement('tr');
+          ph.className = 'rundown-drag-placeholder';
+          ph.innerHTML = '<td colspan="10" style="height:2px;background:#42A5F5;padding:0"></td>';
+          var rect = row.getBoundingClientRect();
+          var midY = rect.top + rect.height / 2;
+          if (e.clientY < midY) {
+            row.parentNode.insertBefore(ph, row);
+          } else {
+            row.parentNode.insertBefore(ph, row.nextSibling);
+          }
+        });
+        row.addEventListener('drop', function(e) {
+          e.preventDefault();
+          if (!_rundownDragItem || !_rundownSelectedPlan) return;
+          var items = _rundownSelectedPlan.items || [];
+          var ids = items.map(function(x) { return x.id; });
+          var fromIdx = ids.indexOf(_rundownDragItem);
+          var targetId = row.getAttribute('data-item-id');
+          var toIdx = ids.indexOf(targetId);
+          if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+
+          // Determine if dropping above or below
+          var rect = row.getBoundingClientRect();
+          var midY = rect.top + rect.height / 2;
+          if (e.clientY >= midY && toIdx > fromIdx) { /* below, already correct */ }
+          else if (e.clientY < midY && toIdx < fromIdx) { /* above, already correct */ }
+          else if (e.clientY >= midY) toIdx++;
+          else if (e.clientY < midY) { /* insert before */ }
+
+          // Reorder
+          var draggedId = ids.splice(fromIdx, 1)[0];
+          var insertIdx = ids.indexOf(targetId);
+          if (e.clientY >= rect.top + rect.height / 2) insertIdx++;
+          ids.splice(insertIdx, 0, draggedId);
+
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/reorder', { itemIds: ids }).then(function(plan) {
+            _rundownSelectedPlan = plan;
+            renderRundownEditorItems(plan.items || []);
+          }).catch(function(e2) { toast('Failed: ' + e2.message, true); });
+        });
+      });
+    }
+
+    // ── Start time / end time change handlers ─────────────────────────────────
+    (function() {
+      var startInput = document.getElementById('rundown-start-time');
+      var endInput = document.getElementById('rundown-end-time');
+      if (startInput) startInput.addEventListener('change', function() {
+        _rundownStartTime = startInput.value || '09:00';
+        if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+      });
+      if (endInput) endInput.addEventListener('change', function() {
+        _rundownEndTime = endInput.value || '';
+        if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+      });
+    })();
 
     // ── Rundown CRUD actions ──────────────────────────────────────────────────
 
@@ -8464,7 +8850,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
             _rundownSelectedPlan = plan;
             renderRundownEditor(plan);
-            // Also update plan list item count
             var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
             if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
           });
@@ -8472,7 +8857,31 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    function rundownAddItemInline() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+        title: 'New Item',
+        itemType: 'other',
+        lengthSeconds: 0,
+        notes: '',
+        assignee: '',
+      }).then(function(newItem) {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+          if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownPlanList(); }
+          // Start editing the title of the new item
+          setTimeout(function() {
+            var titleSpan = document.querySelector('.rundown-inline-edit[data-field="title"][data-item-id="' + newItem.id + '"]');
+            if (titleSpan) titleSpan.click();
+          }, 100);
+        });
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
     function rundownEditItem(itemId) {
+      // Legacy: still kept for modal-based editing if needed
       if (!_rundownSelectedPlan) return;
       var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
       if (!item) return;
@@ -8824,10 +9233,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var title = (itemType || '').toLowerCase();
       if (title === 'song') return SVG.music;
       if (title === 'media') return SVG.playMedia;
-      // Match common PCO item names for sermon/message types
       if (title === 'sermon' || title === 'message') return SVG.microphone;
       if (title === 'prayer') return SVG.prayer;
-      // Default for generic items
+      if (title === 'announcement') return SVG.chat;
+      if (title === 'transition') return SVG.shuffle;
+      if (title === 'welcome') return SVG.sparkle;
+      if (title === 'offering') return SVG.diamond;
+      if (title === 'communion') return SVG.record;
+      if (title === 'scripture') return SVG.docItem;
+      if (title === 'section') return SVG.arrowRight;
       return SVG.docItem;
     }
 
@@ -8860,9 +9274,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="width:28px;font-size:12px;color:' + (isCurrent ? '#00E676' : '#556270') + ';font-weight:700;flex-shrink:0;padding-top:2px">' + (i + 1) + '</div>';
 
         // Item type icon
-        var iconColor = isCurrent ? '#00E676' : '#556270';
-        if (item.itemType === 'song') iconColor = isCurrent ? '#00E676' : '#42A5F5';
-        else if (item.itemType === 'media') iconColor = isCurrent ? '#00E676' : '#FFB74D';
+        var iconColor = isCurrent ? '#00E676' : (RUNDOWN_TYPE_COLORS[item.itemType] || '#556270');
         html += '<div style="width:20px;flex-shrink:0;text-align:center;margin-right:8px;color:' + iconColor + ';padding-top:2px">';
         html += getRundownItemIcon(item.itemType, isCurrent);
         html += '</div>';
@@ -9562,11 +9974,17 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownEditPlan':
         if (typeof rundownEditPlan === 'function') rundownEditPlan();
         break;
+      case 'rundownEditPlanTitle':
+        if (typeof rundownEditPlan === 'function') rundownEditPlan();
+        break;
       case 'rundownDeletePlan':
         if (typeof rundownDeletePlan === 'function') rundownDeletePlan();
         break;
       case 'rundownAddItem':
         if (typeof rundownAddItem === 'function') rundownAddItem();
+        break;
+      case 'rundownAddItemInline':
+        if (typeof rundownAddItemInline === 'function') rundownAddItemInline();
         break;
       case 'rundownEditItem':
         if (typeof rundownEditItem === 'function') rundownEditItem(btn.dataset.itemId);
