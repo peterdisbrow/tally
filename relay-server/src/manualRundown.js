@@ -18,7 +18,9 @@ class ManualRundownStore {
   constructor({ queryClient, log = console.log } = {}) {
     this._db = queryClient;
     this._log = log;
-    this.ready = this._db ? this._init() : Promise.resolve();
+    this.ready = this._db ? this._init().catch(err => {
+      console.error('[ManualRundownStore] DB init failed:', err);
+    }) : Promise.resolve();
   }
 
   // ─── DB INIT ───────────────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ class ManualRundownStore {
   // ─── PLANS ─────────────────────────────────────────────────────────────────
 
   async createPlan(churchId, { title, serviceDate, isTemplate = false, templateName = null }) {
+    await this.ready;
     const id = uuidv4();
     const now = Date.now();
     await this._db.run(`
@@ -82,6 +85,7 @@ class ManualRundownStore {
   }
 
   async listPlans(churchId, { includeTemplates = false } = {}) {
+    await this.ready;
     const rows = includeTemplates
       ? await this._db.query(
           `SELECT * FROM manual_rundown_plans WHERE church_id = ? ORDER BY is_template DESC, service_date DESC, created_at DESC`,

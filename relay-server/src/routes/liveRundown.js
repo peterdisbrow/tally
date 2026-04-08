@@ -134,6 +134,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const state = liveRundown.startSession(churchId, plan, callerName || 'TD', companionActionsMap);
         res.json(state);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -321,6 +322,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         res.json({ ok: true, itemId, actionCount: actions.length });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -346,6 +348,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         res.json({ ok: true });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -396,6 +399,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         res.json({ plans });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -419,6 +423,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.createPlan(churchId, { title: title.trim(), serviceDate });
         res.json(plan);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -441,6 +446,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         res.json(plan);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -465,6 +471,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.updatePlan(req.params.planId, req.body);
         res.json(plan);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -487,6 +494,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         await manualRundown.deletePlan(req.params.planId);
         res.json({ ok: true });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -519,6 +527,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         });
         res.json(item);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -550,6 +559,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const updated = await manualRundown.getPlan(req.params.planId);
         res.json(updated);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -573,6 +583,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const updated = await manualRundown.getPlan(req.params.planId);
         res.json(updated);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -601,6 +612,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const updated = await manualRundown.getPlan(req.params.planId);
         res.json(updated);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -622,6 +634,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const templates = await manualRundown.listTemplates(churchId);
         res.json({ templates });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -646,6 +659,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const template = await manualRundown.saveAsTemplate(req.params.planId, req.body.templateName);
         res.json(template);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -673,6 +687,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         });
         res.json(plan);
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
@@ -695,6 +710,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         await manualRundown.deletePlan(req.params.templateId);
         res.json({ ok: true });
       } catch (e) {
+        console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
