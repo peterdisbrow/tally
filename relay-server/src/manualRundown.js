@@ -27,6 +27,23 @@ class ManualRundownStore {
 
   async _init() {
     await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_shares (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rs_token ON rundown_shares(token)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rs_plan ON rundown_shares(plan_id)
+    `);
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS manual_rundown_plans (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -259,6 +276,54 @@ class ManualRundownStore {
     return this.getPlan(newPlan.id);
   }
 
+  // ─── SHARES ────────────────────────────────────────────────────────────────
+
+  async createShare(planId, churchId, { expiresInDays = 7 } = {}) {
+    await this.ready;
+    // Deactivate any existing active share for this plan
+    await this._db.run(
+      `UPDATE rundown_shares SET is_active = 0 WHERE plan_id = ? AND church_id = ?`,
+      [planId, churchId]
+    );
+    const id = uuidv4();
+    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, ''); // 64-char token
+    const now = Date.now();
+    const expiresAt = now + expiresInDays * 24 * 60 * 60 * 1000;
+    await this._db.run(
+      `INSERT INTO rundown_shares (id, plan_id, church_id, token, created_at, expires_at, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [id, planId, churchId, token, now, expiresAt]
+    );
+    return this._toShare({ id, plan_id: planId, church_id: churchId, token, created_at: now, expires_at: expiresAt, is_active: 1 });
+  }
+
+  async getShareByToken(token) {
+    await this.ready;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_shares WHERE token = ? AND is_active = 1`,
+      [token]
+    );
+    if (!row) return null;
+    return this._toShare(row);
+  }
+
+  async getShareByPlanId(planId) {
+    await this.ready;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_shares WHERE plan_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1`,
+      [planId]
+    );
+    if (!row) return null;
+    return this._toShare(row);
+  }
+
+  async revokeShare(shareId) {
+    await this.ready;
+    await this._db.run(
+      `UPDATE rundown_shares SET is_active = 0 WHERE id = ?`,
+      [shareId]
+    );
+  }
+
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
   _toPlan(row, items = []) {
@@ -287,6 +352,18 @@ class ManualRundownStore {
       sortOrder: row.sort_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  _toShare(row) {
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      churchId: row.church_id,
+      token: row.token,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      isActive: !!row.is_active,
     };
   }
 }

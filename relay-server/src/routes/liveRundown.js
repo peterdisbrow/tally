@@ -693,6 +693,83 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     }
   );
 
+  // ─── SHARE / GUEST PASS ENDPOINTS ─────────────────────────────────────────
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/share
+   * Generate (or replace) a guest-pass share token for a plan.
+   * Body: { expiresInDays?: number }  (default 7)
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/share',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        const expiresInDays = Number(req.body?.expiresInDays) || 7;
+        const share = await manualRundown.createShare(planId, churchId, { expiresInDays });
+        const baseUrl = process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
+        res.json({ ...share, url: `${baseUrl}/rundown/view/${share.token}` });
+      } catch (e) {
+        console.error('[rundown] share error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/share
+   * Get the active share for a plan (if any).
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/share',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        const share = await manualRundown.getShareByPlanId(planId);
+        if (!share || share.expiresAt < Date.now()) {
+          return res.json({ share: null });
+        }
+        const baseUrl = process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
+        res.json({ share: { ...share, url: `${baseUrl}/rundown/view/${share.token}` } });
+      } catch (e) {
+        console.error('[rundown] share error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/churches/:churchId/rundown-plans/:planId/share
+   * Revoke the active share for a plan.
+   */
+  app.delete('/api/churches/:churchId/rundown-plans/:planId/share',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const share = await manualRundown.getShareByPlanId(planId);
+        if (share && share.churchId === churchId) {
+          await manualRundown.revokeShare(share.id);
+        }
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('[rundown] share revoke error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
   /**
    * DELETE /api/churches/:churchId/rundown-templates/:templateId
    */

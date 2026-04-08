@@ -8173,8 +8173,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var dateEl = document.getElementById('rundown-editor-date');
         if (titleEl) titleEl.textContent = p ? p.title : 'PCO Plan';
         if (dateEl) dateEl.textContent = p && p.serviceDate ? p.serviceDate : '';
-        // Hide edit controls for PCO plans
-        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"]').forEach(function(b) { b.style.display = 'none'; });
+        // Hide edit/share controls for PCO plans
+        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = 'none'; });
+        _updateSharedBadge(false);
         var itemsEl = document.getElementById('rundown-editor-items');
         if (itemsEl) itemsEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">PCO plan items are imported automatically.</div>';
       } else {
@@ -8190,12 +8191,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var editor = document.getElementById('rundown-editor');
       if (editor) editor.style.display = '';
       // Show edit controls for manual plans
-      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"]').forEach(function(b) { b.style.display = ''; });
+      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = ''; });
       var titleEl = document.getElementById('rundown-editor-title');
       var dateEl = document.getElementById('rundown-editor-date');
       if (titleEl) titleEl.textContent = plan.title;
       if (dateEl) dateEl.textContent = plan.serviceDate || '';
       renderRundownEditorItems(plan.items || []);
+      // Check share status and update badge
+      _rundownShareData = null;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/share').then(function(data) {
+        _rundownShareData = data.share || null;
+        _updateSharedBadge(!!(data.share && data.share.expiresAt > Date.now()));
+      }).catch(function() { _updateSharedBadge(false); });
     }
 
     function renderRundownEditorItems(items) {
@@ -8516,6 +8523,98 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderRundownEditor(plan);
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
+
+    // ── Share / Guest Pass ────────────────────────────────────────────────────
+
+    var _rundownShareData = null; // { share: { id, token, url, expiresAt } | null }
+
+    function _updateSharedBadge(hasShare) {
+      var badge = document.getElementById('rundown-shared-badge');
+      if (badge) badge.style.display = hasShare ? '' : 'none';
+    }
+
+    function rundownShare() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var planId = _rundownSelectedPlan.id;
+      var backdrop = document.getElementById('modal-rundown-share');
+      var loadingEl = document.getElementById('rundown-share-loading');
+      var contentEl = document.getElementById('rundown-share-content');
+      var errorEl = document.getElementById('rundown-share-error');
+      var urlEl = document.getElementById('rundown-share-url');
+      var expiryEl = document.getElementById('rundown-share-expiry');
+      if (!backdrop) return;
+      // Reset state
+      if (loadingEl) loadingEl.style.display = '';
+      if (contentEl) contentEl.style.display = 'none';
+      if (errorEl) errorEl.style.display = 'none';
+      backdrop.classList.add('open');
+
+      // Check for existing share first
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
+        if (data.share) {
+          _rundownShareData = data.share;
+          _showShareContent(data.share);
+        } else {
+          // No active share — generate one
+          return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(share) {
+            _rundownShareData = share;
+            _showShareContent(share);
+          });
+        }
+      }).catch(function(e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
+      });
+
+      function _showShareContent(share) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (urlEl) urlEl.textContent = share.url || '';
+        if (expiryEl && share.expiresAt) {
+          var exp = new Date(share.expiresAt);
+          expiryEl.textContent = 'Expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        if (contentEl) contentEl.style.display = '';
+        _updateSharedBadge(true);
+      }
+    }
+
+    function rundownCopyShareLink() {
+      var urlEl = document.getElementById('rundown-share-url');
+      var url = urlEl ? urlEl.textContent.trim() : '';
+      if (!url) return;
+      navigator.clipboard.writeText(url).then(function() {
+        var btn = document.getElementById('rundown-share-copy-btn');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Link'; }, 2000); }
+      }).catch(function() {
+        window.prompt('Copy this link:', url);
+      });
+    }
+
+    function rundownRevokeShare() {
+      if (!_rundownSelectedPlan) return;
+      var planId = _rundownSelectedPlan.id;
+      styledConfirm('Revoke Access', 'Anyone with the current link will lose access. You can create a new link later.').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function() {
+          _rundownShareData = null;
+          _updateSharedBadge(false);
+          var backdrop = document.getElementById('modal-rundown-share');
+          if (backdrop) backdrop.classList.remove('open');
+          toast('Share link revoked');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    (function() {
+      var closeBtn = document.getElementById('rundown-share-modal-close');
+      var backdrop = document.getElementById('modal-rundown-share');
+      var copyBtn = document.getElementById('rundown-share-copy-btn');
+      var revokeBtn = document.getElementById('rundown-share-revoke-btn');
+      if (closeBtn) closeBtn.addEventListener('click', function() { if (backdrop) backdrop.classList.remove('open'); });
+      if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) backdrop.classList.remove('open'); });
+      if (copyBtn) copyBtn.addEventListener('click', function() { if (typeof rundownCopyShareLink === 'function') rundownCopyShareLink(); });
+      if (revokeBtn) revokeBtn.addEventListener('click', function() { if (typeof rundownRevokeShare === 'function') rundownRevokeShare(); });
+    })();
 
     // ── Start Live ────────────────────────────────────────────────────────────
 
@@ -9456,6 +9555,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownSelectPlan':
         if (typeof rundownSelectPlan === 'function') rundownSelectPlan(btn.dataset.planId, btn.dataset.planSource);
+        break;
+      case 'rundownShare':
+        if (typeof rundownShare === 'function') rundownShare();
         break;
       case 'rundownEditPlan':
         if (typeof rundownEditPlan === 'function') rundownEditPlan();
