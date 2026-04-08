@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Service Rundown — Tally</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0A0F0D;
+      color: #F0F2F4;
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      background: #00E676;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .brand-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #8B9DAF;
+      letter-spacing: 0.5px;
+    }
+
+    .plan-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #F0F2F4;
+      line-height: 1.2;
+    }
+
+    .plan-date {
+      font-size: 14px;
+      color: #8B9DAF;
+      margin-top: 4px;
+    }
+
+    .meta-right {
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .last-updated {
+      font-size: 12px;
+      color: #556270;
+    }
+
+    .refresh-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #556270;
+      margin-top: 4px;
+      background: rgba(255,255,255,0.04);
+      padding: 3px 8px;
+      border-radius: 10px;
+    }
+
+    .refresh-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #00E676;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: #111816;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: rgba(255,255,255,0.04);
+      color: #8B9DAF;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      padding: 10px 14px;
+      text-align: left;
+      white-space: nowrap;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      transition: background 0.1s;
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background: rgba(255,255,255,0.03);
+    }
+
+    tbody td {
+      padding: 11px 14px;
+      vertical-align: middle;
+      color: #D0D8E0;
+    }
+
+    td.num {
+      color: #556270;
+      font-variant-numeric: tabular-nums;
+      width: 32px;
+    }
+
+    td.color-cell {
+      width: 10px;
+      padding: 0;
+    }
+
+    .color-bar {
+      width: 4px;
+      height: 36px;
+      border-radius: 2px;
+      margin: 0 auto;
+    }
+
+    td.title-cell {
+      font-weight: 600;
+      color: #F0F2F4;
+    }
+
+    .item-notes {
+      font-size: 11px;
+      color: #556270;
+      margin-top: 2px;
+      font-weight: 400;
+    }
+
+    td.type-cell {
+      white-space: nowrap;
+    }
+
+    .type-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .type-song    { background: rgba(66,165,245,0.15); color: #42A5F5; }
+    .type-sermon  { background: rgba(171,71,188,0.15); color: #CE93D8; }
+    .type-message { background: rgba(171,71,188,0.15); color: #CE93D8; }
+    .type-media   { background: rgba(255,183,77,0.15); color: #FFB74D; }
+    .type-prayer  { background: rgba(102,187,106,0.12); color: #81C784; }
+    .type-break   { background: rgba(255,255,255,0.07); color: #8B9DAF; }
+    .type-other   { background: rgba(255,255,255,0.07); color: #8B9DAF; }
+
+    td.dur-cell, td.start-cell, td.end-cell {
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
+      font-size: 12px;
+      color: #8B9DAF;
+      white-space: nowrap;
+    }
+
+    td.notes-cell {
+      font-size: 12px;
+      color: #556270;
+      max-width: 200px;
+    }
+
+    /* ── Total row ── */
+    .total-row td {
+      background: rgba(0,230,118,0.05);
+      border-top: 1px solid rgba(0,230,118,0.15) !important;
+      color: #8B9DAF;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 14px;
+    }
+
+    .total-row .dur-cell {
+      color: #00E676;
+      font-size: 14px;
+    }
+
+    /* ── Empty / error states ── */
+    .state-box {
+      text-align: center;
+      padding: 80px 24px;
+    }
+
+    .state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .state-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #F0F2F4;
+      margin-bottom: 8px;
+    }
+
+    .state-sub {
+      font-size: 14px;
+      color: #556270;
+      line-height: 1.6;
+      max-width: 340px;
+      margin: 0 auto;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      margin-top: 32px;
+      font-size: 12px;
+      color: #3A4550;
+    }
+
+    .footer a {
+      color: #556270;
+      text-decoration: none;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .plan-title { font-size: 20px; }
+      thead th:nth-child(6),
+      tbody td:nth-child(6),
+      thead th:nth-child(7),
+      tbody td:nth-child(7),
+      thead th:nth-child(9),
+      tbody td:nth-child(9) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 2L14 13H2L8 2Z" fill="#0A0F0D" stroke="#0A0F0D" stroke-width="0.5"/>
+        </svg>
+      </div>
+      <span class="brand-name">TALLY</span>
+    </div>
+
+    <div id="app">
+      <div class="state-box">
+        <div class="state-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" style="color:#556270">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/>
+          </svg>
+        </div>
+        <div class="state-title">Loading rundown&hellip;</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var token = location.pathname.split('/').pop();
+      var apiBase = location.origin;
+      var lastUpdated = null;
+      var refreshTimer = null;
+
+      function esc(str) {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function formatDuration(seconds) {
+        if (!seconds || seconds <= 0) return '--';
+        var h = Math.floor(seconds / 3600);
+        var m = Math.floor((seconds % 3600) / 60);
+        var s = seconds % 60;
+        if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+        return m + ':' + pad(s);
+      }
+
+      function pad(n) { return String(n).padStart(2, '0'); }
+
+      function formatTime(date) {
+        var h = date.getHours();
+        var m = date.getMinutes();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return h + ':' + pad(m) + ' ' + ampm;
+      }
+
+      function timeAgo(ms) {
+        var diff = Math.floor((Date.now() - ms) / 1000);
+        if (diff < 10) return 'just now';
+        if (diff < 60) return diff + 's ago';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        return Math.floor(diff / 3600) + 'h ago';
+      }
+
+      function typeBadge(type) {
+        var safe = esc(type || 'other');
+        return '<span class="type-badge type-' + safe + '">' + safe + '</span>';
+      }
+
+      function colorForType(type) {
+        var map = { song: '#42A5F5', sermon: '#CE93D8', message: '#CE93D8', media: '#FFB74D', prayer: '#81C784' };
+        return map[type] || 'rgba(255,255,255,0.15)';
+      }
+
+      // Build the full page once data is loaded
+      function render(plan) {
+        var items = plan.items || [];
+        var serviceDate = plan.serviceDate ? new Date(plan.serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '';
+
+        // Calculate start times (assume service starts at top of first item = now if no serviceDate, else 9:00 AM on the date)
+        var startMs;
+        if (plan.serviceDate) {
+          var d = new Date(plan.serviceDate + 'T09:00:00');
+          startMs = d.getTime();
+        } else {
+          startMs = Date.now();
+        }
+
+        var totalSeconds = 0;
+        var itemTimes = [];
+        var cursor = startMs;
+        for (var i = 0; i < items.length; i++) {
+          var dur = items[i].lengthSeconds || 0;
+          itemTimes.push({ start: cursor, end: cursor + dur * 1000 });
+          cursor += dur * 1000;
+          totalSeconds += dur;
+        }
+
+        var lastUpdatedStr = plan.updatedAt ? timeAgo(plan.updatedAt) : '';
+
+        var html = '';
+
+        // Header
+        html += '<div class="header">';
+        html += '<div>';
+        html += '<div class="plan-title">' + esc(plan.title) + '</div>';
+        if (serviceDate) html += '<div class="plan-date">' + esc(serviceDate) + '</div>';
+        html += '</div>';
+        html += '<div class="meta-right">';
+        if (lastUpdatedStr) html += '<div class="last-updated" id="last-updated-label">Updated ' + lastUpdatedStr + '</div>';
+        html += '<div class="refresh-badge"><span class="refresh-dot"></span> Live</div>';
+        html += '</div>';
+        html += '</div>';
+
+        if (items.length === 0) {
+          html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no items added yet.</div></div>';
+          document.getElementById('app').innerHTML = html;
+          return;
+        }
+
+        html += '<div class="table-wrap"><table>';
+        html += '<thead><tr>';
+        html += '<th>#</th>';
+        html += '<th></th>';
+        html += '<th>Title</th>';
+        html += '<th>Type</th>';
+        html += '<th>Duration</th>';
+        html += '<th>Start</th>';
+        html += '<th>End</th>';
+        html += '<th>Notes</th>';
+        html += '</tr></thead>';
+        html += '<tbody>';
+
+        for (var j = 0; j < items.length; j++) {
+          var item = items[j];
+          var t = itemTimes[j];
+          var startTime = item.lengthSeconds > 0 ? formatTime(new Date(t.start)) : '--';
+          var endTime = item.lengthSeconds > 0 ? formatTime(new Date(t.end)) : '--';
+          html += '<tr>';
+          html += '<td class="num">' + (j + 1) + '</td>';
+          html += '<td class="color-cell"><div class="color-bar" style="background:' + colorForType(item.itemType) + '"></div></td>';
+          html += '<td class="title-cell">' + esc(item.title);
+          html += '</td>';
+          html += '<td class="type-cell">' + typeBadge(item.itemType) + '</td>';
+          html += '<td class="dur-cell">' + esc(formatDuration(item.lengthSeconds)) + '</td>';
+          html += '<td class="start-cell">' + esc(startTime) + '</td>';
+          html += '<td class="end-cell">' + esc(endTime) + '</td>';
+          html += '<td class="notes-cell">' + esc(item.notes || '') + '</td>';
+          html += '</tr>';
+        }
+
+        html += '</tbody>';
+
+        // Total row
+        html += '<tfoot><tr class="total-row">';
+        html += '<td colspan="4" style="text-align:right;color:#556270">Total</td>';
+        html += '<td class="dur-cell">' + formatDuration(totalSeconds) + '</td>';
+        html += '<td colspan="3"></td>';
+        html += '</tr></tfoot>';
+
+        html += '</table></div>';
+
+        document.getElementById('app').innerHTML = html;
+        lastUpdated = plan.updatedAt;
+
+        // Keep "updated X ago" label live
+        setInterval(function () {
+          var el = document.getElementById('last-updated-label');
+          if (el && lastUpdated) el.textContent = 'Updated ' + timeAgo(lastUpdated);
+        }, 15000);
+      }
+
+      function showError(msg, sub) {
+        document.getElementById('app').innerHTML =
+          '<div class="state-box">' +
+          '<div class="state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" style="color:#556270"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg></div>' +
+          '<div class="state-title">' + esc(msg) + '</div>' +
+          '<div class="state-sub">' + esc(sub || '') + '</div>' +
+          '</div>';
+      }
+
+      function load() {
+        fetch(apiBase + '/api/public/rundown/' + encodeURIComponent(token))
+          .then(function (r) {
+            if (r.status === 410 || r.status === 404) {
+              return r.json().then(function (d) { throw { status: r.status, message: d.error }; });
+            }
+            if (!r.ok) throw { status: r.status, message: 'Could not load rundown' };
+            return r.json();
+          })
+          .then(function (plan) {
+            render(plan);
+            document.title = plan.title + ' — Tally';
+          })
+          .catch(function (err) {
+            if (err.status === 410) {
+              showError('This rundown link has expired', 'Ask the service organizer to share a new link.');
+            } else if (err.status === 404) {
+              showError('Link not found', 'This link may be invalid or has been revoked.');
+            } else {
+              showError('Could not load rundown', err.message || '');
+            }
+          });
+      }
+
+      load();
+
+      // Auto-refresh every 30 seconds
+      refreshTimer = setInterval(load, 30000);
+    })();
+  </script>
+
+  <div class="footer">
+    Powered by <a href="https://tallyconnect.app" target="_blank" rel="noopener">Tally</a>
+  </div>
+</body>
+</html>

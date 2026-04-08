@@ -1198,6 +1198,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'connections') loadConnections();
       if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'rundown') loadRundownPage();
+      if (id === 'commands') loadCommandsPage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
 
@@ -5437,6 +5438,297 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Macros ────────────────────────────────────────────────────────────────
     var editingMacroId = null;
+    var macroWizardStep = 1;
+    var macroWizardSteps = [];
+
+    var MACRO_COMMANDS = {
+      'Streaming': [
+        { label: 'Start stream (OBS)', value: 'start stream' },
+        { label: 'Stop stream (OBS)', value: 'stop stream' },
+        { label: 'Start vMix stream', value: 'start vmix stream' },
+        { label: 'Stop vMix stream', value: 'stop vmix stream' },
+      ],
+      'Recording': [
+        { label: 'Start recording', value: 'start recording' },
+        { label: 'Stop recording', value: 'stop recording' },
+        { label: 'Start vMix recording', value: 'vmix recording start' },
+        { label: 'Stop vMix recording', value: 'vmix recording stop' },
+      ],
+      'Encoder': [
+        { label: 'Start encoder stream', value: 'start encoder stream' },
+        { label: 'Stop encoder stream', value: 'stop encoder stream' },
+        { label: 'Start encoder recording', value: 'start encoder recording' },
+        { label: 'Stop encoder recording', value: 'stop encoder recording' },
+      ],
+      'ATEM Switcher': [
+        { label: 'Cut to camera N', value: 'cut to camera 1' },
+        { label: 'Camera N to preview', value: 'camera 1 to preview' },
+        { label: 'Fade to black', value: 'fade to black' },
+        { label: 'Auto transition', value: 'auto transition' },
+        { label: 'DSK N on', value: 'dsk 1 on' },
+        { label: 'DSK N off', value: 'dsk 1 off' },
+        { label: 'Set transition style', value: 'set transition style mix' },
+        { label: 'Set transition rate', value: 'set transition rate 25' },
+        { label: 'Run ATEM macro N', value: 'run macro 1' },
+      ],
+      'OBS': [
+        { label: 'Switch to scene', value: 'switch to scene "Scene Name"' },
+      ],
+      'vMix': [
+        { label: 'Cut to input N', value: 'vmix cut to input 1' },
+        { label: 'Preview input N', value: 'vmix preview input 1' },
+        { label: 'Cut', value: 'vmix cut' },
+        { label: 'Fade', value: 'vmix fade' },
+        { label: 'Mute', value: 'vmix mute' },
+        { label: 'Unmute', value: 'vmix unmute' },
+        { label: 'Set volume N%', value: 'vmix volume 80%' },
+      ],
+      'ProPresenter': [
+        { label: 'Next slide', value: 'next slide' },
+        { label: 'Previous slide', value: 'previous slide' },
+        { label: 'Clear all layers', value: 'clear all' },
+        { label: 'Go to slide N', value: 'go to slide 1' },
+        { label: 'Set look', value: 'set look "Look Name"' },
+        { label: 'Stage message', value: 'stage message "Message Name"' },
+        { label: 'Clear message', value: 'clear message' },
+        { label: 'Start timer', value: 'start timer "Timer Name"' },
+        { label: 'Stop timer', value: 'stop timer "Timer Name"' },
+      ],
+      'Mixer / Audio': [
+        { label: 'Mute channel N', value: 'mute channel 1' },
+        { label: 'Unmute channel N', value: 'unmute channel 1' },
+        { label: 'Mute master', value: 'mute master' },
+        { label: 'Unmute master', value: 'unmute master' },
+        { label: 'Recall mixer scene N', value: 'recall mixer scene 1' },
+        { label: 'Channel N fader to N%', value: 'channel 1 fader to 100%' },
+        { label: 'Mute DCA N', value: 'mute dca 1' },
+        { label: 'Unmute DCA N', value: 'unmute dca 1' },
+        { label: 'Enable phantom on channel N', value: 'enable phantom on channel 1' },
+        { label: 'Disable phantom on channel N', value: 'disable phantom on channel 1' },
+      ],
+      'PTZ / Cameras': [
+        { label: 'PTZ N recall preset N', value: 'ptz 1 preset 1' },
+        { label: 'PTZ N home', value: 'ptz 1 home' },
+        { label: 'Cam N auto iris', value: 'cam 1 auto iris' },
+        { label: 'Cam N auto white balance', value: 'cam 1 auto wb' },
+        { label: 'Cam N iris N%', value: 'cam 1 iris 50%' },
+      ],
+      'Rundown': [
+        { label: 'Start rundown', value: 'start rundown' },
+        { label: 'Next cue', value: 'next cue' },
+        { label: 'Pause rundown', value: 'pause rundown' },
+        { label: 'Resume rundown', value: 'resume rundown' },
+        { label: 'End rundown', value: 'end rundown' },
+      ],
+      'Autopilot': [
+        { label: 'Pause autopilot', value: 'pause autopilot' },
+        { label: 'Resume autopilot', value: 'resume autopilot' },
+      ],
+      'System': [
+        { label: 'System status', value: 'status' },
+        { label: 'Pre-service check', value: 'pre-service check' },
+      ],
+      'Custom': [
+        { label: 'Custom command…', value: '' },
+      ],
+    };
+
+    function openMacroWizard() {
+      editingMacroId = null;
+      document.getElementById('macro-edit-id').value = '';
+      document.getElementById('macro-name').value = '';
+      document.getElementById('macro-description').value = '';
+      document.getElementById('macro-modal-title').textContent = 'New Macro';
+      macroWizardSteps = [];
+      macroWizardGoToStep(1);
+      document.getElementById('modal-add-macro').classList.add('open');
+    }
+
+    function macroWizardGoToStep(step) {
+      [1, 2, 3].forEach(function(n) {
+        var el = document.getElementById('macro-step-' + n);
+        if (el) el.style.display = n === step ? '' : 'none';
+      });
+      macroWizardStep = step;
+      macroWizardUpdateIndicators();
+      if (step === 2) {
+        macroWizardInitPicker();
+        macroWizardRenderStepsList();
+      }
+      if (step === 3) macroWizardRenderReview();
+    }
+
+    function macroWizardUpdateIndicators() {
+      var s = macroWizardStep;
+      var checkSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+      [1, 2, 3].forEach(function(n) {
+        var ind = document.getElementById('macro-ind-' + n);
+        if (!ind) return;
+        var dot = ind.querySelector('.macro-wiz-dot');
+        var lbl = ind.querySelector('.macro-wiz-lbl');
+        if (n < s) {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#00E676;border:1px solid #00E676;box-sizing:border-box';
+          dot.innerHTML = checkSvg;
+          lbl.style.color = '#00E676';
+        } else if (n === s) {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#00E676;color:#060D08;border:none;box-sizing:border-box';
+          dot.innerHTML = String(n);
+          lbl.style.color = '#00E676';
+        } else {
+          dot.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#556270;border:1px solid #1a4030;box-sizing:border-box';
+          dot.innerHTML = String(n);
+          lbl.style.color = '#556270';
+        }
+      });
+      var counter = document.getElementById('macro-step-counter');
+      if (counter) counter.textContent = 'Step ' + s + ' of 3';
+    }
+
+    function macroWizardNext() {
+      if (macroWizardStep === 1) {
+        var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (!name) return toast('Shortcut name is required', true);
+        var reserved = ['start', 'stop', 'status', 'help', 'register', 'fix', 'menu', 'history', 'macros'];
+        if (reserved.indexOf(name) !== -1) return toast('"/' + name + '" is a reserved command name', true);
+        macroWizardGoToStep(2);
+      } else if (macroWizardStep === 2) {
+        if (!macroWizardSteps.length) return toast('Add at least one command step', true);
+        macroWizardGoToStep(3);
+      }
+    }
+
+    function macroWizardBack() {
+      if (macroWizardStep > 1) macroWizardGoToStep(macroWizardStep - 1);
+    }
+
+    function macroWizardInitPicker() {
+      var catSel = document.getElementById('macro-cmd-category');
+      if (!catSel || catSel.options.length > 1) return;
+      catSel.innerHTML = '<option value="">Category\u2026</option>'
+        + Object.keys(MACRO_COMMANDS).map(function(cat) {
+          return '<option value="' + escapeHtml(cat) + '">' + escapeHtml(cat) + '</option>';
+        }).join('');
+    }
+
+    function macroWizardCategoryChange() {
+      var cat = document.getElementById('macro-cmd-category').value;
+      var tmplSel = document.getElementById('macro-cmd-template');
+      tmplSel.innerHTML = '<option value="">Command\u2026</option>';
+      if (cat && MACRO_COMMANDS[cat]) {
+        MACRO_COMMANDS[cat].forEach(function(cmd) {
+          var opt = document.createElement('option');
+          opt.value = cmd.value;
+          opt.textContent = cmd.label;
+          tmplSel.appendChild(opt);
+        });
+      }
+      document.getElementById('macro-cmd-text').value = '';
+    }
+
+    function macroWizardTemplateChange() {
+      var val = document.getElementById('macro-cmd-template').value;
+      var input = document.getElementById('macro-cmd-text');
+      input.value = val;
+      if (val) {
+        input.focus();
+        var firstQuote = val.indexOf('"');
+        if (firstQuote >= 0) {
+          var lastQuote = val.lastIndexOf('"');
+          setTimeout(function() { input.setSelectionRange(firstQuote + 1, lastQuote); }, 10);
+        }
+      }
+    }
+
+    function macroWizardAddStep() {
+      var text = (document.getElementById('macro-cmd-text').value || '').trim();
+      if (!text) return toast('Enter a command first', true);
+      macroWizardSteps.push(text);
+      macroWizardRenderStepsList();
+      document.getElementById('macro-cmd-category').value = '';
+      document.getElementById('macro-cmd-template').innerHTML = '<option value="">Command\u2026</option>';
+      document.getElementById('macro-cmd-text').value = '';
+      document.getElementById('macro-cmd-text').focus();
+    }
+
+    function macroWizardRemoveStep(i) {
+      macroWizardSteps.splice(i, 1);
+      macroWizardRenderStepsList();
+    }
+
+    function macroWizardMoveStep(i, dir) {
+      var j = i + dir;
+      if (j < 0 || j >= macroWizardSteps.length) return;
+      var tmp = macroWizardSteps[i];
+      macroWizardSteps[i] = macroWizardSteps[j];
+      macroWizardSteps[j] = tmp;
+      macroWizardRenderStepsList();
+    }
+
+    function macroWizardRenderStepsList() {
+      var el = document.getElementById('macro-steps-list');
+      if (!el) return;
+      if (!macroWizardSteps.length) {
+        el.innerHTML = '<div style="text-align:center;color:#556270;font-size:12px;padding:16px 12px;border:1px dashed #1a4030;border-radius:6px">No commands yet \u2014 pick one above or type your own</div>';
+        return;
+      }
+      var upSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>';
+      var downSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+      var xSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+      el.innerHTML = macroWizardSteps.map(function(step, i) {
+        var total = macroWizardSteps.length;
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#0A1A10;border:1px solid #0d3320;border-radius:6px;margin-bottom:6px">'
+          + '<span style="color:#556270;font-size:11px;font-weight:600;min-width:18px;text-align:right">' + (i + 1) + '</span>'
+          + '<span style="font-family:monospace;font-size:13px;color:#E8F5E9;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(step) + '">' + escapeHtml(step) + '</span>'
+          + '<div style="display:flex;gap:3px;flex-shrink:0">'
+          + (i > 0 ? '<button onclick="macroWizardMoveStep(' + i + ',-1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move up">' + upSvg + '</button>' : '<span style="width:26px"></span>')
+          + (i < total - 1 ? '<button onclick="macroWizardMoveStep(' + i + ',1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move down">' + downSvg + '</button>' : '<span style="width:26px"></span>')
+          + '<button onclick="macroWizardRemoveStep(' + i + ')" style="background:none;border:1px solid #2a0d0d;color:#FF5252;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0;margin-left:2px" title="Remove">' + xSvg + '</button>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    function macroWizardRenderReview() {
+      var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || 'unnamed';
+      var desc = document.getElementById('macro-description').value.trim();
+      var isEdit = !!document.getElementById('macro-edit-id').value;
+      var saveBtn = document.getElementById('btn-save-macro');
+      if (saveBtn) saveBtn.textContent = isEdit ? 'Update Macro' : 'Save Macro';
+      var el = document.getElementById('macro-review-content');
+      if (!el) return;
+      var stepCount = macroWizardSteps.length;
+      el.innerHTML = ''
+        + '<div style="margin-bottom:14px">'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Macro</div>'
+        + '<div style="background:#0A1A10;border:1px solid #0d3320;border-radius:8px;padding:12px 14px">'
+        + '<span style="font-family:monospace;font-size:17px;font-weight:700;color:#00E676">/' + escapeHtml(name) + '</span>'
+        + (desc ? '<div style="font-size:13px;color:#8B9DAF;margin-top:4px">' + escapeHtml(desc) + '</div>' : '')
+        + '</div>'
+        + '</div>'
+        + '<div style="margin-bottom:14px">'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Command Sequence (' + stepCount + ' step' + (stepCount !== 1 ? 's' : '') + ')</div>'
+        + '<div style="background:#0A1A10;border:1px solid #0d3320;border-radius:8px;padding:12px 14px">'
+        + macroWizardSteps.map(function(step, i) {
+          return '<div style="display:flex;gap:10px;align-items:baseline' + (i < stepCount - 1 ? ';margin-bottom:8px' : '') + '">'
+            + '<span style="color:#556270;font-size:11px;font-weight:600;min-width:16px;text-align:right">' + (i + 1) + '</span>'
+            + '<span style="font-family:monospace;font-size:13px;color:#E8F5E9">' + escapeHtml(step) + '</span>'
+            + '</div>';
+        }).join('')
+        + '</div>'
+        + '</div>'
+        + '<div>'
+        + '<div style="font-size:11px;color:#8B9DAF;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Telegram Preview</div>'
+        + '<div style="background:#111f16;border:1px solid #0d3320;border-radius:8px;padding:12px 14px;font-size:12px">'
+        + '<div style="color:#556270;margin-bottom:8px;font-family:monospace">you: /macros</div>'
+        + '<div style="font-family:monospace;white-space:pre;line-height:1.7;color:#E8F5E9">'
+        + '<span style="color:#00E676;font-weight:700">/' + escapeHtml(name) + '</span>'
+        + (desc ? ' <span style="color:#8B9DAF">\u2014 ' + escapeHtml(desc) + '</span>' : '')
+        + '\n'
+        + macroWizardSteps.map(function(s) { return '  <span style="color:#556270">\u2192</span> ' + escapeHtml(s); }).join('\n')
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
 
     async function loadMacros() {
       var el = document.getElementById('macros-list');
@@ -5474,9 +5766,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.getElementById('macro-edit-id').value = '';
       document.getElementById('macro-name').value = '';
       document.getElementById('macro-description').value = '';
-      document.getElementById('macro-steps').value = '';
       document.getElementById('macro-modal-title').textContent = 'New Macro';
       editingMacroId = null;
+      macroWizardSteps = [];
+      macroWizardGoToStep(1);
     }
 
     async function editMacro(id) {
@@ -5486,8 +5779,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('macro-edit-id').value = id;
         document.getElementById('macro-name').value = m.name || '';
         document.getElementById('macro-description').value = m.description || '';
-        document.getElementById('macro-steps').value = (m.steps || []).join('\\n');
+        macroWizardSteps = (m.steps || []).slice();
         document.getElementById('macro-modal-title').textContent = 'Edit Macro';
+        macroWizardGoToStep(1);
         document.getElementById('modal-add-macro').classList.add('open');
       } catch(e) { toast('Failed to load macro', true); }
     }
@@ -5504,8 +5798,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function saveMacro() {
       var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
       var description = document.getElementById('macro-description').value.trim();
-      var stepsRaw = document.getElementById('macro-steps').value;
-      var steps = stepsRaw.split('\\n').map(function(s) { return s.trim(); }).filter(Boolean);
+      var steps = macroWizardSteps.filter(Boolean);
       if (!name) return toast('Shortcut name is required', true);
       if (!steps.length) return toast('Add at least one command step', true);
       var editId = document.getElementById('macro-edit-id').value;
@@ -5515,7 +5808,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           toast('Macro updated');
         } else {
           await api('POST', '/api/church/macros', { name, description, steps });
-          toast('Macro created — TDs can now use /' + name + ' in Telegram');
+          toast('Macro created \u2014 TDs can now use /' + name + ' in Telegram');
         }
         closeMacroModal();
         loadMacros();
@@ -7793,6 +8086,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownSearchQuery = '';
     var _rundownPresenceEditors = [];
     var _rundownRoomMap = {}; // roomId → roomName
+    // Custom columns state
+    var _rundownColumns = [];    // [{ id, name, department, sortOrder }]
+    var _rundownColumnValues = {}; // { itemId_colId: value }
+    // Attachments state — keyed by itemId
+    var _rundownAttachments = {}; // { itemId: [{ id, filename, mimetype, size }] }
 
     // ── Status display config ────────────────────────────────────────────────
     var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Show Ready', live: 'Live', archived: 'Archived' };
@@ -8233,15 +8531,36 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var dateEl = document.getElementById('rundown-editor-date');
         if (titleEl) titleEl.textContent = p ? p.title : 'PCO Plan';
         if (dateEl) dateEl.textContent = p && p.serviceDate ? p.serviceDate : '';
-        // Hide edit controls for PCO plans
-        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"]').forEach(function(b) { b.style.display = 'none'; });
+        // Hide edit/share controls for PCO plans
+        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = 'none'; });
+        _updateSharedBadge(false);
         var itemsEl = document.getElementById('rundown-editor-items');
         if (itemsEl) itemsEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">PCO plan items are imported automatically.</div>';
       } else {
-        // Load full manual plan with items
+        // Load full manual plan with items, columns, and attachments
         api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId).then(function(plan) {
           _rundownSelectedPlan = plan;
-          renderRundownEditor(plan);
+          // Load columns and attachments in parallel
+          Promise.all([
+            api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/columns').catch(function() { return { columns: [], values: [] }; }),
+            api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/attachments').catch(function() { return { attachments: [] }; })
+          ]).then(function(results) {
+            _rundownColumns = (results[0] && results[0].columns) || [];
+            // Build value lookup map
+            _rundownColumnValues = {};
+            var vals = (results[0] && results[0].values) || [];
+            for (var v = 0; v < vals.length; v++) {
+              _rundownColumnValues[vals[v].itemId + '_' + vals[v].columnId] = vals[v].value;
+            }
+            // Build attachment lookup by itemId
+            _rundownAttachments = {};
+            var atts = (results[1] && results[1].attachments) || [];
+            for (var a = 0; a < atts.length; a++) {
+              if (!_rundownAttachments[atts[a].itemId]) _rundownAttachments[atts[a].itemId] = [];
+              _rundownAttachments[atts[a].itemId].push(atts[a]);
+            }
+            renderRundownEditor(plan);
+          });
         });
       }
     }
@@ -8300,7 +8619,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var editor = document.getElementById('rundown-editor');
       if (editor) editor.style.display = '';
       // Show edit controls for manual plans
-      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"]').forEach(function(b) { b.style.display = ''; });
+      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = ''; });
       var titleEl = document.getElementById('rundown-editor-title');
       var dateEl = document.getElementById('rundown-editor-date');
       if (titleEl) titleEl.textContent = plan.title;
@@ -8330,6 +8649,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Subscribe to collaborative editing presence
       _rundownSubscribePlan(plan.id);
+      // Check share status and update badge
+      _rundownShareData = null;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/share').then(function(data) {
+        _rundownShareData = data.share || null;
+        _updateSharedBadge(!!(data.share && data.share.expiresAt > Date.now()));
+      }).catch(function() { _updateSharedBadge(false); });
     }
 
     function renderRundownEditorItems(items) {
@@ -8383,7 +8708,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
 
-      // Build table
+      // Build table — compute total column count
+      var colCount = 10 + _rundownColumns.length + 1; // base 10 + custom cols + attachments col
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
@@ -8392,16 +8718,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;text-align:left">Title</th>';
       html += '<th style="padding:8px 6px;width:90px;text-align:left">Type</th>';
       html += '<th style="padding:8px 6px;width:100px;text-align:left">Who</th>';
+      // Custom department columns (between Assignee and Duration)
+      for (var ci = 0; ci < _rundownColumns.length; ci++) {
+        html += '<th style="padding:8px 6px;width:100px;text-align:left;position:relative" data-col-id="' + _rundownColumns[ci].id + '">';
+        html += '<span style="display:inline-flex;align-items:center;gap:4px">';
+        html += escapeHtml(_rundownColumns[ci].name);
+        html += '<span class="rundown-col-gear" data-col-id="' + _rundownColumns[ci].id + '" data-col-name="' + escapeHtml(_rundownColumns[ci].name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Rename or delete column">' + SVG.wrench + '</span>';
+        html += '</span></th>';
+      }
+      // Add column button header
+      html += '<th style="padding:8px 2px;width:28px;text-align:center">';
+      html += '<span data-action="rundownAddColumn" style="cursor:pointer;color:#556270;display:inline-flex" title="Add department column">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
+      html += '</span></th>';
       html += '<th style="padding:8px 6px;width:60px;text-align:center">Duration</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">Start</th>';
       html += '<th style="padding:8px 6px;width:72px;text-align:center">End</th>';
       html += '<th style="padding:8px 6px;text-align:left">Notes</th>';
+      html += '<th style="padding:8px 6px;width:32px"></th>'; // attachments
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
       html += '</tr></thead>';
 
       html += '<tbody id="rundown-table-body">';
       if (items.length === 0) {
-        html += '<tr><td colspan="10" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
+        html += '<tr><td colspan="' + colCount + '" style="color:#556270;text-align:center;padding:32px;font-size:13px">No items yet. Click + below to build your rundown.</td></tr>';
       }
       var rowNum = 0;
       for (var i = 0; i < items.length; i++) {
@@ -8413,7 +8753,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (item.itemType === 'section') {
           html += '<tr data-item-id="' + item.id + '" draggable="true" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="8" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 2) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
           html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
           html += '</td>';
           html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -8446,6 +8786,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="assignee" data-item-id="' + item.id + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (item.assignee ? escapeHtml(item.assignee) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
 
+        // Custom column cells (inline editable)
+        for (var ci = 0; ci < _rundownColumns.length; ci++) {
+          var colId = _rundownColumns[ci].id;
+          var cellVal = _rundownColumnValues[item.id + '_' + colId] || '';
+          html += '<td style="padding:4px 6px;vertical-align:middle">';
+          html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
+          html += '</td>';
+        }
+        // Empty cell under the add-column header
+        html += '<td style="padding:4px 2px"></td>';
+
         // Duration (inline editable, MM:SS)
         html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle">';
         html += '<span class="rundown-inline-edit" data-field="duration" data-item-id="' + item.id + '" style="cursor:text;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF" title="Click to edit">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
@@ -8457,10 +8808,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // End time (auto-calculated)
         html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.end) + '</td>';
 
-        // Notes (expandable)
+        // Notes (rich text — expandable)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
-        var notesPreview = item.notes ? (item.notes.length > 40 ? item.notes.substring(0, 40) + '...' : item.notes) : '';
-        html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(item.notes || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
+        var notesHtml = item.notes || '';
+        var notesPlain = notesHtml.replace(/<[^>]*>/g, '');
+        var notesPreview = notesPlain ? (notesPlain.length > 40 ? notesPlain.substring(0, 40) + '...' : notesPlain) : '';
+        html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(notesPlain || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
+        html += '</td>';
+
+        // Attachments (paperclip icon with count badge)
+        var itemAtts = _rundownAttachments[item.id] || [];
+        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle;position:relative">';
+        html += '<span class="rundown-attachment-btn" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270;display:inline-flex;position:relative" title="Attachments">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M11.986 3.012a2.25 2.25 0 0 0-3.178.002L3.562 8.262a3.5 3.5 0 0 0 4.95 4.95l4.5-4.5a.75.75 0 1 1 1.061 1.06l-4.5 4.501a5 5 0 0 1-7.072-7.072l5.246-5.248a3.75 3.75 0 1 1 5.303 5.305l-5.246 5.247a2.5 2.5 0 0 1-3.535-3.535l4.5-4.5a.75.75 0 0 1 1.06 1.061l-4.5 4.5a1 1 0 0 0 1.414 1.414l5.247-5.247a2.25 2.25 0 0 0-.004-3.186Z" clip-rule="evenodd"/></svg>';
+        if (itemAtts.length > 0) {
+          html += '<span style="position:absolute;top:-6px;right:-8px;background:#42A5F5;color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center">' + itemAtts.length + '</span>';
+        }
+        html += '</span>';
         html += '</td>';
 
         // Delete
@@ -8471,7 +8835,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Add item ghost row
       html += '<tr id="rundown-add-row" style="border-top:1px solid rgba(255,255,255,0.06)">';
-      html += '<td colspan="10" style="padding:8px 6px">';
+      html += '<td colspan="' + colCount + '" style="padding:8px 6px">';
       html += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add item">';
       html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
       html += 'Add item</span>';
@@ -8483,6 +8847,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Attach inline editing listeners
       _attachRundownInlineEditing(container);
+      // Attach custom column inline editing
+      _attachRundownColumnEditing(container);
+      // Attach attachment button listeners
+      _attachRundownAttachmentButtons(container);
+      // Attach column gear menu listeners
+      _attachRundownColumnGearMenus(container);
       // Attach drag-and-drop
       _attachRundownDragDrop();
     }
@@ -8572,19 +8942,80 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownInlineTextarea(el, item, itemId) {
-      var ta = document.createElement('textarea');
-      ta.value = item.notes || '';
-      ta.style.cssText = 'width:100%;min-width:160px;min-height:48px;max-height:120px;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:4px 6px;font-size:11px;outline:none;font-family:inherit;resize:vertical';
-      el.innerHTML = '';
-      el.appendChild(ta);
-      ta.focus();
+      // Rich text editor with toolbar
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'min-width:220px;background:rgba(255,255,255,0.08);border:1px solid rgba(66,165,245,0.5);border-radius:4px;overflow:hidden';
 
+      // Mini toolbar
+      var toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;gap:2px;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04)';
+      var btns = [
+        { cmd: 'bold', label: 'B', style: 'font-weight:700' },
+        { cmd: 'italic', label: 'I', style: 'font-style:italic' },
+        { cmd: 'underline', label: 'U', style: 'text-decoration:underline' },
+        { cmd: 'insertUnorderedList', label: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M2.5 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm2.25-.75a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1-.75-.75ZM5.5 8a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7A.75.75 0 0 1 5.5 8Zm.75 3.25a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7ZM2.5 8.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM2.5 12.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd"/></svg>', isHtml: true },
+      ];
+      btns.forEach(function(b) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        if (b.isHtml) btn.innerHTML = b.label;
+        else { btn.textContent = b.label; btn.style.cssText = b.style + ';'; }
+        btn.style.cssText += 'background:none;border:none;color:#8B9DAF;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center';
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          document.execCommand(b.cmd, false, null);
+        });
+        toolbar.appendChild(btn);
+      });
+      // Text color picker
+      var colorBtn = document.createElement('button');
+      colorBtn.type = 'button';
+      colorBtn.textContent = 'A';
+      colorBtn.style.cssText = 'background:none;border:none;color:#FF5252;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;font-weight:700;line-height:1';
+      var colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = '#FF5252';
+      colorInput.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:0;height:0';
+      colorBtn.appendChild(colorInput);
+      colorBtn.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        colorInput.style.pointerEvents = 'auto';
+        colorInput.click();
+      });
+      colorInput.addEventListener('input', function() {
+        document.execCommand('foreColor', false, colorInput.value);
+        colorBtn.style.color = colorInput.value;
+        colorInput.style.pointerEvents = 'none';
+      });
+      toolbar.appendChild(colorBtn);
+      wrapper.appendChild(toolbar);
+
+      // Editable area
+      var editor = document.createElement('div');
+      editor.contentEditable = 'true';
+      editor.innerHTML = item.notes || '';
+      editor.style.cssText = 'min-height:48px;max-height:140px;overflow-y:auto;padding:4px 6px;font-size:11px;color:#F0F2F4;outline:none;font-family:inherit;line-height:1.5';
+      wrapper.appendChild(editor);
+
+      el.innerHTML = '';
+      el.appendChild(wrapper);
+      editor.focus();
+
+      var saving = false;
       function save() {
-        _rundownInlineSave(itemId, { notes: ta.value });
+        if (saving) return;
+        saving = true;
+        _rundownInlineSave(itemId, { notes: editor.innerHTML });
       }
-      ta.addEventListener('blur', save);
-      ta.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { ta.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      editor.addEventListener('blur', function(e) {
+        // Don't save if clicking toolbar
+        if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
+        setTimeout(function() {
+          if (!wrapper.contains(document.activeElement)) save();
+        }, 100);
+      });
+      editor.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
     }
 
@@ -8624,6 +9055,275 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
+    // ── Custom column inline editing ──────────────────────────────────────────
+    function _attachRundownColumnEditing(container) {
+      container.querySelectorAll('.rundown-inline-col').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          var colId = el.getAttribute('data-col-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var currentVal = _rundownColumnValues[itemId + '_' + colId] || '';
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.value = currentVal;
+          input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:12px;outline:none;font-family:inherit';
+          el.innerHTML = '';
+          el.appendChild(input);
+          input.focus();
+          input.select();
+
+          function save() {
+            var val = input.value.trim();
+            _rundownColumnValues[itemId + '_' + colId] = val;
+            api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/columns/' + colId, { value: val })
+              .then(function() { renderRundownEditorItems(_rundownSelectedPlan.items || []); })
+              .catch(function(err) { toast('Failed: ' + err.message, true); });
+          }
+          input.addEventListener('blur', save);
+          input.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+            if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+          });
+        });
+      });
+    }
+
+    // ── Column gear menu (rename/delete) ────────────────────────────────────
+    function _attachRundownColumnGearMenus(container) {
+      container.querySelectorAll('.rundown-col-gear').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var colId = el.getAttribute('data-col-id');
+          var colName = el.getAttribute('data-col-name');
+          _showColumnMenu(el, colId, colName);
+        });
+      });
+    }
+
+    function _showColumnMenu(anchor, colId, colName) {
+      // Remove any existing menu
+      var old = document.getElementById('rundown-col-menu');
+      if (old) old.remove();
+
+      var menu = document.createElement('div');
+      menu.id = 'rundown-col-menu';
+      menu.style.cssText = 'position:absolute;z-index:999;background:#1a2332;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:4px;min-width:120px;box-shadow:0 4px 12px rgba(0,0,0,0.4)';
+
+      var renameBtn = document.createElement('div');
+      renameBtn.textContent = 'Rename';
+      renameBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      renameBtn.addEventListener('mouseenter', function() { renameBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      renameBtn.addEventListener('mouseleave', function() { renameBtn.style.background = 'none'; });
+      renameBtn.addEventListener('click', function() {
+        menu.remove();
+        styledPrompt('Rename Column', 'Column name', colName).then(function(newName) {
+          if (!newName || !newName.trim()) return;
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, { name: newName.trim() }).then(function(data) {
+            _rundownColumns = data.columns || _rundownColumns;
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(renameBtn);
+
+      var deleteBtn = document.createElement('div');
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#FF5252;cursor:pointer;border-radius:4px';
+      deleteBtn.addEventListener('mouseenter', function() { deleteBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      deleteBtn.addEventListener('mouseleave', function() { deleteBtn.style.background = 'none'; });
+      deleteBtn.addEventListener('click', function() {
+        menu.remove();
+        styledConfirm('Delete Column', 'Remove "' + colName + '" column? All data in this column will be lost.').then(function(ok) {
+          if (!ok) return;
+          api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId).then(function() {
+            _rundownColumns = _rundownColumns.filter(function(c) { return c.id !== colId; });
+            // Remove values for this column
+            Object.keys(_rundownColumnValues).forEach(function(k) {
+              if (k.endsWith('_' + colId)) delete _rundownColumnValues[k];
+            });
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+            toast('Column deleted');
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(deleteBtn);
+
+      // Position near the gear icon
+      var rect = anchor.getBoundingClientRect();
+      menu.style.top = (rect.bottom + 4) + 'px';
+      menu.style.left = rect.left + 'px';
+      menu.style.position = 'fixed';
+      document.body.appendChild(menu);
+
+      // Close on outside click
+      function closeMenu(ev) {
+        if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', closeMenu); }
+      }
+      setTimeout(function() { document.addEventListener('mousedown', closeMenu); }, 10);
+    }
+
+    function rundownAddColumn() {
+      if (!_rundownSelectedPlan) return;
+      var defaults = ['Audio', 'Video', 'Lighting', 'Stage'];
+      // Find a default that isn't already added
+      var existing = _rundownColumns.map(function(c) { return c.name.toLowerCase(); });
+      var suggestion = '';
+      for (var d = 0; d < defaults.length; d++) {
+        if (existing.indexOf(defaults[d].toLowerCase()) < 0) { suggestion = defaults[d]; break; }
+      }
+      styledPrompt('Add Column', 'Column name (e.g. Audio, Video, Lighting)', suggestion).then(function(name) {
+        if (!name || !name.trim()) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns', { name: name.trim(), department: name.trim() }).then(function(col) {
+          _rundownColumns.push(col);
+          renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          toast('Column added: ' + col.name);
+        }).catch(function(err) { toast('Failed: ' + err.message, true); });
+      });
+    }
+
+    // ── Attachment popover ───────────────────────────────────────────────────
+    function _attachRundownAttachmentButtons(container) {
+      container.querySelectorAll('.rundown-attachment-btn').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          _showAttachmentPopover(el, itemId);
+        });
+      });
+    }
+
+    function _showAttachmentPopover(anchor, itemId) {
+      // Remove any existing popover
+      var old = document.getElementById('rundown-att-popover');
+      if (old) old.remove();
+
+      var pop = document.createElement('div');
+      pop.id = 'rundown-att-popover';
+      pop.style.cssText = 'position:fixed;z-index:999;background:#1a2332;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:12px;min-width:260px;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
+
+      var title = document.createElement('div');
+      title.textContent = 'Attachments';
+      title.style.cssText = 'font-size:13px;font-weight:700;color:#F0F2F4;margin-bottom:8px';
+      pop.appendChild(title);
+
+      var atts = _rundownAttachments[itemId] || [];
+      if (atts.length > 0) {
+        var list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px;max-height:180px;overflow-y:auto';
+        for (var a = 0; a < atts.length; a++) {
+          (function(att) {
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.04)';
+            var icon = att.mimetype && att.mimetype.startsWith('image/') ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm10.5 5.707L10.146 7.354a.5.5 0 0 0-.708 0l-2.646 2.647-1.146-1.147a.5.5 0 0 0-.707 0L3.5 10.293V12a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5V9.707ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>' : SVG.docItem;
+            var iconEl = document.createElement('span');
+            iconEl.innerHTML = icon;
+            iconEl.style.cssText = 'color:#8B9DAF;display:flex;flex-shrink:0';
+            row.appendChild(iconEl);
+
+            var info = document.createElement('div');
+            info.style.cssText = 'flex:1;min-width:0';
+            var nameEl = document.createElement('a');
+            nameEl.textContent = att.filename;
+            nameEl.href = '/api/church/rundown-attachments/' + att.id;
+            nameEl.target = '_blank';
+            nameEl.style.cssText = 'color:#42A5F5;font-size:12px;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+            info.appendChild(nameEl);
+            var sizeEl = document.createElement('div');
+            sizeEl.textContent = _formatFileSize(att.size);
+            sizeEl.style.cssText = 'font-size:10px;color:#556270';
+            info.appendChild(sizeEl);
+            row.appendChild(info);
+
+            var delBtn = document.createElement('span');
+            delBtn.innerHTML = SVG.xMark;
+            delBtn.style.cssText = 'cursor:pointer;color:#FF5252;flex-shrink:0;display:flex';
+            delBtn.title = 'Delete';
+            delBtn.addEventListener('click', function() {
+              api('DELETE', '/api/church/rundown-attachments/' + att.id).then(function() {
+                _rundownAttachments[itemId] = (_rundownAttachments[itemId] || []).filter(function(x) { return x.id !== att.id; });
+                pop.remove();
+                renderRundownEditorItems(_rundownSelectedPlan.items || []);
+                toast('Attachment deleted');
+              }).catch(function(err) { toast('Failed: ' + err.message, true); });
+            });
+            row.appendChild(delBtn);
+
+            list.appendChild(row);
+          })(atts[a]);
+        }
+        pop.appendChild(list);
+      } else {
+        var empty = document.createElement('div');
+        empty.textContent = 'No attachments yet.';
+        empty.style.cssText = 'font-size:12px;color:#556270;margin-bottom:8px';
+        pop.appendChild(empty);
+      }
+
+      // Drop zone + upload button
+      var dropZone = document.createElement('div');
+      dropZone.style.cssText = 'border:2px dashed rgba(255,255,255,0.12);border-radius:6px;padding:12px;text-align:center;cursor:pointer;transition:border-color 0.2s';
+      dropZone.innerHTML = '<div style="font-size:12px;color:#8B9DAF;margin-bottom:4px">Drop file here or click to upload</div><div style="font-size:10px;color:#556270">Max 10MB. Images, PDFs, Office docs</div>';
+
+      var fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.style.display = 'none';
+      fileInput.accept = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt';
+      dropZone.appendChild(fileInput);
+
+      dropZone.addEventListener('click', function() { fileInput.click(); });
+      dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.style.borderColor = '#42A5F5'; });
+      dropZone.addEventListener('dragleave', function() { dropZone.style.borderColor = 'rgba(255,255,255,0.12)'; });
+      dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.style.borderColor = 'rgba(255,255,255,0.12)';
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) _uploadAttachment(itemId, e.dataTransfer.files[0], pop);
+      });
+      fileInput.addEventListener('change', function() {
+        if (fileInput.files && fileInput.files.length > 0) _uploadAttachment(itemId, fileInput.files[0], pop);
+      });
+      pop.appendChild(dropZone);
+
+      // Position
+      var rect = anchor.getBoundingClientRect();
+      pop.style.top = (rect.bottom + 4) + 'px';
+      pop.style.left = Math.max(8, rect.left - 200) + 'px';
+      document.body.appendChild(pop);
+
+      // Close on outside click
+      function closePop(ev) {
+        if (!pop.contains(ev.target) && !anchor.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', closePop); }
+      }
+      setTimeout(function() { document.addEventListener('mousedown', closePop); }, 10);
+    }
+
+    function _uploadAttachment(itemId, file, popover) {
+      if (!_rundownSelectedPlan) return;
+      if (file.size > 10 * 1024 * 1024) { toast('File too large (max 10MB)', true); return; }
+      var formData = new FormData();
+      formData.append('file', file);
+      // Use raw fetch for multipart upload
+      fetch('/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/attachments', {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+        credentials: 'include',
+        body: formData,
+      }).then(function(r) { return r.json(); }).then(function(att) {
+        if (att.error) { toast(att.error, true); return; }
+        if (!_rundownAttachments[itemId]) _rundownAttachments[itemId] = [];
+        _rundownAttachments[itemId].push(att);
+        if (popover) popover.remove();
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        toast('Attached: ' + att.filename);
+      }).catch(function(err) { toast('Upload failed: ' + err.message, true); });
+    }
+
+    function _formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
     // ── Drag and drop reorder ─────────────────────────────────────────────────
     var _rundownDragItem = null;
 
@@ -8654,7 +9354,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           tbody.querySelectorAll('.rundown-drag-placeholder').forEach(function(p) { p.remove(); });
           var ph = document.createElement('tr');
           ph.className = 'rundown-drag-placeholder';
-          ph.innerHTML = '<td colspan="10" style="height:2px;background:#42A5F5;padding:0"></td>';
+          ph.innerHTML = '<td colspan="' + (10 + (_rundownColumns ? _rundownColumns.length : 0) + 1) + '" style="height:2px;background:#42A5F5;padding:0"></td>';
           var rect = row.getBoundingClientRect();
           var midY = rect.top + rect.height / 2;
           if (e.clientY < midY) {
@@ -9019,6 +9719,98 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
+    // ── Share / Guest Pass ────────────────────────────────────────────────────
+
+    var _rundownShareData = null; // { share: { id, token, url, expiresAt } | null }
+
+    function _updateSharedBadge(hasShare) {
+      var badge = document.getElementById('rundown-shared-badge');
+      if (badge) badge.style.display = hasShare ? '' : 'none';
+    }
+
+    function rundownShare() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var planId = _rundownSelectedPlan.id;
+      var backdrop = document.getElementById('modal-rundown-share');
+      var loadingEl = document.getElementById('rundown-share-loading');
+      var contentEl = document.getElementById('rundown-share-content');
+      var errorEl = document.getElementById('rundown-share-error');
+      var urlEl = document.getElementById('rundown-share-url');
+      var expiryEl = document.getElementById('rundown-share-expiry');
+      if (!backdrop) return;
+      // Reset state
+      if (loadingEl) loadingEl.style.display = '';
+      if (contentEl) contentEl.style.display = 'none';
+      if (errorEl) errorEl.style.display = 'none';
+      backdrop.classList.add('open');
+
+      // Check for existing share first
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
+        if (data.share) {
+          _rundownShareData = data.share;
+          _showShareContent(data.share);
+        } else {
+          // No active share — generate one
+          return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(share) {
+            _rundownShareData = share;
+            _showShareContent(share);
+          });
+        }
+      }).catch(function(e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
+      });
+
+      function _showShareContent(share) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (urlEl) urlEl.textContent = share.url || '';
+        if (expiryEl && share.expiresAt) {
+          var exp = new Date(share.expiresAt);
+          expiryEl.textContent = 'Expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        if (contentEl) contentEl.style.display = '';
+        _updateSharedBadge(true);
+      }
+    }
+
+    function rundownCopyShareLink() {
+      var urlEl = document.getElementById('rundown-share-url');
+      var url = urlEl ? urlEl.textContent.trim() : '';
+      if (!url) return;
+      navigator.clipboard.writeText(url).then(function() {
+        var btn = document.getElementById('rundown-share-copy-btn');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Link'; }, 2000); }
+      }).catch(function() {
+        window.prompt('Copy this link:', url);
+      });
+    }
+
+    function rundownRevokeShare() {
+      if (!_rundownSelectedPlan) return;
+      var planId = _rundownSelectedPlan.id;
+      styledConfirm('Revoke Access', 'Anyone with the current link will lose access. You can create a new link later.').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function() {
+          _rundownShareData = null;
+          _updateSharedBadge(false);
+          var backdrop = document.getElementById('modal-rundown-share');
+          if (backdrop) backdrop.classList.remove('open');
+          toast('Share link revoked');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    (function() {
+      var closeBtn = document.getElementById('rundown-share-modal-close');
+      var backdrop = document.getElementById('modal-rundown-share');
+      var copyBtn = document.getElementById('rundown-share-copy-btn');
+      var revokeBtn = document.getElementById('rundown-share-revoke-btn');
+      if (closeBtn) closeBtn.addEventListener('click', function() { if (backdrop) backdrop.classList.remove('open'); });
+      if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) backdrop.classList.remove('open'); });
+      if (copyBtn) copyBtn.addEventListener('click', function() { if (typeof rundownCopyShareLink === 'function') rundownCopyShareLink(); });
+      if (revokeBtn) revokeBtn.addEventListener('click', function() { if (typeof rundownRevokeShare === 'function') rundownRevokeShare(); });
+    })();
+
     // ── Start Live ────────────────────────────────────────────────────────────
 
     function rundownStartLive() {
@@ -9283,11 +10075,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (item.arrangementKey) {
           html += '<span style="font-size:10px;color:#42A5F5;background:rgba(66,165,245,0.1);padding:1px 5px;border-radius:3px;margin-top:2px;display:inline-block">Key: ' + escapeHtml(item.arrangementKey) + '</span> ';
         }
-        // Notes
+        // Notes (may contain safe HTML from rich text editor)
         var notes = item.notes || [];
         for (var n = 0; n < notes.length; n++) {
           if (notes[n]) {
-            html += '<div style="font-size:11px;color:#8B9DAF;margin-top:3px;line-height:1.3;font-style:italic">' + escapeHtml(notes[n]) + '</div>';
+            // If note contains HTML tags, render as-is (already sanitized server-side); otherwise escape
+            var noteHasHtml = /<[a-z][\s\S]*>/i.test(notes[n]);
+            html += '<div style="font-size:11px;color:#8B9DAF;margin-top:3px;line-height:1.3;font-style:italic">' + (noteHasHtml ? notes[n] : escapeHtml(notes[n])) + '</div>';
           }
         }
         html += '</div>';
@@ -9856,6 +10650,10 @@ function _portalFriendlyAlertType(alertType) {
   return map[alertType] || (alertType || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
 }
 
+// ── Commands page ─────────────────────────────────────────────────────────────
+var _commandsLoaded = false;
+var loadCommandsPage; // assigned inside DOMContentLoaded; callable from showPage
+
 // ── CSP-safe event delegation ─────────────────────────────────────────────────
 // Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
 // removed from portal.html so that 'unsafe-inline' can be dropped from CSP.
@@ -9965,6 +10763,9 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownSelectPlan':
         if (typeof rundownSelectPlan === 'function') rundownSelectPlan(btn.dataset.planId, btn.dataset.planSource);
         break;
+      case 'rundownShare':
+        if (typeof rundownShare === 'function') rundownShare();
+        break;
       case 'rundownEditPlan':
         if (typeof rundownEditPlan === 'function') rundownEditPlan();
         break;
@@ -10018,6 +10819,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownDeleteTemplate':
         if (typeof rundownDeleteTemplate === 'function') rundownDeleteTemplate(btn.dataset.templateId);
+        break;
+      case 'rundownAddColumn':
+        if (typeof rundownAddColumn === 'function') rundownAddColumn();
         break;
 
       // Dashboard card actions
@@ -10342,6 +11146,299 @@ document.addEventListener('DOMContentLoaded', function() {
   function _portalFriendlyTimeContext(context) {
     var map = { 'pre_service': 'Before service', 'in_service': 'During service', 'off_hours': 'Off hours' };
     return map[context] || (context || '').replace(/_/g, ' ');
+  }
+
+  loadCommandsPage = function() {
+    if (_commandsLoaded) return;
+    _commandsLoaded = true;
+
+    var COMMANDS = [
+      {
+        category: 'ATEM',
+        commands: [
+          { syntax: 'cut to camera 2', desc: 'Cut program to input N' },
+          { syntax: 'camera 3 to preview', desc: 'Set preview to input N' },
+          { syntax: 'auto transition', desc: 'Perform auto transition / take' },
+          { syntax: 'fade to black', desc: 'Toggle fade to black (FTB)' },
+          { syntax: 'run macro 3', desc: 'Run ATEM macro by number' },
+          { syntax: 'stop macro', desc: 'Abort the running macro' },
+          { syntax: 'dsk 1 on', desc: 'Put downstream keyer on air (use "off" to remove)' },
+          { syntax: 'dsk 1 tie on', desc: 'Enable/disable DSK tie' },
+          { syntax: 'dsk 1 rate 25', desc: 'Set DSK transition rate (frames)' },
+          { syntax: 'set aux 1 to camera 4', desc: 'Route aux output N to input N' },
+          { syntax: 'set transition style mix', desc: 'Set transition style: mix, dip, wipe, dve, stinger' },
+          { syntax: 'set transition rate 25', desc: 'Set transition rate in frames' },
+          { syntax: 'start ATEM recording', desc: 'Start recording on ATEM (device-specific)' },
+          { syntax: 'stop ATEM recording', desc: 'Stop recording on ATEM (device-specific)' },
+          { syntax: 'rename camera 4 to "Fog GFX"', desc: 'Rename an input label on the ATEM' },
+        ]
+      },
+      {
+        category: 'OBS',
+        commands: [
+          { syntax: 'start OBS stream', desc: 'Start streaming in OBS (device-specific)' },
+          { syntax: 'stop OBS stream', desc: 'Stop streaming in OBS (device-specific)' },
+          { syntax: 'switch to scene "Scene Name"', desc: 'Switch OBS to a named scene' },
+        ]
+      },
+      {
+        category: 'HyperDeck',
+        commands: [
+          { syntax: 'hyperdeck 1 play', desc: 'Play on HyperDeck N' },
+          { syntax: 'hyperdeck 1 stop', desc: 'Stop playback on HyperDeck N' },
+          { syntax: 'hyperdeck 1 record', desc: 'Start recording on HyperDeck N' },
+          { syntax: 'hyperdeck 1 next', desc: 'Next clip on HyperDeck N' },
+          { syntax: 'hyperdeck 1 prev', desc: 'Previous clip on HyperDeck N' },
+        ]
+      },
+      {
+        category: 'Camera Control',
+        commands: [
+          { syntax: 'cam 1 iris 80%', desc: 'Set camera iris (0–100%, or "open"/"close")' },
+          { syntax: 'cam 1 auto iris', desc: 'Enable auto iris on camera N' },
+          { syntax: 'cam 2 gain 12', desc: 'Set gain in dB on camera N' },
+          { syntax: 'cam 1 iso 800', desc: 'Set ISO on camera N' },
+          { syntax: 'cam 1 wb 5600', desc: 'Set white balance in Kelvin on camera N' },
+          { syntax: 'cam 1 auto wb', desc: 'Trigger auto white balance on camera N' },
+          { syntax: 'cam 1 shutter 180', desc: 'Set shutter angle/speed on camera N' },
+          { syntax: 'cam 1 auto focus', desc: 'Trigger auto focus on camera N' },
+          { syntax: 'cam 1 focus 75%', desc: 'Set focus manually (0–100%) on camera N' },
+          { syntax: 'cam 1 saturation 1.2', desc: 'Set color saturation on camera N' },
+          { syntax: 'cam 1 contrast 0.5', desc: 'Set contrast on camera N' },
+          { syntax: 'cam 1 reset color', desc: 'Reset color correction on camera N' },
+        ]
+      },
+      {
+        category: 'PTZ',
+        commands: [
+          { syntax: 'ptz 1 preset 3', desc: 'Recall preset N on PTZ camera N' },
+          { syntax: 'ptz 1 save preset 3', desc: 'Save current position as preset N' },
+          { syntax: 'ptz 1 home', desc: 'Move PTZ camera N to home position' },
+          { syntax: 'ptz 1 stop', desc: 'Stop PTZ movement on camera N' },
+          { syntax: 'ptz 1 zoom in', desc: 'Zoom in on PTZ camera N (use "out" or "stop")' },
+          { syntax: 'ptz 1 pan left', desc: 'Pan PTZ camera N left (use "right" or "stop")' },
+          { syntax: 'ptz 1 tilt up', desc: 'Tilt PTZ camera N up (use "down" or "stop")' },
+        ]
+      },
+      {
+        category: 'vMix',
+        commands: [
+          { syntax: 'start vMix stream', desc: 'Start streaming in vMix' },
+          { syntax: 'stop vMix stream', desc: 'Stop streaming in vMix' },
+          { syntax: 'start vMix recording', desc: 'Start recording in vMix' },
+          { syntax: 'stop vMix recording', desc: 'Stop recording in vMix' },
+          { syntax: 'vmix mute', desc: 'Mute vMix master audio' },
+          { syntax: 'vmix unmute', desc: 'Unmute vMix master audio' },
+          { syntax: 'vmix volume 80%', desc: 'Set vMix master volume (0–100%)' },
+          { syntax: 'vmix to program input 3', desc: 'Cut to input N in vMix program' },
+          { syntax: 'vmix preview input 2', desc: 'Set input N to vMix preview' },
+          { syntax: 'vmix cut', desc: 'Execute a cut transition in vMix' },
+          { syntax: 'vmix fade 500', desc: 'Fade to preview in vMix (ms optional)' },
+          { syntax: 'list vmix inputs', desc: 'List available vMix inputs' },
+          { syntax: 'vmix status', desc: 'Check if vMix is running' },
+          { syntax: 'vmix snapshot', desc: 'Take a vMix preview snapshot' },
+        ]
+      },
+      {
+        category: 'Encoder',
+        commands: [
+          { syntax: 'start encoder stream', desc: 'Start the hardware encoder stream' },
+          { syntax: 'stop encoder stream', desc: 'Stop the hardware encoder stream' },
+          { syntax: 'start encoder recording', desc: 'Start recording on the encoder' },
+          { syntax: 'stop encoder recording', desc: 'Stop recording on the encoder' },
+          { syntax: 'encoder status', desc: 'Get encoder status' },
+        ]
+      },
+      {
+        category: 'ProPresenter',
+        commands: [
+          { syntax: 'next slide', desc: 'Advance to the next slide' },
+          { syntax: 'previous slide', desc: 'Go back one slide' },
+          { syntax: 'go to slide 3', desc: 'Jump to a specific slide number' },
+          { syntax: 'last slide', desc: 'Jump to the last slide' },
+          { syntax: 'current slide', desc: "What's currently on screen?" },
+          { syntax: 'playlist', desc: "What's loaded in ProPresenter?" },
+          { syntax: 'clear all', desc: 'Clear all layers (blank everything)' },
+          { syntax: 'clear slide', desc: 'Clear the slide layer only' },
+          { syntax: 'stage message [name]', desc: 'Show a named stage message' },
+          { syntax: 'clear message', desc: 'Hide stage messages' },
+          { syntax: 'looks', desc: 'List available looks' },
+          { syntax: 'set look [name]', desc: 'Switch to a named look' },
+          { syntax: 'timers', desc: 'List available timers' },
+          { syntax: 'start timer [name]', desc: 'Start a named timer' },
+          { syntax: 'stop timer [name]', desc: 'Stop a named timer' },
+        ]
+      },
+      {
+        category: 'Audio Mixer',
+        commands: [
+          { syntax: 'mute channel 4', desc: 'Mute a channel on the console' },
+          { syntax: 'unmute channel 4', desc: 'Unmute a channel on the console' },
+          { syntax: 'mute master', desc: 'Mute master output' },
+          { syntax: 'unmute master', desc: 'Unmute master output' },
+          { syntax: 'channel 1 fader to 70%', desc: 'Set a channel fader level (0–100%)' },
+          { syntax: 'recall scene 2', desc: 'Recall a saved mixer scene by number' },
+          { syntax: 'save scene 2', desc: 'Save current state as scene N' },
+          { syntax: 'mixer status', desc: 'Get audio console status' },
+          { syntax: 'channel 3 status', desc: 'Get status of a specific channel' },
+          { syntax: 'name channel 3 to "Vocals"', desc: 'Set channel label' },
+          { syntax: 'enable HPF on channel 3', desc: 'Enable high-pass filter on channel N' },
+          { syntax: 'set HPF on channel 3 to 80hz', desc: 'Set HPF cutoff frequency' },
+          { syntax: 'pan channel 2 left', desc: 'Pan channel left, right, or center' },
+          { syntax: 'pan channel 2 to 50%', desc: 'Pan channel to position (-100 to 100%)' },
+          { syntax: 'set preamp gain on channel 1 to 12db', desc: 'Set preamp/trim gain' },
+          { syntax: 'enable phantom on channel 1', desc: 'Enable 48V phantom power on channel N' },
+          { syntax: 'set send from channel 1 to bus 3 to 80%', desc: 'Set channel send level to a bus' },
+          { syntax: 'mute DCA 2', desc: 'Mute a DCA group' },
+          { syntax: 'unmute DCA 2', desc: 'Unmute a DCA group' },
+          { syntax: 'set DCA 2 to 85%', desc: 'Set DCA fader level' },
+          { syntax: 'assign channel 5 to DCA 2', desc: 'Assign a channel to a DCA' },
+          { syntax: 'assign channel 5 to bus 2', desc: 'Assign a channel to a mix bus' },
+          { syntax: 'activate mute group 1', desc: 'Activate a mute group' },
+          { syntax: 'deactivate mute group 1', desc: 'Deactivate a mute group' },
+          { syntax: 'set channel 3 color red', desc: 'Set channel strip color' },
+          { syntax: 'clear solos', desc: 'Clear all soloed channels' },
+          { syntax: 'enable compressor on channel 3', desc: 'Enable dynamics/compressor on channel N' },
+          { syntax: 'enable gate on channel 3', desc: 'Enable noise gate on channel N' },
+          { syntax: 'enable EQ on channel 3', desc: 'Enable EQ on channel N' },
+          { syntax: 'press softkey 3', desc: 'Press a console softkey by number' },
+        ]
+      },
+      {
+        category: 'Video Hub',
+        commands: [
+          { syntax: 'route camera 2 to monitor 3', desc: 'Route a Video Hub input to an output' },
+          { syntax: "what's on monitor 1?", desc: 'Check what is routed to an output' },
+          { syntax: 'show routing', desc: 'Show all current Video Hub routes' },
+          { syntax: 'rename input 3 to "Stage Cam"', desc: 'Rename a Video Hub input' },
+          { syntax: 'rename output 2 to "FOH Screen"', desc: 'Rename a Video Hub output' },
+        ]
+      },
+      {
+        category: 'Companion',
+        commands: [
+          { syntax: 'press "button name"', desc: 'Press a named Companion button' },
+          { syntax: 'play the "video name"', desc: 'Play a video via Companion' },
+        ]
+      },
+      {
+        category: 'Dante',
+        commands: [
+          { syntax: 'load dante scene [name]', desc: 'Load a saved Dante routing scene via Companion' },
+        ]
+      },
+      {
+        category: 'Resolume',
+        commands: [
+          { syntax: 'trigger column 3', desc: 'Trigger a Resolume column by number' },
+          { syntax: 'trigger column "Opener"', desc: 'Trigger a Resolume column by name' },
+          { syntax: 'play clip "My Clip"', desc: 'Play a clip by name in Resolume' },
+          { syntax: 'clear resolume', desc: 'Black out / clear all Resolume output' },
+          { syntax: 'set bpm 120', desc: 'Set Resolume BPM' },
+        ]
+      },
+      {
+        category: 'System & Status',
+        commands: [
+          { syntax: 'status', desc: 'Get a full system status overview' },
+          { syntax: "show me what's on screen", desc: 'Get a live screenshot from the switcher' },
+          { syntax: 'pre-service check', desc: 'Run automated pre-service checklist' },
+          { syntax: 'msg [text]', desc: 'Send a message to the rest of your team' },
+        ]
+      },
+      {
+        category: 'Troubleshooting (/fix)',
+        commands: [
+          { syntax: '/fix obs', desc: 'OBS connection troubleshooting guide' },
+          { syntax: '/fix atem', desc: 'ATEM connection troubleshooting guide' },
+          { syntax: '/fix stream', desc: 'Stream not working — step-by-step fix' },
+          { syntax: '/fix audio', desc: 'Audio problem troubleshooting guide' },
+          { syntax: '/fix encoder', desc: 'Encoder troubleshooting guide' },
+          { syntax: '/fix recording', desc: 'Recording issue troubleshooting guide' },
+          { syntax: '/fix companion', desc: 'Bitfocus Companion troubleshooting guide' },
+          { syntax: '/fix network', desc: 'Network troubleshooting guide' },
+          { syntax: '/fix preservice', desc: 'Pre-service checklist' },
+          { syntax: '/fix restart', desc: 'Full system restart guide (order matters)' },
+        ]
+      },
+      {
+        category: 'Support',
+        commands: [
+          { syntax: '/support', desc: 'List your latest open support tickets' },
+          { syntax: '/support [summary]', desc: 'Open a new support ticket with a description' },
+          { syntax: '/diagnose [category]', desc: 'Run quick diagnostics for a device category' },
+        ]
+      },
+    ];
+
+    var list = document.getElementById('commands-list');
+    var noResults = document.getElementById('commands-no-results');
+    var search = document.getElementById('commands-search');
+
+    function renderCommands(filter) {
+      filter = (filter || '').toLowerCase().trim();
+      list.innerHTML = '';
+      var anyVisible = false;
+      COMMANDS.forEach(function(cat) {
+        var cmds = filter
+          ? cat.commands.filter(function(c) {
+              return c.syntax.toLowerCase().includes(filter) || c.desc.toLowerCase().includes(filter) || cat.category.toLowerCase().includes(filter);
+            })
+          : cat.commands;
+        if (!cmds.length) return;
+        anyVisible = true;
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.style.marginBottom = '12px';
+        var title = document.createElement('div');
+        title.className = 'card-title';
+        title.style.marginBottom = '10px';
+        title.textContent = cat.category;
+        card.appendChild(title);
+        var table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse';
+        cmds.forEach(function(cmd) {
+          var tr = document.createElement('tr');
+          tr.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.04)';
+          var tdSyntax = document.createElement('td');
+          tdSyntax.style.cssText = 'padding:8px 0;width:45%;vertical-align:top';
+          tdSyntax.innerHTML = '<code style="font-size:12px;color:#00E676;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.15);border-radius:4px;padding:2px 7px;white-space:nowrap">' + _escHtml(cmd.syntax) + '</code>';
+          var tdDesc = document.createElement('td');
+          tdDesc.style.cssText = 'padding:8px 8px;color:#8B9DAF;font-size:13px;vertical-align:top';
+          tdDesc.textContent = cmd.desc;
+          var tdCopy = document.createElement('td');
+          tdCopy.style.cssText = 'padding:8px 0;text-align:right;white-space:nowrap;vertical-align:top';
+          var btn = document.createElement('button');
+          btn.textContent = 'Copy';
+          btn.style.cssText = 'font-size:11px;font-weight:600;color:#556270;background:transparent;border:1px solid #0d3320;border-radius:5px;padding:2px 9px;cursor:pointer;transition:color 0.15s,border-color 0.15s';
+          btn.addEventListener('mouseenter', function() { btn.style.color = '#00E676'; btn.style.borderColor = 'rgba(0,230,118,0.3)'; });
+          btn.addEventListener('mouseleave', function() { btn.style.color = '#556270'; btn.style.borderColor = '#0d3320'; });
+          btn.addEventListener('click', function() {
+            navigator.clipboard.writeText(cmd.syntax).then(function() {
+              btn.textContent = 'Copied!';
+              btn.style.color = '#00E676';
+              setTimeout(function() { btn.textContent = 'Copy'; btn.style.color = '#556270'; btn.style.borderColor = '#0d3320'; }, 1500);
+            }).catch(function() {
+              btn.textContent = 'Copy';
+            });
+          });
+          tdCopy.appendChild(btn);
+          tr.appendChild(tdSyntax);
+          tr.appendChild(tdDesc);
+          tr.appendChild(tdCopy);
+          table.appendChild(tr);
+        });
+        card.appendChild(table);
+        list.appendChild(card);
+      });
+      noResults.style.display = anyVisible ? 'none' : 'block';
+    }
+
+    renderCommands('');
+
+    search.addEventListener('input', function() {
+      renderCommands(search.value);
+    });
   }
 
   async function loadAiTriagePage() {

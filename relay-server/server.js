@@ -83,6 +83,11 @@ app.use('/portal', express.static(require('path').join(__dirname, 'public/portal
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin')));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools')));
 
+// Public rundown view — no auth required
+app.get('/rundown/view/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-view.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
@@ -3164,6 +3169,32 @@ require('./src/routes/adminChurches')(app, routeCtx);
 require('./src/routes/sessions')(app, routeCtx);
 require('./src/routes/planningCenter')(app, routeCtx);
 require('./src/routes/liveRundown')(app, routeCtx);
+
+// ─── Public rundown data endpoint (no auth) ──────────────────────────────────
+// GET /api/public/rundown/:token — returns plan+items for a valid share token
+app.get('/api/public/rundown/:token', async (req, res) => {
+  try {
+    const share = await manualRundown.getShareByToken(req.params.token);
+    if (!share) return res.status(404).json({ error: 'Link not found or expired' });
+    if (share.expiresAt < Date.now()) {
+      return res.status(410).json({ error: 'This rundown link has expired' });
+    }
+    const plan = await manualRundown.getPlan(share.planId);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    res.json({
+      id: plan.id,
+      title: plan.title,
+      serviceDate: plan.serviceDate,
+      items: plan.items,
+      updatedAt: plan.updatedAt,
+      expiresAt: share.expiresAt,
+    });
+  } catch (e) {
+    console.error('[rundown-public] error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 require('./src/routes/streamPlatforms')(app, routeCtx);
 require('./src/routes/reseller')(app, routeCtx);
 require('./src/routes/automation')(app, routeCtx);

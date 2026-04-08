@@ -27,6 +27,23 @@ class ManualRundownStore {
 
   async _init() {
     await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_shares (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rs_token ON rundown_shares(token)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rs_plan ON rundown_shares(plan_id)
+    `);
+    await this._db.exec(`
       CREATE TABLE IF NOT EXISTS manual_rundown_plans (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
@@ -82,6 +99,58 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
+    `);
+
+    // ── Custom columns tables ──────────────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_columns (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        department TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rc_plan ON rundown_columns(plan_id, sort_order)
+    `);
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_column_values (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        column_id TEXT NOT NULL,
+        value TEXT NOT NULL DEFAULT '',
+        updated_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rcv_item ON rundown_column_values(item_id)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rcv_col ON rundown_column_values(column_id)
+    `);
+
+    // ── Attachments table ──────────────────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_attachments (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        mimetype TEXT,
+        size INTEGER NOT NULL DEFAULT 0,
+        storage_path TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_ra_item ON rundown_attachments(item_id)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_ra_plan ON rundown_attachments(plan_id)
     `);
   }
 
@@ -274,16 +343,20 @@ class ManualRundownStore {
       isTemplate: true,
       templateName: templateName || plan.title,
     });
-    // Copy items
+    // Copy items and build ID mapping for column values
+    const itemIdMap = {};
     for (const item of plan.items) {
-      await this.addItem(newPlan.id, {
+      const newItem = await this.addItem(newPlan.id, {
         title: item.title,
         itemType: item.itemType,
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
         assignee: item.assignee,
       });
+      itemIdMap[item.id] = newItem.id;
     }
+    // Copy custom columns and their values
+    await this._copyColumns(planId, newPlan.id, plan.churchId, itemIdMap);
     return this.getPlan(newPlan.id);
   }
 
@@ -295,17 +368,196 @@ class ManualRundownStore {
       serviceDate,
       isTemplate: false,
     });
-    // Copy items from template
+    // Copy items from template and build ID mapping
+    const itemIdMap = {};
     for (const item of template.items) {
-      await this.addItem(newPlan.id, {
+      const newItem = await this.addItem(newPlan.id, {
         title: item.title,
         itemType: item.itemType,
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
         assignee: item.assignee,
       });
+      itemIdMap[item.id] = newItem.id;
     }
+    // Copy custom columns and their values
+    await this._copyColumns(templateId, newPlan.id, template.churchId, itemIdMap);
     return this.getPlan(newPlan.id);
+  }
+
+  async _copyColumns(sourcePlanId, targetPlanId, churchId, itemIdMap) {
+    const columns = await this.getColumns(sourcePlanId);
+    const colIdMap = {};
+    for (const col of columns) {
+      const newCol = await this.addColumn(targetPlanId, churchId, {
+        name: col.name,
+        department: col.department,
+        sortOrder: col.sortOrder,
+      });
+      colIdMap[col.id] = newCol.id;
+    }
+    // Copy column values
+    const values = await this.getColumnValues(sourcePlanId);
+    for (const val of values) {
+      const newItemId = itemIdMap[val.itemId];
+      const newColId = colIdMap[val.columnId];
+      if (newItemId && newColId) {
+        await this.setColumnValue(newItemId, newColId, val.value);
+      }
+    }
+  }
+
+  // ─── CUSTOM COLUMNS ─────────────────────────────────────────────────────────
+
+  async getColumns(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_columns WHERE plan_id = ? ORDER BY sort_order ASC, created_at ASC`, [planId]
+    );
+    return rows.map(r => ({ id: r.id, planId: r.plan_id, churchId: r.church_id, name: r.name, department: r.department || '', sortOrder: r.sort_order, createdAt: r.created_at }));
+  }
+
+  async addColumn(planId, churchId, { name, department = '', sortOrder }) {
+    const id = uuidv4();
+    const now = Date.now();
+    if (sortOrder === undefined || sortOrder === null) {
+      const max = await this._db.queryOne(`SELECT COALESCE(MAX(sort_order), -1) as mx FROM rundown_columns WHERE plan_id = ?`, [planId]);
+      sortOrder = (max?.mx ?? -1) + 1;
+    }
+    await this._db.run(
+      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, planId, churchId, name, department || '', sortOrder, now]
+    );
+    return { id, planId, churchId, name, department: department || '', sortOrder, createdAt: now };
+  }
+
+  async updateColumn(colId, { name, sortOrder }) {
+    const sets = [];
+    const params = [];
+    if (name !== undefined) { sets.push('name = ?'); params.push(name); }
+    if (sortOrder !== undefined) { sets.push('sort_order = ?'); params.push(sortOrder); }
+    if (sets.length === 0) return;
+    params.push(colId);
+    await this._db.run(`UPDATE rundown_columns SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+
+  async deleteColumn(colId) {
+    // Delete all values for this column first
+    await this._db.run(`DELETE FROM rundown_column_values WHERE column_id = ?`, [colId]);
+    await this._db.run(`DELETE FROM rundown_columns WHERE id = ?`, [colId]);
+  }
+
+  async getColumnValues(planId) {
+    // Get all column values for all items in a plan (via the columns table)
+    const rows = await this._db.query(
+      `SELECT cv.* FROM rundown_column_values cv
+       INNER JOIN rundown_columns c ON cv.column_id = c.id
+       WHERE c.plan_id = ?`, [planId]
+    );
+    return rows.map(r => ({ id: r.id, itemId: r.item_id, columnId: r.column_id, value: r.value, updatedAt: r.updated_at }));
+  }
+
+  async setColumnValue(itemId, columnId, value) {
+    const now = Date.now();
+    const existing = await this._db.queryOne(
+      `SELECT id FROM rundown_column_values WHERE item_id = ? AND column_id = ?`, [itemId, columnId]
+    );
+    if (existing) {
+      await this._db.run(`UPDATE rundown_column_values SET value = ?, updated_at = ? WHERE id = ?`, [value, now, existing.id]);
+    } else {
+      const id = uuidv4();
+      await this._db.run(
+        `INSERT INTO rundown_column_values (id, item_id, column_id, value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+        [id, itemId, columnId, value, now]
+      );
+    }
+  }
+
+  // ─── ATTACHMENTS ──────────────────────────────────────────────────────────
+
+  async addAttachment(itemId, planId, churchId, { filename, mimetype, size, storagePath }) {
+    const id = uuidv4();
+    const now = Date.now();
+    await this._db.run(
+      `INSERT INTO rundown_attachments (id, item_id, plan_id, church_id, filename, mimetype, size, storage_path, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, itemId, planId, churchId, filename, mimetype || '', size, storagePath, now]
+    );
+    return { id, itemId, planId, churchId, filename, mimetype: mimetype || '', size, storagePath, createdAt: now };
+  }
+
+  async getAttachments(itemId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_attachments WHERE item_id = ? ORDER BY created_at ASC`, [itemId]
+    );
+    return rows.map(r => ({ id: r.id, itemId: r.item_id, planId: r.plan_id, churchId: r.church_id, filename: r.filename, mimetype: r.mimetype, size: r.size, storagePath: r.storage_path, createdAt: r.created_at }));
+  }
+
+  async getAttachmentsByPlan(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_attachments WHERE plan_id = ? ORDER BY created_at ASC`, [planId]
+    );
+    return rows.map(r => ({ id: r.id, itemId: r.item_id, planId: r.plan_id, churchId: r.church_id, filename: r.filename, mimetype: r.mimetype, size: r.size, storagePath: r.storage_path, createdAt: r.created_at }));
+  }
+
+  async getAttachment(attachmentId) {
+    const r = await this._db.queryOne(`SELECT * FROM rundown_attachments WHERE id = ?`, [attachmentId]);
+    if (!r) return null;
+    return { id: r.id, itemId: r.item_id, planId: r.plan_id, churchId: r.church_id, filename: r.filename, mimetype: r.mimetype, size: r.size, storagePath: r.storage_path, createdAt: r.created_at };
+  }
+
+  async deleteAttachment(attachmentId) {
+    const att = await this.getAttachment(attachmentId);
+    if (!att) return null;
+    await this._db.run(`DELETE FROM rundown_attachments WHERE id = ?`, [attachmentId]);
+    return att;
+  }
+
+  // ─── SHARES ────────────────────────────────────────────────────────────────
+
+  async createShare(planId, churchId, { expiresInDays = 7 } = {}) {
+    await this.ready;
+    // Deactivate any existing active share for this plan
+    await this._db.run(
+      `UPDATE rundown_shares SET is_active = 0 WHERE plan_id = ? AND church_id = ?`,
+      [planId, churchId]
+    );
+    const id = uuidv4();
+    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, ''); // 64-char token
+    const now = Date.now();
+    const expiresAt = now + expiresInDays * 24 * 60 * 60 * 1000;
+    await this._db.run(
+      `INSERT INTO rundown_shares (id, plan_id, church_id, token, created_at, expires_at, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [id, planId, churchId, token, now, expiresAt]
+    );
+    return this._toShare({ id, plan_id: planId, church_id: churchId, token, created_at: now, expires_at: expiresAt, is_active: 1 });
+  }
+
+  async getShareByToken(token) {
+    await this.ready;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_shares WHERE token = ? AND is_active = 1`,
+      [token]
+    );
+    if (!row) return null;
+    return this._toShare(row);
+  }
+
+  async getShareByPlanId(planId) {
+    await this.ready;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_shares WHERE plan_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1`,
+      [planId]
+    );
+    if (!row) return null;
+    return this._toShare(row);
+  }
+
+  async revokeShare(shareId) {
+    await this.ready;
+    await this._db.run(
+      `UPDATE rundown_shares SET is_active = 0 WHERE id = ?`,
+      [shareId]
+    );
   }
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
@@ -339,6 +591,18 @@ class ManualRundownStore {
       sortOrder: row.sort_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  _toShare(row) {
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      churchId: row.church_id,
+      token: row.token,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      isActive: !!row.is_active,
     };
   }
 }

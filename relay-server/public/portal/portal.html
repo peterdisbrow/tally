@@ -73,6 +73,9 @@
       <button class="nav-item" data-page="rundown" data-action="showPage">
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg></span> <span>Rundown</span>
       </button>
+      <button class="nav-item" data-page="commands" data-action="showPage">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z"/></svg></span> <span>Commands</span>
+      </button>
       <button class="nav-item" data-page="billing" data-action="showPage">
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg></span> <span data-i18n="nav.billing">Billing</span>
       </button>
@@ -1259,7 +1262,7 @@
       <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" id="btn-open-add-macro" data-action="openModal" data-modal="modal-add-macro" data-i18n="macros.add_btn">+ New Macro</button>
+          <button class="btn-primary" id="btn-open-add-macro" onclick="openMacroWizard()" data-i18n="macros.add_btn">+ New Macro</button>
         </div>
         <div id="macros-list">
           <div style="color:#556270;text-align:center;padding:20px;font-size:13px">Loading…</div>
@@ -1297,14 +1300,35 @@
       </div><!-- /tab-autopilot -->
     </div>
 
-    <!-- Add Macro Modal -->
+    <!-- Add Macro Wizard Modal -->
     <div class="modal-backdrop" id="modal-add-macro">
-      <div class="modal" style="max-width:520px">
-        <div class="modal-header">
-          <div class="modal-title" id="macro-modal-title" data-i18n="macros.modal.title">New Macro</div>
+      <div class="modal" style="max-width:560px;width:560px">
+        <div class="modal-header" style="align-items:flex-start">
+          <div>
+            <div class="modal-title" id="macro-modal-title">New Macro</div>
+            <div id="macro-step-counter" style="font-size:11px;color:#8B9DAF;margin-top:2px">Step 1 of 3</div>
+          </div>
           <button class="modal-close" data-action="closeMacroModal"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
-        <div style="padding:20px">
+        <!-- Step indicators -->
+        <div style="display:flex;align-items:center;padding:14px 28px 0;gap:0">
+          <div id="macro-ind-1" style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:64px">
+            <div class="macro-wiz-dot" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#00E676;color:#060D08;box-sizing:border-box">1</div>
+            <div class="macro-wiz-lbl" style="font-size:11px;color:#00E676;font-weight:500">Name</div>
+          </div>
+          <div style="flex:1;height:1px;background:#0d3320;margin-bottom:18px"></div>
+          <div id="macro-ind-2" style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:64px">
+            <div class="macro-wiz-dot" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#556270;border:1px solid #1a4030;box-sizing:border-box">2</div>
+            <div class="macro-wiz-lbl" style="font-size:11px;color:#556270">Commands</div>
+          </div>
+          <div style="flex:1;height:1px;background:#0d3320;margin-bottom:18px"></div>
+          <div id="macro-ind-3" style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:64px">
+            <div class="macro-wiz-dot" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:#0d3320;color:#556270;border:1px solid #1a4030;box-sizing:border-box">3</div>
+            <div class="macro-wiz-lbl" style="font-size:11px;color:#556270">Review</div>
+          </div>
+        </div>
+        <!-- Step 1: Name your macro -->
+        <div id="macro-step-1" style="padding:20px">
           <input type="hidden" id="macro-edit-id">
           <div class="field" style="margin-bottom:14px">
             <label>Shortcut Name <span style="color:#6B7280;font-size:11px">(e.g. "sunday", "warmup", "teststream")</span></label>
@@ -1314,18 +1338,44 @@
             </div>
             <div style="font-size:11px;color:#8B9DAF;margin-top:4px">Lowercase letters, numbers, underscores only.</div>
           </div>
-          <div class="field" style="margin-bottom:14px">
+          <div class="field" style="margin-bottom:20px">
             <label>Description <span style="color:#6B7280;font-size:11px">(shown in /macros list)</span></label>
             <input type="text" id="macro-description" placeholder="Sunday morning setup sequence">
           </div>
-          <div class="field" style="margin-bottom:14px">
-            <label>Commands <span style="color:#6B7280;font-size:11px">(one per line — same as Telegram commands)</span></label>
-            <textarea id="macro-steps" rows="5" placeholder="start stream\nstart recording\natem cut 1\nobs scene Main Service" style="font-family:monospace;font-size:13px"></textarea>
-            <div style="font-size:11px;color:#8B9DAF;margin-top:4px">Enter commands exactly as you'd type them in Telegram. They run in order with a 1-second delay between each.</div>
-          </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn-secondary" data-action="closeMacroModal" data-i18n="btn.cancel">Cancel</button>
-            <button class="btn-primary" id="btn-save-macro" data-action="saveMacro" data-i18n="macros.modal.save">Save Macro</button>
+            <button class="btn-secondary" data-action="closeMacroModal">Cancel</button>
+            <button class="btn-primary" onclick="macroWizardNext()">Next: Add Commands</button>
+          </div>
+        </div>
+        <!-- Step 2: Build command sequence -->
+        <div id="macro-step-2" style="padding:20px;display:none">
+          <div style="margin-bottom:14px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500">Add a command</label>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <select id="macro-cmd-category" onchange="macroWizardCategoryChange()" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1;min-width:0">
+                <option value="">Category…</option>
+              </select>
+              <select id="macro-cmd-template" onchange="macroWizardTemplateChange()" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1.4;min-width:0">
+                <option value="">Command…</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="macro-cmd-text" placeholder="or type any command…" style="font-family:monospace;font-size:13px;flex:1" onkeydown="if(event.key==='Enter')macroWizardAddStep()">
+              <button class="btn-primary" onclick="macroWizardAddStep()" style="white-space:nowrap;flex-shrink:0">+ Add Step</button>
+            </div>
+          </div>
+          <div id="macro-steps-list"></div>
+          <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px">
+            <button class="btn-secondary" onclick="macroWizardBack()">Back</button>
+            <button class="btn-primary" onclick="macroWizardNext()">Next: Review</button>
+          </div>
+        </div>
+        <!-- Step 3: Review & Save -->
+        <div id="macro-step-3" style="padding:20px;display:none">
+          <div id="macro-review-content"></div>
+          <div style="display:flex;gap:8px;justify-content:space-between;margin-top:20px">
+            <button class="btn-secondary" onclick="macroWizardBack()">Back</button>
+            <button class="btn-primary" id="btn-save-macro" data-action="saveMacro">Save Macro</button>
           </div>
         </div>
       </div>
@@ -2263,7 +2313,7 @@
                   </div>
                 </div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 <select id="rundown-editor-status-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
                   <option value="draft">Draft</option>
                   <option value="rehearsal">Rehearsal</option>
@@ -2271,6 +2321,8 @@
                   <option value="live">Live</option>
                   <option value="archived">Archived</option>
                 </select>
+                <span id="rundown-shared-badge" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Shared</span>
+                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:4px 10px">Share</button>
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
                 <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
@@ -2492,6 +2544,31 @@
       </div>
     </div>
 
+    <!-- Share / Guest Pass Modal -->
+    <div class="modal-backdrop" id="modal-rundown-share">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <div class="modal-title">Share Rundown</div>
+          <button class="modal-close" id="rundown-share-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div id="rundown-share-loading" style="text-align:center;padding:24px;color:#556270;font-size:13px">Loading&hellip;</div>
+          <div id="rundown-share-content" style="display:none">
+            <div style="font-size:13px;color:#8B9DAF;margin-bottom:12px;line-height:1.5">Anyone with this link can view the rundown in read-only mode. The link expires after 7 days.</div>
+            <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:16px">
+              <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-url"></div>
+              <button class="btn-primary" id="rundown-share-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+              <div id="rundown-share-expiry" style="font-size:11px;color:#556270"></div>
+              <button class="btn-secondary" id="rundown-share-revoke-btn" style="font-size:12px;padding:4px 12px;color:#FF5252">Revoke Access</button>
+            </div>
+          </div>
+          <div id="rundown-share-error" style="display:none;text-align:center;padding:16px;color:#FF5252;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- CONNECTIONS -->
     <div class="page" id="page-connections">
       <div class="page-header">
@@ -2590,6 +2667,20 @@
           <strong style="color:#8B9DAF">Admin only:</strong> Only church admin accounts can connect or disconnect streaming platforms. Tech directors can view connection status but cannot modify connections.
         </div>
       </div>
+    </div>
+
+    <!-- COMMANDS -->
+    <div class="page" id="page-commands">
+      <div class="page-header">
+        <div class="page-title">Bot Commands</div>
+        <div class="page-sub">All commands you can send via Telegram or the AI Assistant chat</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <input type="search" id="commands-search" placeholder="Search commands..." autocomplete="off"
+          style="width:100%;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:10px 14px;color:#F0F2F4;font-size:14px;outline:none;box-sizing:border-box">
+      </div>
+      <div id="commands-no-results" style="display:none;text-align:center;padding:40px;color:#556270;font-size:14px">No commands match your search.</div>
+      <div id="commands-list"></div>
     </div>
 
   </main>
@@ -2738,6 +2829,6 @@
     </div>
   </div>
 
-  <script src="/portal/portal.js"></script>
+  <script src="/portal/portal.js?v=2"></script>
 </body>
 </html>
