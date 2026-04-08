@@ -23,6 +23,15 @@ module.exports = function setupMobileRoutes(app, ctx) {
     hasQueryClient ? queryClient.query(sql, params) : db.prepare(sql).all(...params)
   );
 
+  // Normalise church rows from Postgres, which lowercases unquoted identifiers.
+  function normalizeChurchRow(row) {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  }
+
   // ─── MOBILE LOGIN ──────────────────────────────────────────────────────────
   // Returns JWT in body (not cookie) for mobile clients.
   // Includes room list and church metadata the app needs on launch.
@@ -34,7 +43,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
       return res.status(400).json({ error: 'email and password required' });
     }
 
-    const church = await qOne('SELECT *, churchId AS "churchId" FROM churches WHERE portal_email = ?', [cleanEmail]);
+    const church = normalizeChurchRow(await qOne('SELECT * FROM churches WHERE portal_email = ?', [cleanEmail]));
     if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }

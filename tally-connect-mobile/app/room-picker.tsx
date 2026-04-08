@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, ActivityIndicator,
+  Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -28,7 +29,11 @@ export default function RoomPickerScreen() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [creating, setCreating] = useState(false);
   const churchName = useAuthStore((s) => s.churchName);
+  const logout = useAuthStore((s) => s.logout);
   const setActiveRoom = useStatusStore((s) => s.setActiveRoom);
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -69,11 +74,55 @@ export default function RoomPickerScreen() {
     router.replace('/(tabs)');
   }
 
+  function handleLogout() {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: () => logout(),
+      },
+    ]);
+  }
+
+  async function handleCreateRoom() {
+    const name = newRoomName.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      await api('/api/church/app/rooms', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      setShowCreateModal(false);
+      setNewRoomName('');
+      loadRooms();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to create room.';
+      Alert.alert('Create Room Failed', msg);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={{ paddingHorizontal: spacing.xxl, paddingBottom: spacing.xxl, paddingTop: insets.top + 16 }}>
-        <Text style={{ fontSize: fontSize.xxxl, fontWeight: '800', color: colors.text, marginBottom: spacing.xs }}>{churchName || 'Tally Connect'}</Text>
-        <Text style={{ fontSize: fontSize.lg, color: colors.textSecondary }}>Select a room to monitor</Text>
+      <View style={{ paddingHorizontal: spacing.xxl, paddingBottom: spacing.xxl, paddingTop: insets.top + 16, flexDirection: 'row', alignItems: 'flex-start' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: fontSize.xxxl, fontWeight: '800', color: colors.text, marginBottom: spacing.xs }}>{churchName || 'Tally Connect'}</Text>
+          <Text style={{ fontSize: fontSize.lg, color: colors.textSecondary }}>Select a room to monitor</Text>
+        </View>
+        <Pressable
+          onPress={handleLogout}
+          style={({ pressed }) => ({
+            marginTop: 4,
+            padding: spacing.sm,
+            opacity: pressed ? 0.6 : 1,
+          })}
+          hitSlop={12}
+        >
+          <Ionicons name="log-out-outline" size={26} color={colors.textMuted} />
+        </Pressable>
       </View>
 
       {loading ? (
@@ -96,11 +145,18 @@ export default function RoomPickerScreen() {
           <Ionicons name="alert-circle-outline" size={48} color={colors.textMuted} />
           <Text style={{ fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginTop: spacing.lg, marginBottom: spacing.sm }}>No Rooms Found</Text>
           <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xxl }}>
-            Add rooms in the Tally Connect portal, then pull to refresh.
+            Create a room to get started, or add rooms in the Tally Connect portal.
           </Text>
-          <Pressable style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={() => loadRooms()}>
-            <Ionicons name="refresh" size={18} color="#ffffff" />
-            <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff', marginLeft: spacing.sm }}>Retry</Text>
+          <Pressable
+            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md, marginBottom: spacing.md }}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Ionicons name="add" size={18} color="#ffffff" />
+            <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff', marginLeft: spacing.sm }}>Create Room</Text>
+          </Pressable>
+          <Pressable style={{ flexDirection: 'row', alignItems: 'center', borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={() => loadRooms()}>
+            <Ionicons name="refresh" size={18} color={colors.textSecondary} />
+            <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.textSecondary, marginLeft: spacing.sm }}>Refresh</Text>
           </Pressable>
         </View>
       ) : (
@@ -144,6 +200,76 @@ export default function RoomPickerScreen() {
           )}
         />
       )}
+
+      <Modal
+        visible={showCreateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setShowCreateModal(false); setNewRoomName(''); }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}
+        >
+          <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.xxl, width: '85%', maxWidth: 360 }}>
+            <Text style={{ fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginBottom: spacing.lg }}>Create Room</Text>
+            <TextInput
+              style={{
+                backgroundColor: colors.bg,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: borderRadius.md,
+                paddingHorizontal: spacing.lg,
+                paddingVertical: spacing.md,
+                fontSize: fontSize.md,
+                color: colors.text,
+                marginBottom: spacing.xxl,
+              }}
+              placeholder="Room name (e.g. Sanctuary)"
+              placeholderTextColor={colors.textMuted}
+              value={newRoomName}
+              onChangeText={setNewRoomName}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleCreateRoom}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <Pressable
+                style={({ pressed }) => ({
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: spacing.md,
+                  borderRadius: borderRadius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  opacity: pressed ? 0.7 : 1,
+                })}
+                onPress={() => { setShowCreateModal(false); setNewRoomName(''); }}
+              >
+                <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.textSecondary }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => ({
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: spacing.md,
+                  borderRadius: borderRadius.md,
+                  backgroundColor: newRoomName.trim() ? colors.accent : colors.border,
+                  opacity: pressed ? 0.8 : 1,
+                })}
+                onPress={handleCreateRoom}
+                disabled={creating || !newRoomName.trim()}
+              >
+                {creating ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff' }}>Create</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
