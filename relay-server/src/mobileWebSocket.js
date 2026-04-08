@@ -220,6 +220,37 @@ function createMobileWebSocketHandler({
               break;
             }
 
+            // Resolve roomId early — used by both the SP shortcut and the generic path below.
+            const roomId = msg.roomId;
+
+            // Stream protection commands: translate to the legacy stream_protection_command
+            // format so older church-client versions (which lack streamProtection.*
+            // in commandHandlers) still handle them correctly.
+            const SP_ACTION_MAP = {
+              'streamProtection.enable':  'enable',
+              'streamProtection.disable': 'disable',
+              'streamProtection.restart': 'restart',
+            };
+            if (SP_ACTION_MAP[msg.command] !== undefined) {
+              const fwd = { type: 'stream_protection_command', action: SP_ACTION_MAP[msg.command] };
+              let spSent = false;
+              if (roomId && runtime.roomInstanceMap) {
+                const targetInstance = runtime.roomInstanceMap[roomId];
+                const targetSocket = targetInstance && runtime.sockets?.get(targetInstance);
+                if (targetSocket?.readyState === 1) { _safeSend(targetSocket, fwd); spSent = true; }
+              }
+              if (!spSent && runtime.sockets?.size) {
+                for (const sock of runtime.sockets.values()) {
+                  if (sock.readyState === 1) { _safeSend(sock, fwd); spSent = true; }
+                }
+              }
+              // Send synthetic success so mobile doesn't timeout waiting for command_result.
+              // The church-client handles stream_protection_command silently (no result sent back).
+              _safeSend(ws, { type: 'command_result', messageId: msg.messageId, result: 'ok', error: null });
+              log(`[MobileWS] SP command ${msg.command} → stream_protection_command(${SP_ACTION_MAP[msg.command]}) for ${church.name} (sent=${spSent})`);
+              break;
+            }
+
             // Build the command payload matching what controllers send.
             // The church-client extracts `id` (not `messageId`) from the message,
             // so we must send both fields so the result round-trip works.
@@ -232,7 +263,6 @@ function createMobileWebSocketHandler({
             };
 
             // If roomId is specified, find the instance serving that room
-            const roomId = msg.roomId;
             let sent = false;
             if (runtime && roomId && runtime.roomInstanceMap) {
               const targetInstance = runtime.roomInstanceMap[roomId];
