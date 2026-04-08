@@ -1001,10 +1001,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var open = sidebar.classList.toggle('open');
       overlay.classList.toggle('open', open);
       document.body.classList.toggle('sidebar-open', open);
+      document.documentElement.classList.toggle('sidebar-open', open);
       if (open) {
-        document.body.addEventListener('touchmove', preventBodyScroll, { passive: false });
+        document.addEventListener('touchmove', preventBodyScroll, { passive: false });
       } else {
-        document.body.removeEventListener('touchmove', preventBodyScroll);
+        document.removeEventListener('touchmove', preventBodyScroll);
       }
     }
 
@@ -1021,7 +1022,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
       document.body.classList.remove('sidebar-open');
-      document.body.removeEventListener('touchmove', preventBodyScroll);
+      document.documentElement.classList.remove('sidebar-open');
+      document.removeEventListener('touchmove', preventBodyScroll);
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
       if (id === 'rooms') { loadRooms(); }
