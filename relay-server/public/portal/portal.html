@@ -2256,37 +2256,71 @@
         </div>
       </div>
 
-      <!-- Plan manager view (shown when no live session is active) -->
+      <!-- Plan manager view / Dashboard (shown when no live session is active) -->
       <div id="rundown-manager" style="display:none">
-        <!-- Plan picker -->
-        <div class="card" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div style="font-size:15px;font-weight:700;color:#F0F2F4">Service Rundowns</div>
-            <div style="display:flex;gap:8px">
-              <button class="btn-secondary" data-action="rundownShowTemplates" style="font-size:12px;padding:4px 10px">Templates</button>
-            </div>
+        <!-- Dashboard filter bar -->
+        <div class="card rundown-filter-bar" style="margin-bottom:16px;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="rundown-search-wrap" style="flex:1;min-width:180px;max-width:300px">
+            <input type="text" id="rundown-search" placeholder="Search rundowns..." style="width:100%;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px 6px 32px;font-size:13px;outline:none" data-action="rundownSearchInput">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="14" height="14" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#556270;pointer-events:none"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clip-rule="evenodd"/></svg>
           </div>
-          <div id="rundown-plan-list" style="display:flex;flex-direction:column;gap:4px">
-            <div style="color:#556270;text-align:center;padding:20px;font-size:13px">Loading plans...</div>
-          </div>
+          <select id="rundown-filter-room" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;color-scheme:dark" data-action="rundownFilterChange">
+            <option value="">All Rooms</option>
+          </select>
+          <select id="rundown-filter-status" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;color-scheme:dark" data-action="rundownFilterChange">
+            <option value="">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="rehearsal">Rehearsal</option>
+            <option value="show_ready">Show Ready</option>
+            <option value="live">Live</option>
+            <option value="archived">Archived</option>
+          </select>
+          <select id="rundown-sort" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;color-scheme:dark" data-action="rundownSortChange">
+            <option value="date">Sort: Date</option>
+            <option value="name">Sort: Name</option>
+            <option value="updated">Sort: Last Edited</option>
+          </select>
+          <button class="btn-secondary" data-action="rundownShowTemplates" style="font-size:12px;padding:5px 10px">Templates</button>
+        </div>
+
+        <!-- Dashboard card grid (rendered by JS) -->
+        <div id="rundown-dashboard" style="display:flex;flex-direction:column;gap:20px">
+          <div style="color:#556270;text-align:center;padding:40px;font-size:13px">Loading rundowns...</div>
         </div>
 
         <!-- Plan editor (shown when a plan is selected) -->
         <div id="rundown-editor" style="display:none">
+          <!-- Presence bar: shows other editors -->
+          <div id="rundown-presence-bar" style="display:none;margin-bottom:8px;padding:6px 14px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:12px;color:#8B9DAF;display:flex;align-items:center;gap:8px">
+            <div id="rundown-presence-avatars" style="display:flex;gap:-4px;align-items:center"></div>
+            <span id="rundown-presence-text"></span>
+          </div>
+
           <!-- Header card with plan info -->
           <div class="card" style="margin-bottom:12px;padding:14px 18px">
             <div style="display:flex;align-items:center;justify-content:space-between">
               <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:0">
                 <div style="flex:1;min-width:0">
-                  <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4;cursor:pointer" data-action="rundownEditPlanTitle" title="Click to edit title"></div>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4;cursor:pointer" data-action="rundownEditPlanTitle" title="Click to edit title"></div>
+                    <span id="rundown-editor-status-badge" class="rundown-status-badge" style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px"></span>
+                  </div>
                   <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
                     <span id="rundown-editor-date" style="font-size:12px;color:#556270"></span>
+                    <span id="rundown-editor-room" style="font-size:12px;color:#556270"></span>
                     <span id="rundown-editor-item-count" style="font-size:12px;color:#556270"></span>
                     <span id="rundown-editor-total-duration" style="font-size:12px;color:#8B9DAF;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;font-weight:600"></span>
                   </div>
                 </div>
               </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select id="rundown-editor-status-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
+                  <option value="draft">Draft</option>
+                  <option value="rehearsal">Rehearsal</option>
+                  <option value="show_ready">Show Ready</option>
+                  <option value="live">Live</option>
+                  <option value="archived">Archived</option>
+                </select>
                 <span id="rundown-shared-badge" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Shared</span>
                 <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:4px 10px">Share</button>
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
@@ -2417,9 +2451,15 @@
             <label for="rundown-plan-title-input">Service Name</label>
             <input type="text" id="rundown-plan-title-input" placeholder="e.g. Sunday Service">
           </div>
-          <div class="field" style="margin-bottom:20px">
+          <div class="field" style="margin-bottom:14px">
             <label for="rundown-plan-date-input">Service Date</label>
             <input type="date" id="rundown-plan-date-input" style="color-scheme:dark">
+          </div>
+          <div class="field" style="margin-bottom:20px">
+            <label for="rundown-plan-room-input">Room</label>
+            <select id="rundown-plan-room-input" style="color-scheme:dark">
+              <option value="">No Room</option>
+            </select>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button class="btn-secondary" id="rundown-plan-modal-cancel">Cancel</button>

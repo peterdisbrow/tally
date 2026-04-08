@@ -1372,3 +1372,186 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   background: #00E676;
   box-shadow: 0 0 8px rgba(0,230,118,0.5);
 }
+
+/* ─── RUNDOWN DASHBOARD ──────────────────────────────────────────────────────── */
+
+/* Filter bar */
+.rundown-filter-bar { position: relative; }
+.rundown-search-wrap { position: relative; }
+.rundown-search-wrap input:focus { border-color: rgba(0,230,118,0.4); }
+
+/* Status group header */
+.rundown-status-group-header {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #556270;
+  padding: 0 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rundown-status-group-header .rundown-group-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3A4556;
+  background: rgba(255,255,255,0.05);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+/* Dashboard card grid */
+.rundown-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+/* Individual rundown card */
+.rundown-dash-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+.rundown-dash-card:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.rundown-dash-card.is-live {
+  border-color: rgba(239,68,68,0.4);
+  box-shadow: 0 0 12px rgba(239,68,68,0.1);
+}
+.rundown-dash-card .card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #F0F2F4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rundown-dash-card .card-meta {
+  font-size: 12px;
+  color: #556270;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rundown-dash-card .card-meta span {
+  white-space: nowrap;
+}
+.rundown-dash-card .card-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.rundown-dash-card:hover .card-actions {
+  opacity: 1;
+}
+.rundown-dash-card .card-actions button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #8B9DAF;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.rundown-dash-card .card-actions button:hover {
+  background: rgba(255,255,255,0.1);
+  color: #F0F2F4;
+}
+.rundown-dash-card .card-actions button.action-delete:hover {
+  background: rgba(239,68,68,0.15);
+  color: #FF5252;
+}
+
+/* Active editors badge on card */
+.rundown-editors-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #00E676;
+  background: rgba(0,230,118,0.08);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* Status badges */
+.rundown-status-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+.rundown-status-badge.status-draft { background: rgba(85,98,112,0.2); color: #8B9DAF; }
+.rundown-status-badge.status-rehearsal { background: rgba(255,167,38,0.15); color: #FFA726; }
+.rundown-status-badge.status-show_ready { background: rgba(0,230,118,0.12); color: #00E676; }
+.rundown-status-badge.status-live { background: rgba(239,68,68,0.15); color: #EF4444; animation: rundown-pulse 1.5s ease-in-out infinite; }
+.rundown-status-badge.status-archived { background: rgba(85,98,112,0.1); color: #556270; }
+
+@keyframes rundown-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Presence bar in editor */
+#rundown-presence-bar {
+  display: none;
+}
+#rundown-presence-bar.has-editors {
+  display: flex !important;
+}
+.presence-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  margin-right: -6px;
+  border: 2px solid #0A1612;
+  flex-shrink: 0;
+}
+
+/* Collaborative edit flash */
+@keyframes rundown-cell-flash {
+  0% { background: rgba(0,230,118,0.25); }
+  100% { background: transparent; }
+}
+.rundown-cell-flash {
+  animation: rundown-cell-flash 1s ease-out;
+}
+
+/* Light theme overrides */
+body.light-theme .rundown-dash-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
+body.light-theme .rundown-dash-card:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.12); }
+body.light-theme .rundown-dash-card .card-title { color: #1a1a2e; }
+body.light-theme .rundown-dash-card .card-meta { color: #6b7280; }
+body.light-theme .rundown-status-badge.status-draft { background: rgba(107,114,128,0.12); color: #6b7280; }
+body.light-theme .rundown-status-badge.status-rehearsal { background: rgba(245,158,11,0.12); color: #d97706; }
+body.light-theme .rundown-status-badge.status-show_ready { background: rgba(22,163,74,0.1); color: #16a34a; }
+body.light-theme .rundown-status-badge.status-live { background: rgba(220,38,38,0.1); color: #dc2626; }
+body.light-theme .rundown-status-badge.status-archived { background: rgba(107,114,128,0.08); color: #9ca3af; }
+body.light-theme .presence-avatar { border-color: #fff; }
+body.light-theme #rundown-presence-bar.has-editors { background: rgba(22,163,74,0.06); border-color: rgba(22,163,74,0.15); }
