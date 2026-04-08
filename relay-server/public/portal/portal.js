@@ -10267,13 +10267,13 @@ document.addEventListener('DOMContentLoaded', function() {
   var _viewMode = localStorage.getItem('tally_view_mode') || 'simple';
 
   function applyViewMode() {
-    var label = document.getElementById('view-mode-label');
+    var labels = document.querySelectorAll('.view-mode-label');
     if (_viewMode === 'advanced') {
       document.body.classList.add('advanced-mode');
-      if (label) label.textContent = 'Advanced';
+      labels.forEach(function(l) { l.textContent = 'Advanced'; });
     } else {
       document.body.classList.remove('advanced-mode');
-      if (label) label.textContent = 'Simple';
+      labels.forEach(function(l) { l.textContent = 'Simple'; });
     }
   }
 
