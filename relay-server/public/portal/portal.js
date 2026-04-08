@@ -7524,29 +7524,75 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Rundown CRUD actions ──────────────────────────────────────────────────
 
+    // ── Rundown plan modal helper ──────────────────────────────────────────────
+    var _rundownPlanModalResolve = null;
+    var _rundownPlanModalMode = 'create'; // 'create' or 'edit'
+
+    function _openRundownPlanModal(mode, defaults) {
+      _rundownPlanModalMode = mode;
+      var backdrop = document.getElementById('modal-rundown-plan');
+      var titleInput = document.getElementById('rundown-plan-title-input');
+      var dateInput = document.getElementById('rundown-plan-date-input');
+      var modalTitle = document.getElementById('rundown-plan-modal-title');
+      var saveBtn = document.getElementById('rundown-plan-modal-save');
+      modalTitle.textContent = mode === 'edit' ? 'Edit Rundown' : 'New Rundown';
+      saveBtn.textContent = mode === 'edit' ? 'Save' : 'Create';
+      titleInput.value = (defaults && defaults.title) || (mode === 'create' ? 'Sunday Service' : '');
+      dateInput.value = (defaults && defaults.date) || (mode === 'create' ? new Date().toISOString().slice(0, 10) : '');
+      backdrop.classList.add('open');
+      setTimeout(function() { titleInput.focus(); titleInput.select(); }, 100);
+
+      return new Promise(function(resolve) { _rundownPlanModalResolve = resolve; });
+    }
+
+    function _closeRundownPlanModal(result) {
+      var backdrop = document.getElementById('modal-rundown-plan');
+      backdrop.classList.remove('open');
+      if (_rundownPlanModalResolve) {
+        _rundownPlanModalResolve(result);
+        _rundownPlanModalResolve = null;
+      }
+    }
+
+    (function() {
+      var saveBtn = document.getElementById('rundown-plan-modal-save');
+      var cancelBtn = document.getElementById('rundown-plan-modal-cancel');
+      var closeBtn = document.getElementById('rundown-plan-modal-close');
+      var backdrop = document.getElementById('modal-rundown-plan');
+      if (saveBtn) saveBtn.addEventListener('click', function() {
+        var title = document.getElementById('rundown-plan-title-input').value;
+        var date = document.getElementById('rundown-plan-date-input').value;
+        if (!title || !title.trim()) { document.getElementById('rundown-plan-title-input').focus(); return; }
+        _closeRundownPlanModal({ title: title.trim(), date: date || null });
+      });
+      if (cancelBtn) cancelBtn.addEventListener('click', function() { _closeRundownPlanModal(null); });
+      if (closeBtn) closeBtn.addEventListener('click', function() { _closeRundownPlanModal(null); });
+      if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) _closeRundownPlanModal(null); });
+    })();
+
     function rundownNew() {
-      var title = prompt('Rundown title:', 'Sunday Service');
-      if (!title || !title.trim()) return;
-      var dateStr = prompt('Service date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
-        toast('Rundown created');
-        _rundownSelectedPlanId = plan.id;
-        loadRundownManager();
-        setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      _openRundownPlanModal('create', { title: 'Sunday Service', date: new Date().toISOString().slice(0, 10) }).then(function(result) {
+        if (!result) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: result.title, serviceDate: result.date }).then(function(plan) {
+          toast('Rundown created');
+          _rundownSelectedPlanId = plan.id;
+          loadRundownManager();
+          setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownEditPlan() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
-      var title = prompt('Plan title:', _rundownSelectedPlan.title);
-      if (!title || !title.trim()) return;
-      var dateStr = prompt('Service date (YYYY-MM-DD):', _rundownSelectedPlan.serviceDate || '');
-      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id, { title: title.trim(), serviceDate: dateStr || null }).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditor(plan);
-        loadRundownManager();
-        toast('Plan updated');
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      _openRundownPlanModal('edit', { title: _rundownSelectedPlan.title, date: _rundownSelectedPlan.serviceDate || '' }).then(function(result) {
+        if (!result) return;
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id, { title: result.title, serviceDate: result.date }).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          loadRundownManager();
+          toast('Plan updated');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownDeletePlan() {
