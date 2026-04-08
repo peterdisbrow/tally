@@ -1131,4 +1131,135 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── LIVE SHOW MODE (per-plan cueing) ─────────────────────────────────────
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/start',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        await manualRundown.startLive(planId, churchId);
+        const items = plan.items || [];
+        let firstCueIdx = 0;
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].itemType !== 'section') { firstCueIdx = i; break; }
+        }
+        if (firstCueIdx !== 0) {
+          await manualRundown.updateLiveState(planId, { currentCueIndex: firstCueIdx, currentCueStartedAt: Date.now() });
+        }
+        const state = await manualRundown.getLiveState(planId);
+        res.json({ ...state, plan });
+      } catch (e) {
+        console.error('[rundown] live/start error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/stop',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        await manualRundown.stopLive(planId);
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('[rundown] live/stop error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/go',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        const items = plan.items || [];
+        let nextIdx = liveState.currentCueIndex + 1;
+        while (nextIdx < items.length && items[nextIdx].itemType === 'section') nextIdx++;
+        if (nextIdx >= items.length) return res.status(400).json({ error: 'Already at last cue' });
+        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: nextIdx, currentCueStartedAt: Date.now() });
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/go error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/back',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        const items = plan.items || [];
+        let prevIdx = liveState.currentCueIndex - 1;
+        while (prevIdx >= 0 && items[prevIdx].itemType === 'section') prevIdx--;
+        if (prevIdx < 0) return res.status(400).json({ error: 'Already at first cue' });
+        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: prevIdx, currentCueStartedAt: Date.now() });
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/back error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/goto/:index',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      const index = parseInt(req.params.index, 10);
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        const items = plan.items || [];
+        if (index < 0 || index >= items.length) return res.status(400).json({ error: 'Invalid cue index' });
+        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: index, currentCueStartedAt: Date.now() });
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/goto error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.get('/api/churches/:churchId/rundown-plans/:planId/live/state',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.json({ isLive: false });
+        res.json({ ...liveState, plan });
+      } catch (e) {
+        console.error('[rundown] live/state error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
 };
