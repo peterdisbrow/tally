@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rundown Timer - TallyConnect</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --bg-card: #1A1D27;
+    --text-primary: #F0F2F4;
+    --text-secondary: #8B9DAF;
+    --text-muted: #556270;
+    --green: #00E676;
+    --yellow: #FFA726;
+    --red: #FF5252;
+    --border: rgba(255,255,255,0.08);
+  }
+  .light {
+    --bg: #F5F6F8;
+    --bg-card: #FFFFFF;
+    --text-primary: #1A1D27;
+    --text-secondary: #556270;
+    --text-muted: #8B9DAF;
+    --border: rgba(0,0,0,0.1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: background 0.3s, color 0.3s;
+  }
+  .container {
+    width: 100%;
+    max-width: 900px;
+    padding: 24px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .cue-title {
+    font-size: clamp(24px, 5vw, 48px);
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .timer-display {
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+    font-size: clamp(72px, 20vw, 200px);
+    font-weight: 800;
+    letter-spacing: -4px;
+    line-height: 1;
+    color: var(--green);
+    transition: color 0.3s;
+  }
+  .timer-label {
+    font-size: clamp(12px, 2vw, 16px);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+  }
+  .progress-bar-container {
+    width: 100%;
+    max-width: 600px;
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 4px;
+    transition: width 1s linear, background 0.3s;
+    width: 0%;
+  }
+  .next-cue {
+    font-size: clamp(14px, 2.5vw, 20px);
+    color: var(--text-muted);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .next-cue-label {
+    font-size: clamp(10px, 1.5vw, 13px);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+  .toolbar {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+    opacity: 0.4;
+    transition: opacity 0.3s;
+  }
+  .toolbar:hover { opacity: 1; }
+  .toolbar button {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .toolbar button:hover { color: var(--text-primary); }
+  .status-bar {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0.4;
+    transition: opacity 0.3s;
+  }
+  .status-bar:hover { opacity: 1; }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+  .waiting-screen {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .waiting-screen .icon {
+    width: 64px; height: 64px; color: var(--text-muted);
+  }
+  .waiting-screen h2 {
+    font-size: 24px; font-weight: 700; color: var(--text-primary);
+  }
+  .waiting-screen p {
+    font-size: 14px; color: var(--text-secondary); line-height: 1.5;
+  }
+  @keyframes flash-red {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .flashing .timer-display { animation: flash-red 1s ease-in-out infinite; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-theme" title="Toggle light/dark theme">Light</button>
+    <button id="btn-fullscreen" title="Fullscreen">Fullscreen</button>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+
+  <!-- Waiting state -->
+  <div class="container" id="waiting-screen" style="display:flex">
+    <div class="waiting-screen">
+      <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+      </svg>
+      <h2 id="waiting-title">Waiting for Live Rundown</h2>
+      <p id="waiting-subtitle">The countdown timer will appear when the show goes live.</p>
+    </div>
+  </div>
+
+  <!-- Active timer -->
+  <div class="container" id="timer-screen" style="display:none">
+    <div class="timer-label" id="timer-label">REMAINING</div>
+    <div class="cue-title" id="cue-title"></div>
+    <div class="timer-display" id="timer-display">00:00</div>
+    <div class="progress-bar-container">
+      <div class="progress-bar-fill" id="progress-bar"></div>
+    </div>
+    <div class="next-cue-label" id="next-label" style="display:none">NEXT</div>
+    <div class="next-cue" id="next-cue"></div>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  // Extract token from URL: /rundown/timer/:token
+  var pathParts = window.location.pathname.split('/');
+  var token = pathParts[pathParts.length - 1];
+  var params = new URLSearchParams(window.location.search);
+  var roomId = params.get('room');
+
+  // DOM refs
+  var waitingScreen = document.getElementById('waiting-screen');
+  var timerScreen = document.getElementById('timer-screen');
+  var cueTitle = document.getElementById('cue-title');
+  var timerDisplay = document.getElementById('timer-display');
+  var timerLabel = document.getElementById('timer-label');
+  var progressBar = document.getElementById('progress-bar');
+  var nextLabel = document.getElementById('next-label');
+  var nextCue = document.getElementById('next-cue');
+  var statusDot = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+  var waitingTitle = document.getElementById('waiting-title');
+
+  var ws = null;
+  var reconnectTimer = null;
+  var reconnectDelay = 1000;
+  var planId = null;
+  var isLive = false;
+  var lastState = null;
+  var pollTimer = null;
+
+  function formatTime(seconds) {
+    if (seconds == null || seconds < 0) seconds = 0;
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.round(seconds % 60);
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function updateDisplay(state) {
+    lastState = state;
+
+    if (!state || !state.is_live) {
+      waitingScreen.style.display = 'flex';
+      timerScreen.style.display = 'none';
+      timerScreen.classList.remove('flashing');
+      waitingTitle.textContent = state && state.plan_title
+        ? '"' + state.plan_title + '" is not live'
+        : 'Waiting for Live Rundown';
+      isLive = false;
+      return;
+    }
+
+    isLive = true;
+    planId = state.plan_id;
+    waitingScreen.style.display = 'none';
+    timerScreen.style.display = 'flex';
+
+    // Cue title
+    cueTitle.textContent = state.cue_title || '';
+
+    // Timer value + color
+    var remaining = state.remaining_seconds;
+    var duration = state.cue_duration_seconds || 0;
+    var elapsed = state.elapsed_seconds || 0;
+
+    if (state.is_overtime) {
+      timerDisplay.textContent = '+' + formatTime(state.overtime_seconds);
+      timerDisplay.style.color = 'var(--red)';
+      timerLabel.textContent = 'OVERTIME';
+      progressBar.style.width = '100%';
+      progressBar.style.background = 'var(--red)';
+      // Flash when overtime
+      timerScreen.classList.add('flashing');
+    } else if (remaining !== null) {
+      timerDisplay.textContent = formatTime(remaining);
+      timerScreen.classList.remove('flashing');
+      if (remaining <= 30) {
+        timerDisplay.style.color = 'var(--red)';
+        timerLabel.textContent = 'REMAINING';
+        progressBar.style.background = 'var(--red)';
+      } else if (remaining <= 120) {
+        timerDisplay.style.color = 'var(--yellow)';
+        timerLabel.textContent = 'REMAINING';
+        progressBar.style.background = 'var(--yellow)';
+      } else {
+        timerDisplay.style.color = 'var(--green)';
+        timerLabel.textContent = 'REMAINING';
+        progressBar.style.background = 'var(--green)';
+      }
+      // Progress bar
+      if (duration > 0) {
+        var pct = Math.min(100, (elapsed / duration) * 100);
+        progressBar.style.width = pct + '%';
+      } else {
+        progressBar.style.width = '0%';
+      }
+    } else {
+      // No duration set - show elapsed
+      timerDisplay.textContent = formatTime(elapsed);
+      timerDisplay.style.color = 'var(--text-muted)';
+      timerLabel.textContent = 'ELAPSED';
+      progressBar.style.width = '0%';
+      progressBar.style.background = 'var(--text-muted)';
+      timerScreen.classList.remove('flashing');
+    }
+
+    // Next cue
+    if (state.next_cue_title) {
+      nextLabel.style.display = '';
+      nextCue.textContent = state.next_cue_title;
+      if (state.next_cue_duration) {
+        nextCue.textContent += ' (' + formatTime(state.next_cue_duration) + ')';
+      }
+    } else {
+      nextLabel.style.display = 'none';
+      nextCue.textContent = '';
+    }
+  }
+
+  // ─── HTTP Polling (fallback + initial state) ────────────────────────────────
+
+  function fetchTimerState() {
+    fetch('/api/public/rundown/' + encodeURIComponent(token) + '/timer')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (data) updateDisplay(data);
+      })
+      .catch(function() {});
+  }
+
+  // ─── WebSocket Connection ───────────────────────────────────────────────────
+
+  function connectWebSocket() {
+    if (ws) {
+      try { ws.close(); } catch(e) {}
+    }
+
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = proto + '//' + location.host + '/rundown-timer?token=' + encodeURIComponent(token);
+    if (roomId) wsUrl += '&room=' + encodeURIComponent(roomId);
+
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = function() {
+      statusDot.classList.add('connected');
+      statusText.textContent = 'Connected';
+      reconnectDelay = 1000;
+      // Request initial state
+      ws.send(JSON.stringify({ type: 'subscribe_timer', token: token }));
+    };
+
+    ws.onmessage = function(evt) {
+      try {
+        var msg = JSON.parse(evt.data);
+        if (msg.type === 'rundown_timer' || msg.type === 'timer_state') {
+          updateDisplay(msg);
+        } else if (msg.type === 'rundown_ended') {
+          updateDisplay({ is_live: false, plan_title: msg.planTitle });
+        } else if (msg.type === 'pong') {
+          // heartbeat response
+        }
+      } catch(e) {}
+    };
+
+    ws.onclose = function() {
+      statusDot.classList.remove('connected');
+      statusText.textContent = 'Reconnecting...';
+      scheduleReconnect();
+    };
+
+    ws.onerror = function() {
+      try { ws.close(); } catch(e) {}
+    };
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(function() {
+      connectWebSocket();
+    }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+  }
+
+  // Heartbeat
+  setInterval(function() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'ping' }));
+    }
+  }, 25000);
+
+  // ─── Theme toggle ──────────────────────────────────────────────────────────
+
+  var btnTheme = document.getElementById('btn-theme');
+  btnTheme.addEventListener('click', function() {
+    document.body.classList.toggle('light');
+    btnTheme.textContent = document.body.classList.contains('light') ? 'Dark' : 'Light';
+  });
+
+  // ─── Fullscreen ────────────────────────────────────────────────────────────
+
+  var btnFullscreen = document.getElementById('btn-fullscreen');
+  btnFullscreen.addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(function(){});
+    } else {
+      document.exitFullscreen().catch(function(){});
+    }
+  });
+
+  // ─── Init ──────────────────────────────────────────────────────────────────
+
+  fetchTimerState();
+  connectWebSocket();
+
+  // Poll as fallback every 5 seconds in case WS drops
+  pollTimer = setInterval(function() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      fetchTimerState();
+    }
+  }, 5000);
+})();
+</script>
+</body>
+</html>

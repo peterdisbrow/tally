@@ -9839,6 +9839,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    // ── Timer Display ──────────────────────────────────────────────────────────
+
+    function openTimerDisplay() {
+      if (!_rundownSelectedPlan) return;
+      var planId = _rundownSelectedPlan.id;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
+        if (data && data.timer_url) {
+          window.open(data.timer_url, '_blank');
+        }
+      }).catch(function(e) { toast('Failed to open timer: ' + e.message, true); });
+    }
+
+    var btnTimerDisplay = document.getElementById('btn-rundown-timer-display');
+    if (btnTimerDisplay) btnTimerDisplay.addEventListener('click', openTimerDisplay);
+    var btnLiveTimer = document.getElementById('btn-rundown-live-timer');
+    if (btnLiveTimer) btnLiveTimer.addEventListener('click', function() {
+      // Use the active session's plan or the selected plan
+      var plan = _rundownState ? { id: _rundownState.planId } : _rundownSelectedPlan;
+      if (!plan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/share').then(function(data) {
+        if (data && data.timer_url) window.open(data.timer_url, '_blank');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    });
+
     function rundownAdvance() {
       api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/advance').then(function(data) {
         if (data) { _rundownState = data; renderRundownActive(data); }
@@ -10341,6 +10365,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           } else {
             itemTimer.textContent = formatRundownTimer(ci.elapsedSeconds);
           }
+        }
+      }
+
+      // Mini timer in controls bar
+      var miniTimer = document.getElementById('rundown-mini-timer');
+      if (miniTimer && ci) {
+        if (ci.remainingSeconds !== null && ci.remainingSeconds !== undefined) {
+          if (ci.isOvertime) {
+            miniTimer.textContent = '+' + formatRundownTimer(ci.overtimeSeconds);
+            miniTimer.style.color = '#FF5252';
+          } else if (ci.isWarning) {
+            miniTimer.textContent = formatRundownTimer(ci.remainingSeconds);
+            miniTimer.style.color = '#FFA726';
+          } else {
+            miniTimer.textContent = formatRundownTimer(ci.remainingSeconds);
+            miniTimer.style.color = '#00E676';
+          }
+        } else {
+          miniTimer.textContent = formatRundownTimer(ci.elapsedSeconds);
+          miniTimer.style.color = '#8B9DAF';
         }
       }
 

@@ -96,9 +96,49 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
     } catch { /* column already exists — safe to ignore */ }
+    // Add live-cueing columns: start_type, hard_start_time, auto_advance
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN start_type TEXT NOT NULL DEFAULT 'soft'`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN hard_start_time TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN auto_advance INTEGER NOT NULL DEFAULT 0`);
+    } catch { /* column already exists */ }
+    // Add share_token column for public timer/share links
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN share_token TEXT`);
+    } catch { /* column already exists — safe to ignore */ }
+    try {
+      await this._db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mrp_share_token ON manual_rundown_plans(share_token) WHERE share_token IS NOT NULL`);
+    } catch { /* index already exists or SQLite partial index limitation — safe to ignore */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
+    `);
+
+    // ── Live show state table (per-plan cueing state) ─────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_live_state (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        is_live INTEGER NOT NULL DEFAULT 0,
+        current_cue_index INTEGER NOT NULL DEFAULT 0,
+        started_at BIGINT,
+        updated_at BIGINT NOT NULL,
+        current_cue_started_at BIGINT,
+        FOREIGN KEY (plan_id) REFERENCES manual_rundown_plans(id) ON DELETE CASCADE
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rls_plan
+        ON rundown_live_state(plan_id)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rls_church_live
+        ON rundown_live_state(church_id, is_live)
     `);
 
     // ── Custom columns tables ──────────────────────────────────────────────
@@ -278,7 +318,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '' }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -287,15 +327,15 @@ class ManualRundownStore {
     );
     const sortOrder = (max?.mx ?? -1) + 1;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -303,6 +343,9 @@ class ManualRundownStore {
     if (lengthSeconds !== undefined) { sets.push('length_seconds = ?'); params.push(lengthSeconds); }
     if (notes !== undefined) { sets.push('notes = ?'); params.push(notes); }
     if (assignee !== undefined) { sets.push('assignee = ?'); params.push(assignee); }
+    if (startType !== undefined) { sets.push('start_type = ?'); params.push(startType); }
+    if (hardStartTime !== undefined) { sets.push('hard_start_time = ?'); params.push(hardStartTime || null); }
+    if (autoAdvance !== undefined) { sets.push('auto_advance = ?'); params.push(autoAdvance ? 1 : 0); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -352,6 +395,9 @@ class ManualRundownStore {
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
         assignee: item.assignee,
+        startType: item.startType,
+        hardStartTime: item.hardStartTime,
+        autoAdvance: item.autoAdvance,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -377,6 +423,9 @@ class ManualRundownStore {
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
         assignee: item.assignee,
+        startType: item.startType,
+        hardStartTime: item.hardStartTime,
+        autoAdvance: item.autoAdvance,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -562,6 +611,32 @@ class ManualRundownStore {
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
+  // ─── SHARE TOKENS ──────────────────────────────────────────────────────────
+
+  async getOrCreateShareToken(planId) {
+    const row = await this._db.queryOne(
+      `SELECT share_token FROM manual_rundown_plans WHERE id = ?`, [planId]
+    );
+    if (!row) return null;
+    if (row.share_token) return row.share_token;
+    const token = uuidv4().replace(/-/g, '').slice(0, 16);
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET share_token = ?, updated_at = ? WHERE id = ?`,
+      [token, Date.now(), planId]
+    );
+    return token;
+  }
+
+  async getPlanByShareToken(token) {
+    if (!token) return null;
+    const row = await this._db.queryOne(
+      `SELECT * FROM manual_rundown_plans WHERE share_token = ?`, [token]
+    );
+    if (!row) return null;
+    const items = await this.getItems(row.id);
+    return this._toPlan(row, items);
+  }
+
   _toPlan(row, items = []) {
     return {
       id: row.id,
@@ -572,6 +647,7 @@ class ManualRundownStore {
       templateName: row.template_name || null,
       status: row.status || 'draft',
       roomId: row.room_id || '',
+      shareToken: row.share_token || null,
       source: 'manual',
       items,
       createdAt: row.created_at,
@@ -589,6 +665,9 @@ class ManualRundownStore {
       notes: row.notes || '',
       assignee: row.assignee || '',
       sortOrder: row.sort_order,
+      startType: row.start_type || 'soft',
+      hardStartTime: row.hard_start_time || null,
+      autoAdvance: !!row.auto_advance,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -603,6 +682,61 @@ class ManualRundownStore {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       isActive: !!row.is_active,
+    };
+  }
+
+  // ─── LIVE STATE ─────────────────────────────────────────────────────────────
+
+  async getLiveState(planId) {
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_live_state WHERE plan_id = ? AND is_live = 1`, [planId]
+    );
+    return row ? this._toLiveState(row) : null;
+  }
+
+  async startLive(planId, churchId) {
+    await this.ready;
+    const now = Date.now();
+    await this._db.run(`UPDATE rundown_live_state SET is_live = 0, updated_at = ? WHERE plan_id = ?`, [now, planId]);
+    const id = uuidv4();
+    await this._db.run(`
+      INSERT INTO rundown_live_state (id, plan_id, church_id, is_live, current_cue_index, started_at, updated_at, current_cue_started_at)
+      VALUES (?, ?, ?, 1, 0, ?, ?, ?)
+    `, [id, planId, churchId, now, now, now]);
+    return this._toLiveState({ id, plan_id: planId, church_id: churchId, is_live: 1, current_cue_index: 0, started_at: now, updated_at: now, current_cue_started_at: now });
+  }
+
+  async stopLive(planId) {
+    const now = Date.now();
+    await this._db.run(`UPDATE rundown_live_state SET is_live = 0, updated_at = ? WHERE plan_id = ?`, [now, planId]);
+    return { ok: true };
+  }
+
+  async updateLiveState(planId, { currentCueIndex, currentCueStartedAt }) {
+    const sets = [];
+    const params = [];
+    if (currentCueIndex !== undefined) { sets.push('current_cue_index = ?'); params.push(currentCueIndex); }
+    if (currentCueStartedAt !== undefined) { sets.push('current_cue_started_at = ?'); params.push(currentCueStartedAt); }
+    if (sets.length === 0) return;
+    sets.push('updated_at = ?');
+    params.push(Date.now());
+    params.push(planId);
+    await this._db.run(
+      `UPDATE rundown_live_state SET ${sets.join(', ')} WHERE plan_id = ? AND is_live = 1`, params
+    );
+    return this.getLiveState(planId);
+  }
+
+  _toLiveState(row) {
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      churchId: row.church_id,
+      isLive: !!row.is_live,
+      currentCueIndex: row.current_cue_index,
+      startedAt: row.started_at,
+      updatedAt: row.updated_at,
+      currentCueStartedAt: row.current_cue_started_at,
     };
   }
 }
