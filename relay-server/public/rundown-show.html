@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Show Mode — Tally</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0A0F0D;
+      --surface: #111916;
+      --surface2: #19221E;
+      --border: rgba(255,255,255,0.08);
+      --border-active: rgba(0,230,118,0.4);
+      --text: #F0F2F4;
+      --text-muted: #8B9DAF;
+      --text-dim: #556270;
+      --green: #00E676;
+      --green-bg: rgba(0,230,118,0.12);
+      --red: #FF5252;
+      --red-bg: rgba(255,82,82,0.12);
+      --amber: #FFB74D;
+      --amber-bg: rgba(255,183,77,0.12);
+      --blue: #42A5F5;
+      --blue-bg: rgba(66,165,245,0.10);
+      --section-bg: rgba(0,230,118,0.06);
+      --radius: 10px;
+      --radius-lg: 14px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Layout ── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      background: var(--green);
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-logo svg { width: 14px; height: 14px; }
+
+    .plan-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 300px;
+    }
+
+    .plan-date {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .show-clock {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 4px 10px;
+      background: var(--surface2);
+      border-radius: 6px;
+    }
+
+    /* ── Status Bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-bar.is-live {
+      border-bottom-color: var(--border-active);
+    }
+
+    .status-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    .pill-live {
+      background: var(--green-bg);
+      color: var(--green);
+      animation: pulse-live 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-live {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .pill-offline {
+      background: var(--surface2);
+      color: var(--text-dim);
+    }
+
+    .pill-elapsed {
+      background: var(--blue-bg);
+      color: var(--blue);
+      font-family: ui-monospace, 'SF Mono', monospace;
+    }
+
+    .pill-remaining {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-family: ui-monospace, 'SF Mono', monospace;
+    }
+
+    .pill-remaining.is-warning {
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    .pill-remaining.is-overtime {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .cue-counter {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .btn {
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 700;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.15s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:active { transform: scale(0.96); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .btn-go {
+      background: var(--green);
+      color: #0A0F0D;
+      font-size: 16px;
+      padding: 14px 40px;
+      min-width: 160px;
+      border-radius: var(--radius-lg);
+    }
+
+    .btn-go:hover:not(:disabled) { opacity: 0.9; }
+
+    .btn-back {
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 14px;
+      padding: 14px 24px;
+      border: 1px solid var(--border);
+    }
+
+    .btn-back:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+
+    .btn-show {
+      font-size: 12px;
+      padding: 10px 18px;
+    }
+
+    .btn-start {
+      background: var(--green);
+      color: #0A0F0D;
+    }
+
+    .btn-start:hover:not(:disabled) { opacity: 0.9; }
+
+    .btn-stop {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(255,82,82,0.3);
+    }
+
+    .btn-stop:hover:not(:disabled) { background: rgba(255,82,82,0.2); }
+
+    /* ── Cue List ── */
+    .cue-list-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      scroll-behavior: smooth;
+    }
+
+    .cue-item {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      align-items: start;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .cue-item:hover { background: rgba(255,255,255,0.02); }
+
+    .cue-item.is-current {
+      background: rgba(0,230,118,0.06);
+      border-left: 3px solid var(--green);
+      padding-left: 13px;
+    }
+
+    .cue-item.is-completed {
+      opacity: 0.45;
+    }
+
+    .cue-item.is-section {
+      grid-template-columns: 1fr;
+      background: var(--section-bg);
+      padding: 6px 16px;
+      border-bottom: none;
+      cursor: default;
+    }
+
+    .cue-item.is-section:hover { background: var(--section-bg); }
+
+    .cue-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-align: center;
+      padding-top: 2px;
+    }
+
+    .cue-item.is-current .cue-num {
+      color: var(--green);
+    }
+
+    .cue-body {
+      min-width: 0;
+    }
+
+    .cue-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+
+    .cue-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cue-item.is-section .cue-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--green);
+    }
+
+    .cue-type {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-dim);
+      background: var(--surface2);
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .cue-meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    .cue-meta .assignee { color: var(--text-muted); }
+
+    .cue-notes {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .cue-item.is-current .cue-notes {
+      -webkit-line-clamp: unset;
+      color: var(--text-muted);
+    }
+
+    .cue-columns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      margin-top: 4px;
+    }
+
+    .cue-col-chip {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .cue-col-chip .col-name {
+      font-weight: 700;
+      color: var(--text-dim);
+      margin-right: 3px;
+    }
+
+    .cue-col-chip .col-val {
+      color: var(--text-muted);
+    }
+
+    .cue-timing {
+      text-align: right;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+
+    .cue-duration {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .cue-item.is-current .cue-duration {
+      color: var(--green);
+    }
+
+    .cue-countdown {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--green);
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    .cue-countdown.is-warning { color: var(--amber); }
+    .cue-countdown.is-overtime { color: var(--red); }
+
+    .cue-elapsed-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Next Up Preview ── */
+    .next-up {
+      padding: 10px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .next-up-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .next-up-items {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .next-up-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--surface2);
+    }
+
+    .next-up-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .next-up-dur {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    /* ── Loading / Error ── */
+    .state-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      font-size: 14px;
+      color: var(--text-dim);
+      padding: 40px 16px;
+      text-align: center;
+    }
+
+    /* ── Inline Edit Modal ── */
+    .edit-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+    }
+
+    .edit-overlay.open { display: flex; }
+
+    .edit-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .edit-panel h3 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .edit-field {
+      margin-bottom: 12px;
+    }
+
+    .edit-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .edit-field input,
+    .edit-field textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--text);
+      font-family: inherit;
+      outline: none;
+    }
+
+    .edit-field input:focus,
+    .edit-field textarea:focus {
+      border-color: var(--green);
+    }
+
+    .edit-field textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+
+    .btn-cancel {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+    }
+
+    .btn-save {
+      background: var(--green);
+      color: #0A0F0D;
+      font-size: 13px;
+      padding: 8px 16px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .btn-go {
+        font-size: 15px;
+        padding: 12px 28px;
+        min-width: 120px;
+      }
+      .btn-back {
+        font-size: 13px;
+        padding: 12px 16px;
+      }
+      .plan-title { max-width: 160px; }
+      .cue-item { grid-template-columns: 28px 1fr auto; gap: 8px; padding: 8px 12px; }
+      .cue-item.is-current { padding-left: 9px; }
+      .controls { padding: 10px 12px; }
+      .cue-countdown { font-size: 16px; }
+    }
+
+    @media (max-width: 380px) {
+      .topbar { padding: 10px 12px; }
+      .status-bar { padding: 8px 12px; }
+      .btn-go { padding: 12px 20px; min-width: 100px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="state-msg" id="loading-msg">Loading show&hellip;</div>
+  </div>
+
+  <!-- Inline edit overlay -->
+  <div class="edit-overlay" id="edit-overlay">
+    <div class="edit-panel">
+      <h3>Edit Cue</h3>
+      <div class="edit-field">
+        <label for="edit-title">Title</label>
+        <input type="text" id="edit-title">
+      </div>
+      <div class="edit-field">
+        <label for="edit-duration">Duration (minutes)</label>
+        <input type="number" id="edit-duration" min="0" step="0.5">
+      </div>
+      <div class="edit-field">
+        <label for="edit-notes">Notes</label>
+        <textarea id="edit-notes" rows="3"></textarea>
+      </div>
+      <div class="edit-actions">
+        <button class="btn btn-cancel" id="edit-cancel">Cancel</button>
+        <button class="btn btn-save" id="edit-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    // ── State ──
+    var token = location.pathname.split('/').pop();
+    var apiBase = location.origin;
+    var plan = null;        // { id, title, serviceDate, items, columns, liveState, ... }
+    var items = [];
+    var columns = [];
+    var liveState = null;   // { isLive, currentCueIndex, startedAt, currentCueStartedAt, ... }
+    var pollTimer = null;
+    var clockTimer = null;
+    var countdownTimer = null;
+    var editingItemId = null;
+
+    // ── API helper ──
+    function showApi(method, path, body) {
+      var opts = {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin'
+      };
+      if (body && method !== 'GET') opts.body = JSON.stringify(body);
+      return fetch(apiBase + path, opts).then(function(r) {
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || r.statusText); });
+        return r.json();
+      });
+    }
+
+    // ── Format helpers ──
+    function fmtDuration(secs) {
+      if (!secs || secs <= 0) return '0:00';
+      var m = Math.floor(secs / 60);
+      var s = Math.floor(secs % 60);
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function fmtClock(ms) {
+      var d = new Date(ms);
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var s = d.getSeconds();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s + ' ' + ampm;
+    }
+
+    function fmtElapsed(startedAt) {
+      if (!startedAt) return '--:--';
+      var elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      var h = Math.floor(elapsed / 3600);
+      var m = Math.floor((elapsed % 3600) / 60);
+      var s = elapsed % 60;
+      if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function totalRemaining() {
+      if (!liveState || !liveState.isLive) return null;
+      var idx = liveState.currentCueIndex || 0;
+      var total = 0;
+      // Remaining on current cue
+      var currentItem = items[idx];
+      if (currentItem && currentItem.lengthSeconds > 0) {
+        var cueElapsed = (Date.now() - (liveState.currentCueStartedAt || liveState.startedAt || Date.now())) / 1000;
+        total += Math.max(0, currentItem.lengthSeconds - cueElapsed);
+      }
+      // Sum future cues
+      for (var i = idx + 1; i < items.length; i++) {
+        if (items[i].itemType !== 'section') {
+          total += items[i].lengthSeconds || 0;
+        }
+      }
+      return Math.round(total);
+    }
+
+    function escapeHtml(str) {
+      var d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    function stripHtml(html) {
+      var d = document.createElement('div');
+      d.innerHTML = html || '';
+      return d.textContent || '';
+    }
+
+    // ── Load plan data ──
+    function loadPlan() {
+      return showApi('GET', '/api/public/rundown/' + encodeURIComponent(token))
+        .then(function(data) {
+          plan = data;
+          items = data.items || [];
+          columns = data.columns || [];
+          liveState = data.liveState || { isLive: false, currentCueIndex: -1 };
+          return data;
+        });
+    }
+
+    // ── Poll live state ──
+    function pollLiveState() {
+      showApi('GET', '/api/public/rundown/' + encodeURIComponent(token) + '/timer')
+        .then(function(timer) {
+          if (!timer) return;
+          var wasLive = liveState && liveState.isLive;
+          if (timer.is_live) {
+            liveState = {
+              isLive: true,
+              currentCueIndex: timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0),
+              startedAt: timer.started_at || (liveState ? liveState.startedAt : Date.now()),
+              currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : (liveState ? liveState.currentCueStartedAt : Date.now()),
+              timer: timer
+            };
+          } else {
+            liveState = { isLive: false, currentCueIndex: -1 };
+          }
+          renderStatusBar();
+          renderCueList();
+          renderNextUp();
+          if (timer.is_live && !wasLive) scrollToActive();
+        })
+        .catch(function() { /* silent */ });
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(pollLiveState, 1500);
+    }
+
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    // ── Live controls ──
+    function liveStart() {
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/start')
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          liveState = {
+            isLive: true,
+            currentCueIndex: data.currentCueIndex || 0,
+            startedAt: data.startedAt || Date.now(),
+            currentCueStartedAt: data.currentCueStartedAt || Date.now()
+          };
+          render();
+          scrollToActive();
+        })
+        .catch(function(e) { alert('Start failed: ' + e.message); });
+    }
+
+    function liveStop() {
+      if (!confirm('End the live show?')) return;
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/stop')
+        .then(function() {
+          liveState = { isLive: false, currentCueIndex: -1 };
+          render();
+        })
+        .catch(function(e) { alert('Stop failed: ' + e.message); });
+    }
+
+    function liveGo() {
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/go')
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          liveState = {
+            isLive: true,
+            currentCueIndex: data.currentCueIndex,
+            startedAt: data.startedAt || (liveState ? liveState.startedAt : Date.now()),
+            currentCueStartedAt: data.currentCueStartedAt || Date.now()
+          };
+          render();
+          scrollToActive();
+        })
+        .catch(function(e) {
+          if (e.message === 'Already at last cue') return;
+          alert('Go failed: ' + e.message);
+        });
+    }
+
+    function liveBack() {
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/back')
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          liveState = {
+            isLive: true,
+            currentCueIndex: data.currentCueIndex,
+            startedAt: data.startedAt || (liveState ? liveState.startedAt : Date.now()),
+            currentCueStartedAt: data.currentCueStartedAt || Date.now()
+          };
+          render();
+          scrollToActive();
+        })
+        .catch(function(e) {
+          if (e.message === 'Already at first cue') return;
+          alert('Back failed: ' + e.message);
+        });
+    }
+
+    function liveGoto(index) {
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/goto/' + index)
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          liveState = {
+            isLive: true,
+            currentCueIndex: data.currentCueIndex,
+            startedAt: data.startedAt || (liveState ? liveState.startedAt : Date.now()),
+            currentCueStartedAt: data.currentCueStartedAt || Date.now()
+          };
+          render();
+          scrollToActive();
+        })
+        .catch(function(e) { alert('Goto failed: ' + e.message); });
+    }
+
+    // ── Inline edit ──
+    function openEdit(itemId) {
+      var item = items.find(function(it) { return it.id === itemId; });
+      if (!item) return;
+      editingItemId = itemId;
+      document.getElementById('edit-title').value = item.title || '';
+      document.getElementById('edit-duration').value = item.lengthSeconds ? (item.lengthSeconds / 60) : '';
+      document.getElementById('edit-notes').value = item.notesText || stripHtml(item.notes || '');
+      document.getElementById('edit-overlay').classList.add('open');
+      document.getElementById('edit-title').focus();
+    }
+
+    function closeEdit() {
+      editingItemId = null;
+      document.getElementById('edit-overlay').classList.remove('open');
+    }
+
+    function saveEdit() {
+      if (!editingItemId) return;
+      var title = document.getElementById('edit-title').value.trim();
+      var durMin = parseFloat(document.getElementById('edit-duration').value) || 0;
+      var notes = document.getElementById('edit-notes').value.trim();
+      var body = {};
+      if (title) body.title = title;
+      body.lengthSeconds = Math.round(durMin * 60);
+      body.notes = notes;
+
+      showApi('PUT', '/api/public/rundown/' + encodeURIComponent(token) + '/items/' + encodeURIComponent(editingItemId), body)
+        .then(function(data) {
+          if (data.plan && data.plan.items) {
+            items = data.plan.items;
+          } else {
+            // Update locally
+            var item = items.find(function(it) { return it.id === editingItemId; });
+            if (item) {
+              if (title) item.title = title;
+              item.lengthSeconds = body.lengthSeconds;
+              item.notes = notes;
+              item.notesText = notes;
+            }
+          }
+          closeEdit();
+          renderCueList();
+          renderNextUp();
+        })
+        .catch(function(e) { alert('Save failed: ' + e.message); });
+    }
+
+    // ── Scroll ──
+    function scrollToActive() {
+      if (!liveState || !liveState.isLive) return;
+      var el = document.querySelector('.cue-item.is-current');
+      if (el) {
+        setTimeout(function() {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+      }
+    }
+
+    // ── Keyboard shortcuts ──
+    document.addEventListener('keydown', function(e) {
+      // Don't capture when editing
+      if (editingItemId) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'Enter') {
+        e.preventDefault();
+        if (liveState && liveState.isLive) liveGo();
+      } else if (e.key === 'ArrowLeft' || e.key === 'Backspace') {
+        e.preventDefault();
+        if (liveState && liveState.isLive) liveBack();
+      } else if (e.key === 'Escape') {
+        if (document.getElementById('edit-overlay').classList.contains('open')) {
+          closeEdit();
+        }
+      }
+    });
+
+    // ── Render ──
+    function render() {
+      var app = document.getElementById('app');
+      app.innerHTML = '';
+
+      // Topbar
+      var topbar = document.createElement('div');
+      topbar.className = 'topbar';
+      topbar.innerHTML =
+        '<div class="topbar-left">' +
+          '<div class="brand-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0A0F0D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>' +
+          '<div>' +
+            '<div class="plan-title">' + escapeHtml(plan ? plan.title : '') + '</div>' +
+            (plan && plan.serviceDate ? '<div class="plan-date">' + escapeHtml(plan.serviceDate) + '</div>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="topbar-right">' +
+          '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
+        '</div>';
+      app.appendChild(topbar);
+
+      // Status bar
+      var sb = document.createElement('div');
+      sb.className = 'status-bar' + (liveState && liveState.isLive ? ' is-live' : '');
+      sb.id = 'status-bar';
+      app.appendChild(sb);
+      renderStatusBar();
+
+      // Controls
+      var ctrl = document.createElement('div');
+      ctrl.className = 'controls';
+      ctrl.id = 'controls';
+      app.appendChild(ctrl);
+      renderControls();
+
+      // Cue list
+      var cueWrap = document.createElement('div');
+      cueWrap.className = 'cue-list-wrap';
+      cueWrap.id = 'cue-list';
+      app.appendChild(cueWrap);
+      renderCueList();
+
+      // Next up
+      var nextUp = document.createElement('div');
+      nextUp.className = 'next-up';
+      nextUp.id = 'next-up';
+      app.appendChild(nextUp);
+      renderNextUp();
+
+      // Start timers
+      startClockTimer();
+      startCountdownTimer();
+      scrollToActive();
+    }
+
+    function renderStatusBar() {
+      var sb = document.getElementById('status-bar');
+      if (!sb) return;
+      var isLive = liveState && liveState.isLive;
+      sb.className = 'status-bar' + (isLive ? ' is-live' : '');
+
+      var html = '<div class="status-pills">';
+      if (isLive) {
+        html += '<span class="pill pill-live">LIVE</span>';
+        html += '<span class="pill pill-elapsed" id="pill-elapsed">Elapsed ' + fmtElapsed(liveState.startedAt) + '</span>';
+        var rem = totalRemaining();
+        var remClass = 'pill pill-remaining';
+        if (rem !== null && rem <= 30 && rem > 0) remClass += ' is-warning';
+        if (rem !== null && rem <= 0) remClass += ' is-overtime';
+        html += '<span class="' + remClass + '" id="pill-remaining">Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--') + '</span>';
+      } else {
+        html += '<span class="pill pill-offline">STANDBY</span>';
+        var totalDur = items.reduce(function(sum, it) { return sum + (it.itemType === 'section' ? 0 : (it.lengthSeconds || 0)); }, 0);
+        html += '<span class="pill pill-remaining">Total ' + fmtDuration(totalDur) + '</span>';
+      }
+      html += '</div>';
+
+      if (isLive) {
+        var cueIdx = liveState.currentCueIndex || 0;
+        var nonSectionCount = items.filter(function(it) { return it.itemType !== 'section'; }).length;
+        var currentSeq = 0;
+        for (var i = 0; i <= cueIdx && i < items.length; i++) {
+          if (items[i].itemType !== 'section') currentSeq++;
+        }
+        html += '<span class="cue-counter">Cue ' + currentSeq + ' / ' + nonSectionCount + '</span>';
+      }
+
+      sb.innerHTML = html;
+    }
+
+    function renderControls() {
+      var ctrl = document.getElementById('controls');
+      if (!ctrl) return;
+      var isLive = liveState && liveState.isLive;
+      var html = '';
+
+      if (isLive) {
+        var isFirst = true;
+        var isLast = true;
+        var idx = liveState.currentCueIndex || 0;
+        // Check if there's a previous non-section cue
+        for (var p = idx - 1; p >= 0; p--) {
+          if (items[p] && items[p].itemType !== 'section') { isFirst = false; break; }
+        }
+        // Check if there's a next non-section cue
+        for (var n = idx + 1; n < items.length; n++) {
+          if (items[n] && items[n].itemType !== 'section') { isLast = false; break; }
+        }
+
+        html += '<button class="btn btn-stop btn-show" id="btn-stop">End Show</button>';
+        html += '<button class="btn btn-back" id="btn-back"' + (isFirst ? ' disabled' : '') + '>';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>';
+        html += 'Back</button>';
+        html += '<button class="btn btn-go" id="btn-go"' + (isLast ? ' disabled' : '') + '>GO';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+        html += '</button>';
+      } else {
+        html += '<button class="btn btn-start btn-show" id="btn-start">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+        html += ' Start Show</button>';
+      }
+
+      ctrl.innerHTML = html;
+
+      // Bind events
+      var btnStart = document.getElementById('btn-start');
+      var btnStop = document.getElementById('btn-stop');
+      var btnGo = document.getElementById('btn-go');
+      var btnBack = document.getElementById('btn-back');
+      if (btnStart) btnStart.addEventListener('click', liveStart);
+      if (btnStop) btnStop.addEventListener('click', liveStop);
+      if (btnGo) btnGo.addEventListener('click', liveGo);
+      if (btnBack) btnBack.addEventListener('click', liveBack);
+    }
+
+    function renderCueList() {
+      var wrap = document.getElementById('cue-list');
+      if (!wrap) return;
+      var isLive = liveState && liveState.isLive;
+      var activeIdx = isLive ? (liveState.currentCueIndex || 0) : -1;
+
+      var html = '';
+      var seq = 0;
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var isSection = item.itemType === 'section';
+        var isCurrent = isLive && i === activeIdx;
+        var isCompleted = isLive && i < activeIdx;
+        if (!isSection) seq++;
+
+        var cls = 'cue-item';
+        if (isSection) cls += ' is-section';
+        if (isCurrent) cls += ' is-current';
+        if (isCompleted) cls += ' is-completed';
+
+        if (isSection) {
+          html += '<div class="' + cls + '"><div class="cue-title">' + escapeHtml(item.title) + '</div></div>';
+          continue;
+        }
+
+        html += '<div class="' + cls + '" data-index="' + i + '" data-id="' + escapeHtml(item.id) + '">';
+
+        // Number
+        html += '<div class="cue-num">' + seq + '</div>';
+
+        // Body
+        html += '<div class="cue-body">';
+        html += '<div class="cue-title-row">';
+        html += '<span class="cue-title">' + escapeHtml(item.title) + '</span>';
+        if (item.itemType && item.itemType !== 'other') {
+          html += '<span class="cue-type">' + escapeHtml(item.itemType) + '</span>';
+        }
+        html += '</div>';
+
+        // Meta
+        var metaParts = [];
+        if (item.assignee) metaParts.push('<span class="assignee">' + escapeHtml(item.assignee) + '</span>');
+        if (item.startType === 'hard' && item.hardStartTime) metaParts.push('Hard start: ' + escapeHtml(item.hardStartTime));
+        if (metaParts.length) html += '<div class="cue-meta">' + metaParts.join(' &middot; ') + '</div>';
+
+        // Notes (expanded for current cue)
+        var notesText = item.notesText || stripHtml(item.notes || '');
+        if (notesText) {
+          html += '<div class="cue-notes">' + escapeHtml(notesText) + '</div>';
+        }
+
+        // Custom columns
+        if (columns.length && item.customCells && item.customCells.length) {
+          var colHtml = '';
+          for (var c = 0; c < item.customCells.length; c++) {
+            var cell = item.customCells[c];
+            if (cell.value) {
+              colHtml += '<span class="cue-col-chip"><span class="col-name">' + escapeHtml(cell.name) + ':</span><span class="col-val">' + escapeHtml(cell.value) + '</span></span>';
+            }
+          }
+          if (colHtml) html += '<div class="cue-columns">' + colHtml + '</div>';
+        }
+
+        html += '</div>'; // end cue-body
+
+        // Timing
+        html += '<div class="cue-timing">';
+        if (isCurrent && item.lengthSeconds > 0) {
+          var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+          var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+          var cueRemaining = Math.max(0, item.lengthSeconds - cueElapsed);
+          var isOvertime = cueElapsed > item.lengthSeconds;
+          var isWarning = !isOvertime && cueRemaining <= 30;
+          var cdClass = 'cue-countdown';
+          if (isOvertime) cdClass += ' is-overtime';
+          else if (isWarning) cdClass += ' is-warning';
+          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '-' + fmtDuration(cueElapsed - item.lengthSeconds) : fmtDuration(cueRemaining)) + '</div>';
+          html += '<div class="cue-elapsed-label">' + (isOvertime ? 'overtime' : 'remaining') + '</div>';
+        } else {
+          html += '<div class="cue-duration">' + fmtDuration(item.lengthSeconds || 0) + '</div>';
+        }
+        html += '</div>';
+
+        html += '</div>'; // end cue-item
+      }
+
+      wrap.innerHTML = html;
+
+      // Bind click events
+      var cueItems = wrap.querySelectorAll('.cue-item[data-index]');
+      for (var j = 0; j < cueItems.length; j++) {
+        (function(el) {
+          el.addEventListener('click', function(e) {
+            var index = parseInt(el.dataset.index, 10);
+            if (isLive) {
+              liveGoto(index);
+            }
+          });
+          el.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            openEdit(el.dataset.id);
+          });
+        })(cueItems[j]);
+      }
+    }
+
+    function renderNextUp() {
+      var wrap = document.getElementById('next-up');
+      if (!wrap) return;
+      var isLive = liveState && liveState.isLive;
+      if (!isLive) { wrap.style.display = 'none'; return; }
+      wrap.style.display = '';
+
+      var activeIdx = liveState.currentCueIndex || 0;
+      var upcoming = [];
+      for (var i = activeIdx + 1; i < items.length && upcoming.length < 3; i++) {
+        if (items[i].itemType !== 'section') upcoming.push(items[i]);
+      }
+
+      if (!upcoming.length) {
+        wrap.innerHTML = '<div class="next-up-label">End of show</div>';
+        return;
+      }
+
+      var html = '<div class="next-up-label">Next Up</div><div class="next-up-items">';
+      for (var u = 0; u < upcoming.length; u++) {
+        html += '<div class="next-up-item">';
+        html += '<span class="next-up-title">' + escapeHtml(upcoming[u].title) + '</span>';
+        html += '<span class="next-up-dur">' + fmtDuration(upcoming[u].lengthSeconds || 0) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+      wrap.innerHTML = html;
+    }
+
+    // ── Timers ──
+    function startClockTimer() {
+      if (clockTimer) clearInterval(clockTimer);
+      clockTimer = setInterval(function() {
+        var el = document.getElementById('show-clock');
+        if (el) el.textContent = fmtClock(Date.now());
+      }, 1000);
+    }
+
+    function startCountdownTimer() {
+      if (countdownTimer) clearInterval(countdownTimer);
+      countdownTimer = setInterval(function() {
+        if (!liveState || !liveState.isLive) return;
+
+        // Update cue countdown
+        var cdEl = document.getElementById('cue-cd');
+        if (cdEl) {
+          var activeIdx = liveState.currentCueIndex || 0;
+          var currentItem = items[activeIdx];
+          if (currentItem && currentItem.lengthSeconds > 0) {
+            var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+            var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+            var cueRemaining = Math.max(0, currentItem.lengthSeconds - cueElapsed);
+            var isOvertime = cueElapsed > currentItem.lengthSeconds;
+            var isWarning = !isOvertime && cueRemaining <= 30;
+            cdEl.className = 'cue-countdown' + (isOvertime ? ' is-overtime' : isWarning ? ' is-warning' : '');
+            cdEl.textContent = isOvertime ? '-' + fmtDuration(cueElapsed - currentItem.lengthSeconds) : fmtDuration(cueRemaining);
+            var labelEl = cdEl.nextElementSibling;
+            if (labelEl) labelEl.textContent = isOvertime ? 'overtime' : 'remaining';
+          }
+        }
+
+        // Update elapsed pill
+        var elapsedEl = document.getElementById('pill-elapsed');
+        if (elapsedEl) {
+          elapsedEl.textContent = 'Elapsed ' + fmtElapsed(liveState.startedAt);
+        }
+
+        // Update remaining pill
+        var remEl = document.getElementById('pill-remaining');
+        if (remEl) {
+          var rem = totalRemaining();
+          var cls = 'pill pill-remaining';
+          if (rem !== null && rem <= 30 && rem > 0) cls += ' is-warning';
+          if (rem !== null && rem <= 0) cls += ' is-overtime';
+          remEl.className = cls;
+          remEl.textContent = 'Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--');
+        }
+      }, 250);
+    }
+
+    // ── Edit overlay events ──
+    document.getElementById('edit-cancel').addEventListener('click', closeEdit);
+    document.getElementById('edit-save').addEventListener('click', saveEdit);
+    document.getElementById('edit-overlay').addEventListener('click', function(e) {
+      if (e.target === this) closeEdit();
+    });
+
+    // ── Init ──
+    loadPlan()
+      .then(function() {
+        render();
+        startPolling();
+      })
+      .catch(function(err) {
+        document.getElementById('loading-msg').textContent = 'Failed to load: ' + (err.message || 'Unknown error');
+      });
+  })();
+  </script>
+</body>
+</html>

@@ -93,6 +93,11 @@ app.get('/rundown/timer/:token', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-timer.html'));
 });
 
+// Serve the standalone show mode page at /rundown/show/:token
+app.get('/rundown/show/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-show.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
