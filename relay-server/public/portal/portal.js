@@ -11333,7 +11333,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (token) {
         showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + token, window.location.origin).href);
       }
-      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl };
+      var readonlyShowUrl = showUrl ? _rundownBuildModeUrl(showUrl, '', { readonly: '1' }) : '';
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, readonlyShowUrl: readonlyShowUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -11509,6 +11510,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               badgeBg: 'rgba(255,167,38,0.10)',
               badgeColor: '#FFB74D',
               accent: '#FFB74D',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Follow-along view',
+              title: 'Read-Only Show Mode',
+              description: 'Live-following cue list with countdown and Next Up panel, but no Go/Back/Start/Stop controls. Safe to share with volunteers.',
+              url: urls.readonlyShowUrl,
+              badge: 'Read only',
+              badgeBg: 'rgba(0,230,118,0.12)',
+              badgeColor: '#00E676',
+              accent: '#00E676',
             })
           ],
           { label: 'Operator', bg: 'rgba(255,167,38,0.10)', fg: '#FFB74D' }
@@ -11624,6 +11635,47 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           );
         }
       }
+
+      // Build "Share with Team" text message templates for each column
+      var teamShareItems = [];
+      var planTitle = (_rundownSelectedPlan && _rundownSelectedPlan.title) ? _rundownSelectedPlan.title : 'the rundown';
+      if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
+        for (var t = 0; t < _rundownColumns.length; t++) {
+          var col = _rundownColumns[t];
+          if (!col || !col.id) continue;
+          var colUrl = _rundownBuildOperatorOutputUrl(publicUrl || '', col.id);
+          if (!colUrl) continue;
+          var msgText = 'Hey! Here\u2019s your ' + (col.name || col.id) + ' feed for ' + planTitle + ':\n' + colUrl + '\n\nThis link auto-updates and follows the live cue.';
+          teamShareItems.push(
+            '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+              + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">'
+                + '<div style="font-size:12px;font-weight:700;color:#F0F2F4">' + escapeHtml(col.name || col.id) + '</div>'
+                + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" data-share-copy-url="' + escapeHtml(colUrl) + '" data-copy-default-label="Copy Link">Copy Link</button>'
+              + '</div>'
+              + '<div style="font-size:11px;color:#8B9DAF;line-height:1.5;white-space:pre-line;background:rgba(255,255,255,0.03);padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.05)">' + escapeHtml(msgText) + '</div>'
+              + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px;margin-top:6px" data-share-copy-url="' + escapeHtml(msgText) + '" data-copy-default-label="Copy Message">Copy Message</button>'
+            + '</div>'
+          );
+        }
+      }
+      // Also add a generic read-only show link message
+      if (urls.readonlyShowUrl) {
+        var roMsg = 'Hey! Follow along with ' + planTitle + ' live:\n' + urls.readonlyShowUrl + '\n\nYou\u2019ll see the current cue, countdown, and what\u2019s next.';
+        teamShareItems.unshift(
+          '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">'
+              + '<div style="font-size:12px;font-weight:700;color:#F0F2F4">Live Follow-Along (Read Only)</div>'
+              + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" data-share-copy-url="' + escapeHtml(urls.readonlyShowUrl) + '" data-copy-default-label="Copy Link">Copy Link</button>'
+            + '</div>'
+            + '<div style="font-size:11px;color:#8B9DAF;line-height:1.5;white-space:pre-line;background:rgba(255,255,255,0.03);padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.05)">' + escapeHtml(roMsg) + '</div>'
+            + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px;margin-top:6px" data-share-copy-url="' + escapeHtml(roMsg) + '" data-copy-default-label="Copy Message">Copy Message</button>'
+          + '</div>'
+        );
+      }
+      var teamShareWrap = document.getElementById('rundown-share-team-wrap');
+      var teamShareList = document.getElementById('rundown-share-team-links');
+      if (teamShareList) teamShareList.innerHTML = teamShareItems.join('');
+      if (teamShareWrap) teamShareWrap.style.display = teamShareItems.length ? '' : 'none';
 
       if (operatorLinks) operatorLinks.innerHTML = operatorItems.join('');
       if (operatorWrap) {
