@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Show Mode — Tally</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -687,6 +687,83 @@
 
     .col-toggle-backdrop.open { display: block; }
 
+    /* ── Styled Confirm Modal ── */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 300;
+      padding: 16px;
+    }
+    .confirm-overlay.open { display: flex; }
+    .confirm-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+    }
+    .confirm-panel h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .confirm-panel p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .confirm-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+    .confirm-actions .btn-cancel {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 10px 20px;
+      border: 1px solid var(--border);
+    }
+    .confirm-actions .btn-danger {
+      background: var(--red-bg);
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 20px;
+      border: 1px solid rgba(255,82,82,0.3);
+    }
+    .confirm-actions .btn-danger:hover { background: rgba(255,82,82,0.2); }
+
+    /* ── Connection Lost Banner ── */
+    .connection-lost-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      padding: 8px 16px;
+      background: linear-gradient(90deg, #FF5252, #FF7043);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      display: none;
+      animation: banner-pulse 2s ease-in-out infinite;
+    }
+    .connection-lost-banner.visible { display: block; }
+    @keyframes banner-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.85; }
+    }
+
     /* ── Responsive ── */
     @media (max-width: 600px) {
       .btn-go {
@@ -713,8 +790,21 @@
   </style>
 </head>
 <body>
+  <div class="connection-lost-banner" id="connection-lost-banner">Connection lost — reconnecting...</div>
   <div class="app" id="app">
     <div class="state-msg" id="loading-msg">Loading show&hellip;</div>
+  </div>
+
+  <!-- Styled confirm modal -->
+  <div class="confirm-overlay" id="confirm-overlay">
+    <div class="confirm-panel">
+      <h3 id="confirm-title">End Show</h3>
+      <p id="confirm-message">End the live show? This will stop all timers and cue tracking.</p>
+      <div class="confirm-actions">
+        <button class="btn btn-cancel" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="confirm-ok">End Show</button>
+      </div>
+    </div>
   </div>
 
   <!-- Inline edit overlay -->
@@ -749,9 +839,10 @@
     var query = new URLSearchParams(location.search);
     var isReadOnly = query.get('readonly') === '1';
     var apiBase = location.origin;
-    var plan = null;        // { id, title, serviceDate, items, columns, liveState, ... }
+    var plan = null;        // { id, title, serviceDate, items, columns, liveState, roomName, ... }
     var items = [];
     var columns = [];
+    var roomName = '';
     var liveState = null;   // { isLive, currentCueIndex, startedAt, currentCueStartedAt, ... }
     var pollTimer = null;
     var clockTimer = null;
@@ -759,6 +850,8 @@
     var editingItemId = null;
     var hiddenColumns = {};
     var showStorageKey = 'tally.rundown-show-display:' + token;
+    var connBanner = document.getElementById('connection-lost-banner');
+    var consecutivePollFailures = 0;
 
     function readShowPrefs() {
       try {
@@ -916,6 +1009,49 @@
       return d.textContent || '';
     }
 
+    // ── Styled Confirm ──
+    var _confirmResolve = null;
+    function showConfirm(title, message, okLabel) {
+      var overlay = document.getElementById('confirm-overlay');
+      var titleEl = document.getElementById('confirm-title');
+      var msgEl = document.getElementById('confirm-message');
+      var okBtn = document.getElementById('confirm-ok');
+      if (titleEl) titleEl.textContent = title || 'Confirm';
+      if (msgEl) msgEl.textContent = message || '';
+      if (okBtn) okBtn.textContent = okLabel || 'OK';
+      if (overlay) overlay.classList.add('open');
+      return new Promise(function(resolve) { _confirmResolve = resolve; });
+    }
+    function _closeConfirm(result) {
+      var overlay = document.getElementById('confirm-overlay');
+      if (overlay) overlay.classList.remove('open');
+      if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+    }
+    (function() {
+      var okBtn = document.getElementById('confirm-ok');
+      var cancelBtn = document.getElementById('confirm-cancel');
+      var overlay = document.getElementById('confirm-overlay');
+      if (okBtn) okBtn.addEventListener('click', function() { _closeConfirm(true); });
+      if (cancelBtn) cancelBtn.addEventListener('click', function() { _closeConfirm(false); });
+      if (overlay) overlay.addEventListener('click', function(e) { if (e.target === overlay) _closeConfirm(false); });
+    })();
+
+    // ── Screen Wake Lock ──
+    var wakeLock = null;
+    function requestWakeLock() {
+      if (!('wakeLock' in navigator) || wakeLock) return;
+      navigator.wakeLock.request('screen').then(function(lock) {
+        wakeLock = lock;
+        lock.addEventListener('release', function() { wakeLock = null; });
+      }).catch(function() {});
+    }
+    function releaseWakeLock() {
+      if (wakeLock) { wakeLock.release().catch(function() {}); wakeLock = null; }
+    }
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible' && liveState && liveState.isLive) requestWakeLock();
+    });
+
     // ── Load plan data ──
     function loadPlan() {
       return showApi('GET', '/api/public/rundown/' + encodeURIComponent(token))
@@ -924,6 +1060,7 @@
           items = data.items || [];
           columns = data.columns || [];
           liveState = data.liveState || { isLive: false, currentCueIndex: -1 };
+          roomName = data.roomName || '';
           return data;
         });
     }
@@ -933,6 +1070,8 @@
       showApi('GET', '/api/public/rundown/' + encodeURIComponent(token) + '/timer')
         .then(function(timer) {
           if (!timer) return;
+          consecutivePollFailures = 0;
+          if (connBanner) connBanner.classList.remove('visible');
           var wasLive = liveState && liveState.isLive;
           if (timer.is_live) {
             liveState = {
@@ -950,7 +1089,10 @@
           renderNextUp();
           if (timer.is_live && !wasLive) scrollToActive();
         })
-        .catch(function() { /* silent */ });
+        .catch(function() {
+          consecutivePollFailures++;
+          if (consecutivePollFailures >= 2 && connBanner) connBanner.classList.add('visible');
+        });
     }
 
     function startPolling() {
@@ -973,6 +1115,7 @@
             startedAt: data.startedAt || Date.now(),
             currentCueStartedAt: data.currentCueStartedAt || Date.now()
           };
+          requestWakeLock();
           render();
           scrollToActive();
         })
@@ -980,13 +1123,16 @@
     }
 
     function liveStop() {
-      if (!confirm('End the live show?')) return;
-      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/stop')
-        .then(function() {
-          liveState = { isLive: false, currentCueIndex: -1 };
-          render();
-        })
-        .catch(function(e) { alert('Stop failed: ' + e.message); });
+      showConfirm('End Show', 'End the live show? This will stop all timers and cue tracking.', 'End Show').then(function(ok) {
+        if (!ok) return;
+        showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/stop')
+          .then(function() {
+            liveState = { isLive: false, currentCueIndex: -1 };
+            releaseWakeLock();
+            render();
+          })
+          .catch(function(e) { alert('Stop failed: ' + e.message); });
+      });
     }
 
     function liveGo() {
@@ -1136,6 +1282,7 @@
           '<div class="brand-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0A0F0D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>' +
           '<div>' +
             '<div class="plan-title">' + escapeHtml(plan ? plan.title : '') + '</div>' +
+            (roomName ? '<div class="plan-date" style="color:var(--green);font-weight:600;font-size:11px">' + escapeHtml(roomName) + '</div>' : '') +
             (plan && plan.serviceDate ? '<div class="plan-date">' + escapeHtml(plan.serviceDate) + '</div>' : '') +
           '</div>' +
         '</div>' +

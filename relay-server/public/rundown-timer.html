@@ -281,9 +281,10 @@
     display: flex;
     gap: 8px;
     z-index: 10;
-    opacity: 0.4;
-    transition: opacity 0.3s;
+    opacity: 1;
+    transition: opacity 0.8s;
   }
+  .toolbar.faded { opacity: 0.4; }
   .toolbar:hover { opacity: 1; }
   .toolbar button {
     background: var(--bg-card);
@@ -425,6 +426,26 @@
   .waiting-screen p {
     font-size: 14px; color: var(--text-secondary); line-height: 1.5;
   }
+  .connection-lost-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, #FF5252, #FF7043);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    display: none;
+    animation: banner-pulse 2s ease-in-out infinite;
+  }
+  .connection-lost-banner.visible { display: block; }
+  @keyframes banner-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+  }
   @keyframes flash-red {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
@@ -437,8 +458,9 @@
 </style>
 </head>
 <body>
-  <div class="toolbar">
-    <button id="btn-help" class="secondary" title="Keyboard shortcuts (?)">Help</button>
+  <div class="connection-lost-banner" id="connection-lost-banner">Connection lost — reconnecting...</div>
+  <div class="toolbar" id="toolbar">
+    <button id="btn-help" class="secondary" title="Keyboard shortcuts (?)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> Settings</button>
     <button id="btn-mirror" class="secondary" title="Mirror the output (M)">Mirror</button>
     <button id="btn-text-down" class="secondary" title="Smaller text (-)">A-</button>
     <button id="btn-text-up" class="secondary" title="Larger text (+)">A+</button>
@@ -596,6 +618,7 @@
   var isLive = false;
   var lastState = null;
   var pollTimer = null;
+  var connBanner = document.getElementById('connection-lost-banner');
   var displayPrefs = {
     mirror: false,
     scale: 1,
@@ -758,6 +781,7 @@
         ? '"' + state.plan_title + '" is not live'
         : 'Waiting for Live Rundown';
       isLive = false;
+      releaseWakeLock();
       if (isStageMode) {
         stageSide.style.display = 'none';
         stagePlanTitle.textContent = state && state.plan_title ? state.plan_title : 'Waiting for live rundown';
@@ -771,6 +795,7 @@
     planId = state.plan_id;
     waitingScreen.style.display = 'none';
     timerScreen.style.display = 'flex';
+    requestWakeLock();
 
     // Cue title
     cueTitle.textContent = state.cue_title || '';
@@ -895,6 +920,7 @@
       statusDot.classList.add('connected');
       statusText.textContent = 'Connected';
       reconnectDelay = 1000;
+      if (connBanner) connBanner.classList.remove('visible');
       // Request initial state
       ws.send(JSON.stringify({ type: 'subscribe_timer', token: token }));
     };
@@ -915,6 +941,7 @@
     ws.onclose = function() {
       statusDot.classList.remove('connected');
       statusText.textContent = 'Reconnecting...';
+      if (connBanner) connBanner.classList.add('visible');
       scheduleReconnect();
     };
 
@@ -1056,6 +1083,29 @@
       window.location.href = buildRundownUrl('prompter');
     }
   });
+
+  // ─── Screen Wake Lock ──────────────────────────────────────────────────────
+  var wakeLock = null;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    navigator.wakeLock.request('screen').then(function(lock) {
+      wakeLock = lock;
+      lock.addEventListener('release', function() { wakeLock = null; });
+    }).catch(function() {});
+  }
+  function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release().catch(function() {}); wakeLock = null; }
+  }
+  // Re-acquire on visibility change (browser releases on tab switch)
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && isLive) requestWakeLock();
+  });
+
+  // ─── Toolbar auto-fade ─────────────────────────────────────────────────────
+  (function() {
+    var tb = document.getElementById('toolbar');
+    if (tb) setTimeout(function() { tb.classList.add('faded'); }, 10000);
+  })();
 
   // ─── Init ──────────────────────────────────────────────────────────────────
 

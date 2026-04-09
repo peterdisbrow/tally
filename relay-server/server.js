@@ -3247,8 +3247,14 @@ app.get('/api/public/rundown/:token', async (req, res) => {
       manualRundown.getAttachmentsByPlan(plan.id),
       manualRundown.getLiveState(plan.id),
     ]);
+    // Look up room name if plan is assigned to a room
+    let roomName = '';
+    if (plan.roomId) {
+      const room = await queryClient.queryOne('SELECT name FROM rooms WHERE id = ?', [plan.roomId]);
+      if (room) roomName = room.name || '';
+    }
     const requestBase = `${req.protocol}://${req.get('host')}`;
-    res.json(buildPublicRundownPayload({
+    const payload = buildPublicRundownPayload({
       plan,
       share,
       liveState,
@@ -3258,7 +3264,9 @@ app.get('/api/public/rundown/:token', async (req, res) => {
       attachmentUrlBuilder: (attachment) => (
         `${requestBase}/api/public/rundown/${encodeURIComponent(share.token)}/attachments/${encodeURIComponent(attachment.id)}`
       ),
-    }));
+    });
+    if (roomName) payload.roomName = roomName;
+    res.json(payload);
   } catch (e) {
     console.error('[rundown-public] error:', e);
     res.status(500).json({ error: 'Internal server error' });

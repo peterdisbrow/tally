@@ -9194,7 +9194,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (titleEl) titleEl.textContent = p ? p.title : 'PCO Plan';
         if (dateEl) dateEl.textContent = p && p.serviceDate ? p.serviceDate : '';
         // Hide edit/share controls for PCO plans
-        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = 'none'; });
+        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"],[data-action="rundownCopyShareLink"]').forEach(function(b) { b.style.display = 'none'; });
         var showModeBtn = document.getElementById('btn-rundown-show-mode');
         if (showModeBtn) showModeBtn.style.display = 'none';
         _updateSharedBadge(false);
@@ -10214,11 +10214,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 defaultHardStart = _rundownTimingCache.timingData[itemIndex].start;
               }
             }
-            // Prompt for hard start time
-            styledPrompt('Hard Start Time', 'Enter wall-clock time (HH:MM, 24h)', defaultHardStart).then(function(val) {
+            // Prompt for hard start time — native time picker
+            styledPrompt('Hard Start Time', 'Select the wall-clock start time', defaultHardStart, 'time').then(function(val) {
               if (!val) return;
               val = val.trim();
-              if (!/^\d{1,2}:\d{2}$/.test(val)) { toast('Invalid time format. Use HH:MM', true); return; }
+              if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(val)) { toast('Invalid time format', true); return; }
+              // Normalize to HH:MM (strip seconds if present)
+              val = val.split(':').slice(0, 2).join(':');
               _rundownInlineSave(itemId, { startType: 'hard', hardStartTime: val });
             });
           }
@@ -11046,22 +11048,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (_styledConfirmResolve) { _styledConfirmResolve(result); _styledConfirmResolve = null; }
     }
 
-    function styledPrompt(title, label, defaultValue) {
+    function styledPrompt(title, label, defaultValue, inputType) {
       var backdrop = document.getElementById('modal-styled-prompt');
       var titleEl = document.getElementById('styled-prompt-title');
       var labelEl = document.getElementById('styled-prompt-label');
       var input = document.getElementById('styled-prompt-input');
       if (titleEl) titleEl.textContent = title || 'Enter Value';
       if (labelEl) labelEl.textContent = label || '';
-      if (input) input.value = defaultValue || '';
+      if (input) {
+        input.type = inputType || 'text';
+        input.value = defaultValue || '';
+      }
       if (backdrop) backdrop.classList.add('open');
-      setTimeout(function() { if (input) { input.focus(); input.select(); } }, 100);
+      setTimeout(function() { if (input) { input.focus(); if (input.type === 'text') input.select(); } }, 100);
       return new Promise(function(resolve) { _styledPromptResolve = resolve; });
     }
 
     function _closeStyledPrompt(result) {
       var backdrop = document.getElementById('modal-styled-prompt');
       if (backdrop) backdrop.classList.remove('open');
+      var input = document.getElementById('styled-prompt-input');
+      if (input) input.type = 'text';
       if (_styledPromptResolve) { _styledPromptResolve(result); _styledPromptResolve = null; }
     }
 
@@ -13264,6 +13271,24 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownShare':
         if (typeof rundownShare === 'function') rundownShare();
+        break;
+      case 'rundownCopyShareLink':
+        if (!_rundownSelectedPlan) break;
+        (function() {
+          function doCopy(share) {
+            _rundownShareData = share;
+            var urls = _rundownResolveShareUrls(share || {});
+            var url = _rundownBuildModeUrl(urls.publicUrl, '', {});
+            if (!url) { toast('No share link available', true); return; }
+            _rundownCopyTextToClipboard(url, null, 'Share Link');
+            toast('Public view link copied to clipboard');
+          }
+          if (_rundownShareData && _rundownShareData.share_token) {
+            doCopy(_rundownShareData);
+          } else {
+            _rundownEnsureShare(_rundownSelectedPlan.id).then(doCopy).catch(function(e) { toast('Failed: ' + e.message, true); });
+          }
+        })();
         break;
       case 'rundownEditPlan':
         if (typeof rundownEditPlan === 'function') rundownEditPlan();
