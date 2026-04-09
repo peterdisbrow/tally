@@ -960,11 +960,13 @@
     var token = location.pathname.split('/').pop();
     var query = new URLSearchParams(location.search);
     var isReadOnly = query.get('readonly') === '1';
+    // Follow-room mode: subscribe to a specific room's live state regardless of the plan token.
+    var followRoomId = query.get('follow') || null; // e.g. ?follow=main-sanctuary
     var apiBase = location.origin;
     var plan = null;        // { id, title, serviceDate, items, columns, liveState, roomName, ... }
     var items = [];
     var columns = [];
-    var roomName = '';
+    var roomName = followRoomId ? ('Room: ' + followRoomId) : '';
     var liveState = null;   // { isLive, currentCueIndex, startedAt, currentCueStartedAt, ... }
     var pollTimer = null;
     var clockTimer = null;
@@ -1296,7 +1298,9 @@
     function connectWebSocket() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var wsUrl = proto + '//' + location.host + '/rundown-show?token=' + encodeURIComponent(token);
+      var wsUrl = followRoomId
+        ? proto + '//' + location.host + '/rundown-follow?token=' + encodeURIComponent(token) + '&roomId=' + encodeURIComponent(followRoomId)
+        : proto + '//' + location.host + '/rundown-show?token=' + encodeURIComponent(token);
       try { ws = new WebSocket(wsUrl); } catch (e) { startPolling(); return; }
 
       ws.onopen = function() {
@@ -1312,6 +1316,46 @@
           var msg = JSON.parse(event.data);
           if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
             handleTimerMessage(msg);
+          } else if (msg.type === 'rundown_state' || msg.type === 'rundown_position') {
+            // follow-room mode: build a timer-compatible message from rundown state
+            if (followRoomId && msg.currentItem) {
+              handleTimerMessage({
+                is_live: true,
+                cue_title: msg.currentItem.title || '',
+                cue_index: msg.currentIndex,
+                total_cues: msg.totalItems,
+                cue_duration_seconds: msg.currentItem.lengthSeconds || 0,
+                elapsed_seconds: msg.currentItem.elapsedSeconds || 0,
+                remaining_seconds: msg.currentItem.remainingSeconds,
+                is_overtime: msg.currentItem.isOvertime || false,
+                overtime_seconds: msg.currentItem.overtimeSeconds || 0,
+                is_warning: msg.currentItem.isWarning || false,
+                next_cue_title: null,
+                plan_id: msg.planId,
+                plan_title: msg.planTitle || roomName,
+                room_id: msg.roomId || followRoomId,
+                started_at: msg.startedAt,
+                timestamp: msg.timestamp || Date.now(),
+                server_timestamp: msg.server_timestamp || msg.timestamp || Date.now(),
+              });
+            }
+          } else if (msg.type === 'rundown_tick' && followRoomId) {
+            // Patch live state from tick in follow mode
+            if (liveState && liveState.timer) {
+              liveState.timer.elapsed_seconds = msg.elapsedSeconds;
+              liveState.timer.remaining_seconds = msg.remainingSeconds;
+              liveState.timer.is_overtime = msg.isOvertime;
+              liveState.timer.overtime_seconds = msg.overtimeSeconds;
+              liveState.timer.is_warning = msg.isWarning;
+              renderStatusBar();
+            }
+          } else if (msg.type === 'follow_room_info') {
+            // Update room name display from server
+            if (msg.roomId) {
+              roomName = msg.roomId;
+              var titleEl = document.getElementById('show-plan-title');
+              if (titleEl && !plan) titleEl.textContent = 'Following: ' + msg.roomId;
+            }
           } else if (msg.type === 'rundown_ended') {
             liveState = { isLive: false, currentCueIndex: -1 };
             renderStatusBar();
@@ -1531,8 +1575,9 @@
         '<div class="topbar-left">' +
           '<div class="brand-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0A0F0D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>' +
           '<div>' +
-            '<div class="plan-title">' + escapeHtml(plan ? plan.title : '') + '</div>' +
-            (roomName ? '<div class="plan-date" style="color:var(--green);font-weight:600;font-size:11px">' + escapeHtml(roomName) + '</div>' : '') +
+            '<div class="plan-title" id="show-plan-title">' + escapeHtml(plan ? plan.title : (followRoomId ? 'Following: ' + followRoomId : '')) + '</div>' +
+            (followRoomId ? '<div class="plan-date" style="color:#00E676;font-weight:700;font-size:10px;letter-spacing:0.5px;text-transform:uppercase">Following Room</div>' : '') +
+            (roomName && !followRoomId ? '<div class="plan-date" style="color:var(--green);font-weight:600;font-size:11px">' + escapeHtml(roomName) + '</div>' : '') +
             (plan && plan.serviceDate ? '<div class="plan-date">' + escapeHtml(plan.serviceDate) + '</div>' : '') +
           '</div>' +
         '</div>' +

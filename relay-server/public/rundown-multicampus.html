@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Campus Monitor — Tally</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0A0F0D;
+      --surface: #111916;
+      --surface2: #161e1a;
+      --border: rgba(255,255,255,0.07);
+      --text: #F0F2F4;
+      --text-muted: #8B9DAF;
+      --text-dim: #556270;
+      --green: #00E676;
+      --green-bg: rgba(0,230,118,0.10);
+      --green-border: rgba(0,230,118,0.20);
+      --amber: #FFA726;
+      --red: #FF5252;
+      --blue: #4FC3F7;
+      --ready: #00E676;
+      --standby: #FFA726;
+      --issue: #FF5252;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      background: var(--green);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-logo svg { width: 14px; height: 14px; }
+
+    .topbar-title { font-size: 15px; font-weight: 700; color: var(--text); }
+    .topbar-sub { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+
+    .topbar-clock {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+      color: var(--green);
+      letter-spacing: 1px;
+    }
+
+    .connection-badge {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 3px 9px;
+      border-radius: 20px;
+      background: rgba(86,98,112,0.2);
+      color: var(--text-dim);
+      transition: background 0.3s, color 0.3s;
+    }
+    .connection-badge.connected {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    /* ── Auth gate ── */
+    .auth-gate {
+      max-width: 420px;
+      margin: 80px auto;
+      text-align: center;
+      padding: 0 20px;
+    }
+    .auth-gate h2 { font-size: 22px; margin-bottom: 8px; }
+    .auth-gate p { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+
+    /* ── Grid layout ── */
+    .monitor-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      padding: 20px;
+    }
+
+    /* ── Room panel ── */
+    .room-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      position: relative;
+    }
+
+    .room-panel:hover {
+      border-color: rgba(255,255,255,0.15);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    .room-panel.is-live {
+      border-color: var(--green-border);
+      box-shadow: 0 0 0 1px var(--green-border);
+    }
+
+    .room-panel.expanded {
+      grid-column: 1 / -1;
+      cursor: default;
+    }
+
+    /* Panel header */
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+    }
+
+    .panel-room-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .panel-live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .room-panel.is-live .panel-live-dot {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Ready status dot */
+    .ready-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .ready-dot.ready   { background: var(--ready); box-shadow: 0 0 5px var(--ready); }
+    .ready-dot.standby { background: var(--standby); }
+    .ready-dot.issue   { background: var(--issue); box-shadow: 0 0 5px var(--issue); animation: blink 1s step-start infinite; }
+    .ready-dot.unknown { background: var(--text-dim); }
+
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    .ready-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .ready-label.ready   { color: var(--ready); }
+    .ready-label.standby { color: var(--standby); }
+    .ready-label.issue   { color: var(--issue); }
+    .ready-label.unknown { color: var(--text-dim); }
+
+    /* Panel body */
+    .panel-body {
+      padding: 14px 16px;
+    }
+
+    .current-cue-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .current-cue-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      line-height: 1.3;
+      min-height: 22px;
+      word-break: break-word;
+    }
+
+    .timer-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .timer-display {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+      color: var(--green);
+      letter-spacing: 1px;
+      line-height: 1;
+    }
+    .timer-display.warning { color: var(--amber); }
+    .timer-display.overtime { color: var(--red); }
+
+    .timer-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+    }
+
+    .next-cue-row {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 30px;
+    }
+
+    .offline-msg {
+      font-size: 13px;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    /* Expanded panel extras */
+    .expanded-cue-list {
+      padding: 0 16px 16px;
+    }
+
+    .expanded-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .collapse-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .collapse-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+
+    .cue-list-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+      border-left: 3px solid transparent;
+    }
+    .cue-list-item.is-current {
+      background: var(--green-bg);
+      border-left-color: var(--green);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .cue-duration {
+      margin-left: auto;
+      font-size: 11px;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    /* Department dots */
+    .dept-dots {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .dept-chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 2px 7px;
+    }
+
+    .dept-chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dept-chip-dot.ready   { background: var(--ready); }
+    .dept-chip-dot.standby { background: var(--standby); }
+    .dept-chip-dot.issue   { background: var(--issue); }
+
+    /* Status change buttons */
+    .status-controls {
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .status-btn {
+      flex: 1;
+      padding: 6px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .status-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+    .status-btn.active-ready   { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+    .status-btn.active-standby { background: rgba(255,167,38,0.1); border-color: rgba(255,167,38,0.25); color: var(--amber); }
+    .status-btn.active-issue   { background: rgba(255,82,82,0.1); border-color: rgba(255,82,82,0.3); color: var(--red); }
+
+    /* Empty / loading states */
+    .state-box {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-dim);
+    }
+    .state-box h3 { font-size: 16px; margin-bottom: 8px; color: var(--text-muted); }
+    .state-box p  { font-size: 13px; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .monitor-grid { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
+      .topbar { padding: 10px 14px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="brand-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0A0F0D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="topbar-title">Multi-Campus Monitor</div>
+        <div class="topbar-sub" id="monitor-subtitle">Loading...</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span class="connection-badge" id="conn-badge">Connecting</span>
+      <div class="topbar-clock" id="topbar-clock"></div>
+    </div>
+  </div>
+
+  <div id="main-content">
+    <div class="state-box" id="loading-state">
+      <h3>Loading rooms...</h3>
+      <p>Authenticating with portal session</p>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    var apiBase = location.origin;
+    var churchId = null;
+    var rooms = [];                     // [{ id, name }]
+    var liveSessionsByRoom = {};        // roomId → session state
+    var readyStatusByRoom = {};         // roomId → { status, label }
+    var deptStatusByRoom = {};          // roomId → [{ deptName, status }]
+    var expandedRoom = null;            // roomId of expanded panel (null = none)
+    var clockTimer = null;
+    var sseSource = null;
+    var reconnectTimer = null;
+
+    // ── Clock ──
+    function fmtClock(ts) {
+      var d = new Date(ts);
+      var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function startClock() {
+      var el = document.getElementById('topbar-clock');
+      function tick() { if (el) el.textContent = fmtClock(Date.now()); }
+      tick();
+      clockTimer = setInterval(tick, 1000);
+    }
+
+    // ── Utilities ──
+    function esc(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatTimer(sec) {
+      if (sec == null || sec < 0) sec = 0;
+      var m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    // ── API helpers ──
+    function apiFetch(method, path, body) {
+      var opts = {
+        method: method,
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+      };
+      var csrf = (document.cookie.match(/tally_csrf=([^;]+)/) || [])[1]
+             || (document.cookie.match(/csrf_token=([^;]+)/) || [])[1]
+             || '';
+      if (csrf) opts.headers['x-csrf-token'] = csrf;
+      if (body) opts.body = JSON.stringify(body);
+      return fetch(apiBase + path, opts).then(function(r) {
+        if (r.status === 401 || r.status === 403) throw new Error('auth');
+        if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'Request failed'); });
+        return r.json();
+      });
+    }
+
+    // ── Auth & bootstrap ──
+    function bootstrap() {
+      apiFetch('GET', '/api/church/me').then(function(data) {
+        churchId = data.churchId || data.id;
+        var churchName = data.name || 'Your Church';
+        document.getElementById('monitor-subtitle').textContent = churchName;
+        document.title = 'Monitor — ' + churchName + ' — Tally';
+        return loadRooms();
+      }).catch(function(e) {
+        if (e.message === 'auth') {
+          document.getElementById('main-content').innerHTML =
+            '<div class="state-box"><h3>Sign in required</h3><p>Open this page from your Tally portal.</p></div>';
+        } else {
+          document.getElementById('main-content').innerHTML =
+            '<div class="state-box"><h3>Failed to load</h3><p>' + esc(e.message) + '</p></div>';
+        }
+      });
+    }
+
+    function loadRooms() {
+      return apiFetch('GET', '/api/churches/' + churchId + '/rooms').then(function(data) {
+        rooms = (data.rooms || data || []).filter(function(r) { return !r.deleted_at && !r.deletedAt; });
+        return Promise.all([
+          loadLiveSessions(),
+          loadReadyStatuses(),
+        ]);
+      }).then(function() {
+        startSSE();
+        render();
+      });
+    }
+
+    function loadLiveSessions() {
+      return apiFetch('GET', '/api/churches/' + churchId + '/live-rundown/state?all=1').then(function(data) {
+        liveSessionsByRoom = {};
+        var sessions = data.sessions || data.active || [];
+        sessions.forEach(function(s) {
+          var rid = s.roomId || s.room_id || '';
+          liveSessionsByRoom[rid] = s.state || s;
+        });
+      }).catch(function() {}); // non-fatal
+    }
+
+    function loadReadyStatuses() {
+      return apiFetch('GET', '/api/churches/' + churchId + '/room-ready-status').then(function(data) {
+        readyStatusByRoom = {};
+        (data.statuses || []).forEach(function(s) {
+          readyStatusByRoom[s.roomId] = s;
+        });
+      }).catch(function() {}); // non-fatal
+    }
+
+    function loadDeptStatuses(roomId) {
+      return apiFetch('GET', '/api/churches/' + churchId + '/room-ready-status/' + encodeURIComponent(roomId) + '/departments').then(function(data) {
+        deptStatusByRoom[roomId] = data.departments || [];
+        render();
+      }).catch(function() {});
+    }
+
+    // ── SSE for live updates ──
+    function startSSE() {
+      if (sseSource) { try { sseSource.close(); } catch {} }
+      sseSource = new EventSource(apiBase + '/api/church/stream');
+
+      sseSource.onopen = function() {
+        var badge = document.getElementById('conn-badge');
+        if (badge) { badge.textContent = 'Live'; badge.classList.add('connected'); }
+      };
+
+      sseSource.onmessage = function(event) {
+        try {
+          var data = JSON.parse(event.data);
+          handleSSEMessage(data);
+        } catch (e) {}
+      };
+
+      sseSource.onerror = function() {
+        var badge = document.getElementById('conn-badge');
+        if (badge) { badge.textContent = 'Reconnecting'; badge.classList.remove('connected'); }
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(startSSE, 5000);
+      };
+    }
+
+    function handleSSEMessage(data) {
+      var type = data.type || '';
+      var roomId = data.roomId || '';
+
+      if (type === 'rundown_state' || type === 'rundown_position') {
+        liveSessionsByRoom[roomId] = data;
+        renderPanel(roomId);
+      } else if (type === 'rundown_tick') {
+        if (liveSessionsByRoom[roomId]) {
+          var s = liveSessionsByRoom[roomId];
+          if (s.currentItem) {
+            s.currentItem.elapsedSeconds = data.elapsedSeconds;
+            s.currentItem.remainingSeconds = data.remainingSeconds;
+            s.currentItem.isOvertime = data.isOvertime;
+            s.currentItem.overtimeSeconds = data.overtimeSeconds;
+            s.currentItem.isWarning = data.isWarning;
+          }
+          s.scheduleDelta = data.scheduleDelta;
+          renderPanelTimerOnly(roomId);
+        }
+      } else if (type === 'rundown_ended') {
+        delete liveSessionsByRoom[roomId];
+        renderPanel(roomId);
+      } else if (type === 'room_status_update') {
+        readyStatusByRoom[roomId] = { status: data.status, label: data.label || '', updatedAt: data.updatedAt };
+        renderPanel(roomId);
+      } else if (type === 'room_dept_status_update') {
+        if (!deptStatusByRoom[roomId]) deptStatusByRoom[roomId] = [];
+        var depts = deptStatusByRoom[roomId];
+        var idx = depts.findIndex(function(d) { return d.deptName === data.deptName; });
+        if (idx >= 0) depts[idx] = data; else depts.push(data);
+        renderPanel(roomId);
+      }
+    }
+
+    // ── Rendering ──
+    function render() {
+      if (!rooms.length) {
+        document.getElementById('main-content').innerHTML =
+          '<div class="state-box"><h3>No rooms configured</h3><p>Add rooms in Equipment settings.</p></div>';
+        return;
+      }
+      var grid = document.createElement('div');
+      grid.className = 'monitor-grid';
+      grid.id = 'monitor-grid';
+      rooms.forEach(function(room) {
+        var panel = buildPanel(room);
+        grid.appendChild(panel);
+      });
+      document.getElementById('main-content').innerHTML = '';
+      document.getElementById('main-content').appendChild(grid);
+    }
+
+    function renderPanel(roomId) {
+      var grid = document.getElementById('monitor-grid');
+      if (!grid) { render(); return; }
+      var room = rooms.find(function(r) { return r.id === roomId; });
+      if (!room) return;
+      var existing = document.getElementById('panel-' + roomId);
+      if (!existing) { render(); return; }
+      var newPanel = buildPanel(room);
+      existing.replaceWith(newPanel);
+    }
+
+    function renderPanelTimerOnly(roomId) {
+      var timerEl = document.getElementById('timer-' + roomId);
+      var session = liveSessionsByRoom[roomId];
+      if (!timerEl || !session || !session.currentItem) return;
+      var ci = session.currentItem;
+      var isOvertime = ci.isOvertime;
+      var isWarning = ci.isWarning;
+      var displaySec = (ci.remainingSeconds != null) ? ci.remainingSeconds : ci.elapsedSeconds;
+      var prefix = isOvertime ? '+' : '';
+      timerEl.textContent = prefix + formatTimer(isOvertime ? ci.overtimeSeconds : displaySec);
+      timerEl.className = 'timer-display' + (isOvertime ? ' overtime' : isWarning ? ' warning' : '');
+    }
+
+    function buildPanel(room) {
+      var roomId = room.id;
+      var session = liveSessionsByRoom[roomId] || null;
+      var isLive = !!session;
+      var readySt = readyStatusByRoom[roomId] || null;
+      var depts = deptStatusByRoom[roomId] || null;
+      var isExpanded = expandedRoom === roomId;
+
+      var panel = document.createElement('div');
+      panel.className = 'room-panel' + (isLive ? ' is-live' : '') + (isExpanded ? ' expanded' : '');
+      panel.id = 'panel-' + roomId;
+
+      // Header
+      var header = document.createElement('div');
+      header.className = 'panel-header';
+
+      var statusHtml = '';
+      if (readySt) {
+        var st = readySt.status || 'unknown';
+        statusHtml = '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">' +
+          '<div class="ready-dot ' + esc(st) + '"></div>' +
+          '<span class="ready-label ' + esc(st) + '">' + esc(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>' +
+          '</div>';
+      }
+
+      header.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">' +
+          '<div class="panel-live-dot"></div>' +
+          '<span class="panel-room-name">' + esc(room.name || roomId) + '</span>' +
+          (isLive ? '<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--green);flex-shrink:0">LIVE</span>' : '') +
+        '</div>' +
+        statusHtml;
+
+      panel.appendChild(header);
+
+      // Body
+      var body = document.createElement('div');
+      body.className = 'panel-body';
+
+      if (isLive && session.currentItem) {
+        var ci = session.currentItem;
+        var isOvertime = ci.isOvertime;
+        var isWarning = ci.isWarning;
+        var displaySec = (ci.remainingSeconds != null) ? ci.remainingSeconds : ci.elapsedSeconds;
+        var timerPrefix = isOvertime ? '+' : '';
+        var timerClass = 'timer-display' + (isOvertime ? ' overtime' : isWarning ? ' warning' : '');
+        var timerLabel = ci.remainingSeconds != null ? (isOvertime ? 'OVERTIME' : 'REMAINING') : 'ELAPSED';
+
+        // Find next cue
+        var nextCueTitle = null;
+        if (session.items && session.currentIndex != null) {
+          for (var i = session.currentIndex + 1; i < session.items.length; i++) {
+            if (session.items[i] && session.items[i].itemType !== 'section') {
+              nextCueTitle = session.items[i].title;
+              break;
+            }
+          }
+        }
+
+        body.innerHTML =
+          '<div class="current-cue-label">Current Cue</div>' +
+          '<div class="current-cue-title">' + esc(ci.title) + '</div>' +
+          '<div class="timer-row">' +
+            '<div class="' + timerClass + '" id="timer-' + esc(roomId) + '">' + timerPrefix + formatTimer(isOvertime ? ci.overtimeSeconds : displaySec) + '</div>' +
+            '<div class="timer-label">' + timerLabel + '</div>' +
+          '</div>' +
+          '<div class="next-cue-row">' +
+            (nextCueTitle ? '<span style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Next </span>' + esc(nextCueTitle) : '<span style="color:var(--text-dim)">No next cue</span>') +
+          '</div>';
+      } else if (isLive) {
+        body.innerHTML = '<div class="current-cue-label">Live</div><div class="current-cue-title">' + esc(session.planTitle || 'In Progress') + '</div><div class="offline-msg" style="padding:8px 0">Cue data loading...</div>';
+      } else {
+        body.innerHTML = '<div class="offline-msg">Not live</div>';
+      }
+
+      // Dept dots
+      if (depts && depts.length) {
+        var deptHtml = '<div class="dept-dots">';
+        depts.forEach(function(d) {
+          deptHtml += '<div class="dept-chip"><div class="dept-chip-dot ' + esc(d.status || 'standby') + '"></div>' + esc(d.deptName) + '</div>';
+        });
+        deptHtml += '</div>';
+        body.innerHTML += deptHtml;
+      }
+
+      panel.appendChild(body);
+
+      // Status controls (always visible for quick updates)
+      var controls = document.createElement('div');
+      controls.className = 'status-controls';
+      var curStatus = readySt ? readySt.status : null;
+      ['ready', 'standby', 'issue'].forEach(function(s) {
+        var btn = document.createElement('button');
+        btn.className = 'status-btn' + (curStatus === s ? ' active-' + s : '');
+        btn.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+        btn.title = 'Set ' + room.name + ' to ' + s;
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          setRoomStatus(roomId, s);
+        });
+        controls.appendChild(btn);
+      });
+      panel.appendChild(controls);
+
+      // Expanded detail: full cue list
+      if (isExpanded && isLive && session.items && session.items.length) {
+        var expandedHeader = document.createElement('div');
+        expandedHeader.className = 'expanded-header';
+        expandedHeader.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Service Order — ' + esc(session.planTitle || '') + '</span>';
+        var collapseBtn = document.createElement('button');
+        collapseBtn.className = 'collapse-btn';
+        collapseBtn.textContent = 'Collapse';
+        collapseBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          expandedRoom = null;
+          render();
+        });
+        expandedHeader.appendChild(collapseBtn);
+        panel.appendChild(expandedHeader);
+
+        var cueList = document.createElement('div');
+        cueList.className = 'expanded-cue-list';
+        session.items.forEach(function(item, idx) {
+          var isCurrent = idx === session.currentIndex;
+          var li = document.createElement('div');
+          li.className = 'cue-list-item' + (isCurrent ? ' is-current' : '');
+          li.innerHTML =
+            '<span style="font-size:10px;color:var(--text-dim);font-family:monospace;min-width:20px">' + (idx + 1) + '</span>' +
+            '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + esc(item.title) + '</span>' +
+            (item.lengthSeconds ? '<span class="cue-duration">' + formatTimer(item.lengthSeconds) + '</span>' : '');
+          cueList.appendChild(li);
+        });
+        panel.appendChild(cueList);
+      }
+
+      // Click to expand/collapse (not on buttons)
+      panel.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return;
+        if (isExpanded) {
+          expandedRoom = null;
+        } else {
+          expandedRoom = roomId;
+          if (!deptStatusByRoom[roomId]) loadDeptStatuses(roomId);
+        }
+        render();
+      });
+
+      return panel;
+    }
+
+    // ── Set room status ──
+    function setRoomStatus(roomId, status) {
+      apiFetch('PUT', '/api/churches/' + churchId + '/room-ready-status/' + encodeURIComponent(roomId), { status: status })
+        .then(function(result) {
+          readyStatusByRoom[roomId] = result;
+          renderPanel(roomId);
+        })
+        .catch(function(e) { console.error('Failed to set room status:', e.message); });
+    }
+
+    // ── Init ──
+    startClock();
+    bootstrap();
+  })();
+  </script>
+
+</body>
+</html>

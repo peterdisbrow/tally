@@ -4818,26 +4818,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Room Management ──────────────────────────────────────────────────────
+    // Room ready-check status colors and labels
+    var _READY_STATUS_COLORS = { ready: '#00E676', standby: '#FFA726', issue: '#FF5252' };
+    var _roomReadyStatuses = {}; // roomId → { status, label }
+
+    function _readyDot(status) {
+      var color = _READY_STATUS_COLORS[status] || '#556270';
+      var label = status ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'Unknown';
+      return '<span style="display:inline-flex;align-items:center;gap:5px">' +
+        '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0;display:inline-block' + (status === 'issue' ? ';animation:blink 1s step-start infinite' : '') + '"></span>' +
+        '<span style="color:' + color + ';font-size:11px;font-weight:700">' + escapeHtml(label) + '</span>' +
+        '</span>';
+    }
+
     async function loadRooms() {
       var container = document.getElementById('rooms-list');
       if (!container) return;
       try {
-        var data = await api('GET', '/api/church/rooms');
+        var [data, readyData] = await Promise.all([
+          api('GET', '/api/church/rooms'),
+          api('GET', '/api/churches/' + CHURCH_ID + '/room-ready-status').catch(function() { return { statuses: [] }; }),
+        ]);
         var rooms = data.rooms || [];
+        // Index ready statuses by roomId
+        _roomReadyStatuses = {};
+        (readyData.statuses || []).forEach(function(s) { _roomReadyStatuses[s.roomId] = s; });
+
         if (!rooms.length) {
           container.innerHTML = '<div style="text-align:center;padding:16px;color:#556270">No rooms yet. Add a room to get started.</div>';
           return;
         }
-        var html = '<div class="table-wrap"><table><thead><tr><th>Room</th><th class="advanced-only">Assigned Desktop</th><th>Status</th><th class="advanced-only"></th></tr></thead><tbody>';
+        var html = '<div class="table-wrap"><table><thead><tr><th>Room</th><th class="advanced-only">Assigned Desktop</th><th>Connection</th><th>Ready</th><th class="advanced-only"></th></tr></thead><tbody>';
         for (var r of rooms) {
           var assigned = r.assignedDesktops && r.assignedDesktops.length > 0
             ? r.assignedDesktops.map(function(d) { return escapeHtml(d.name); }).join(', ')
             : '<span style="color:#556270">Unassigned</span>';
           var hasDesktop = r.assignedDesktops && r.assignedDesktops.length > 0;
+          var readySt = _roomReadyStatuses[r.id];
+          var readyHtml = readySt ? _readyDot(readySt.status) : '<span style="color:#556270;font-size:11px">—</span>';
+          // Quick status-change buttons (inline)
+          var statusBtns = ['ready', 'standby', 'issue'].map(function(s) {
+            var active = readySt && readySt.status === s;
+            var colors = { ready: '#00E676', standby: '#FFA726', issue: '#FF5252' };
+            return '<button class="btn-small btn-secondary" data-action="setRoomReadyStatus" data-room-id="' + escapeHtml(r.id) + '" data-status="' + s + '" ' +
+              'style="font-size:10px;padding:2px 7px' + (active ? ';color:' + colors[s] + ';border-color:' + colors[s] : '') + '">' +
+              s.charAt(0).toUpperCase() + s.slice(1) + '</button>';
+          }).join(' ');
           html += '<tr>';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#6B7280">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td class="advanced-only">' + assigned + '</td>';
           html += '<td>' + (hasDesktop ? '<span style="color:#00E676">' + SVG.dotGreen + ' Connected</span>' : '<span style="color:#556270">' + SVG.dotRed + ' No Desktop</span>') + '</td>';
+          html += '<td>' + readyHtml + '<div style="margin-top:4px;display:flex;gap:3px">' + statusBtns + '</div></td>';
           html += '<td class="advanced-only" style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
@@ -4845,6 +4876,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         container.innerHTML = html;
       } catch (e) {
         container.innerHTML = '<div style="color:#FF5252;padding:12px">' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    async function setRoomReadyStatus(roomId, status) {
+      try {
+        await api('PUT', '/api/churches/' + CHURCH_ID + '/room-ready-status/' + encodeURIComponent(roomId), { status: status });
+        toast('Room status: ' + status);
+        loadRooms();
+      } catch (e) {
+        toast('Failed to set status: ' + (e.message || ''), true);
       }
     }
 
@@ -12309,6 +12350,74 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    function rundownOpenMulticampus() {
+      window.open('/rundown/multicampus', '_blank', 'noopener');
+    }
+
+    // ── Sync settings modal ──────────────────────────────────────────────────
+    function rundownSyncSettings() {
+      var plan = _rundownSelectedPlan;
+      if (!plan || plan.source === 'pco') return;
+
+      var modal = document.getElementById('modal-rundown-sync');
+      var select = document.getElementById('sync-source-room-select');
+      var slider = document.getElementById('sync-delay-slider');
+      var delayLabel = document.getElementById('sync-delay-label');
+      var saveBtn = document.getElementById('sync-save-btn');
+      var cancelBtn = document.getElementById('sync-cancel-btn');
+      var closeBtn = document.getElementById('rundown-sync-modal-close');
+      if (!modal || !select || !slider) return;
+
+      // Populate room options from _rundownRoomMap
+      var roomEntries = Object.entries(_rundownRoomMap);
+      select.innerHTML = '<option value="">Disabled (no sync)</option>';
+      roomEntries.forEach(function(entry) {
+        var roomId = entry[0], roomName = entry[1];
+        if (roomId === plan.roomId) return; // skip own room
+        var opt = document.createElement('option');
+        opt.value = roomId;
+        opt.textContent = roomName || roomId;
+        select.appendChild(opt);
+      });
+
+      // Load current sync config
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/sync').then(function(data) {
+        select.value = data.syncSourceRoomId || '';
+        slider.value = data.syncDelaySeconds || 0;
+        delayLabel.textContent = (data.syncDelaySeconds || 0) + 's';
+      }).catch(function() {});
+
+      slider.oninput = function() {
+        delayLabel.textContent = slider.value + 's';
+      };
+
+      function closeSync() {
+        modal.classList.remove('active');
+        slider.oninput = null;
+        saveBtn.onclick = null;
+      }
+
+      saveBtn.onclick = function() {
+        var syncSourceRoomId = select.value || null;
+        var syncDelaySeconds = Number(slider.value) || 0;
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/sync', {
+          syncSourceRoomId: syncSourceRoomId,
+          syncDelaySeconds: syncDelaySeconds,
+        }).then(function() {
+          toast(syncSourceRoomId ? 'Sync enabled' : 'Sync disabled');
+          closeSync();
+        }).catch(function(e) { toast('Failed to save sync settings: ' + (e.message || ''), true); });
+      };
+
+      cancelBtn.onclick = closeSync;
+      closeBtn.onclick = closeSync;
+      modal.addEventListener('click', function onBd(e) {
+        if (e.target === modal) { closeSync(); modal.removeEventListener('click', onBd); }
+      });
+
+      modal.classList.add('active');
+    }
+
     function rundownOpenShowMode() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
       var openShow = function(share) {
@@ -14295,6 +14404,15 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
 
       // Rundown management
+      case 'rundownOpenMulticampus':
+        if (typeof rundownOpenMulticampus === 'function') rundownOpenMulticampus();
+        break;
+      case 'rundownSyncSettings':
+        if (typeof rundownSyncSettings === 'function') rundownSyncSettings();
+        break;
+      case 'setRoomReadyStatus':
+        if (typeof setRoomReadyStatus === 'function') setRoomReadyStatus(btn.dataset.roomId, btn.dataset.status);
+        break;
       case 'rundownNew':
         if (typeof rundownNew === 'function') rundownNew();
         break;

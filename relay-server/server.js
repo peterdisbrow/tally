@@ -108,6 +108,11 @@ app.get('/rundown/report/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-report.html'));
 });
 
+// Multi-campus monitor — requires portal session cookie (served inside portal auth boundary)
+app.get('/rundown/multicampus', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-multicampus.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
@@ -792,6 +797,8 @@ const timerWsClients = new Map();
 const showWsClients = new Map();
 // WebSocket clients for rundown public view (planId → Set of ws)
 const viewWsClients = new Map();
+// WebSocket clients for "follow room" mode — keyed by "churchId:roomId" (no plan required)
+const followWsClients = new Map();
 const roomRegistry = new Map();
 const previewFrameCache = new Map();
 
@@ -5119,7 +5126,7 @@ const _mobileWsHandler = createMobileWebSocketHandler({
 _liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
 _liveRundownBroadcastPortal = (churchId, msg) => {
   broadcastToPortal(churchId, msg);
-  // Also forward rundown_timer messages to public timer/show/view WS clients
+  // Forward rundown_timer / rundown_ended to plan-scoped public WS clients
   if (msg?.type === 'rundown_timer' || msg?.type === 'rundown_ended') {
     const planId = msg.plan_id || msg.planId;
     if (planId) {
@@ -5133,6 +5140,18 @@ _liveRundownBroadcastPortal = (churchId, msg) => {
             try { if (ws.readyState === WebSocket.OPEN) ws.send(payload); } catch {}
           }
         }
+      }
+    }
+  }
+  // Forward all rundown messages to "follow room" WS clients for this church:room pair
+  const followRoomId = msg?.roomId;
+  if (followRoomId !== undefined && msg?.type) {
+    const followKey = `${churchId}:${followRoomId}`;
+    const followClients = followWsClients.get(followKey);
+    if (followClients?.size) {
+      const payload = JSON.stringify({ ...msg, server_timestamp: Date.now() });
+      for (const ws of followClients) {
+        try { if (ws.readyState === WebSocket.OPEN) ws.send(payload); } catch {}
       }
     }
   }
@@ -5180,6 +5199,8 @@ wss.on('connection', (ws, req) => {
     handleShowWsConnection(ws, url);
   } else if (role === 'rundown-view') {
     handleViewWsConnection(ws, url);
+  } else if (role === 'rundown-follow') {
+    handleFollowWsConnection(ws, url);
   } else {
     ws.close(1008, 'Unknown role');
   }
@@ -5408,6 +5429,60 @@ function handleViewWsConnection(ws, url) {
       if (clients) {
         clients.delete(ws);
         if (clients.size === 0) viewWsClients.delete(planId);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN FOLLOW WEBSOCKET (public, share-token auth + roomId param) ──────
+// Subscribes to a room's live state without requiring a specific plan token.
+// Auth: share token → resolves churchId. roomId from ?roomId= query param.
+// Broadcasts: rundown_state, rundown_position, rundown_tick, rundown_timer, rundown_ended
+function handleFollowWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  const followRoomId = url.searchParams.get('roomId') || '';
+  if (!token) return ws.close(1008, 'token required');
+
+  let followKey = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const { churchId } = access.plan;
+    followKey = `${churchId}:${followRoomId}`;
+
+    // Register client for this church:room
+    if (!followWsClients.has(followKey)) followWsClients.set(followKey, new Set());
+    followWsClients.get(followKey).add(ws);
+
+    // Send current live state for this room
+    const timerState = liveRundown.getTimerState(churchId, followRoomId);
+    const serverTs = Date.now();
+    if (timerState) {
+      safeSend(ws, { type: 'rundown_timer', ...timerState, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'rundown_timer', is_live: false, room_id: followRoomId, server_timestamp: serverTs });
+    }
+
+    // Also send room name and ready status
+    const status = liveRundown.getRoomStatus(churchId, followRoomId);
+    safeSend(ws, { type: 'follow_room_info', churchId, roomId: followRoomId, readyStatus: status });
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (followKey) {
+      const clients = followWsClients.get(followKey);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) followWsClients.delete(followKey);
       }
     }
   });
@@ -6621,6 +6696,16 @@ async function startServer() {
   log('Startup phase complete: session recovery', { event: 'startup_phase_complete', phase: 'session_recovery' });
   scheduler.start();
   console.log('[Server] ✓ Rundown Scheduler initialized');
+  // Load persisted room ready-check statuses into LiveRundownManager memory
+  try {
+    const roomStatuses = await manualRundown.getAllRoomReadyStatuses();
+    if (roomStatuses.length > 0) {
+      liveRundown.loadRoomStatuses(roomStatuses);
+      console.log(`[Server] ✓ Loaded ${roomStatuses.length} room ready-check status(es)`);
+    }
+  } catch (e) {
+    console.warn(`[Server] Failed to load room ready-check statuses: ${e.message}`);
+  }
   planningCenter.start();
   console.log('[Server] ✓ Planning Center initialized');
   preServiceCheck.start();
