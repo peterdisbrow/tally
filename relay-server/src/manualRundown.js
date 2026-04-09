@@ -144,6 +144,30 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN parent_id TEXT DEFAULT NULL`);
     } catch { /* column already exists */ }
+    // Phase 4: script field for teleprompter content (separate from notes)
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN script TEXT DEFAULT ''`);
+    } catch { /* column already exists */ }
+    // Phase 4: announcement JSON for rich announcement cards
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN announcement TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+    // Phase 4: Lyrics library table
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS church_lyrics_library (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT DEFAULT '',
+        lyrics TEXT DEFAULT '',
+        tags TEXT DEFAULT '',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_lyrics_church ON church_lyrics_library(church_id)
+    `);
     // Add share_token column for public timer/share links
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN share_token TEXT`);
@@ -514,6 +538,8 @@ class ManualRundownStore {
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
         color: item.color,
+        script: item.script,
+        announcement: item.announcement,
         // parentId mapped after all items are created (second pass below)
       });
       itemIdMap[item.id] = newItem.id;
@@ -552,7 +578,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, directorNotes = '', parentId = null, color = '' }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, directorNotes = '', parentId = null, color = '', script = '', announcement = null }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -560,16 +586,17 @@ class ManualRundownStore {
       `SELECT COALESCE(MAX(sort_order), -1) as mx FROM manual_rundown_items WHERE plan_id = ?`, [planId]
     );
     const sortOrder = (max?.mx ?? -1) + 1;
+    const announcementJson = announcement ? JSON.stringify(announcement) : null;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, color, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, directorNotes || '', parentId || null, color || '', now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, color, script, announcement, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, directorNotes || '', parentId || null, color || '', script || '', announcementJson, now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', parent_id: parentId || null, color: color || '', created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', parent_id: parentId || null, color: color || '', script: script || '', announcement: announcementJson, created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId, color }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId, color, script, announcement }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -583,6 +610,8 @@ class ManualRundownStore {
     if (directorNotes !== undefined) { sets.push('director_notes = ?'); params.push(directorNotes); }
     if (parentId !== undefined) { sets.push('parent_id = ?'); params.push(parentId || null); }
     if (color !== undefined) { sets.push('color = ?'); params.push(color || ''); }
+    if (script !== undefined) { sets.push('script = ?'); params.push(script); }
+    if (announcement !== undefined) { sets.push('announcement = ?'); params.push(announcement ? JSON.stringify(announcement) : null); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -643,6 +672,8 @@ class ManualRundownStore {
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
         color: item.color,
+        script: item.script,
+        announcement: item.announcement,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -685,6 +716,8 @@ class ManualRundownStore {
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
         color: item.color,
+        script: item.script,
+        announcement: item.announcement,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -1157,6 +1190,10 @@ class ManualRundownStore {
   }
 
   _toItem(row) {
+    let announcement = null;
+    if (row.announcement) {
+      try { announcement = JSON.parse(row.announcement); } catch { /* ignore */ }
+    }
     return {
       id: row.id,
       planId: row.plan_id,
@@ -1172,6 +1209,8 @@ class ManualRundownStore {
       autoAdvance: !!row.auto_advance,
       directorNotes: row.director_notes || '',
       color: row.color || '',
+      script: row.script || '',
+      announcement,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1749,6 +1788,77 @@ class ManualRundownStore {
       [id, churchId, roomId, String(deptName).trim().slice(0, 64), validStatus, now]
     );
     return { churchId, roomId, deptName, status: validStatus, updatedAt: now };
+  }
+
+  // ─── LYRICS LIBRARY (Phase 4) ──────────────────────────────────────────────
+
+  async getLyrics(churchId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM church_lyrics_library WHERE church_id = ? ORDER BY title ASC`, [churchId]
+    );
+    return rows.map(r => this._toLyrics(r));
+  }
+
+  async searchLyrics(churchId, query) {
+    await this.ready;
+    const q = `%${(query || '').trim()}%`;
+    const rows = await this._db.query(
+      `SELECT * FROM church_lyrics_library WHERE church_id = ? AND (title LIKE ? OR artist LIKE ? OR lyrics LIKE ? OR tags LIKE ?) ORDER BY title ASC`,
+      [churchId, q, q, q, q]
+    );
+    return rows.map(r => this._toLyrics(r));
+  }
+
+  async addLyrics(churchId, { title, artist = '', lyrics = '', tags = '' }) {
+    await this.ready;
+    const id = uuidv4();
+    const now = Date.now();
+    await this._db.run(
+      `INSERT INTO church_lyrics_library (id, church_id, title, artist, lyrics, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, churchId, title, artist, lyrics, tags, now, now]
+    );
+    return { id, churchId, title, artist, lyrics, tags, createdAt: now, updatedAt: now };
+  }
+
+  async updateLyrics(lyricsId, { title, artist, lyrics, tags }) {
+    await this.ready;
+    const sets = [];
+    const params = [];
+    if (title !== undefined) { sets.push('title = ?'); params.push(title); }
+    if (artist !== undefined) { sets.push('artist = ?'); params.push(artist); }
+    if (lyrics !== undefined) { sets.push('lyrics = ?'); params.push(lyrics); }
+    if (tags !== undefined) { sets.push('tags = ?'); params.push(tags); }
+    if (sets.length === 0) return;
+    const now = Date.now();
+    sets.push('updated_at = ?');
+    params.push(now);
+    params.push(lyricsId);
+    await this._db.run(`UPDATE church_lyrics_library SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+
+  async deleteLyrics(lyricsId) {
+    await this.ready;
+    await this._db.run(`DELETE FROM church_lyrics_library WHERE id = ?`, [lyricsId]);
+  }
+
+  async getLyricsById(lyricsId) {
+    await this.ready;
+    const row = await this._db.queryOne(`SELECT * FROM church_lyrics_library WHERE id = ?`, [lyricsId]);
+    return row ? this._toLyrics(row) : null;
+  }
+
+  _toLyrics(row) {
+    return {
+      id: row.id,
+      churchId: row.church_id,
+      title: row.title,
+      artist: row.artist || '',
+      lyrics: row.lyrics || '',
+      tags: row.tags || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   /**

@@ -1286,7 +1286,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color } = req.body;
+      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color, script, announcement } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
@@ -1307,6 +1307,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         const sanitizedNotes = sanitizeHtml(notes || '');
         const sanitizedDirectorNotes = directorNotes ? sanitizeHtml(directorNotes) : '';
+        const sanitizedScript = script ? sanitizeHtml(script) : '';
         const item = await manualRundown.addItem(req.params.planId, {
           title: title.trim(),
           itemType: itemType || 'other',
@@ -1319,6 +1320,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           directorNotes: sanitizedDirectorNotes,
           parentId: parentId || null,
           color: color || '',
+          script: sanitizedScript,
+          announcement: announcement || null,
         });
         broadcastRundownEvent(churchId, 'rundown_item_added', { planId: req.params.planId, item });
         res.json(item);
@@ -1360,9 +1363,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!targetItem) {
           return res.status(404).json({ error: 'Item not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color, script, announcement } = req.body;
         const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
         const sanitizedDirectorNotes = directorNotes !== undefined ? sanitizeHtml(directorNotes) : undefined;
+        const sanitizedScript = script !== undefined ? sanitizeHtml(script) : undefined;
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
           lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
@@ -1373,6 +1377,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           parentId: parentId !== undefined ? (parentId || null) : undefined,
           directorNotes: sanitizedDirectorNotes,
           color: color !== undefined ? (color || '') : undefined,
+          script: sanitizedScript,
+          announcement: announcement !== undefined ? announcement : undefined,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -1393,6 +1399,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
             directorNotes: sanitizedDirectorNotes,
             color: color !== undefined ? (color || '') : undefined,
+            script: sanitizedScript,
+            announcement: announcement !== undefined ? announcement : undefined,
           },
         });
         res.json(updated);
@@ -2948,6 +2956,48 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
         const checklists = await manualRundown.getChecklists(req.params.itemId);
         res.json({ checklists });
+  // ─── PHASE 4: SCRIPT ENDPOINT ──────────────────────────────────────────────
+
+  /**
+   * PUT /api/churches/:churchId/rundown-plans/:planId/items/:itemId/script
+   * Update just the script field for an item (teleprompter content).
+   */
+  app.put('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/script',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const targetItem = (plan.items || []).find(item => item.id === req.params.itemId);
+        if (!targetItem) return res.status(404).json({ error: 'Item not found' });
+        const script = req.body.script !== undefined ? sanitizeHtml(req.body.script) : '';
+        await manualRundown.updateItem(req.params.itemId, { script });
+        broadcastRundownEvent(churchId, 'rundown_item_updated', {
+          planId: req.params.planId,
+          itemId: req.params.itemId,
+          item: { id: req.params.itemId, script },
+        });
+        res.json({ ok: true, script });
+      } catch (e) {
+        console.error('[rundown] script update error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── PHASE 4: LYRICS LIBRARY CRUD ──────────────────────────────────────────
+
+  /**
+   * GET /api/churches/:churchId/lyrics — list all lyrics
+   */
+  app.get('/api/churches/:churchId/lyrics',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const lyrics = await manualRundown.getLyrics(req.params.churchId);
+        res.json(lyrics);
       } catch (e) {
         res.status(500).json({ error: safeErrorMessage(e) });
       }
@@ -2962,6 +3012,15 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
         const checklists = await manualRundown.getChecklistsForPlan(req.params.planId);
         res.json({ checklists });
+  /**
+   * GET /api/churches/:churchId/lyrics/search?q=query — search lyrics
+   */
+  app.get('/api/churches/:churchId/lyrics/search',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const lyrics = await manualRundown.searchLyrics(req.params.churchId, req.query.q || '');
+        res.json(lyrics);
       } catch (e) {
         res.status(500).json({ error: safeErrorMessage(e) });
       }
@@ -2978,6 +3037,22 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!label || !label.trim()) return res.status(400).json({ error: 'label is required' });
         const check = await manualRundown.addChecklist(req.params.churchId, req.params.planId, req.params.itemId, label.trim());
         res.json(check);
+  /**
+   * POST /api/churches/:churchId/lyrics — create lyrics entry
+   */
+  app.post('/api/churches/:churchId/lyrics',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const { title, artist, lyrics, tags } = req.body;
+        if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
+        const entry = await manualRundown.addLyrics(req.params.churchId, {
+          title: title.trim(),
+          artist: (artist || '').trim(),
+          lyrics: lyrics || '',
+          tags: (tags || '').trim(),
+        });
+        res.json(entry);
       } catch (e) {
         res.status(500).json({ error: safeErrorMessage(e) });
       }
@@ -2990,6 +3065,44 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       try {
         const { checked, label } = req.body;
         await manualRundown.updateChecklist(req.params.checkId, { checked, label });
+  /**
+   * PUT /api/churches/:churchId/lyrics/:lyricsId — update lyrics entry
+   */
+  app.put('/api/churches/:churchId/lyrics/:lyricsId',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const existing = await manualRundown.getLyricsById(req.params.lyricsId);
+        if (!existing || existing.churchId !== req.params.churchId) {
+          return res.status(404).json({ error: 'Lyrics not found' });
+        }
+        const { title, artist, lyrics, tags } = req.body;
+        await manualRundown.updateLyrics(req.params.lyricsId, {
+          title: title !== undefined ? title.trim() : undefined,
+          artist: artist !== undefined ? artist.trim() : undefined,
+          lyrics,
+          tags: tags !== undefined ? tags.trim() : undefined,
+        });
+        const updated = await manualRundown.getLyricsById(req.params.lyricsId);
+        res.json(updated);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/churches/:churchId/lyrics/:lyricsId — delete lyrics entry
+   */
+  app.delete('/api/churches/:churchId/lyrics/:lyricsId',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const existing = await manualRundown.getLyricsById(req.params.lyricsId);
+        if (!existing || existing.churchId !== req.params.churchId) {
+          return res.status(404).json({ error: 'Lyrics not found' });
+        }
+        await manualRundown.deleteLyrics(req.params.lyricsId);
         res.json({ ok: true });
       } catch (e) {
         res.status(500).json({ error: safeErrorMessage(e) });
