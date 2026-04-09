@@ -1876,6 +1876,154 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     }
   );
 
+  // ─── PUBLIC LIVE SHOW CONTROL (share-token auth for show mode) ────────────
+
+  /**
+   * Helper: resolve share token and return plan, or send error response.
+   */
+  async function resolveShowAccess(req, res) {
+    const access = await manualRundown.resolvePublicAccess(req.params.token);
+    if (!access?.plan) { res.status(404).json({ error: 'Invalid share token' }); return null; }
+    return access;
+  }
+
+  /**
+   * POST /api/public/rundown/:token/live/start
+   */
+  app.post('/api/public/rundown/:token/live/start', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      await manualRundown.startLive(plan.id, plan.churchId);
+      const items = plan.items || [];
+      let firstCueIdx = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].itemType !== 'section') { firstCueIdx = i; break; }
+      }
+      if (firstCueIdx !== 0) {
+        await manualRundown.updateLiveState(plan.id, { currentCueIndex: firstCueIdx, currentCueStartedAt: Date.now() });
+      }
+      const state = await manualRundown.getLiveState(plan.id);
+      ensureManualLiveTimer(plan.id);
+      res.json({ ...state, plan });
+    } catch (e) {
+      console.error('[rundown] public live/start error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/stop
+   */
+  app.post('/api/public/rundown/:token/live/stop', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      await manualRundown.stopLive(plan.id);
+      stopManualLiveTimer(plan.id, plan.title);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[rundown] public live/stop error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/go
+   */
+  app.post('/api/public/rundown/:token/live/go', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      const items = plan.items || [];
+      let nextIdx = liveState.currentCueIndex + 1;
+      while (nextIdx < items.length && items[nextIdx].itemType === 'section') nextIdx++;
+      if (nextIdx >= items.length) return res.status(400).json({ error: 'Already at last cue' });
+      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: nextIdx, currentCueStartedAt: Date.now() });
+      ensureManualLiveTimer(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/go error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/back
+   */
+  app.post('/api/public/rundown/:token/live/back', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      const items = plan.items || [];
+      let prevIdx = liveState.currentCueIndex - 1;
+      while (prevIdx >= 0 && items[prevIdx].itemType === 'section') prevIdx--;
+      if (prevIdx < 0) return res.status(400).json({ error: 'Already at first cue' });
+      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: prevIdx, currentCueStartedAt: Date.now() });
+      ensureManualLiveTimer(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/back error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/goto/:index
+   */
+  app.post('/api/public/rundown/:token/live/goto/:index', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      const index = parseInt(req.params.index, 10);
+      const items = plan.items || [];
+      if (index < 0 || index >= items.length) return res.status(400).json({ error: 'Invalid cue index' });
+      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: index, currentCueStartedAt: Date.now() });
+      ensureManualLiveTimer(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/goto error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * PUT /api/public/rundown/:token/items/:itemId
+   * Inline edit (title, lengthSeconds, notes only) via share token.
+   */
+  app.put('/api/public/rundown/:token/items/:itemId', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const targetItem = (plan.items || []).find((item) => item.id === req.params.itemId);
+      if (!targetItem) return res.status(404).json({ error: 'Item not found' });
+      const { title, lengthSeconds, notes } = req.body;
+      const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
+      await manualRundown.updateItem(req.params.itemId, {
+        title,
+        lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
+        notes: sanitizedNotes,
+      });
+      const updated = await manualRundown.getPlan(plan.id);
+      res.json({ plan: updated });
+    } catch (e) {
+      console.error('[rundown] public item edit error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
   // ─── LIVE SHOW MODE (per-plan cueing) ─────────────────────────────────────
 
   app.post('/api/churches/:churchId/rundown-plans/:planId/live/start',

@@ -9195,6 +9195,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (dateEl) dateEl.textContent = p && p.serviceDate ? p.serviceDate : '';
         // Hide edit/share controls for PCO plans
         document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = 'none'; });
+        var showModeBtn = document.getElementById('btn-rundown-show-mode');
+        if (showModeBtn) showModeBtn.style.display = 'none';
         _updateSharedBadge(false);
         _renderPresenceBar();
         var itemsEl = document.getElementById('rundown-editor-items');
@@ -9714,6 +9716,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (editor) editor.style.display = '';
       // Show edit controls for manual plans
       document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = ''; });
+      var showModeBtn = document.getElementById('btn-rundown-show-mode');
+      if (showModeBtn) showModeBtn.style.display = '';
       var titleEl = document.getElementById('rundown-editor-title');
       var dateEl = document.getElementById('rundown-editor-date');
       if (titleEl) titleEl.textContent = plan.title;
@@ -11291,13 +11295,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var token = share && share.share_token ? String(share.share_token) : '';
       var publicUrl = _rundownNormalizeShareUrl(share && share.url);
       var timerUrl = _rundownNormalizeShareUrl(share && share.timer_url);
+      var showUrl = '';
       if (!publicUrl && token) {
         publicUrl = _rundownNormalizeShareUrl(new URL('/rundown/view/' + token, window.location.origin).href);
       }
       if (!timerUrl && token) {
         timerUrl = _rundownNormalizeShareUrl(new URL('/rundown/timer/' + token, window.location.origin).href);
       }
-      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl };
+      if (token) {
+        showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + token, window.location.origin).href);
+      }
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -11459,6 +11467,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ));
       }
 
+      if (urls.showUrl) {
+        sections.push(_rundownBuildSectionCard(
+          'Show mode',
+          'A dedicated operator view for running live services. Includes large Go/Back controls, live countdown, inline editing, and next-up preview.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Operator view',
+              title: 'Show Mode',
+              description: 'Full cue control with start/stop, advance, countdown timers, and quick edits. Built for the tech booth.',
+              url: urls.showUrl,
+              badge: 'Live control',
+              badgeBg: 'rgba(255,167,38,0.10)',
+              badgeColor: '#FFB74D',
+              accent: '#FFB74D',
+            })
+          ],
+          { label: 'Operator', bg: 'rgba(255,167,38,0.10)', fg: '#FFB74D' }
+        ));
+      }
+
       if (publicUrl) {
         sections.push(_rundownBuildSectionCard(
           'Public view modes',
@@ -11615,6 +11643,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (loadingEl) loadingEl.style.display = 'none';
         if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
       });
+    }
+
+    function rundownOpenShowMode() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var openShow = function(share) {
+        _rundownShareData = share;
+        var urls = _rundownResolveShareUrls(share || {});
+        if (urls.showUrl) _rundownOpenUrl(urls.showUrl);
+        _updateSharedBadge(true);
+      };
+      if (_rundownShareData && _rundownShareData.share_token) {
+        openShow(_rundownShareData);
+        return;
+      }
+      var planId = _rundownSelectedPlan.id;
+      _rundownEnsureShare(planId).then(openShow).catch(function(e) { toast('Failed to open show mode: ' + e.message, true); });
     }
 
     function rundownOpenPublicView() {
@@ -11806,6 +11850,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     var btnTimerDisplay = document.getElementById('btn-rundown-timer-display');
     if (btnTimerDisplay) btnTimerDisplay.addEventListener('click', openTimerDisplay);
+    var btnShowMode = document.getElementById('btn-rundown-show-mode');
+    if (btnShowMode) btnShowMode.addEventListener('click', rundownOpenShowMode);
     var btnPublicView = document.getElementById('btn-rundown-share');
     if (btnPublicView) btnPublicView.addEventListener('click', rundownOpenPublicView);
     var btnLiveTimer = document.getElementById('btn-rundown-live-timer');
