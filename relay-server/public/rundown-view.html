@@ -1616,6 +1616,13 @@
       var hiddenColumns = {};
       var collapsedStackIds = {};   // 10.1: { itemId: true } for collapsed stack parents
       var collapsedDeptGroups = {}; // 10.2: { deptName: true } for collapsed dept groups in column toggle
+      // 5.x: Filter/assignee state (stubs — full filter bar UI not yet implemented)
+      var filteredColumns = [];
+      var hideEmpty = false;
+      var showAllRows = false;
+      var assigneeFilter = null;
+      var nextCueDismissed = false;
+      var allPlanColumns = [];
       var displayPrefs = {
         mirror: false,
         density: 'roomy',
@@ -2695,6 +2702,14 @@
           '</div>';
       }
 
+      // 5.x: Filter/assignee helpers (stubs — full filter bar UI not yet implemented)
+      function rowHasFilteredValue() { return true; }
+      function itemMatchesAssignee() { return false; }
+      function bindFilterBar() {}
+      function computeNextCue() { return null; }
+      function estimateMinutesUntil() { return null; }
+      function renderNextCueCard() { return ''; }
+
       function renderLiveBanner(plan, liveState, items) {
         if (!liveState || liveState.isLive === false) return '';
         var currentIndex = getLiveCueIndex(liveState, items);
@@ -3268,6 +3283,7 @@
             try { window.localStorage.setItem(planCacheKey, JSON.stringify(plan)); } catch (e) {}
           })
           .catch(function (err) {
+            console.error('[Tally] rundown load/render error:', err);
             if (err.status === 410) {
               showError('This rundown link has expired', 'Ask the service organizer to share a new link.');
             } else if (err.status === 404) {

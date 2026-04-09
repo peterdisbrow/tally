@@ -497,7 +497,7 @@
     }
 
     function loadRooms() {
-      return apiFetch('GET', '/api/churches/' + churchId + '/rooms').then(function(data) {
+      return apiFetch('GET', '/api/church/rooms').then(function(data) {
         rooms = (data.rooms || data || []).filter(function(r) { return !r.deleted_at && !r.deletedAt; });
         return Promise.all([
           loadLiveSessions(),
