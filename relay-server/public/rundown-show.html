@@ -1159,25 +1159,7 @@
     function pollLiveState() {
       showApi('GET', '/api/public/rundown/' + encodeURIComponent(token) + '/timer')
         .then(function(timer) {
-          if (!timer) return;
-          consecutivePollFailures = 0;
-          if (connBanner) connBanner.classList.remove('visible');
-          var wasLive = liveState && liveState.isLive;
-          if (timer.is_live) {
-            liveState = {
-              isLive: true,
-              currentCueIndex: timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0),
-              startedAt: timer.started_at || (liveState ? liveState.startedAt : Date.now()),
-              currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : (liveState ? liveState.currentCueStartedAt : Date.now()),
-              timer: timer
-            };
-          } else {
-            liveState = { isLive: false, currentCueIndex: -1 };
-          }
-          renderStatusBar();
-          renderCueList();
-          renderNextUp();
-          if (timer.is_live && !wasLive) scrollToActive();
+          handleTimerMessage(timer);
         })
         .catch(function() {
           consecutivePollFailures++;
@@ -1192,6 +1174,101 @@
 
     function stopPolling() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    // ── WebSocket transport (6.1) ──
+    var ws = null;
+    var wsReconnectTimer = null;
+    var wsReconnectDelay = 1000;
+    var wsConnected = false;
+    var serverTimeOffset = 0; // local - server (ms)
+
+    function computeServerOffset(serverTs) {
+      if (!serverTs) return;
+      serverTimeOffset = Date.now() - serverTs;
+    }
+    function serverNow() {
+      return Date.now() - serverTimeOffset;
+    }
+
+    function handleTimerMessage(timer) {
+      if (!timer) return;
+      computeServerOffset(timer.server_timestamp);
+      consecutivePollFailures = 0;
+      if (connBanner) connBanner.classList.remove('visible');
+      var wasLive = liveState && liveState.isLive;
+      if (timer.is_live) {
+        liveState = {
+          isLive: true,
+          currentCueIndex: timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0),
+          startedAt: timer.started_at || (liveState ? liveState.startedAt : Date.now()),
+          currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : (liveState ? liveState.currentCueStartedAt : Date.now()),
+          timer: timer
+        };
+      } else {
+        liveState = { isLive: false, currentCueIndex: -1 };
+      }
+      renderStatusBar();
+      renderCueList();
+      renderNextUp();
+      if (timer.is_live && !wasLive) scrollToActive();
+    }
+
+    function connectWebSocket() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = proto + '//' + location.host + '/rundown-show?token=' + encodeURIComponent(token);
+      try { ws = new WebSocket(wsUrl); } catch (e) { startPolling(); return; }
+
+      ws.onopen = function() {
+        wsConnected = true;
+        wsReconnectDelay = 1000;
+        stopPolling(); // WS is primary; stop HTTP polling
+        if (connBanner) connBanner.classList.remove('visible');
+        consecutivePollFailures = 0;
+      };
+
+      ws.onmessage = function(event) {
+        try {
+          var msg = JSON.parse(event.data);
+          if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+            handleTimerMessage(msg);
+          } else if (msg.type === 'rundown_ended') {
+            liveState = { isLive: false, currentCueIndex: -1 };
+            renderStatusBar();
+            renderCueList();
+            renderNextUp();
+          }
+        } catch (e) { /* ignore parse errors */ }
+      };
+
+      ws.onclose = function() {
+        wsConnected = false;
+        ws = null;
+        startPolling(); // Fall back to HTTP polling
+        scheduleWsReconnect();
+      };
+
+      ws.onerror = function() {
+        // onclose will fire after this
+      };
+
+      // Heartbeat
+      var heartbeat = setInterval(function() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        } else {
+          clearInterval(heartbeat);
+        }
+      }, 25000);
+    }
+
+    function scheduleWsReconnect() {
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(function() {
+        connectWebSocket();
+      }, wsReconnectDelay);
+      wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 10000);
     }
 
     // ── Live controls ──
@@ -1894,7 +1971,8 @@
     loadPlan()
       .then(function() {
         render();
-        startPolling();
+        startPolling(); // Start polling immediately as safety net
+        connectWebSocket(); // WS stops polling on success; restarts on failure
       })
       .catch(function(err) {
         document.getElementById('loading-msg').textContent = 'Failed to load: ' + (err.message || 'Unknown error');

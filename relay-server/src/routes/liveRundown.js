@@ -1867,8 +1867,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const access = await manualRundown.resolvePublicAccess(req.params.token);
         if (!access?.plan) return res.status(404).json({ error: 'Invalid share token' });
         const timer = await buildPlanTimerState(access.plan);
-        if (!timer) return res.json({ is_live: false, plan_title: access.plan.title, plan_id: access.plan.id });
-        res.json(timer);
+        const serverTs = Date.now();
+        if (!timer) return res.json({ is_live: false, plan_title: access.plan.title, plan_id: access.plan.id, server_timestamp: serverTs });
+        res.json({ ...timer, server_timestamp: serverTs });
       } catch (e) {
         console.error('[rundown] public timer error:', e);
         res.status(500).json({ error: 'Internal error' });

@@ -783,6 +783,10 @@ const portalSseClients = new Map();
 const portalWsClients = new Map();
 // WebSocket clients for public rundown timer displays (planId → Set of ws)
 const timerWsClients = new Map();
+// WebSocket clients for rundown show mode (planId → Set of ws)
+const showWsClients = new Map();
+// WebSocket clients for rundown public view (planId → Set of ws)
+const viewWsClients = new Map();
 const roomRegistry = new Map();
 const previewFrameCache = new Map();
 
@@ -3197,9 +3201,13 @@ const routeCtx = {
   BILLING_TIERS, BILLING_STATUSES, QUEUE_TTL_MS, totalMessagesRelayed,
   broadcastToPortal,
   broadcastPublicRundownTimer: (planId, message) => {
-    const clients = timerWsClients.get(planId);
-    if (!clients?.size) return;
-    for (const ws of clients) safeSend(ws, message);
+    // Inject server_timestamp for cross-campus sync (6.4)
+    const enriched = { ...message, server_timestamp: Date.now() };
+    for (const clientMap of [timerWsClients, showWsClients, viewWsClients]) {
+      const clients = clientMap.get(planId);
+      if (!clients?.size) continue;
+      for (const ws of clients) safeSend(ws, enriched);
+    }
   },
   rundownPresence,
   log,
@@ -3266,6 +3274,7 @@ app.get('/api/public/rundown/:token', async (req, res) => {
       ),
     });
     if (roomName) payload.roomName = roomName;
+    payload.server_timestamp = Date.now();
     res.json(payload);
   } catch (e) {
     console.error('[rundown-public] error:', e);
@@ -5094,15 +5103,19 @@ const _mobileWsHandler = createMobileWebSocketHandler({
 _liveRundownBroadcastMobile = (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg);
 _liveRundownBroadcastPortal = (churchId, msg) => {
   broadcastToPortal(churchId, msg);
-  // Also forward rundown_timer messages to public timer WS clients
+  // Also forward rundown_timer messages to public timer/show/view WS clients
   if (msg?.type === 'rundown_timer' || msg?.type === 'rundown_ended') {
     const planId = msg.plan_id || msg.planId;
     if (planId) {
-      const clients = timerWsClients.get(planId);
-      if (clients?.size) {
-        const payload = JSON.stringify(msg);
-        for (const ws of clients) {
-          try { if (ws.readyState === WebSocket.OPEN) ws.send(payload); } catch {}
+      // Inject server_timestamp for cross-campus sync (6.4)
+      const enriched = { ...msg, server_timestamp: Date.now() };
+      const payload = JSON.stringify(enriched);
+      for (const clientMap of [timerWsClients, showWsClients, viewWsClients]) {
+        const clients = clientMap.get(planId);
+        if (clients?.size) {
+          for (const ws of clients) {
+            try { if (ws.readyState === WebSocket.OPEN) ws.send(payload); } catch {}
+          }
         }
       }
     }
@@ -5147,6 +5160,10 @@ wss.on('connection', (ws, req) => {
     _mobileWsHandler.handleMobileConnection(ws, url, req);
   } else if (role === 'rundown-timer') {
     handleTimerWsConnection(ws, url);
+  } else if (role === 'rundown-show') {
+    handleShowWsConnection(ws, url);
+  } else if (role === 'rundown-view') {
+    handleViewWsConnection(ws, url);
   } else {
     ws.close(1008, 'Unknown role');
   }
@@ -5247,12 +5264,13 @@ function handleTimerWsConnection(ws, url) {
     if (!timerWsClients.has(planId)) timerWsClients.set(planId, new Set());
     timerWsClients.get(planId).add(ws);
 
-    // Send initial state
+    // Send initial state with server_timestamp (6.4)
     const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
     if (timer) {
-      safeSend(ws, { type: 'timer_state', ...timer });
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
     } else {
-      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title });
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
     }
   }).catch(() => ws.close(1011, 'internal error'));
 
@@ -5269,6 +5287,96 @@ function handleTimerWsConnection(ws, url) {
       if (clients) {
         clients.delete(ws);
         if (clients.size === 0) timerWsClients.delete(planId);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN SHOW WEBSOCKET (public, share-token auth) ──────────────────────
+function handleShowWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
+    planId = plan.id;
+
+    if (!showWsClients.has(planId)) showWsClients.set(planId, new Set());
+    showWsClients.get(planId).add(ws);
+
+    // Send initial timer state
+    const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = showWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) showWsClients.delete(planId);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN VIEW WEBSOCKET (public, share-token auth) ──────────────────────
+function handleViewWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
+    planId = plan.id;
+
+    if (!viewWsClients.has(planId)) viewWsClients.set(planId, new Set());
+    viewWsClients.get(planId).add(ws);
+
+    // Send initial timer state
+    const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = viewWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) viewWsClients.delete(planId);
       }
     }
   });

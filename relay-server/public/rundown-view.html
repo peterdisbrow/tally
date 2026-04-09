@@ -241,6 +241,13 @@
       border-color: rgba(0,230,118,0.18);
       background: rgba(0,230,118,0.10);
     }
+    @keyframes cue-flash {
+      0%   { box-shadow: inset 0 0 0 4px rgba(0,230,118,0.7); }
+      100% { box-shadow: inset 0 0 0 4px transparent; }
+    }
+    .cue-flash {
+      animation: cue-flash 0.6s ease-out 2;
+    }
 
     .display-toolbar button.secondary {
       color: #8B9DAF;
@@ -1510,6 +1517,7 @@
     <button type="button" id="btn-text-up" title="Larger text (+)">A+</button>
     <button type="button" id="btn-refresh" title="Refresh now (R)">Refresh</button>
     <button type="button" id="btn-print" title="Print rundown (P)">Print</button>
+    <button type="button" id="btn-notify" title="Notify on cue change (N)">Notify</button>
     <div class="col-toggle-wrap">
       <button type="button" id="btn-columns" title="Show/hide columns (C)">Columns</button>
       <div class="col-toggle-backdrop" id="col-toggle-backdrop"></div>
@@ -3267,6 +3275,208 @@
           '</div>';
       }
 
+      // ── WebSocket transport (6.2) ──
+      var viewWs = null;
+      var viewWsReconnectTimer = null;
+      var viewWsReconnectDelay = 1000;
+      var viewWsConnected = false;
+      var viewServerTimeOffset = 0;
+      var viewLastWsCueIndex = null;
+
+      function viewComputeServerOffset(serverTs) {
+        if (!serverTs) return;
+        viewServerTimeOffset = Date.now() - serverTs;
+      }
+
+      function viewConnectWebSocket() {
+        if (viewWs && (viewWs.readyState === WebSocket.OPEN || viewWs.readyState === WebSocket.CONNECTING)) return;
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = proto + '//' + location.host + '/rundown-view?token=' + encodeURIComponent(token);
+        try { viewWs = new WebSocket(wsUrl); } catch (e) { viewStartPolling(); return; }
+
+        viewWs.onopen = function() {
+          viewWsConnected = true;
+          viewWsReconnectDelay = 1000;
+          viewStopPolling();
+          consecutiveLoadFailures = 0;
+          if (viewConnBanner) viewConnBanner.classList.remove('visible');
+        };
+
+        viewWs.onmessage = function(event) {
+          try {
+            var msg = JSON.parse(event.data);
+            if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+              viewComputeServerOffset(msg.server_timestamp);
+              viewHandleTimerWs(msg);
+            } else if (msg.type === 'rundown_ended') {
+              viewComputeServerOffset(msg.server_timestamp);
+              if (lastPlan) {
+                lastPlan.liveState = { isLive: false, currentCueIndex: -1, timer: null };
+                render(lastPlan);
+              }
+              viewFireCueNotification(null, 'Show ended');
+            }
+          } catch (e) { /* ignore */ }
+        };
+
+        viewWs.onclose = function() {
+          viewWsConnected = false;
+          viewWs = null;
+          viewStartPolling();
+          viewScheduleWsReconnect();
+        };
+
+        viewWs.onerror = function() {};
+
+        var hb = setInterval(function() {
+          if (viewWs && viewWs.readyState === WebSocket.OPEN) {
+            viewWs.send(JSON.stringify({ type: 'ping' }));
+          } else {
+            clearInterval(hb);
+          }
+        }, 25000);
+      }
+
+      function viewScheduleWsReconnect() {
+        if (viewWsReconnectTimer) clearTimeout(viewWsReconnectTimer);
+        viewWsReconnectTimer = setTimeout(function() {
+          viewConnectWebSocket();
+        }, viewWsReconnectDelay);
+        viewWsReconnectDelay = Math.min(viewWsReconnectDelay * 1.5, 10000);
+      }
+
+      function viewStartPolling() {
+        viewStopPolling();
+        refreshTimer = setInterval(load, refreshIntervalMs);
+      }
+
+      function viewStopPolling() {
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+      }
+
+      function viewHandleTimerWs(timer) {
+        if (!lastPlan) return;
+        consecutiveLoadFailures = 0;
+        if (viewConnBanner) viewConnBanner.classList.remove('visible');
+
+        var prevCueIndex = viewLastWsCueIndex;
+        var newCueIndex = timer.cue_index != null ? timer.cue_index : -1;
+
+        if (timer.is_live) {
+          lastPlan.liveState = {
+            isLive: true,
+            currentCueIndex: newCueIndex,
+            startedAt: timer.started_at,
+            currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : Date.now(),
+            elapsedSeconds: timer.elapsed_seconds,
+            remainingSeconds: timer.remaining_seconds,
+            overtimeSeconds: timer.overtime_seconds || 0,
+            nextCueTitle: timer.next_cue_title || null,
+            nextCueIndex: timer.next_cue_index,
+            nextCueDuration: timer.next_cue_duration,
+            timer: timer,
+          };
+        } else {
+          lastPlan.liveState = { isLive: false, currentCueIndex: -1, timer: null };
+        }
+
+        lastUpdated = new Date();
+        render(lastPlan);
+
+        // Detect cue change for notifications (6.3)
+        if (prevCueIndex !== null && newCueIndex !== prevCueIndex && timer.is_live) {
+          var cueTitle = timer.cue_title || ('Cue ' + (newCueIndex + 1));
+          viewFireCueNotification(newCueIndex, cueTitle);
+        }
+        viewLastWsCueIndex = timer.is_live ? newCueIndex : null;
+      }
+
+      // ── Cue-change notification system (6.3) ──
+      var notifyEnabled = false;
+      var notifyPermission = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
+      var toolbarNotify = document.getElementById('btn-notify');
+      var notifyChimeUrl = null; // could be set to an audio file URL
+
+      function toggleNotify() {
+        if (!notifyEnabled) {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            Notification.requestPermission().then(function(perm) {
+              notifyPermission = perm;
+              enableNotify();
+            });
+          } else {
+            enableNotify();
+          }
+        } else {
+          notifyEnabled = false;
+          if (toolbarNotify) toolbarNotify.classList.remove('active');
+          localStorage.removeItem('tally.rundown-notify:' + token);
+        }
+      }
+
+      function enableNotify() {
+        notifyEnabled = true;
+        if (toolbarNotify) toolbarNotify.classList.add('active');
+        localStorage.setItem('tally.rundown-notify:' + token, '1');
+      }
+
+      // Restore saved preference
+      if (localStorage.getItem('tally.rundown-notify:' + token) === '1') {
+        enableNotify();
+      }
+
+      function viewFireCueNotification(cueIndex, cueTitle) {
+        if (!notifyEnabled) return;
+
+        // When assignee or column filter is active, only notify for relevant cues
+        if (lastPlan && cueIndex !== null) {
+          var items = lastPlan.items || [];
+          var item = items[cueIndex];
+          if (item) {
+            // Assignee filter check
+            if (assigneeFilter && !itemMatchesAssignee(item, assigneeFilter)) return;
+            // Column filter check: skip if no filtered column has a value for this item
+            if (columnFilter && columnFilter.length) {
+              var columns = getColumns(lastPlan).filter(function(c) {
+                for (var k = 0; k < columnFilter.length; k++) {
+                  if (String(columnFilter[k]) === String(c.id)) return true;
+                }
+                return false;
+              });
+              var valueMap = buildColumnValueMap(lastPlan, items, columns);
+              var itemId = item.id || item.itemId || item.item_id;
+              if (!rowHasFilteredValue(itemId, columns, valueMap)) return;
+            }
+          }
+        }
+
+        // Screen flash
+        var app = document.getElementById('app');
+        if (app) {
+          app.classList.remove('cue-flash');
+          void app.offsetWidth; // force reflow
+          app.classList.add('cue-flash');
+          setTimeout(function() { app.classList.remove('cue-flash'); }, 1500);
+        }
+
+        // Browser notification
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            var n = new Notification('Cue Change', {
+              body: cueTitle,
+              tag: 'rundown-cue-' + token,
+              renotify: true,
+            });
+            setTimeout(function() { n.close(); }, 5000);
+          } catch (e) { /* ignore */ }
+        }
+
+        // Audio chime (if configured)
+        if (notifyChimeUrl) {
+          try { new Audio(notifyChimeUrl).play(); } catch (e) { /* ignore */ }
+        }
+      }
+
       function load() {
         fetch(apiBase + '/api/public/rundown/' + encodeURIComponent(token))
           .then(function (r) {
@@ -3279,6 +3489,7 @@
           .then(function (plan) {
             consecutiveLoadFailures = 0;
             if (viewConnBanner) viewConnBanner.classList.remove('visible');
+            viewComputeServerOffset(plan.server_timestamp);
             render(plan);
             document.title = plan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
           })
@@ -3295,7 +3506,10 @@
           });
       }
 
+      // Initial load + start polling, then connect WS (WS stops polling on success)
       load();
+      viewStartPolling();
+      viewConnectWebSocket();
 
       if (toolbarHelp) toolbarHelp.addEventListener('click', function () { toggleHelp(); });
       if (toolbarMirror) toolbarMirror.addEventListener('click', function () { toggleMirror(); });
@@ -3305,6 +3519,7 @@
       if (toolbarRefresh) toolbarRefresh.addEventListener('click', function () { load(); });
       var toolbarPrint = document.getElementById('btn-print');
       if (toolbarPrint) toolbarPrint.addEventListener('click', function () { printRundown(); });
+      if (toolbarNotify) toolbarNotify.addEventListener('click', function () { toggleNotify(); });
       if (toolbarColumns) toolbarColumns.addEventListener('click', function () { toggleColumnsPopover(); });
       if (colToggleBackdrop) colToggleBackdrop.addEventListener('click', function () { toggleColumnsPopover(false); });
       if (helpBackdrop) helpBackdrop.addEventListener('click', function () { toggleHelp(false); });
@@ -3362,6 +3577,11 @@
           setDisplayPrefs({ mirror: false, density: 'roomy', scale: 1, help: displayPrefs.help });
           return;
         }
+        if (key === 'n' || key === 'N') {
+          evt.preventDefault();
+          toggleNotify();
+          return;
+        }
         if (key === 'r' || key === 'R') {
           evt.preventDefault();
           load();
@@ -3394,8 +3614,8 @@
         }
       });
 
-      // Auto-refresh faster in prompter mode so the active cue follows more closely.
-      refreshTimer = setInterval(load, refreshIntervalMs);
+      // Polling is started by viewConnectWebSocket fallback or viewStartPolling.
+      // If WS connected, polling is stopped. If WS never connects, fallback fires.
 
       // Toolbar auto-fade: full opacity for 10s then fade to 40%
       (function() {
