@@ -10710,12 +10710,97 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    // ── 12.2: Save status indicator ──────────────────────────────────────────
+    var _rundownSaveStatusTimer = null;
+
+    function _showRundownSaveStatus(status) {
+      var el = document.getElementById('rundown-save-status');
+      if (!el) return;
+      clearTimeout(_rundownSaveStatusTimer);
+      if (status === 'saving') {
+        el.textContent = 'Saving\u2026';
+        el.dataset.state = 'saving';
+        el.style.display = '';
+      } else if (status === 'saved') {
+        el.textContent = 'Saved';
+        el.dataset.state = 'saved';
+        el.style.display = '';
+        _rundownSaveStatusTimer = setTimeout(function() { el.style.display = 'none'; }, 2000);
+      } else if (status === 'queued') {
+        el.textContent = 'Pending sync\u2026';
+        el.dataset.state = 'queued';
+        el.style.display = '';
+      } else {
+        el.style.display = 'none';
+      }
+    }
+
+    // ── 12.2: Retry queue for failed writes ───────────────────────────────────
+    var _rundownSaveQueue = [];
+    var _rundownSaveRetryTimer = null;
+
+    function _queueRundownSave(itemId, body) {
+      // Deduplicate: later write for same item supersedes earlier one
+      _rundownSaveQueue = _rundownSaveQueue.filter(function(e) { return e.itemId !== itemId; });
+      _rundownSaveQueue.push({ itemId: itemId, body: body });
+      _showRundownSaveStatus('queued');
+      if (!_rundownSaveRetryTimer) {
+        _rundownSaveRetryTimer = setInterval(_retryRundownSaveQueue, 10000);
+      }
+    }
+
+    function _retryRundownSaveQueue() {
+      if (!_rundownSaveQueue.length || !_rundownSelectedPlan) {
+        clearInterval(_rundownSaveRetryTimer);
+        _rundownSaveRetryTimer = null;
+        return;
+      }
+      var entry = _rundownSaveQueue.shift();
+      _showRundownSaveStatus('saving');
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + entry.itemId, entry.body)
+        .then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditorItems(plan.items || []);
+          if (_rundownSaveQueue.length === 0) {
+            _showRundownSaveStatus('saved');
+            clearInterval(_rundownSaveRetryTimer);
+            _rundownSaveRetryTimer = null;
+          } else {
+            _showRundownSaveStatus('queued');
+          }
+        })
+        .catch(function() {
+          _rundownSaveQueue.unshift(entry); // put back at front
+          _showRundownSaveStatus('queued');
+        });
+    }
+
+    // ── 12.2: Optimistic inline save ─────────────────────────────────────────
     function _rundownInlineSave(itemId, body) {
       if (!_rundownSelectedPlan) return;
-      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, body).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditorItems(plan.items || []);
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+
+      // Apply optimistically before the server responds
+      var originalItems = JSON.parse(JSON.stringify(_rundownSelectedPlan.items || []));
+      var idx = (_rundownSelectedPlan.items || []).findIndex(function(it) { return String(it.id) === String(itemId); });
+      if (idx >= 0) {
+        Object.assign(_rundownSelectedPlan.items[idx], body);
+        renderRundownEditorItems(_rundownSelectedPlan.items);
+      }
+
+      _showRundownSaveStatus('saving');
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, body)
+        .then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditorItems(plan.items || []);
+          _showRundownSaveStatus('saved');
+        })
+        .catch(function(e) {
+          // Revert the optimistic change and queue for retry
+          _rundownSelectedPlan.items = originalItems;
+          renderRundownEditorItems(originalItems);
+          _queueRundownSave(itemId, body);
+          toast('Save queued — will retry when connected', true);
+        });
     }
 
     // ── Custom column inline editing ──────────────────────────────────────────

@@ -619,6 +619,7 @@
   var lastState = null;
   var pollTimer = null;
   var connBanner = document.getElementById('connection-lost-banner');
+  var timerCacheKey = 'tally.rundown.timer-cache:' + token;
   var displayPrefs = {
     mirror: false,
     scale: 1,
@@ -772,6 +773,10 @@
 
   function updateDisplay(state) {
     lastState = state;
+    // 12.1: Cache live state for offline playback
+    if (state) {
+      try { window.localStorage.setItem(timerCacheKey, JSON.stringify(state)); } catch(e) {}
+    }
 
     if (!state || !state.is_live) {
       waitingScreen.style.display = 'flex';
@@ -898,9 +903,24 @@
     fetch('/api/public/rundown/' + encodeURIComponent(token) + '/timer')
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(data) {
-        if (data) updateDisplay(data);
+        if (data) {
+          if (connBanner) connBanner.classList.remove('visible');
+          updateDisplay(data);
+        }
       })
-      .catch(function() {});
+      .catch(function() {
+        // 12.1: Serve from localStorage cache when offline
+        if (!lastState) {
+          try {
+            var cached = window.localStorage.getItem(timerCacheKey);
+            if (cached) updateDisplay(JSON.parse(cached));
+          } catch(e) {}
+        }
+        if (connBanner) {
+          connBanner.textContent = 'Offline \u2014 running from cached data';
+          connBanner.classList.add('visible');
+        }
+      });
   }
 
   // ─── WebSocket Connection ───────────────────────────────────────────────────
@@ -920,7 +940,10 @@
       statusDot.classList.add('connected');
       statusText.textContent = 'Connected';
       reconnectDelay = 1000;
-      if (connBanner) connBanner.classList.remove('visible');
+      if (connBanner) {
+        connBanner.textContent = 'Offline \u2014 running from cached data';
+        connBanner.classList.remove('visible');
+      }
       // Request initial state
       ws.send(JSON.stringify({ type: 'subscribe_timer', token: token }));
     };
@@ -941,7 +964,10 @@
     ws.onclose = function() {
       statusDot.classList.remove('connected');
       statusText.textContent = 'Reconnecting...';
-      if (connBanner) connBanner.classList.add('visible');
+      if (connBanner) {
+        connBanner.textContent = 'Offline \u2014 running from cached data';
+        connBanner.classList.add('visible');
+      }
       scheduleReconnect();
     };
 
@@ -1139,5 +1165,6 @@
   }, 5000);
 })();
 </script>
+<script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/rundown-sw.js').catch(function(){}); }</script>
 </body>
 </html>
