@@ -10136,9 +10136,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Add item ghost row
       html += '<tr id="rundown-add-row" style="border-top:1px solid rgba(255,255,255,0.06)">';
       html += '<td colspan="' + colCount + '" style="padding:8px 6px">';
+      html += '<div style="display:flex;align-items:center;gap:16px">';
       html += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add item">';
       html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
       html += 'Add item</span>';
+      html += '<span data-action="rundownAddSectionInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px" title="Add section header">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75Zm0 4A.75.75 0 0 1 2.75 7h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 7.75Zm0 4a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"/></svg>';
+      html += 'Add section</span>';
+      html += '</div>';
       html += '</td>';
       html += '</tr>';
 
@@ -11180,6 +11185,29 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
           if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownDashboard(); }
           // Start editing the title of the new item
+          setTimeout(function() {
+            var titleSpan = document.querySelector('.rundown-inline-edit[data-field="title"][data-item-id="' + newItem.id + '"]');
+            if (titleSpan) titleSpan.click();
+          }, 100);
+        });
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownAddSectionInline() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+        title: 'New Section',
+        itemType: 'section',
+        lengthSeconds: 0,
+        notes: '',
+        assignee: '',
+      }).then(function(newItem) {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+          if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownDashboard(); }
+          // Start editing the title of the new section
           setTimeout(function() {
             var titleSpan = document.querySelector('.rundown-inline-edit[data-field="title"][data-item-id="' + newItem.id + '"]');
             if (titleSpan) titleSpan.click();
@@ -13141,6 +13169,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownAddItemInline':
         if (typeof rundownAddItemInline === 'function') rundownAddItemInline();
+        break;
+      case 'rundownAddSectionInline':
+        if (typeof rundownAddSectionInline === 'function') rundownAddSectionInline();
         break;
       case 'rundownEditItem':
         if (typeof rundownEditItem === 'function') rundownEditItem(btn.dataset.itemId);
