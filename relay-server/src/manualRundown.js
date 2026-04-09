@@ -99,6 +99,37 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
     } catch { /* column already exists — safe to ignore */ }
+    // Cross-room sync: when this plan is live, mirror advances from another room
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN sync_source_room_id TEXT`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN sync_delay_seconds INTEGER NOT NULL DEFAULT 0`);
+    } catch { /* column already exists */ }
+    // Room ready-check status table
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS room_ready_status (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'standby',
+        label TEXT NOT NULL DEFAULT '',
+        updated_at BIGINT NOT NULL,
+        UNIQUE(church_id, room_id)
+      )
+    `);
+    // Per-department ready check within a room
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS room_ready_departments (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        dept_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'standby',
+        updated_at BIGINT NOT NULL,
+        UNIQUE(church_id, room_id, dept_name)
+      )
+    `);
     // Add live-cueing columns: start_type, hard_start_time, auto_advance
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN start_type TEXT NOT NULL DEFAULT 'soft'`);
@@ -1032,6 +1063,8 @@ class ManualRundownStore {
       templateName: row.template_name || null,
       status: row.status || 'draft',
       roomId: row.room_id || '',
+      syncSourceRoomId: row.sync_source_room_id || null,
+      syncDelaySeconds: Number(row.sync_delay_seconds) || 0,
       shareToken: row.share_token || null,
       lockedBy: row.locked_by || null,
       lockedAt: row.locked_at || null,
@@ -1516,6 +1549,138 @@ class ManualRundownStore {
       `DELETE FROM rundown_room_permissions WHERE church_id = ? AND user_key = ?`,
       [churchId, userKey]
     );
+  }
+
+  // ─── CROSS-ROOM SYNC CONFIG ────────────────────────────────────────────────
+
+  /**
+   * Get the sync configuration for a plan.
+   * @returns {{ syncSourceRoomId: string|null, syncDelaySeconds: number }}
+   */
+  async getSyncConfig(planId) {
+    await this.ready;
+    const row = await this._db.queryOne(
+      `SELECT sync_source_room_id, sync_delay_seconds FROM manual_rundown_plans WHERE id = ?`,
+      [planId]
+    );
+    if (!row) return { syncSourceRoomId: null, syncDelaySeconds: 0 };
+    return {
+      syncSourceRoomId: row.sync_source_room_id || null,
+      syncDelaySeconds: Number(row.sync_delay_seconds) || 0,
+    };
+  }
+
+  /**
+   * Update the sync configuration for a plan.
+   * @param {string} planId
+   * @param {string|null} syncSourceRoomId — room to mirror cue advances from (null = disabled)
+   * @param {number} syncDelaySeconds — 0–10
+   */
+  async updateSyncConfig(planId, syncSourceRoomId, syncDelaySeconds = 0) {
+    await this.ready;
+    const delay = Math.max(0, Math.min(10, Number(syncDelaySeconds) || 0));
+    await this._db.run(
+      `UPDATE manual_rundown_plans
+         SET sync_source_room_id = ?, sync_delay_seconds = ?, updated_at = ?
+       WHERE id = ?`,
+      [syncSourceRoomId || null, delay, Date.now(), planId]
+    );
+  }
+
+  // ─── ROOM READY-CHECK STATUS ───────────────────────────────────────────────
+
+  /**
+   * Get all room ready statuses for a church.
+   * @returns {Array<{ churchId, roomId, status, label, updatedAt }>}
+   */
+  async getRoomReadyStatuses(churchId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM room_ready_status WHERE church_id = ? ORDER BY room_id ASC`,
+      [churchId]
+    );
+    return rows.map(r => ({
+      churchId: r.church_id,
+      roomId: r.room_id,
+      status: r.status,
+      label: r.label || '',
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  /**
+   * Set ready status for a room (upsert).
+   * @param {string} churchId
+   * @param {string} roomId
+   * @param {string} status — 'ready' | 'standby' | 'issue'
+   * @param {string} label — optional human-readable note
+   */
+  async setRoomReadyStatus(churchId, roomId, status, label = '') {
+    await this.ready;
+    const id = `${churchId}:${roomId}`;
+    const now = Date.now();
+    await this._db.run(
+      `INSERT INTO room_ready_status (id, church_id, room_id, status, label, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(church_id, room_id) DO UPDATE SET
+         status = excluded.status,
+         label = excluded.label,
+         updated_at = excluded.updated_at`,
+      [id, churchId, roomId, status, label || '', now]
+    );
+    return { churchId, roomId, status, label: label || '', updatedAt: now };
+  }
+
+  /**
+   * Get per-department ready statuses for a room.
+   */
+  async getRoomDeptStatuses(churchId, roomId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM room_ready_departments WHERE church_id = ? AND room_id = ? ORDER BY dept_name ASC`,
+      [churchId, roomId]
+    );
+    return rows.map(r => ({
+      churchId: r.church_id,
+      roomId: r.room_id,
+      deptName: r.dept_name,
+      status: r.status,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  /**
+   * Set per-department ready status for a room (upsert).
+   */
+  async setRoomDeptStatus(churchId, roomId, deptName, status) {
+    await this.ready;
+    const id = `${churchId}:${roomId}:${deptName}`;
+    const now = Date.now();
+    const validStatus = ['ready', 'standby', 'issue'].includes(status) ? status : 'standby';
+    await this._db.run(
+      `INSERT INTO room_ready_departments (id, church_id, room_id, dept_name, status, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(church_id, room_id, dept_name) DO UPDATE SET
+         status = excluded.status,
+         updated_at = excluded.updated_at`,
+      [id, churchId, roomId, String(deptName).trim().slice(0, 64), validStatus, now]
+    );
+    return { churchId, roomId, deptName, status: validStatus, updatedAt: now };
+  }
+
+  /**
+   * Load all room_ready_status rows for use with LiveRundownManager.loadRoomStatuses().
+   */
+  async getAllRoomReadyStatuses() {
+    await this.ready;
+    const rows = await this._db.query(`SELECT * FROM room_ready_status`);
+    return rows.map(r => ({
+      churchId: r.church_id,
+      roomId: r.room_id,
+      status: r.status,
+      label: r.label || '',
+      updatedAt: r.updated_at,
+    }));
   }
 }
 

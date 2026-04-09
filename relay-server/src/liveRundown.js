@@ -37,6 +37,16 @@ class LiveRundownManager {
     this._log = log;
     this._db = queryClient;
     this.ready = this._db ? this._init() : Promise.resolve();
+
+    // Cross-room sync: Map<sourceKey, Set<{ targetChurchId, targetRoomId, delaySeconds }>>
+    // When sourceKey session advances, all registered targets advance after their delay.
+    this._syncTargets = new Map();
+    // In-flight sync timers: Map<timerHandle, true> — tracked for cleanup
+    this._syncTimers = new Set();
+
+    // Room ready-check status: Map<"churchId:roomId", { status, label, updatedAt }>
+    // Persisted to DB separately but also held in memory for fast reads.
+    this._roomStatus = new Map();
   }
 
   // ─── SESSION KEY HELPERS ────────────────────────────────────────────────────
@@ -389,6 +399,10 @@ class LiveRundownManager {
 
     this._log(`[LiveRundown] Session ended for church ${churchId} room ${roomId || '(default)'}: "${session.planTitle}" (${reason})`);
     this._broadcastToRoom(churchId, roomId, { type: 'rundown_ended', ...summary });
+
+    // Clear any sync relationships for this session
+    this._clearSyncForSession(churchId, roomId);
+
     return summary;
   }
 
@@ -603,6 +617,9 @@ class LiveRundownManager {
 
     const state = this._buildState(session);
     this._broadcastToRoom(session.churchId, session.roomId, { type: 'rundown_position', ...state });
+
+    // Trigger cross-room sync advances (if any sessions mirror this one)
+    this._triggerSyncAdvances(session.churchId, session.roomId);
 
     // Trigger Companion actions for the new item (if any are configured)
     const newItem = session.items[newIndex];
@@ -881,6 +898,166 @@ class LiveRundownManager {
     this._broadcastToControllers(churchId, msg);
   }
 
+  // ─── CROSS-ROOM SYNC ───────────────────────────────────────────────────────
+
+  /**
+   * Register a sync relationship: when sourceKey session advances, advance
+   * targetChurchId:targetRoomId after delaySeconds.
+   *
+   * Call this when a plan session starts with a sync config, or when the TD
+   * explicitly enables sync. Replaces any existing target registration for
+   * the same (source, target) pair.
+   *
+   * @param {string} sourceChurchId
+   * @param {string} sourceRoomId
+   * @param {string} targetChurchId
+   * @param {string} targetRoomId
+   * @param {number} delaySeconds — 0–10
+   */
+  registerSyncTarget(sourceChurchId, sourceRoomId, targetChurchId, targetRoomId, delaySeconds = 0) {
+    const sourceKey = this._sessionKey(sourceChurchId, sourceRoomId);
+    if (!this._syncTargets.has(sourceKey)) this._syncTargets.set(sourceKey, new Set());
+    const targets = this._syncTargets.get(sourceKey);
+    // Remove any existing entry for the same target
+    for (const t of targets) {
+      if (t.targetChurchId === targetChurchId && t.targetRoomId === targetRoomId) {
+        targets.delete(t);
+        break;
+      }
+    }
+    targets.add({ targetChurchId, targetRoomId, delaySeconds: Math.max(0, Math.min(10, Number(delaySeconds) || 0)) });
+    this._log(`[LiveRundown] Sync registered: ${sourceChurchId}:${sourceRoomId} → ${targetChurchId}:${targetRoomId} (delay ${delaySeconds}s)`);
+  }
+
+  /**
+   * Remove a sync target for a source session.
+   */
+  unregisterSyncTarget(sourceChurchId, sourceRoomId, targetChurchId, targetRoomId) {
+    const sourceKey = this._sessionKey(sourceChurchId, sourceRoomId);
+    const targets = this._syncTargets.get(sourceKey);
+    if (!targets) return;
+    for (const t of targets) {
+      if (t.targetChurchId === targetChurchId && t.targetRoomId === targetRoomId) {
+        targets.delete(t);
+        break;
+      }
+    }
+    if (targets.size === 0) this._syncTargets.delete(sourceKey);
+  }
+
+  /**
+   * Remove all sync registrations where this session is a source or target.
+   * Called on endSession.
+   */
+  _clearSyncForSession(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    // Remove as source
+    this._syncTargets.delete(key);
+    // Remove as target from all sources
+    for (const [sourceKey, targets] of this._syncTargets) {
+      for (const t of targets) {
+        if (t.targetChurchId === churchId && t.targetRoomId === roomId) {
+          targets.delete(t);
+        }
+      }
+      if (targets.size === 0) this._syncTargets.delete(sourceKey);
+    }
+  }
+
+  /**
+   * Fire sync advances for all registered targets of a source session.
+   * Called after the source session moves to a new position.
+   *
+   * @param {string} churchId - source church
+   * @param {string} roomId - source room
+   */
+  _triggerSyncAdvances(churchId, roomId) {
+    const sourceKey = this._sessionKey(churchId, roomId);
+    const targets = this._syncTargets.get(sourceKey);
+    if (!targets || targets.size === 0) return;
+
+    for (const { targetChurchId, targetRoomId, delaySeconds } of targets) {
+      const doAdvance = () => {
+        const state = this.advance(targetChurchId, targetRoomId);
+        if (state) {
+          this._log(`[LiveRundown] Sync advance: ${targetChurchId}:${targetRoomId} (mirrored from ${churchId}:${roomId})`);
+        }
+      };
+
+      if (delaySeconds <= 0) {
+        doAdvance();
+      } else {
+        const handle = setTimeout(() => {
+          this._syncTimers.delete(handle);
+          doAdvance();
+        }, delaySeconds * 1000);
+        this._syncTimers.add(handle);
+      }
+    }
+  }
+
+  // ─── ROOM READY-CHECK STATUS ──────────────────────────────────────────────
+
+  /**
+   * Get the in-memory ready status for a room.
+   * @returns {{ status: string, label: string, updatedAt: number } | null}
+   */
+  getRoomStatus(churchId, roomId) {
+    return this._roomStatus.get(this._sessionKey(churchId, roomId)) || null;
+  }
+
+  /**
+   * Set in-memory ready status for a room and broadcast to portal clients.
+   * The caller is responsible for persisting to DB.
+   *
+   * @param {string} churchId
+   * @param {string} roomId
+   * @param {string} status — 'ready' | 'standby' | 'issue'
+   * @param {string} label — optional display label
+   */
+  setRoomStatus(churchId, roomId, status, label = '') {
+    const key = this._sessionKey(churchId, roomId);
+    const entry = { status, label: label || '', updatedAt: Date.now() };
+    this._roomStatus.set(key, entry);
+    this._broadcastToPortal(churchId, {
+      type: 'room_status_update',
+      churchId,
+      roomId,
+      ...entry,
+    });
+    this._log(`[LiveRundown] Room status: ${churchId}:${roomId} → ${status}`);
+  }
+
+  /**
+   * Get all room statuses for a church.
+   * @returns {Array<{ roomId, status, label, updatedAt }>}
+   */
+  getAllRoomStatuses(churchId) {
+    const result = [];
+    const prefix = churchId + ':';
+    for (const [key, val] of this._roomStatus) {
+      if (key.startsWith(prefix)) {
+        result.push({ roomId: key.substring(prefix.length), ...val });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Load room statuses from DB into memory on startup.
+   * @param {Array<{ churchId, roomId, status, label, updatedAt }>} rows
+   */
+  loadRoomStatuses(rows) {
+    for (const row of rows) {
+      const key = this._sessionKey(row.churchId || row.church_id, row.roomId || row.room_id);
+      this._roomStatus.set(key, {
+        status: row.status,
+        label: row.label || '',
+        updatedAt: Number(row.updatedAt || row.updated_at || Date.now()),
+      });
+    }
+  }
+
   /**
    * Clean up all sessions and timers.
    */
@@ -888,6 +1065,10 @@ class LiveRundownManager {
     for (const churchId of this._tickTimers.keys()) {
       this._stopTick(churchId);
     }
+    for (const handle of this._syncTimers) {
+      clearTimeout(handle);
+    }
+    this._syncTimers.clear();
     this._sessions.clear();
   }
 }

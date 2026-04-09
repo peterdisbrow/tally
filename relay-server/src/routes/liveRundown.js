@@ -459,6 +459,15 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const companionActionsMap = loadPlanActions(churchId, planId);
         const state = liveRundown.startSession(churchId, effectiveRoomId, plan, callerName || 'TD', companionActionsMap);
 
+        // Wire cross-room sync if this plan has a sync source configured
+        if (plan.source === 'manual' && plan.syncSourceRoomId) {
+          liveRundown.registerSyncTarget(
+            churchId, plan.syncSourceRoomId,
+            churchId, effectiveRoomId,
+            plan.syncDelaySeconds || 0
+          );
+        }
+
         // Auto-update status to 'live' for manual plans
         if (plan.source === 'manual') {
           try {
@@ -2750,13 +2759,146 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     return false;
   }
 
-  // Wire room access check into live session start
-  const originalStartHandler = app._router.stack;
   // Note: room access is enforced at the API layer via ensureRoomWriteAccess.
   // The start endpoint already uses ensurePlanWriteAccess for collaborator checks.
   // For live session operations (advance/back/goto/end/auto-advance), the room
   // boundary is enforced by the session key — you can only control a session in
-  // a room you have a session key for. The portal sends roomId from _rundownState.roomId
-  // which was set when the session was started, so cross-room control is prevented
-  // by the room-scoped session architecture itself.
+  // a room you have a session key for.
+
+  // ─── CROSS-ROOM SYNC CONFIG ───────────────────────────────────────────────
+
+  // GET /api/churches/:churchId/rundown-plans/:planId/sync
+  app.get(
+    '/api/churches/:churchId/rundown-plans/:planId/sync',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId, planId } = req.params;
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        res.json({
+          syncSourceRoomId: plan.syncSourceRoomId || null,
+          syncDelaySeconds: plan.syncDelaySeconds || 0,
+        });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // PUT /api/churches/:churchId/rundown-plans/:planId/sync
+  app.put(
+    '/api/churches/:churchId/rundown-plans/:planId/sync',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId, planId } = req.params;
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+
+        const syncSourceRoomId = req.body.syncSourceRoomId || null;
+        const syncDelaySeconds = Math.max(0, Math.min(10, Number(req.body.syncDelaySeconds) || 0));
+
+        await manualRundown.updateSyncConfig(planId, syncSourceRoomId, syncDelaySeconds);
+
+        // If this plan has an active session, update the sync registration immediately
+        if (syncSourceRoomId && liveRundown.hasSession(churchId, plan.roomId)) {
+          liveRundown.registerSyncTarget(
+            churchId, syncSourceRoomId,
+            churchId, plan.roomId,
+            syncDelaySeconds
+          );
+        } else if (!syncSourceRoomId) {
+          // Removing sync — unregister any existing target
+          if (plan.syncSourceRoomId) {
+            liveRundown.unregisterSyncTarget(
+              churchId, plan.syncSourceRoomId,
+              churchId, plan.roomId
+            );
+          }
+        }
+
+        res.json({ syncSourceRoomId, syncDelaySeconds });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── ROOM READY-CHECK STATUS ──────────────────────────────────────────────
+
+  const VALID_READY_STATUSES = new Set(['ready', 'standby', 'issue']);
+
+  // GET /api/churches/:churchId/room-ready-status
+  app.get(
+    '/api/churches/:churchId/room-ready-status',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId } = req.params;
+        const statuses = await manualRundown.getRoomReadyStatuses(churchId);
+        res.json({ statuses });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // PUT /api/churches/:churchId/room-ready-status/:roomId
+  app.put(
+    '/api/churches/:churchId/room-ready-status/:roomId',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId, roomId } = req.params;
+        const status = String(req.body.status || 'standby').trim().toLowerCase();
+        if (!VALID_READY_STATUSES.has(status)) {
+          return res.status(400).json({ error: 'status must be ready, standby, or issue' });
+        }
+        const label = String(req.body.label || '').trim().slice(0, 128);
+        const result = await manualRundown.setRoomReadyStatus(churchId, roomId, status, label);
+        // Update in-memory state and broadcast to portal
+        liveRundown.setRoomStatus(churchId, roomId, status, label);
+        res.json(result);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // GET /api/churches/:churchId/room-ready-status/:roomId/departments
+  app.get(
+    '/api/churches/:churchId/room-ready-status/:roomId/departments',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId, roomId } = req.params;
+        const depts = await manualRundown.getRoomDeptStatuses(churchId, roomId);
+        res.json({ departments: depts });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // PUT /api/churches/:churchId/room-ready-status/:roomId/departments/:deptName
+  app.put(
+    '/api/churches/:churchId/room-ready-status/:roomId/departments/:deptName',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const { churchId, roomId, deptName } = req.params;
+        const status = String(req.body.status || 'standby').trim().toLowerCase();
+        if (!VALID_READY_STATUSES.has(status)) {
+          return res.status(400).json({ error: 'status must be ready, standby, or issue' });
+        }
+        const result = await manualRundown.setRoomDeptStatus(churchId, roomId, deptName, status);
+        // Broadcast dept update to portal
+        broadcastRundownEvent(churchId, 'room_dept_status_update', result);
+        res.json(result);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
 };

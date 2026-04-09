@@ -1537,6 +1537,8 @@
     (function () {
       var token = location.pathname.split('/').pop();
       var query = new URLSearchParams(location.search);
+      // Follow-room mode: override live cue tracking to a specific room regardless of plan token
+      var followRoomId = query.get('follow') || null;
       var viewMode = (query.get('mode') || query.get('view') || '').toLowerCase();
       var isCompactMode = viewMode === 'compact' || viewMode === 'operator' || viewMode === 'summary';
       var isPrompterMode = viewMode === 'prompter' || viewMode === 'large-text';
@@ -3177,6 +3179,81 @@
 
       // Auto-refresh faster in prompter mode so the active cue follows more closely.
       refreshTimer = setInterval(load, refreshIntervalMs);
+
+      // Follow-room mode: connect via WebSocket to track a specific room's live cue
+      if (followRoomId) {
+        (function initFollowWs() {
+          var followWs = null;
+          var followReconnectTimer = null;
+          var followReconnectDelay = 1500;
+          // Override liveState when the followed room broadcasts
+          var overrideLiveState = null;
+
+          function connectFollowWs() {
+            if (followWs && (followWs.readyState === WebSocket.OPEN || followWs.readyState === WebSocket.CONNECTING)) return;
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var wsUrl = proto + '//' + location.host + '/rundown-follow?token=' + encodeURIComponent(token) + '&roomId=' + encodeURIComponent(followRoomId);
+            try { followWs = new WebSocket(wsUrl); } catch (e) { scheduleFollowReconnect(); return; }
+
+            followWs.onopen = function() { followReconnectDelay = 1500; };
+
+            followWs.onmessage = function(evt) {
+              try {
+                var msg = JSON.parse(evt.data);
+                if (msg.type === 'rundown_timer' || msg.type === 'timer_state') {
+                  overrideLiveState = msg.is_live ? {
+                    isLive: true,
+                    currentCueIndex: msg.cue_index != null ? msg.cue_index : (overrideLiveState ? overrideLiveState.currentCueIndex : 0),
+                    startedAt: msg.started_at || Date.now(),
+                    currentCueStartedAt: msg.timestamp ? msg.timestamp - (msg.elapsed_seconds || 0) * 1000 : Date.now(),
+                    timer: msg,
+                    followingRoom: followRoomId,
+                  } : { isLive: false, followingRoom: followRoomId };
+                  if (lastPlan) { render(Object.assign({}, lastPlan, { liveState: overrideLiveState, currentLiveState: overrideLiveState })); }
+                } else if (msg.type === 'rundown_state' || msg.type === 'rundown_position') {
+                  if (msg.currentIndex !== undefined) {
+                    overrideLiveState = {
+                      isLive: true,
+                      currentCueIndex: msg.currentIndex,
+                      startedAt: msg.startedAt || Date.now(),
+                      currentCueStartedAt: msg.currentItemStartedAt || Date.now(),
+                      followingRoom: followRoomId,
+                    };
+                    if (lastPlan) { render(Object.assign({}, lastPlan, { liveState: overrideLiveState, currentLiveState: overrideLiveState })); }
+                  }
+                } else if (msg.type === 'rundown_ended') {
+                  overrideLiveState = { isLive: false, followingRoom: followRoomId };
+                  if (lastPlan) { render(Object.assign({}, lastPlan, { liveState: overrideLiveState, currentLiveState: overrideLiveState })); }
+                }
+              } catch (e) { /* ignore */ }
+            };
+
+            followWs.onclose = function() {
+              followWs = null;
+              scheduleFollowReconnect();
+            };
+
+            followWs.onerror = function() { /* onclose fires next */ };
+
+            // Heartbeat
+            var hb = setInterval(function() {
+              if (followWs && followWs.readyState === WebSocket.OPEN) {
+                followWs.send(JSON.stringify({ type: 'ping' }));
+              } else {
+                clearInterval(hb);
+              }
+            }, 25000);
+          }
+
+          function scheduleFollowReconnect() {
+            if (followReconnectTimer) clearTimeout(followReconnectTimer);
+            followReconnectTimer = setTimeout(connectFollowWs, followReconnectDelay);
+            followReconnectDelay = Math.min(followReconnectDelay * 1.5, 10000);
+          }
+
+          connectFollowWs();
+        })();
+      }
 
       // Toolbar auto-fade: full opacity for 10s then fade to 40%
       (function() {
