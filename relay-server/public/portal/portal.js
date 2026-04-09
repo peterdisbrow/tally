@@ -10540,16 +10540,50 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _promptRundownColumnBinding(currentBinding) {
-      var hint = 'Use "none", "atem.program_input", "atem.preview_input", "propresenter.presentation", "encoder.status", or "stream.live"';
-      return styledPrompt('Live Source', hint, currentBinding || 'none').then(function(value) {
-        if (value === null) return '__cancel__';
-        var trimmed = String(value || '').trim();
-        if (!trimmed || trimmed.toLowerCase() === 'none') return null;
-        if (!RUNDOWN_COLUMN_BINDING_LABELS[trimmed]) {
-          toast('Unknown live source', true);
-          return undefined;
-        }
-        return trimmed;
+      var backdrop = document.getElementById('modal-styled-prompt');
+      var titleEl = document.getElementById('styled-prompt-title');
+      var labelEl = document.getElementById('styled-prompt-label');
+      var input = document.getElementById('styled-prompt-input');
+      if (titleEl) titleEl.textContent = 'Live Source';
+      if (labelEl) labelEl.textContent = 'Select a live source binding for this column';
+
+      // Replace text input with a select dropdown
+      var select = document.createElement('select');
+      select.id = 'styled-prompt-binding-select';
+      select.style.cssText = input.style.cssText + ';cursor:pointer;color-scheme:dark';
+      var noneOpt = document.createElement('option');
+      noneOpt.value = 'none';
+      noneOpt.textContent = 'None';
+      select.appendChild(noneOpt);
+      Object.keys(RUNDOWN_COLUMN_BINDING_LABELS).forEach(function(key) {
+        var opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = RUNDOWN_COLUMN_BINDING_LABELS[key];
+        select.appendChild(opt);
+      });
+      select.value = currentBinding || 'none';
+
+      input.style.display = 'none';
+      input.parentNode.insertBefore(select, input.nextSibling);
+      if (backdrop) backdrop.classList.add('open');
+      setTimeout(function() { select.focus(); }, 100);
+
+      var origResolve = _styledPromptResolve;
+      return new Promise(function(resolve) {
+        _styledPromptResolve = function(rawResult) {
+          // rawResult is null on cancel, or the text input value on OK
+          var result;
+          if (rawResult === null) {
+            result = '__cancel__';
+          } else {
+            var val = select.value;
+            result = (!val || val === 'none') ? null : val;
+          }
+          // Clean up: remove select, restore input
+          select.remove();
+          input.style.display = '';
+          resolve(result);
+        };
       });
     }
 
