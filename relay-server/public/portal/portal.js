@@ -12832,6 +12832,8 @@ function _portalFriendlyAlertType(alertType) {
 // ── Commands page ─────────────────────────────────────────────────────────────
 var _commandsLoaded = false;
 var loadCommandsPage; // assigned inside DOMContentLoaded; callable from showPage
+var loadAiTriagePage; // assigned inside DOMContentLoaded; callable from showPage
+var loadReports, loadReportsSummary, loadReportsEvents, loadReportsWindows, loadReportsHealth, loadReportsAi;
 
 // ── CSP-safe event delegation ─────────────────────────────────────────────────
 // Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
@@ -13650,7 +13652,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  async function loadAiTriagePage() {
+  loadAiTriagePage = async function() {
     _aiTriageEventsOffset = 0;
     document.getElementById('ai-triage-error-banner').style.display = 'none';
 
@@ -13721,7 +13723,18 @@ document.addEventListener('DOMContentLoaded', function() {
       if (s.triage_severity === 'critical') critCount = s.count;
     });
     el('ai-triage-stat-critical').textContent = hasData ? critCount : '0';
-    el('ai-triage-stat-resolution').textContent = hasData ? (stats.resolution_rate || 0) + '%' : '0%';
+    var aiMode = (_aiTriageSettings && _aiTriageSettings.ai_mode) || 'recommend_only';
+    var resEl = el('ai-triage-stat-resolution');
+    if (aiMode !== 'full_auto') {
+      resEl.textContent = 'N/A';
+      resEl.style.color = '#556270';
+      resEl.title = 'Resolution rate only applies in Full Auto mode';
+    } else {
+      var rate = hasData ? (stats.resolution_rate || 0) : 0;
+      resEl.textContent = rate + '%';
+      resEl.style.color = rate >= 80 ? '#00E676' : rate >= 50 ? '#FFB74D' : '#FF5252';
+      resEl.title = '';
+    }
 
     var onboarding = document.getElementById('ai-triage-onboarding');
     if (onboarding) {
@@ -14012,6 +14025,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var _reportsWindowsDays = 7;
   var _reportsHealthDays = 7;
   var _reportsAiPage = 1;
+  var _reportsAiDays = 7;
   var _reportsRoomsLoaded = false;
 
   async function loadReportsRoomSelector() {
@@ -14025,14 +14039,14 @@ document.addEventListener('DOMContentLoaded', function() {
     _reportsRoomsLoaded = true;
   }
 
-  async function loadReports() {
+  loadReports = async function() {
     _tabLoaded = {};
     await loadReportsRoomSelector();
     loadReportsSummary();
   }
 
   // ── Weekly Summary ──────────────────────────────────────────────────────────
-  async function loadReportsSummary() {
+  loadReportsSummary = async function() {
     try {
       var data = await api('GET', '/api/church/reports/weekly-summary?days=' + _reportsSummaryDays + roomParamAmp());
       document.getElementById('rpt-sessions').textContent = data.sessions || 0;
@@ -14100,10 +14114,17 @@ document.addEventListener('DOMContentLoaded', function() {
       _reportsHealthDays = parseInt(e.target.dataset.days) || 7;
       loadReportsHealth();
     }
+    if (e.target.matches('.rpt-ai-range')) {
+      document.querySelectorAll('.rpt-ai-range').forEach(function(b) { b.classList.remove('active'); });
+      e.target.classList.add('active');
+      _reportsAiDays = parseInt(e.target.dataset.days) || 7;
+      _reportsAiPage = 1;
+      loadReportsAi();
+    }
   });
 
   // ── Event History ───────────────────────────────────────────────────────────
-  async function loadReportsEvents() {
+  loadReportsEvents = async function() {
     try {
       // Populate room selector
       var roomSelect = document.getElementById('rpt-event-room');
@@ -14185,7 +14206,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Service Windows ─────────────────────────────────────────────────────────
   var DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  async function loadReportsWindows() {
+  loadReportsWindows = async function() {
     try {
       var data = await api('GET', '/api/church/reports/service-windows?days=' + _reportsWindowsDays + roomParamAmp());
 
@@ -14250,7 +14271,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ── Device Health ───────────────────────────────────────────────────────────
-  async function loadReportsHealth() {
+  loadReportsHealth = async function() {
     try {
       var data = await api('GET', '/api/church/reports/device-health?days=' + _reportsHealthDays + roomParamAmp());
 
@@ -14307,9 +14328,9 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ── AI Activity ─────────────────────────────────────────────────────────────
-  async function loadReportsAi() {
+  loadReportsAi = async function() {
     try {
-      var data = await api('GET', '/api/church/reports/ai-activity?days=7&page=' + _reportsAiPage + roomParamAmp());
+      var data = await api('GET', '/api/church/reports/ai-activity?days=' + _reportsAiDays + '&page=' + _reportsAiPage + roomParamAmp());
 
       if (!data.aiEnabled) {
         document.getElementById('rpt-ai-disabled').style.display = 'block';
