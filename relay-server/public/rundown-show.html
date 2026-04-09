@@ -1035,12 +1035,109 @@
       .status-bar { padding: 8px 12px; }
       .btn-go { padding: 14px 20px; }
     }
+    /* ── v3: Keyboard Shortcuts Overlay ── */
+    .shortcuts-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 250;
+      padding: 16px;
+      backdrop-filter: blur(4px);
+    }
+    .shortcuts-overlay.open { display: flex; }
+    .shortcuts-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      width: 100%;
+      max-width: 400px;
+    }
+    .shortcuts-panel h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+    .shortcut-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .shortcut-row:last-child { border-bottom: none; }
+    .shortcut-label {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .shortcut-keys {
+      display: flex;
+      gap: 4px;
+    }
+    .shortcut-key {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-family: ui-monospace, monospace;
+    }
+    .shortcuts-help-btn {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 50;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.12s, background 0.12s;
+    }
+    .shortcuts-help-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+
+    /* ── v3: Color stripe on cue items ── */
+    .cue-item[data-color] {
+      border-left-width: 4px;
+      border-left-style: solid;
+    }
   </style>
 </head>
 <body>
   <div class="connection-lost-banner" id="connection-lost-banner">Connection lost — reconnecting...</div>
   <div class="app" id="app">
     <div class="state-msg" id="loading-msg">Loading show&hellip;</div>
+  </div>
+
+  <!-- v3: Keyboard shortcuts help button -->
+  <button class="shortcuts-help-btn" id="shortcuts-help-btn" title="Keyboard shortcuts (?)">?</button>
+
+  <!-- v3: Keyboard shortcuts overlay -->
+  <div class="shortcuts-overlay" id="shortcuts-overlay">
+    <div class="shortcuts-panel">
+      <h3>Keyboard Shortcuts</h3>
+      <div class="shortcut-row"><span class="shortcut-label">Advance cue (GO)</span><span class="shortcut-keys"><span class="shortcut-key">Space</span><span class="shortcut-key">&rarr;</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Go back</span><span class="shortcut-keys"><span class="shortcut-key">&larr;</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">End show</span><span class="shortcut-keys"><span class="shortcut-key">Esc</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Toggle Next Up panel</span><span class="shortcut-keys"><span class="shortcut-key">N</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Toggle theme</span><span class="shortcut-keys"><span class="shortcut-key">T</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Toggle fullscreen</span><span class="shortcut-keys"><span class="shortcut-key">F</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Show this help</span><span class="shortcut-keys"><span class="shortcut-key">?</span></span></div>
+      <div style="text-align:center;margin-top:16px"><button class="btn btn-cancel" id="shortcuts-close" style="font-size:12px;padding:6px 16px">Close</button></div>
+    </div>
   </div>
 
   <!-- Styled confirm modal -->
@@ -1370,6 +1467,13 @@
       if (okBtn) okBtn.addEventListener('click', function() { _closeConfirm(true); });
       if (cancelBtn) cancelBtn.addEventListener('click', function() { _closeConfirm(false); });
       if (overlay) overlay.addEventListener('click', function(e) { if (e.target === overlay) _closeConfirm(false); });
+      // v3: Shortcuts overlay button bindings
+      var helpBtn = document.getElementById('shortcuts-help-btn');
+      var shortcutsClose = document.getElementById('shortcuts-close');
+      var shortcutsOverlay = document.getElementById('shortcuts-overlay');
+      if (helpBtn) helpBtn.addEventListener('click', function() { toggleShortcutsOverlay(); });
+      if (shortcutsClose) shortcutsClose.addEventListener('click', function() { toggleShortcutsOverlay(); });
+      if (shortcutsOverlay) shortcutsOverlay.addEventListener('click', function(e) { if (e.target === shortcutsOverlay) toggleShortcutsOverlay(); });
     })();
 
     // ── Screen Wake Lock ──
@@ -1711,10 +1815,64 @@
     }
 
     // ── Keyboard shortcuts ──
+    // v3: Keyboard shortcuts overlay state
+    var shortcutsVisible = false;
+    var nextUpVisible = true;
+
+    function toggleShortcutsOverlay() {
+      shortcutsVisible = !shortcutsVisible;
+      var overlay = document.getElementById('shortcuts-overlay');
+      if (overlay) overlay.classList.toggle('open', shortcutsVisible);
+    }
+
+    function toggleNextUpPanel() {
+      nextUpVisible = !nextUpVisible;
+      var el = document.getElementById('next-up');
+      if (el) el.style.display = nextUpVisible ? '' : 'none';
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(function() {});
+      } else {
+        document.exitFullscreen().catch(function() {});
+      }
+    }
+
     document.addEventListener('keydown', function(e) {
       // Don't capture when editing
       if (editingItemId) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      // Close shortcuts overlay on any key if open
+      if (shortcutsVisible && e.key !== '?') {
+        toggleShortcutsOverlay();
+        return;
+      }
+
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        toggleShortcutsOverlay();
+        return;
+      }
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        toggleNextUpPanel();
+        return;
+      }
+
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        toggleShowTheme();
+        return;
+      }
+
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
 
       if (isReadOnly) return; // No cue-advancing shortcuts in readonly mode
 
@@ -1727,6 +1885,8 @@
       } else if (e.key === 'Escape') {
         if (document.getElementById('edit-overlay').classList.contains('open')) {
           closeEdit();
+        } else if (liveState && liveState.isLive) {
+          liveStop();
         }
       }
     });
@@ -1950,11 +2110,14 @@
         if (parentCollapsed) cls += ' stack-child-hidden';
 
         if (isSection) {
-          html += '<div class="' + cls + '"><div class="cue-title">' + escapeHtml(item.title) + '</div></div>';
+          var sectionColor = item.color || '#556270';
+          html += '<div class="' + cls + '" style="border-left:4px solid ' + sectionColor + ';background:' + sectionColor + '12"><div class="cue-title">' + escapeHtml(item.title) + '</div></div>';
           continue;
         }
 
-        html += '<div class="' + cls + '" data-index="' + i + '" data-id="' + escapeHtml(item.id) + '">';
+        var itemColor = item.color || '';
+        var itemBorderStyle = itemColor ? 'border-left:4px solid ' + itemColor + ';padding-left:12px' : '';
+        html += '<div class="' + cls + '" data-index="' + i + '" data-id="' + escapeHtml(item.id) + '"' + (itemBorderStyle ? ' style="' + itemBorderStyle + '"' : '') + '>';
 
         // Number
         html += '<div class="cue-num">' + (isChild ? '&middot;' : seq) + '</div>';

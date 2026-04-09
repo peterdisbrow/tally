@@ -277,6 +277,11 @@ class ManualRundownStore {
     // ── Room permissions table ──────────────────────────────────────────────
     await this._initRoomPermissions();
 
+    // ── Phase 11 (v3): color column on items ─────────────────────────────────
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN color TEXT DEFAULT ''`);
+    } catch { /* column already exists */ }
+
     // ── Phase 9: director_notes column on items ─────────────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN director_notes TEXT DEFAULT ''`);
@@ -491,6 +496,7 @@ class ManualRundownStore {
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
+        color: item.color,
         // parentId mapped after all items are created (second pass below)
       });
       itemIdMap[item.id] = newItem.id;
@@ -529,7 +535,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, directorNotes = '', parentId = null }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, directorNotes = '', parentId = null, color = '' }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -538,15 +544,15 @@ class ManualRundownStore {
     );
     const sortOrder = (max?.mx ?? -1) + 1;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, directorNotes || '', parentId || null, now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, color, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, directorNotes || '', parentId || null, color || '', now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', parent_id: parentId || null, created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', parent_id: parentId || null, color: color || '', created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId, color }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -559,6 +565,7 @@ class ManualRundownStore {
     if (autoAdvance !== undefined) { sets.push('auto_advance = ?'); params.push(autoAdvance ? 1 : 0); }
     if (directorNotes !== undefined) { sets.push('director_notes = ?'); params.push(directorNotes); }
     if (parentId !== undefined) { sets.push('parent_id = ?'); params.push(parentId || null); }
+    if (color !== undefined) { sets.push('color = ?'); params.push(color || ''); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -617,6 +624,7 @@ class ManualRundownStore {
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
+        color: item.color,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -658,6 +666,7 @@ class ManualRundownStore {
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
         directorNotes: item.directorNotes,
+        color: item.color,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -1144,6 +1153,7 @@ class ManualRundownStore {
       hardStartTime: row.hard_start_time || null,
       autoAdvance: !!row.auto_advance,
       directorNotes: row.director_notes || '',
+      color: row.color || '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1361,6 +1371,7 @@ class ManualRundownStore {
       hardStartTime: snapshot.hardStartTime,
       autoAdvance: snapshot.autoAdvance,
       directorNotes: snapshot.directorNotes,
+      color: snapshot.color,
     });
     return this._db.queryOne(`SELECT * FROM manual_rundown_items WHERE id = ?`, [row.item_id])
       .then(r => r ? this._toItem(r) : null);

@@ -8656,10 +8656,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var plans = _rundownFilteredPlans();
 
       if (plans.length === 0 && !_rundownFilterRoom && !_rundownFilterStatus && !_rundownSearchQuery) {
-        container.innerHTML = '<div style="color:#556270;text-align:center;padding:60px 20px;font-size:14px">' +
-          '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40" style="margin-bottom:12px;opacity:0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg>' +
-          '<div style="font-weight:700;color:#F0F2F4;margin-bottom:4px">No Rundowns Yet</div>' +
-          'Click "New Rundown" to create your first service plan.</div>';
+        var emptyHtml = '<div class="rundown-empty-state">';
+        emptyHtml += '<div class="rundown-empty-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg></div>';
+        emptyHtml += '<div class="rundown-empty-title">Create Your First Rundown</div>';
+        emptyHtml += '<div class="rundown-empty-subtitle">Build a service plan with timed items, assign team members, and run it live during your service.</div>';
+        emptyHtml += '<button class="rundown-empty-cta" data-action="rundownNew"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg> New Rundown</button>';
+        // Show built-in templates
+        emptyHtml += '<div style="font-size:12px;font-weight:700;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Or start from a template</div>';
+        emptyHtml += '<div class="rundown-template-grid">';
+        for (var ti = 0; ti < RUNDOWN_BUILTIN_TEMPLATES.length; ti++) {
+          var tpl = RUNDOWN_BUILTIN_TEMPLATES[ti];
+          var tplItems = tpl.items.filter(function(x) { return x.itemType !== 'section'; });
+          var tplDur = tpl.items.reduce(function(s, x) { return s + (x.lengthSeconds || 0); }, 0);
+          var tplDurStr = Math.floor(tplDur / 60) + 'm';
+          emptyHtml += '<div class="rundown-template-card" data-action="rundownCreateFromBuiltinTemplate" data-template-index="' + ti + '">';
+          emptyHtml += '<div class="rundown-template-card-title">' + escapeHtml(tpl.name) + '</div>';
+          emptyHtml += '<div class="rundown-template-card-meta">' + tplItems.length + ' items · ' + tplDurStr + '</div>';
+          emptyHtml += '<div class="rundown-template-card-items">';
+          for (var tj = 0; tj < tpl.items.length && tj < 6; tj++) {
+            var tpItem = tpl.items[tj];
+            if (tpItem.itemType === 'section') continue;
+            var chipBg = tpItem.color ? tpItem.color + '22' : 'rgba(255,255,255,0.06)';
+            var chipColor = tpItem.color || '#8B9DAF';
+            emptyHtml += '<span class="rundown-template-chip" style="background:' + chipBg + ';color:' + chipColor + '">' + escapeHtml(tpItem.title) + '</span>';
+          }
+          if (tplItems.length > 6) emptyHtml += '<span class="rundown-template-chip" style="background:rgba(255,255,255,0.06);color:#556270">+' + (tplItems.length - 6) + ' more</span>';
+          emptyHtml += '</div></div>';
+        }
+        emptyHtml += '</div></div>';
+        container.innerHTML = emptyHtml;
         return;
       }
 
@@ -9389,6 +9414,127 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       announcement: '#00bcd4', section: '#556270', other: '#95a5a6',
       standby: '#556270', blackout: '#333333'
     };
+    // v3 Phase 1: Color presets for church use
+    var RUNDOWN_COLOR_PRESETS = [
+      { color: '#3b82f6', label: 'Worship' },
+      { color: '#8b5cf6', label: 'Sermon' },
+      { color: '#6b7280', label: 'Transition' },
+      { color: '#f97316', label: 'Media' },
+      { color: '#22c55e', label: 'Prayer' },
+      { color: '#eab308', label: 'Announce' },
+      { color: '#ec4899', label: 'Special' },
+      { color: '#ef4444', label: 'Urgent' }
+    ];
+    // v3 Phase 1: Built-in church service templates
+    var RUNDOWN_BUILTIN_TEMPLATES = [
+      {
+        name: 'Standard Sunday Service',
+        items: [
+          { title: 'Welcome', itemType: 'welcome', lengthSeconds: 180, color: '#22c55e' },
+          { title: 'WORSHIP SET', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Opening Song', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Worship Song 2', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Worship Song 3', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'ANNOUNCEMENTS', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Announcements', itemType: 'announcement', lengthSeconds: 300, color: '#eab308' },
+          { title: 'Offering', itemType: 'offering', lengthSeconds: 240, color: '#eab308' },
+          { title: 'MESSAGE', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Message', itemType: 'sermon', lengthSeconds: 2100, color: '#8b5cf6' },
+          { title: 'RESPONSE', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Response Song', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Closing Prayer', itemType: 'prayer', lengthSeconds: 120, color: '#22c55e' },
+          { title: 'Dismissal', itemType: 'transition', lengthSeconds: 60, color: '#6b7280' }
+        ]
+      },
+      {
+        name: 'Contemporary Worship',
+        items: [
+          { title: 'Pre-Service Countdown', itemType: 'media', lengthSeconds: 300, color: '#f97316' },
+          { title: 'Opening Song', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'WORSHIP BLOCK', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Worship Song 1', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Worship Song 2', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Worship Song 3', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Transition', itemType: 'transition', lengthSeconds: 60, color: '#6b7280' },
+          { title: 'MESSAGE', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Message', itemType: 'sermon', lengthSeconds: 2400, color: '#8b5cf6' },
+          { title: 'Altar Call', itemType: 'prayer', lengthSeconds: 300, color: '#22c55e' },
+          { title: 'Closing Song', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' }
+        ]
+      },
+      {
+        name: 'Traditional / Liturgical',
+        items: [
+          { title: 'Prelude', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Call to Worship', itemType: 'scripture', lengthSeconds: 120, color: '#8b5cf6' },
+          { title: 'Opening Hymn', itemType: 'song', lengthSeconds: 240, color: '#3b82f6' },
+          { title: 'Scripture Reading', itemType: 'scripture', lengthSeconds: 180, color: '#8b5cf6' },
+          { title: 'Pastoral Prayer', itemType: 'prayer', lengthSeconds: 180, color: '#22c55e' },
+          { title: 'Offertory', itemType: 'offering', lengthSeconds: 240, color: '#eab308' },
+          { title: 'SERMON', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Sermon', itemType: 'sermon', lengthSeconds: 1800, color: '#8b5cf6' },
+          { title: 'Closing Hymn', itemType: 'song', lengthSeconds: 240, color: '#3b82f6' },
+          { title: 'Benediction', itemType: 'prayer', lengthSeconds: 60, color: '#22c55e' },
+          { title: 'Postlude', itemType: 'song', lengthSeconds: 180, color: '#3b82f6' }
+        ]
+      },
+      {
+        name: 'Christmas Eve',
+        items: [
+          { title: 'Pre-Service Music', itemType: 'song', lengthSeconds: 600, color: '#3b82f6' },
+          { title: 'Welcome', itemType: 'welcome', lengthSeconds: 120, color: '#22c55e' },
+          { title: 'O Come All Ye Faithful', itemType: 'song', lengthSeconds: 240, color: '#3b82f6' },
+          { title: 'Scripture: Luke 2:1-7', itemType: 'scripture', lengthSeconds: 120, color: '#8b5cf6' },
+          { title: 'SPECIAL MUSIC', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Special Music', itemType: 'song', lengthSeconds: 300, color: '#ec4899' },
+          { title: 'MESSAGE', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Christmas Message', itemType: 'sermon', lengthSeconds: 1200, color: '#8b5cf6' },
+          { title: 'CANDLELIGHTING', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Candlelighting Ceremony', itemType: 'prayer', lengthSeconds: 300, color: '#ec4899' },
+          { title: 'Silent Night', itemType: 'song', lengthSeconds: 240, color: '#3b82f6' },
+          { title: 'Benediction', itemType: 'prayer', lengthSeconds: 60, color: '#22c55e' }
+        ]
+      },
+      {
+        name: 'Easter Sunday',
+        items: [
+          { title: 'Pre-Service Countdown', itemType: 'media', lengthSeconds: 300, color: '#f97316' },
+          { title: 'Opening Celebration', itemType: 'song', lengthSeconds: 300, color: '#ec4899' },
+          { title: 'WORSHIP', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Worship Song 1', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Worship Song 2', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'BAPTISMS', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Baptism Celebration', itemType: 'prayer', lengthSeconds: 600, color: '#22c55e' },
+          { title: 'MESSAGE', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Easter Message', itemType: 'sermon', lengthSeconds: 2100, color: '#8b5cf6' },
+          { title: 'Response Song', itemType: 'song', lengthSeconds: 300, color: '#3b82f6' },
+          { title: 'Commissioning & Sending', itemType: 'prayer', lengthSeconds: 120, color: '#22c55e' }
+        ]
+      },
+      {
+        name: 'Youth Service',
+        items: [
+          { title: 'Hangout / Games', itemType: 'other', lengthSeconds: 900, color: '#ec4899' },
+          { title: 'WORSHIP', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Worship Set', itemType: 'song', lengthSeconds: 900, color: '#3b82f6' },
+          { title: 'Announcements', itemType: 'announcement', lengthSeconds: 180, color: '#eab308' },
+          { title: 'TEACHING', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Teaching', itemType: 'sermon', lengthSeconds: 1500, color: '#8b5cf6' },
+          { title: 'SMALL GROUPS', itemType: 'section', lengthSeconds: 0, color: '' },
+          { title: 'Small Groups', itemType: 'other', lengthSeconds: 900, color: '#22c55e' },
+          { title: 'Closing', itemType: 'transition', lengthSeconds: 120, color: '#6b7280' }
+        ]
+      }
+    ];
+    // v3 Phase 1: Section collapse state (persisted in localStorage)
+    var _rundownSectionCollapse = {};
+    try {
+      var _savedCollapse = window.localStorage.getItem('tally.rundown.section-collapse');
+      if (_savedCollapse) _rundownSectionCollapse = JSON.parse(_savedCollapse);
+    } catch(e) {}
+    function _saveRundownSectionCollapse() {
+      try { window.localStorage.setItem('tally.rundown.section-collapse', JSON.stringify(_rundownSectionCollapse)); } catch(e) {}
+    }
     var RUNDOWN_TYPE_LABELS = {
       song: 'Song', sermon: 'Sermon', message: 'Message', media: 'Media',
       prayer: 'Prayer', transition: 'Transition', welcome: 'Welcome',
@@ -10193,24 +10339,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var rowNum = 0;
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
-        var color = RUNDOWN_TYPE_COLORS[item.itemType] || RUNDOWN_TYPE_COLORS.other;
+        var color = item.color || RUNDOWN_TYPE_COLORS[item.itemType] || RUNDOWN_TYPE_COLORS.other;
         var t = timingData[i];
         var isCurrent = (i === activeCueIdx);
         var isPast = isLive && i < activeCueIdx;
         var isSelected = !!_rundownBatchSelection[item.id];
 
-        // Section header — full-width divider row
+        // Section header — full-width divider row with color band and collapse
         if (item.itemType === 'section') {
-          html += '<tr data-item-id="' + item.id + '" draggable="true" class="' + (isSelected ? 'rundown-batch-section-selected' : '') + '" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
+          var sectionColor = item.color || '#556270';
+          var sectionCollapsed = !!_rundownSectionCollapse[item.id];
+          // Count items and cumulative duration until next section
+          var sectionItemCount = 0;
+          var sectionDuration = 0;
+          for (var si = i + 1; si < items.length; si++) {
+            if (items[si].itemType === 'section') break;
+            sectionItemCount++;
+            sectionDuration += items[si].lengthSeconds || 0;
+          }
+          var sectionDurStr = sectionDuration > 0 ? Math.floor(sectionDuration / 60) + ':' + (sectionDuration % 60 < 10 ? '0' : '') + (sectionDuration % 60) : '';
+          html += '<tr data-item-id="' + item.id + '" draggable="true" class="rundown-section-header ' + (isSelected ? 'rundown-batch-section-selected' : '') + '" data-section-id="' + item.id + '" style="background:' + sectionColor + '18;border-top:3px solid ' + sectionColor + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
           html += '<td class="rundown-batch-check rundown-adv" style="padding:6px 4px;vertical-align:middle;text-align:center">';
           html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select section">';
           html += '</td>';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="' + (colCount - 3) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 4) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<span class="rundown-section-chevron' + (sectionCollapsed ? ' collapsed' : '') + '" data-toggle-section="' + item.id + '" style="cursor:pointer;margin-right:6px">';
+          html += '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+          html += '</span>';
           html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
+          html += '<span class="rundown-section-meta">' + sectionItemCount + ' item' + (sectionItemCount !== 1 ? 's' : '');
+          if (sectionDurStr) html += ' · ' + sectionDurStr;
+          html += '</span>';
+          // Section color picker trigger
+          html += ' <span data-action="rundownColorPicker" data-item-id="' + item.id + '" style="cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle;margin-left:6px" title="Section color">';
+          html += '<span style="width:14px;height:14px;border-radius:4px;background:' + sectionColor + ';display:inline-block;border:1px solid rgba(255,255,255,0.15)"></span>';
+          html += '</span>';
           html += '</td>';
           html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
           html += '</tr>';
+          // Mark subsequent items as collapsed if section is collapsed
+          if (sectionCollapsed) {
+            for (var sci = i + 1; sci < items.length; sci++) {
+              if (items[sci].itemType === 'section') break;
+              items[sci]._sectionCollapsed = true;
+            }
+          }
+          continue;
+        }
+
+        // Skip rendering if parent section is collapsed
+        if (item._sectionCollapsed) {
           continue;
         }
 
@@ -10244,7 +10423,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           rowOpacity = '0.45';
         }
 
-        var rowStyle = 'border-bottom:1px solid rgba(255,255,255,0.04);border-left:' + borderLeft + ';transition:background 0.15s;background:' + rowBg + ';opacity:' + rowOpacity;
+        var rowStyle = 'border-bottom:1px solid rgba(255,255,255,0.04);border-left:4px solid ' + color + ';border-radius:2px 0 0 2px;transition:background 0.15s;background:' + rowBg + ';opacity:' + rowOpacity;
         if (isLive) rowStyle += ';cursor:pointer';
         html += '<tr data-item-id="' + item.id + '" data-cue-index="' + i + '" draggable="true"'
           + ' class="' + (isCurrent ? 'live-cue-active' : '') + (isSelected ? ' rundown-batch-selected' : '') + '"'
@@ -10271,6 +10450,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Type (inline select)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
         html += '<span class="rundown-inline-type" data-item-id="' + item.id + '" style="cursor:pointer;font-size:11px;color:' + color + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;display:inline-block" title="' + escapeHtml(RUNDOWN_TYPE_TOOLTIPS[item.itemType] || 'Click to change type') + '">' + escapeHtml(RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType) + '</span>';
+        html += ' <span data-action="rundownColorPicker" data-item-id="' + item.id + '" style="cursor:pointer;display:inline-flex;align-items:center;vertical-align:middle" title="Item color">';
+        html += '<span style="width:12px;height:12px;border-radius:3px;background:' + color + ';display:inline-block;border:1px solid rgba(255,255,255,0.15)"></span>';
+        html += '</span>';
         html += '</td>';
 
         // Who / Assignee (inline editable)
@@ -10300,7 +10482,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Duration (inline editable, MM:SS)
         html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle">';
-        html += '<span class="rundown-inline-edit" data-field="duration" data-item-id="' + item.id + '" style="cursor:text;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF" title="Click to edit">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
+        html += '<span class="rundown-duration-trigger" data-action="rundownDurationPicker" data-item-id="' + item.id + '" data-seconds="' + (item.lengthSeconds || 0) + '" style="cursor:pointer;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:12px;color:#8B9DAF;padding:2px 6px;border-radius:4px;display:inline-block;transition:background 0.12s" title="Click for duration picker">' + _rundownFormatMMSS(item.lengthSeconds) + '</span>';
         html += '</td>';
 
         // Start time — show hard start indicator
@@ -10412,7 +10594,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var mRowNum = 0;
       for (var mi = 0; mi < items.length; mi++) {
         var mItem = items[mi];
-        var mColor = RUNDOWN_TYPE_COLORS[mItem.itemType] || RUNDOWN_TYPE_COLORS.other;
+        var mColor = mItem.color || RUNDOWN_TYPE_COLORS[mItem.itemType] || RUNDOWN_TYPE_COLORS.other;
         var mIsCurrent = (mi === activeCueIdx);
         var mIsPast = isLive && mi < activeCueIdx;
 
@@ -11894,6 +12076,207 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }, 100);
         });
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    // ── v3 Phase 1: Color picker popup ────────────────────────────────────────
+    var _colorPickerActive = null;
+    function _openRundownColorPicker(trigger) {
+      _closeRundownPopups();
+      var itemId = trigger.dataset.itemId;
+      var rect = trigger.getBoundingClientRect();
+      var item = _rundownSelectedPlan ? (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; }) : null;
+      var currentColor = item ? (item.color || '') : '';
+
+      var picker = document.createElement('div');
+      picker.className = 'rundown-color-picker open';
+      picker.style.position = 'fixed';
+      picker.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+      picker.style.top = (rect.bottom + 4) + 'px';
+      picker.style.zIndex = '200';
+
+      var html = '<div class="rundown-color-picker-grid">';
+      for (var ci = 0; ci < RUNDOWN_COLOR_PRESETS.length; ci++) {
+        var preset = RUNDOWN_COLOR_PRESETS[ci];
+        var isActive = currentColor === preset.color;
+        html += '<div style="text-align:center">';
+        html += '<div class="rundown-color-swatch' + (isActive ? ' active' : '') + '" data-color="' + preset.color + '" style="background:' + preset.color + '"></div>';
+        html += '<div class="rundown-color-swatch-label">' + preset.label + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      html += '<div class="rundown-color-custom-row">';
+      html += '<input type="color" id="rundown-custom-color" value="' + (currentColor || '#3b82f6') + '">';
+      html += '<input type="text" id="rundown-custom-hex" placeholder="#hex" value="' + (currentColor || '') + '" maxlength="7">';
+      html += '<button class="rundown-color-clear" data-color="">Clear</button>';
+      html += '</div>';
+      picker.innerHTML = html;
+      document.body.appendChild(picker);
+      _colorPickerActive = picker;
+
+      function applyColor(color) {
+        _closeRundownPopups();
+        if (!_rundownSelectedPlan) return;
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, { color: color || '' }).then(function() {
+          api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+            _rundownSelectedPlan = plan;
+            renderRundownEditorItems(plan.items || []);
+          });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      }
+
+      picker.querySelectorAll('.rundown-color-swatch').forEach(function(sw) {
+        sw.addEventListener('click', function() { applyColor(sw.dataset.color); });
+      });
+      picker.querySelector('.rundown-color-clear').addEventListener('click', function() { applyColor(''); });
+      var customColorInput = picker.querySelector('#rundown-custom-color');
+      var customHexInput = picker.querySelector('#rundown-custom-hex');
+      customColorInput.addEventListener('input', function() {
+        customHexInput.value = customColorInput.value;
+      });
+      customColorInput.addEventListener('change', function() { applyColor(customColorInput.value); });
+      customHexInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && /^#[0-9a-f]{6}$/i.test(customHexInput.value)) {
+          applyColor(customHexInput.value);
+        }
+      });
+      // Close on outside click
+      setTimeout(function() {
+        document.addEventListener('click', _closeRundownPopupsOnClick, true);
+      }, 0);
+    }
+
+    // ── v3 Phase 1: Duration picker popup ────────────────────────────────────
+    var _durationPickerActive = null;
+    function _openRundownDurationPicker(trigger) {
+      _closeRundownPopups();
+      var itemId = trigger.dataset.itemId;
+      var currentSeconds = parseInt(trigger.dataset.seconds, 10) || 0;
+      var rect = trigger.getBoundingClientRect();
+
+      var picker = document.createElement('div');
+      picker.className = 'rundown-duration-picker open';
+      picker.style.position = 'fixed';
+      picker.style.left = Math.min(rect.left - 80, window.innerWidth - 260) + 'px';
+      picker.style.top = (rect.bottom + 4) + 'px';
+      picker.style.zIndex = '200';
+
+      var presets = [30, 60, 120, 180, 300, 600, 900, 1800];
+      var presetLabels = ['0:30', '1:00', '2:00', '3:00', '5:00', '10:00', '15:00', '30:00'];
+      var html = '<div class="rundown-duration-presets">';
+      for (var di = 0; di < presets.length; di++) {
+        var isActive = currentSeconds === presets[di];
+        html += '<button class="rundown-duration-preset' + (isActive ? ' active' : '') + '" data-seconds="' + presets[di] + '">' + presetLabels[di] + '</button>';
+      }
+      html += '</div>';
+      var curMin = Math.floor(currentSeconds / 60);
+      var curSec = currentSeconds % 60;
+      var curVal = curMin + ':' + (curSec < 10 ? '0' : '') + curSec;
+      html += '<div class="rundown-duration-manual">';
+      html += '<input type="text" id="rundown-dur-input" placeholder="MM:SS" value="' + curVal + '">';
+      html += '<button class="rundown-duration-preset" id="rundown-dur-apply" style="flex-shrink:0;padding:6px 12px">Set</button>';
+      html += '</div>';
+      picker.innerHTML = html;
+      document.body.appendChild(picker);
+      _durationPickerActive = picker;
+
+      function applyDuration(seconds) {
+        _closeRundownPopups();
+        if (!_rundownSelectedPlan) return;
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, { lengthSeconds: seconds }).then(function() {
+          api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+            _rundownSelectedPlan = plan;
+            renderRundownEditorItems(plan.items || []);
+          });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      }
+
+      function parseMMSS(val) {
+        var parts = val.split(':');
+        if (parts.length === 2) return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+        if (parts.length === 1) return (parseInt(parts[0], 10) || 0) * 60;
+        return 0;
+      }
+
+      picker.querySelectorAll('.rundown-duration-preset[data-seconds]').forEach(function(btn) {
+        btn.addEventListener('click', function() { applyDuration(parseInt(btn.dataset.seconds, 10)); });
+      });
+      picker.querySelector('#rundown-dur-apply').addEventListener('click', function() {
+        var val = picker.querySelector('#rundown-dur-input').value;
+        applyDuration(parseMMSS(val));
+      });
+      picker.querySelector('#rundown-dur-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { applyDuration(parseMMSS(e.target.value)); }
+      });
+      setTimeout(function() {
+        var inp = picker.querySelector('#rundown-dur-input');
+        if (inp) { inp.focus(); inp.select(); }
+        document.addEventListener('click', _closeRundownPopupsOnClick, true);
+      }, 0);
+    }
+
+    // ── v3 Phase 1: Close popups helper ────────────────────────────────────
+    function _closeRundownPopups() {
+      if (_colorPickerActive) { _colorPickerActive.remove(); _colorPickerActive = null; }
+      if (_durationPickerActive) { _durationPickerActive.remove(); _durationPickerActive = null; }
+      document.removeEventListener('click', _closeRundownPopupsOnClick, true);
+    }
+    function _closeRundownPopupsOnClick(e) {
+      if (_colorPickerActive && !_colorPickerActive.contains(e.target) && !e.target.closest('[data-action="rundownColorPicker"]')) {
+        _closeRundownPopups();
+      }
+      if (_durationPickerActive && !_durationPickerActive.contains(e.target) && !e.target.closest('[data-action="rundownDurationPicker"]')) {
+        _closeRundownPopups();
+      }
+    }
+
+    // ── v3 Phase 1: Section collapse toggle ────────────────────────────────
+    document.addEventListener('click', function(e) {
+      var chevron = e.target.closest('.rundown-section-chevron') || e.target.closest('[data-toggle-section]');
+      if (chevron) {
+        var sectionId = chevron.dataset.toggleSection || chevron.getAttribute('data-toggle-section');
+        if (sectionId) {
+          _rundownSectionCollapse[sectionId] = !_rundownSectionCollapse[sectionId];
+          _saveRundownSectionCollapse();
+          if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        }
+      }
+    });
+
+    // ── v3 Phase 1: Create from built-in template ─────────────────────────
+    function _createFromBuiltinTemplate(index) {
+      var tpl = RUNDOWN_BUILTIN_TEMPLATES[index];
+      if (!tpl) return;
+      _openRundownPlanModal('create', { title: tpl.name, date: new Date().toISOString().slice(0, 10) }).then(function(result) {
+        if (!result) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', {
+          title: result.title,
+          serviceDate: result.date,
+          roomId: result.roomId || ''
+        }).then(function(plan) {
+          // Add template items sequentially
+          var chain = Promise.resolve();
+          for (var ti = 0; ti < tpl.items.length; ti++) {
+            (function(tplItem) {
+              chain = chain.then(function() {
+                return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/items', {
+                  title: tplItem.title,
+                  itemType: tplItem.itemType,
+                  lengthSeconds: tplItem.lengthSeconds || 0,
+                  color: tplItem.color || '',
+                  notes: '',
+                  assignee: ''
+                });
+              });
+            })(tpl.items[ti]);
+          }
+          chain.then(function() {
+            toast('Created from template');
+            _rundownSelectedPlanId = plan.id;
+            loadRundownManager();
+            setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
+          });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     function rundownEditItem(itemId) {
@@ -13457,12 +13840,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var notesText = tmp.textContent || tmp.innerText || '';
 
         if (isSection) {
+          var sColor = item.color || '#6b7280';
           var colspan = 6 + _rundownColumns.length;
-          rows += '<tr class="section-row"><td colspan="' + colspan + '">' + escapeHtml(item.title || '') + '</td></tr>';
+          rows += '<tr class="section-row" style="border-left:4px solid ' + sColor + '"><td colspan="' + colspan + '">' + escapeHtml(item.title || '') + '</td></tr>';
           continue;
         }
 
-        rows += '<tr>';
+        var printColor = item.color || RUNDOWN_TYPE_COLORS[item.itemType] || '#95a5a6';
+        rows += '<tr style="border-left:4px solid ' + printColor + '">';
         rows += '<td class="num">' + (i + 1) + '</td>';
         rows += '<td class="title">' + escapeHtml(item.title || '') + '</td>';
         rows += '<td>' + escapeHtml(typeLabel) + '</td>';
@@ -14488,6 +14873,15 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownNew':
         if (typeof rundownNew === 'function') rundownNew();
+        break;
+      case 'rundownColorPicker':
+        if (typeof _openRundownColorPicker === 'function') _openRundownColorPicker(btn);
+        break;
+      case 'rundownDurationPicker':
+        if (typeof _openRundownDurationPicker === 'function') _openRundownDurationPicker(btn);
+        break;
+      case 'rundownCreateFromBuiltinTemplate':
+        if (typeof _createFromBuiltinTemplate === 'function') _createFromBuiltinTemplate(parseInt(btn.dataset.templateIndex, 10));
         break;
       case 'rundownSelectPlan':
         if (typeof rundownSelectPlan === 'function') rundownSelectPlan(btn.dataset.planId, btn.dataset.planSource);

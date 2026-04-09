@@ -1257,7 +1257,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes } = req.body;
+      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
@@ -1289,6 +1289,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : false,
           directorNotes: sanitizedDirectorNotes,
           parentId: parentId || null,
+          color: color || '',
         });
         broadcastRundownEvent(churchId, 'rundown_item_added', { planId: req.params.planId, item });
         res.json(item);
@@ -1330,7 +1331,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!targetItem) {
           return res.status(404).json({ error: 'Item not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color } = req.body;
         const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
         const sanitizedDirectorNotes = directorNotes !== undefined ? sanitizeHtml(directorNotes) : undefined;
         await manualRundown.updateItem(req.params.itemId, {
@@ -1342,6 +1343,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
           parentId: parentId !== undefined ? (parentId || null) : undefined,
           directorNotes: sanitizedDirectorNotes,
+          color: color !== undefined ? (color || '') : undefined,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -1361,6 +1363,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             hardStartTime,
             autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
             directorNotes: sanitizedDirectorNotes,
+            color: color !== undefined ? (color || '') : undefined,
           },
         });
         res.json(updated);
