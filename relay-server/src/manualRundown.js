@@ -230,6 +230,9 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_ra_plan ON rundown_attachments(plan_id)
     `);
+
+    // ── Room permissions table ──────────────────────────────────────────────
+    await this._initRoomPermissions();
   }
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
@@ -465,6 +468,7 @@ class ManualRundownStore {
       title: plan.title,
       isTemplate: true,
       templateName: templateName || plan.title,
+      roomId: plan.roomId || '',
       ownerKey,
       ownerName,
     });
@@ -489,13 +493,16 @@ class ManualRundownStore {
     return this.getPlan(newPlan.id);
   }
 
-  async createFromTemplate(templateId, { title, serviceDate, ownerKey = null, ownerName = '' }) {
+  async createFromTemplate(templateId, { title, serviceDate, roomId, ownerKey = null, ownerName = '' }) {
     const template = await this.getPlan(templateId);
     if (!template) return null;
+    // Preserve the template's roomId by default, allow override via roomId param
+    const effectiveRoomId = roomId !== undefined ? roomId : (template.roomId || '');
     const newPlan = await this.createPlan(template.churchId, {
       title: title || template.title,
       serviceDate,
       isTemplate: false,
+      roomId: effectiveRoomId,
       ownerKey,
       ownerName,
     });
@@ -1083,6 +1090,142 @@ class ManualRundownStore {
     } catch {
       return fallback;
     }
+  }
+
+  // ─── ROOM PERMISSIONS ──────────────────────────────────────────────────────
+
+  async _initRoomPermissions() {
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_room_permissions (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        user_key TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'editor',
+        display_name TEXT NOT NULL DEFAULT '',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        UNIQUE(church_id, user_key, room_id)
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rrp_church_user
+        ON rundown_room_permissions(church_id, user_key)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rrp_church_room
+        ON rundown_room_permissions(church_id, room_id)
+    `);
+  }
+
+  /**
+   * Set a user's permission for a specific room.
+   * @param {string} churchId
+   * @param {string} userKey - session ID or user identifier
+   * @param {string} roomId
+   * @param {string} role - 'owner', 'editor', 'viewer', or 'none' (removes permission)
+   * @param {string} displayName
+   */
+  async setRoomPermission(churchId, userKey, roomId, role, displayName = '') {
+    await this.ready;
+    if (role === 'none') {
+      await this._db.run(
+        `DELETE FROM rundown_room_permissions WHERE church_id = ? AND user_key = ? AND room_id = ?`,
+        [churchId, userKey, roomId]
+      );
+      return null;
+    }
+    const now = Date.now();
+    const id = uuidv4();
+    await this._db.run(`
+      INSERT INTO rundown_room_permissions (id, church_id, user_key, room_id, role, display_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(church_id, user_key, room_id) DO UPDATE SET
+        role = excluded.role,
+        display_name = excluded.display_name,
+        updated_at = excluded.updated_at
+    `, [id, churchId, userKey, roomId, role, displayName, now, now]);
+    return { churchId, userKey, roomId, role, displayName };
+  }
+
+  /**
+   * Get a user's permissions for all rooms.
+   * Returns array of { roomId, role, displayName }.
+   */
+  async getUserRoomPermissions(churchId, userKey) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_room_permissions WHERE church_id = ? AND user_key = ?`,
+      [churchId, userKey]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      churchId: r.church_id,
+      userKey: r.user_key,
+      roomId: r.room_id,
+      role: r.role,
+      displayName: r.display_name || '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  /**
+   * Get all permissions for a specific room.
+   * Returns array of { userKey, role, displayName }.
+   */
+  async getRoomPermissions(churchId, roomId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_room_permissions WHERE church_id = ? AND room_id = ?`,
+      [churchId, roomId]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      churchId: r.church_id,
+      userKey: r.user_key,
+      roomId: r.room_id,
+      role: r.role,
+      displayName: r.display_name || '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  /**
+   * Check if a user has at least the specified role for a room.
+   * Returns true if they have permission, or if no room permissions exist
+   * for this church (permissions are opt-in).
+   */
+  async checkRoomAccess(churchId, userKey, roomId, minimumRole = 'editor') {
+    await this.ready;
+    if (!roomId) return true; // no room = no restriction
+    // Check if any room permissions exist for this church
+    const anyPerms = await this._db.queryOne(
+      `SELECT COUNT(*) as cnt FROM rundown_room_permissions WHERE church_id = ?`,
+      [churchId]
+    );
+    if (!anyPerms || anyPerms.cnt === 0) return true; // no permissions configured = open access
+
+    const perm = await this._db.queryOne(
+      `SELECT role FROM rundown_room_permissions WHERE church_id = ? AND user_key = ? AND room_id = ?`,
+      [churchId, userKey, roomId]
+    );
+    if (!perm) return false; // user has no explicit permission for this room
+
+    const ROLE_RANK = { viewer: 0, editor: 1, owner: 2 };
+    return (ROLE_RANK[perm.role] ?? 0) >= (ROLE_RANK[minimumRole] ?? 0);
+  }
+
+  /**
+   * Delete all room permissions for a user.
+   */
+  async deleteUserRoomPermissions(churchId, userKey) {
+    await this.ready;
+    await this._db.run(
+      `DELETE FROM rundown_room_permissions WHERE church_id = ? AND user_key = ?`,
+      [churchId, userKey]
+    );
   }
 }
 

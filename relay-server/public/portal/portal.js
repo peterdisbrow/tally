@@ -8228,7 +8228,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     loadBilling(); // populates billing banner on all pages
 
     // ── Live Rundown ────────────────────────────────────────────────────────────
-    var _rundownState = null;
+    var _rundownState = null; // state for the currently-viewed room session
+    var _rundownStatsByRoom = {}; // { roomId: state } — all active live sessions
     // Cache of companion actions keyed by itemId, loaded when plan is known
     var _companionActionsCache = {}; // { [itemId]: Action[] }
     var _companionActionsPlanId = null; // planId for which cache was loaded
@@ -8424,20 +8425,32 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function loadRundownPage() {
-      api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state').then(function(data) {
-        if (data && data.active) {
-          _rundownState = data;
-          if (data.planId && data.planId !== _companionActionsPlanId) {
-            loadCompanionActionsCache(data.planId);
+      // Fetch all active sessions, then show the one for the selected room
+      api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state?all=1').then(function(data) {
+        _rundownStatsByRoom = {};
+        if (data && data.sessions && data.sessions.length > 0) {
+          for (var i = 0; i < data.sessions.length; i++) {
+            var entry = data.sessions[i];
+            _rundownStatsByRoom[entry.roomId || ''] = entry.state;
+          }
+        }
+        // Show session for the current room (or default '')
+        var roomKey = _selectedRoomId || '';
+        var roomState = _rundownStatsByRoom[roomKey] || null;
+        if (roomState) {
+          _rundownState = roomState;
+          if (roomState.planId && roomState.planId !== _companionActionsPlanId) {
+            loadCompanionActionsCache(roomState.planId);
           }
           showRundownView('active');
-          renderRundownActive(data);
+          renderRundownActive(roomState);
         } else {
           _rundownState = null;
           loadRundownManager();
         }
       }).catch(function() {
         _rundownState = null;
+        _rundownStatsByRoom = {};
         loadRundownManager();
       });
     }
@@ -12219,12 +12232,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownStartLive() {
       if (!_rundownSelectedPlan) return;
       var source = _rundownSelectedPlan.source || 'manual';
+      var roomId = _rundownSelectedPlan.roomId || _selectedRoomId || '';
       api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/start', {
         planId: _rundownSelectedPlan.id,
         source: source,
         callerName: 'TD',
+        roomId: roomId,
       }).then(function(data) {
         _rundownState = data;
+        _rundownStatsByRoom[data.roomId || ''] = data;
         showRundownView('active');
         renderRundownActive(data);
         toast('Rundown started');
@@ -12232,9 +12248,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function rundownEndSession() {
+      var roomId = _rundownState ? (_rundownState.roomId || '') : (_selectedRoomId || '');
       styledConfirm('End Session', 'End the live rundown session?').then(function(ok) {
         if (!ok) return;
-        api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/end').then(function() {
+        api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/end', { roomId: roomId }).then(function() {
+          delete _rundownStatsByRoom[roomId];
           _rundownState = null;
           toast('Session ended');
           loadRundownManager();
@@ -12312,13 +12330,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     });
 
     function rundownAdvance() {
-      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/advance').then(function(data) {
+      var roomId = _rundownState ? (_rundownState.roomId || '') : (_selectedRoomId || '');
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/advance', { roomId: roomId }).then(function(data) {
         if (data) { _rundownState = data; renderRundownActive(data); }
       }).catch(function(e) { toast(e.message, true); });
     }
 
     function rundownBack() {
-      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/back').then(function(data) {
+      var roomId = _rundownState ? (_rundownState.roomId || '') : (_selectedRoomId || '');
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/back', { roomId: roomId }).then(function(data) {
         if (data) { _rundownState = data; renderRundownActive(data); }
       }).catch(function(e) { toast(e.message, true); });
     }
@@ -12970,7 +12990,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     window.toggleAutoAdvance = function() {
       if (!_rundownState) return;
       var newVal = !_rundownState.autoAdvance;
-      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/auto-advance', { enabled: newVal }).then(function(data) {
+      var roomId = _rundownState.roomId || '';
+      api('POST', '/api/churches/' + CHURCH_ID + '/live-rundown/auto-advance', { enabled: newVal, roomId: roomId }).then(function(data) {
         if (data) {
           _rundownState = data;
           updateAutoAdvanceToggle(data);
@@ -13019,20 +13040,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // Handle rundown WebSocket messages from SSE stream
     function handleRundownSSE(data) {
+      var msgRoomId = data.roomId || '';
+      var myRoomId = _selectedRoomId || '';
+
       if (data.type === 'rundown_state' || data.type === 'rundown_position') {
-        _rundownState = data;
-        // Load companion actions cache when a new plan session starts
-        if (data.planId && data.planId !== _companionActionsPlanId) {
-          loadCompanionActionsCache(data.planId);
+        // Track all room sessions
+        _rundownStatsByRoom[msgRoomId] = data;
+        // Only update UI if this is our room
+        if (msgRoomId === myRoomId) {
+          _rundownState = data;
+          // Load companion actions cache when a new plan session starts
+          if (data.planId && data.planId !== _companionActionsPlanId) {
+            loadCompanionActionsCache(data.planId);
+          }
+          if (document.getElementById('page-rundown').classList.contains('active')) {
+            showRundownView('active');
+            renderRundownActive(data);
+          }
         }
-        if (document.getElementById('page-rundown').classList.contains('active')) {
-          showRundownView('active');
-          renderRundownActive(data);
-        }
-        // Update sidebar indicator
+        // Update sidebar indicator — show if any room is live
         var indicator = document.getElementById('td-session-indicator');
-        if (indicator) { indicator.style.display = ''; indicator.textContent = 'LIVE: ' + (data.planTitle || 'Rundown'); }
+        if (indicator) {
+          var liveCount = Object.keys(_rundownStatsByRoom).length;
+          if (liveCount > 1) {
+            indicator.style.display = '';
+            indicator.textContent = 'LIVE: ' + liveCount + ' rooms';
+          } else {
+            indicator.style.display = '';
+            indicator.textContent = 'LIVE: ' + (data.planTitle || 'Rundown');
+          }
+        }
       } else if (data.type === 'companion_action_result') {
+        if (msgRoomId !== myRoomId) return;
         // Show a brief toast indicating whether actions succeeded
         var allOk = Array.isArray(data.results) && data.results.every(function(r) { return r.success; });
         var failCount = Array.isArray(data.results) ? data.results.filter(function(r) { return !r.success; }).length : 0;
@@ -13040,6 +13079,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           toast('Companion: ' + failCount + ' action(s) failed', true);
         }
       } else if (data.type === 'rundown_tick') {
+        if (msgRoomId !== myRoomId) return;
         if (!_rundownState) return;
         // Patch current state with tick data
         if (_rundownState.currentItem) {
@@ -13058,12 +13098,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           updateRundownTimerOnly(_rundownState);
         }
       } else if (data.type === 'rundown_ended') {
-        _rundownState = null;
-        if (document.getElementById('page-rundown').classList.contains('active')) {
-          renderRundownInactive();
+        // Remove from tracked sessions
+        delete _rundownStatsByRoom[msgRoomId];
+        if (msgRoomId === myRoomId) {
+          _rundownState = null;
+          if (document.getElementById('page-rundown').classList.contains('active')) {
+            renderRundownInactive();
+          }
         }
         var indicator = document.getElementById('td-session-indicator');
-        if (indicator) indicator.style.display = 'none';
+        var remainingLive = Object.keys(_rundownStatsByRoom).length;
+        if (indicator) {
+          if (remainingLive === 0) {
+            indicator.style.display = 'none';
+          } else if (remainingLive === 1) {
+            var lastState = _rundownStatsByRoom[Object.keys(_rundownStatsByRoom)[0]];
+            indicator.textContent = 'LIVE: ' + (lastState.planTitle || 'Rundown');
+          } else {
+            indicator.textContent = 'LIVE: ' + remainingLive + ' rooms';
+          }
+        }
       }
     }
 

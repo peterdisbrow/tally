@@ -2318,6 +2318,10 @@ app.get('/api/church/stream', (req, res) => {
 });
 
 function _sendToPortalClients(churchId, data) {
+  // Determine if this is a room-scoped rundown message
+  const isRundownMsg = data?.type?.startsWith('rundown_');
+  const msgRoomId = isRundownMsg ? (data.roomId ?? null) : null;
+
   const clients = portalSseClients.get(churchId);
   if (clients && clients.size > 0) {
     const payload = `data: ${JSON.stringify(data)}\n\n`;
@@ -2331,7 +2335,13 @@ function _sendToPortalClients(churchId, data) {
     const payload = JSON.stringify(data);
     for (const ws of wsClients) {
       try {
-        if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+        if (ws.readyState !== WebSocket.OPEN) continue;
+        // Room filtering: if client subscribed to specific rooms and this is a
+        // room-scoped rundown message, only send if the room is in their set
+        if (isRundownMsg && msgRoomId !== null && ws._subscribedRooms) {
+          if (!ws._subscribedRooms.has(String(msgRoomId))) continue;
+        }
+        ws.send(payload);
       } catch {}
     }
   }
@@ -3228,7 +3238,7 @@ async function buildPublicTimerStateForPlan(plan) {
   if (!plan) return null;
   const found = liveRundown.findSessionByPlanId(plan.id);
   if (found) {
-    return liveRundown.getTimerState(found.churchId, plan.id) || {
+    return liveRundown.getTimerState(found.churchId, found.roomId, plan.id) || {
       is_live: false,
       plan_id: plan.id,
       plan_title: plan.title,
@@ -4915,7 +4925,7 @@ const _wsHandlers = createWebSocketHandlers({
         scheduler.onSlideChange(church.churchId, slideData).catch(e => console.error('[Scheduler] Slide change error:', e.message));
         // Auto-advance live rundown if presentation name changed and auto-advance is on
         if (slideData.presentationName) {
-          liveRundown.onPresentationChange(church.churchId, slideData.presentationName);
+          liveRundown.onPresentationChange(church.churchId, slideData.presentationName, msg.roomId);
         }
         break;
       }
@@ -5049,37 +5059,38 @@ function _handleRundownWsMessage(churchId, msg, ws) {
         _send({ type: 'rundown_error', error: 'Plan not found', messageId: msg.messageId });
         break;
       }
-      const state = liveRundown.startSession(churchId, plan, msg.callerName || 'TD');
+      const wsRoomId = msg.roomId || '';
+      const state = liveRundown.startSession(churchId, wsRoomId, plan, msg.callerName || 'TD');
       _send({ type: 'rundown_state', messageId: msg.messageId, ...state });
       break;
     }
     case 'rundown_advance': {
-      const state = liveRundown.advance(churchId);
+      const state = liveRundown.advance(churchId, msg.roomId || '');
       if (!state) _send({ type: 'rundown_error', error: 'Cannot advance', messageId: msg.messageId });
       break;
     }
     case 'rundown_back': {
-      const state = liveRundown.back(churchId);
+      const state = liveRundown.back(churchId, msg.roomId || '');
       if (!state) _send({ type: 'rundown_error', error: 'Cannot go back', messageId: msg.messageId });
       break;
     }
     case 'rundown_goto': {
-      const state = liveRundown.goTo(churchId, msg.index);
+      const state = liveRundown.goTo(churchId, msg.roomId || '', msg.index);
       if (!state) _send({ type: 'rundown_error', error: 'Invalid index', messageId: msg.messageId });
       break;
     }
     case 'rundown_end': {
-      const summary = liveRundown.endSession(churchId);
+      const summary = liveRundown.endSession(churchId, msg.roomId || '');
       if (!summary) _send({ type: 'rundown_error', error: 'No active session', messageId: msg.messageId });
       break;
     }
     case 'rundown_get_state': {
-      const state = liveRundown.getState(churchId);
+      const state = liveRundown.getState(churchId, msg.roomId || '');
       _send({ type: 'rundown_state', messageId: msg.messageId, active: !!state, ...(state || {}) });
       break;
     }
     case 'rundown_auto_advance': {
-      const state = liveRundown.setAutoAdvance(churchId, msg.enabled);
+      const state = liveRundown.setAutoAdvance(churchId, msg.roomId || '', msg.enabled);
       if (!state) _send({ type: 'rundown_error', error: 'No active session', messageId: msg.messageId });
       break;
     }
@@ -5202,14 +5213,20 @@ function handlePortalWsConnection(ws, url) {
     lastSeen: church ? church.lastSeen : null,
   });
 
-  // Send active rundown state if a session is in progress
+  // Send active rundown state(s) if any sessions are in progress
   if (liveRundown.hasSession(churchId)) {
-    const rundownState = liveRundown.getState(churchId);
-    if (rundownState) safeSend(ws, { type: 'rundown_state', active: true, ...rundownState });
+    const sessions = liveRundown.getSessionsForChurch(churchId);
+    for (const entry of sessions) {
+      safeSend(ws, { type: 'rundown_state', active: true, ...entry.state });
+    }
   }
 
   if (!portalWsClients.has(churchId)) portalWsClients.set(churchId, new Set());
   portalWsClients.get(churchId).add(ws);
+
+  // Room subscription for targeted broadcast filtering
+  // Clients can subscribe to specific rooms; unsubscribed clients receive all messages
+  ws._subscribedRooms = null; // null = all rooms, Set = specific rooms
 
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) ws.ping();
@@ -5218,7 +5235,16 @@ function handlePortalWsConnection(ws, url) {
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      if (msg.type === 'stream_protection_command') {
+      if (msg.type === 'subscribe_rooms') {
+        // Subscribe to specific room channels: { type: 'subscribe_rooms', roomIds: ['room1', 'room2'] }
+        if (Array.isArray(msg.roomIds)) {
+          ws._subscribedRooms = new Set(msg.roomIds.map(String));
+          safeSend(ws, { type: 'rooms_subscribed', roomIds: [...ws._subscribedRooms] });
+        }
+      } else if (msg.type === 'subscribe_all_rooms') {
+        ws._subscribedRooms = null; // receive all
+        safeSend(ws, { type: 'rooms_subscribed', roomIds: null });
+      } else if (msg.type === 'stream_protection_command') {
         dispatchCommandAcrossRuntime(
           { type: 'stream_protection_command', action: msg.action, churchId },
           { churchId, source: 'portal' },

@@ -27,7 +27,7 @@
 
 class LiveRundownManager {
   constructor({ broadcastToMobile, broadcastToPortal, broadcastToControllers, broadcastToChurch, log = console.log, queryClient = null } = {}) {
-    // Map<churchId, RundownSession>
+    // Map<sessionKey, RundownSession> where sessionKey = "churchId:roomId"
     this._sessions = new Map();
     this._tickTimers = new Map();
     this._broadcastToMobile = broadcastToMobile || (() => {});
@@ -37,6 +37,20 @@ class LiveRundownManager {
     this._log = log;
     this._db = queryClient;
     this.ready = this._db ? this._init() : Promise.resolve();
+  }
+
+  // ─── SESSION KEY HELPERS ────────────────────────────────────────────────────
+
+  /** Build a composite session key: "churchId:roomId" */
+  _sessionKey(churchId, roomId) {
+    return churchId + ':' + (roomId || '');
+  }
+
+  /** Parse a session key back into { churchId, roomId } */
+  _parseSessionKey(key) {
+    const idx = key.indexOf(':');
+    if (idx < 0) return { churchId: key, roomId: '' };
+    return { churchId: key.substring(0, idx), roomId: key.substring(idx + 1) };
   }
 
   // ─── DB INIT & RESTORE ─────────────────────────────────────────────────────
@@ -51,6 +65,7 @@ class LiveRundownManager {
       CREATE TABLE IF NOT EXISTS rundown_sessions (
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
+        room_id TEXT NOT NULL DEFAULT '',
         plan_id TEXT,
         plan_title TEXT,
         items TEXT NOT NULL DEFAULT '[]',
@@ -69,6 +84,10 @@ class LiveRundownManager {
       CREATE INDEX IF NOT EXISTS idx_rundown_sessions_church_state
         ON rundown_sessions(church_id, state)
     `);
+    // Migration: add room_id column for existing tables
+    try {
+      await this._db.exec(`ALTER TABLE rundown_sessions ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
+    } catch { /* column already exists */ }
   }
 
   async _restoreActiveSessions() {
@@ -76,8 +95,11 @@ class LiveRundownManager {
       `SELECT * FROM rundown_sessions WHERE state != 'ended'`
     );
     for (const row of rows) {
+      const roomId = row.room_id || '';
+      const key = this._sessionKey(row.church_id, roomId);
       const session = {
         churchId: row.church_id,
+        roomId,
         planId: row.plan_id,
         planTitle: row.plan_title,
         callerName: row.caller_name,
@@ -91,9 +113,9 @@ class LiveRundownManager {
         itemTimings: this._parseJSON(row.item_timings, []),
         warningThresholdSec: 30,
       };
-      this._sessions.set(row.church_id, session);
-      this._startTick(row.church_id);
-      this._log(`[LiveRundown] Restored session for church ${row.church_id}: "${row.plan_title}"`);
+      this._sessions.set(key, session);
+      this._startTick(key);
+      this._log(`[LiveRundown] Restored session for church ${row.church_id} room ${roomId || '(default)'}: "${row.plan_title}"`);
     }
   }
 
@@ -129,11 +151,12 @@ class LiveRundownManager {
   _dbUpsert(session) {
     if (!this._db) return;
     const now = Date.now();
+    const key = this._sessionKey(session.churchId, session.roomId);
     this._db.run(`
       INSERT INTO rundown_sessions
-        (id, church_id, plan_id, plan_title, items, item_timings, current_index, state,
+        (id, church_id, room_id, plan_id, plan_title, items, item_timings, current_index, state,
          caller_name, started_at, scheduled_start, current_item_started_at, total_planned_duration, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         items = excluded.items,
         item_timings = excluded.item_timings,
@@ -142,8 +165,9 @@ class LiveRundownManager {
         current_item_started_at = excluded.current_item_started_at,
         updated_at = excluded.updated_at
     `, [
+      key,
       session.churchId,
-      session.churchId,
+      session.roomId || '',
       session.planId,
       session.planTitle,
       JSON.stringify(session.items),
@@ -159,11 +183,11 @@ class LiveRundownManager {
     ]).catch(err => this._log(`[LiveRundown] DB upsert failed: ${err.message}`));
   }
 
-  _dbMarkEnded(churchId) {
+  _dbMarkEnded(key) {
     if (!this._db) return;
     this._db.run(
       `UPDATE rundown_sessions SET state = 'ended', updated_at = ? WHERE id = ?`,
-      [Date.now(), churchId]
+      [Date.now(), key]
     ).catch(err => this._log(`[LiveRundown] DB end-mark failed: ${err.message}`));
   }
 
@@ -172,28 +196,39 @@ class LiveRundownManager {
    * Called after the portal saves new actions so they take effect immediately.
    *
    * @param {string} churchId
+   * @param {string} roomId - room the session belongs to ('' for default)
    * @param {string} itemId - PCO item ID
    * @param {Array}  actions - array of action objects
    */
-  setItemActions(churchId, itemId, actions) {
-    const session = this._sessions.get(churchId);
+  setItemActions(churchId, roomId, itemId, actions) {
+    // Try specific room first, then fall back to finding by churchId
+    const key = this._sessionKey(churchId, roomId);
+    let session = this._sessions.get(key);
+    if (!session && !roomId) {
+      // Legacy: find any session for this church
+      for (const [k, s] of this._sessions) {
+        if (s.churchId === churchId) { session = s; break; }
+      }
+    }
     if (!session) return;
     session.companionActions.set(itemId, actions || []);
   }
 
   /**
-   * Start a new live rundown session for a church.
+   * Start a new live rundown session for a church room.
    *
    * @param {string} churchId
+   * @param {string} roomId - room this session belongs to ('' for default/unscoped)
    * @param {object} plan - PCO plan object with items, title, times, etc.
    * @param {string} callerName - Name of the TD who started the session
    * @param {object} companionActionsMap - optional { [itemId]: Action[] } loaded from DB
    * @returns {object} session state
    */
-  startSession(churchId, plan, callerName = 'TD', companionActionsMap = {}) {
-    // End any existing session first
-    if (this._sessions.has(churchId)) {
-      this.endSession(churchId, 'replaced');
+  startSession(churchId, roomId, plan, callerName = 'TD', companionActionsMap = {}) {
+    const key = this._sessionKey(churchId, roomId);
+    // End any existing session for this room first
+    if (this._sessions.has(key)) {
+      this.endSession(churchId, roomId, 'replaced');
     }
 
     // Extract service items that are actionable (skip headers for position tracking,
@@ -235,6 +270,7 @@ class LiveRundownManager {
 
     const session = {
       churchId,
+      roomId: roomId || '',
       planId: plan.id,
       planTitle: plan.title,
       source: plan.source || null,
@@ -257,7 +293,7 @@ class LiveRundownManager {
       companionActions,
     };
 
-    this._sessions.set(churchId, session);
+    this._sessions.set(key, session);
 
     // Record timing for the first item
     session.itemTimings.push({
@@ -272,20 +308,21 @@ class LiveRundownManager {
     this._dbUpsert(session);
 
     // Start the tick timer (broadcasts every second)
-    this._startTick(churchId);
+    this._startTick(key);
 
-    this._log(`[LiveRundown] Session started for church ${churchId}: "${plan.title}" (${items.length} items) by ${callerName}`);
+    this._log(`[LiveRundown] Session started for church ${churchId} room ${roomId || '(default)'}: "${plan.title}" (${items.length} items) by ${callerName}`);
 
     const state = this._buildState(session);
-    this._broadcast(churchId, { type: 'rundown_state', ...state });
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
     return state;
   }
 
   /**
    * Advance to the next item.
    */
-  advance(churchId) {
-    const session = this._sessions.get(churchId);
+  advance(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session || session.state !== 'active') return null;
 
     const nextIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
@@ -297,8 +334,9 @@ class LiveRundownManager {
   /**
    * Go back to the previous item.
    */
-  back(churchId) {
-    const session = this._sessions.get(churchId);
+  back(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session || session.state !== 'active') return null;
 
     const prevIndex = this._findPreviousPlayableIndex(session.items, session.currentIndex);
@@ -310,8 +348,9 @@ class LiveRundownManager {
   /**
    * Jump to a specific item index.
    */
-  goTo(churchId, index) {
-    const session = this._sessions.get(churchId);
+  goTo(churchId, roomId, index) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session || session.state !== 'active') return null;
 
     if (index < 0 || index >= session.items.length) return null;
@@ -323,49 +362,67 @@ class LiveRundownManager {
   /**
    * End the current session.
    */
-  endSession(churchId, reason = 'completed') {
-    const session = this._sessions.get(churchId);
+  endSession(churchId, roomId, reason = 'completed') {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session) return null;
 
     // Close out current item timing
     this._closeCurrentItemTiming(session);
     session.state = 'ended';
 
-    this._stopTick(churchId);
-    this._sessions.delete(churchId);
+    this._stopTick(key);
+    this._sessions.delete(key);
 
     // Persist ended state to DB
-    this._dbMarkEnded(churchId);
+    this._dbMarkEnded(key);
 
     const summary = {
       planId: session.planId,
       planTitle: session.planTitle,
+      roomId: session.roomId || '',
       totalDuration: Date.now() - session.startedAt,
       totalPlannedDuration: session.totalPlannedDuration * 1000,
       itemTimings: session.itemTimings,
       reason,
     };
 
-    this._log(`[LiveRundown] Session ended for church ${churchId}: "${session.planTitle}" (${reason})`);
-    this._broadcast(churchId, { type: 'rundown_ended', ...summary });
+    this._log(`[LiveRundown] Session ended for church ${churchId} room ${roomId || '(default)'}: "${session.planTitle}" (${reason})`);
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_ended', ...summary });
     return summary;
   }
 
   /**
-   * Get the current session state for a church (for late-joining clients).
+   * Get the current session state for a church room (for late-joining clients).
    */
-  getState(churchId) {
-    const session = this._sessions.get(churchId);
+  getState(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session) return null;
     return this._buildState(session);
+  }
+
+  /**
+   * Get all active sessions for a church (across all rooms).
+   * Returns array of { roomId, state }.
+   */
+  getSessionsForChurch(churchId) {
+    const result = [];
+    for (const [key, session] of this._sessions) {
+      if (session.churchId === churchId && session.state === 'active') {
+        result.push({ roomId: session.roomId || '', state: this._buildState(session) });
+      }
+    }
+    return result;
   }
 
   /**
    * Get a compact timer state for the countdown timer display.
    * Returns null if no active session or no matching planId.
    */
-  getTimerState(churchId, planId) {
-    const session = this._sessions.get(churchId);
+  getTimerState(churchId, roomId, planId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session || session.state !== 'active') return null;
     if (planId && session.planId !== planId) return null;
 
@@ -381,6 +438,7 @@ class LiveRundownManager {
     return {
       plan_id: session.planId,
       plan_title: session.planTitle,
+      room_id: session.roomId || '',
       cue_title: currentItem?.title || '',
       cue_index: session.currentIndex,
       total_cues: session.items.length,
@@ -401,70 +459,95 @@ class LiveRundownManager {
 
   /**
    * Find session by planId (for public token lookups).
-   * Returns { churchId } or null.
+   * Returns { churchId, roomId } or null.
    */
   findSessionByPlanId(planId) {
-    for (const [churchId, session] of this._sessions) {
+    for (const [, session] of this._sessions) {
       if (session.planId === planId && session.state === 'active') {
-        return { churchId };
+        return { churchId: session.churchId, roomId: session.roomId || '' };
       }
     }
     return null;
   }
 
   /**
-   * Toggle auto-advance for a church's session (timer-based and PP-triggered).
+   * Toggle auto-advance for a church room's session (timer-based and PP-triggered).
    */
-  setAutoAdvance(churchId, enabled) {
-    const session = this._sessions.get(churchId);
+  setAutoAdvance(churchId, roomId, enabled) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
     if (!session || session.state !== 'active') return null;
     session.autoAdvance = !!enabled;
     if (!enabled) session.autoAdvancedFrom = null;
-    this._log(`[LiveRundown] Auto-advance ${session.autoAdvance ? 'enabled' : 'disabled'} for church ${churchId}`);
+    this._log(`[LiveRundown] Auto-advance ${session.autoAdvance ? 'enabled' : 'disabled'} for church ${churchId} room ${roomId || '(default)'}`);
     const state = this._buildState(session);
-    this._broadcast(churchId, { type: 'rundown_state', ...state });
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
     return state;
   }
 
   /**
-   * Check if a church has an active session.
+   * Check if a church has an active session (optionally for a specific room).
+   * If roomId is omitted, checks if any session exists for the church.
    */
-  hasSession(churchId) {
-    return this._sessions.has(churchId);
+  hasSession(churchId, roomId) {
+    if (roomId !== undefined) {
+      return this._sessions.has(this._sessionKey(churchId, roomId));
+    }
+    // Check if any session exists for this church
+    for (const [, session] of this._sessions) {
+      if (session.churchId === churchId && session.state === 'active') return true;
+    }
+    return false;
   }
 
   /**
    * Called when a ProPresenter presentation changes. If auto-advance is on,
    * try to match the presentation name against upcoming rundown items and
-   * advance if a match is found.
+   * advance if a match is found. Checks all sessions for the church (PP
+   * doesn't know which room it belongs to).
    *
    * @param {string} churchId
    * @param {string} presentationName - Name of the new PP presentation
+   * @param {string} [roomId] - optional room hint from the device
    * @returns {object|null} new state if advanced, null otherwise
    */
-  onPresentationChange(churchId, presentationName) {
-    const session = this._sessions.get(churchId);
-    if (!session || session.state !== 'active' || !session.autoAdvance) return null;
+  onPresentationChange(churchId, presentationName, roomId) {
     if (!presentationName) return null;
 
-    // Debounce: ignore if last auto-advance was less than 2 seconds ago
-    const now = Date.now();
-    if (session.lastAutoAdvanceAt && (now - session.lastAutoAdvanceAt) < 2000) return null;
+    // Collect sessions to check: specific room if given, otherwise all for this church
+    const sessionsToCheck = [];
+    if (roomId !== undefined) {
+      const session = this._sessions.get(this._sessionKey(churchId, roomId));
+      if (session) sessionsToCheck.push(session);
+    } else {
+      for (const [, session] of this._sessions) {
+        if (session.churchId === churchId && session.state === 'active') {
+          sessionsToCheck.push(session);
+        }
+      }
+    }
 
-    const normalized = presentationName.toLowerCase().trim();
+    for (const session of sessionsToCheck) {
+      if (session.state !== 'active' || !session.autoAdvance) continue;
 
-    // Look ahead from current position: check next 3 items (skip current)
-    const startIdx = session.currentIndex + 1;
-    const endIdx = Math.min(startIdx + 3, session.items.length);
+      // Debounce: ignore if last auto-advance was less than 2 seconds ago
+      const now = Date.now();
+      if (session.lastAutoAdvanceAt && (now - session.lastAutoAdvanceAt) < 2000) continue;
 
-    for (let i = startIdx; i < endIdx; i++) {
-      const item = session.items[i];
-      if (!this._isPlayableItem(item)) continue;
-      if (this._matchesPresentationName(normalized, item)) {
-        session.lastAutoAdvanceAt = now;
-        this._log(`[LiveRundown] Auto-advancing church ${churchId} to item ${i} ("${item.title}") — matched PP presentation "${presentationName}"`);
-        const state = this._moveTo(session, i, presentationName);
-        return state;
+      const normalized = presentationName.toLowerCase().trim();
+
+      // Look ahead from current position: check next 3 items (skip current)
+      const startIdx = session.currentIndex + 1;
+      const endIdx = Math.min(startIdx + 3, session.items.length);
+
+      for (let i = startIdx; i < endIdx; i++) {
+        const item = session.items[i];
+        if (!this._isPlayableItem(item)) continue;
+        if (this._matchesPresentationName(normalized, item)) {
+          session.lastAutoAdvanceAt = now;
+          this._log(`[LiveRundown] Auto-advancing church ${churchId} room ${session.roomId || '(default)'} to item ${i} ("${item.title}") — matched PP presentation "${presentationName}"`);
+          return this._moveTo(session, i, presentationName);
+        }
       }
     }
 
@@ -519,7 +602,7 @@ class LiveRundownManager {
     this._dbUpsert(session);
 
     const state = this._buildState(session);
-    this._broadcast(session.churchId, { type: 'rundown_position', ...state });
+    this._broadcastToRoom(session.churchId, session.roomId, { type: 'rundown_position', ...state });
 
     // Trigger Companion actions for the new item (if any are configured)
     const newItem = session.items[newIndex];
@@ -529,12 +612,13 @@ class LiveRundownManager {
         this._broadcastToChurch(session.churchId, {
           type: 'companion_actions',
           planId: session.planId,
+          roomId: session.roomId || '',
           itemId: newItem.id,
           itemTitle: newItem.title,
           currentIndex: newIndex,
           actions,
         });
-        this._log(`[LiveRundown] Triggered ${actions.length} Companion action(s) for item "${newItem.title}" (${session.churchId})`);
+        this._log(`[LiveRundown] Triggered ${actions.length} Companion action(s) for item "${newItem.title}" (${session.churchId} room ${session.roomId || '(default)'})`);
       }
     }
 
@@ -574,6 +658,7 @@ class LiveRundownManager {
 
     return {
       churchId: session.churchId,
+      roomId: session.roomId || '',
       planId: session.planId,
       planTitle: session.planTitle,
       callerName: session.callerName,
@@ -704,16 +789,19 @@ class LiveRundownManager {
 
   /**
    * Start the 1-second tick timer for countdown broadcasts.
+   * @param {string} key - composite session key "churchId:roomId"
    */
-  _startTick(churchId) {
-    this._stopTick(churchId);
+  _startTick(key) {
+    this._stopTick(key);
     let tickCount = 0;
     const timer = setInterval(() => {
-      const session = this._sessions.get(churchId);
+      const session = this._sessions.get(key);
       if (!session || session.state !== 'active') {
-        this._stopTick(churchId);
+        this._stopTick(key);
         return;
       }
+
+      const { churchId, roomId } = session;
 
       // Persist to DB every 30 seconds
       tickCount++;
@@ -743,6 +831,7 @@ class LiveRundownManager {
       const tick = {
         type: 'rundown_tick',
         churchId,
+        roomId: roomId || '',
         currentIndex: session.currentIndex,
         elapsedSeconds: Math.round(elapsedOnItem),
         remainingSeconds: remainingOnItem !== null ? Math.round(remainingOnItem) : null,
@@ -760,33 +849,36 @@ class LiveRundownManager {
       // Clear autoAdvancedFrom after broadcasting once
       if (session.autoAdvancedFrom) session.autoAdvancedFrom = null;
 
-      this._broadcast(churchId, tick);
+      this._broadcastToRoom(churchId, roomId, tick);
 
       // Also broadcast a compact rundown_timer message for countdown displays
-      const timerState = this.getTimerState(churchId);
+      const timerState = this.getTimerState(churchId, roomId);
       if (timerState) {
-        this._broadcast(churchId, { type: 'rundown_timer', ...timerState });
+        this._broadcastToRoom(churchId, roomId, { type: 'rundown_timer', ...timerState });
       }
     }, 1000);
 
-    this._tickTimers.set(churchId, timer);
+    this._tickTimers.set(key, timer);
   }
 
-  _stopTick(churchId) {
-    const timer = this._tickTimers.get(churchId);
+  _stopTick(key) {
+    const timer = this._tickTimers.get(key);
     if (timer) {
       clearInterval(timer);
-      this._tickTimers.delete(churchId);
+      this._tickTimers.delete(key);
     }
   }
 
   /**
-   * Broadcast a message to all clients for a church (mobile + portal).
+   * Broadcast a message to all clients for a church room.
+   * Messages include roomId so clients can filter by room subscription.
    */
-  _broadcast(churchId, message) {
-    this._broadcastToMobile(churchId, message);
-    this._broadcastToPortal(churchId, message);
-    this._broadcastToControllers(churchId, message);
+  _broadcastToRoom(churchId, roomId, message) {
+    // Inject roomId into the message for client-side filtering
+    const msg = { ...message, roomId: roomId || '' };
+    this._broadcastToMobile(churchId, msg);
+    this._broadcastToPortal(churchId, msg);
+    this._broadcastToControllers(churchId, msg);
   }
 
   /**
