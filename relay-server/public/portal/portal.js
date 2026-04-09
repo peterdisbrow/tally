@@ -1446,11 +1446,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             else roomLimitEl.textContent = Array.isArray(_roomListCache) ? String(_roomListCache.length || 0) : '0';
           }
         } catch {
-          var roomLimitEl = document.getElementById('plan-room-limit');
+          roomLimitEl = document.getElementById('plan-room-limit');
           if (roomLimitEl) roomLimitEl.textContent = '—';
         }
 
         const tbody = document.getElementById('equipment-tbody');
+        if (!tbody) return;
         const status = d.status || {};
 
         // Handle offline room — show placeholder instead of equipment details
@@ -2051,8 +2052,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '</div>'
           + '</div>'
           + '<div style="display:flex;gap:8px">'
-          + '<button class="btn-secondary" onclick="smartPlugToggle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px"' + disabled + '>' + toggleLabel + '</button>'
-          + '<button class="btn-secondary" onclick="smartPlugPowerCycle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px;color:#FFB74D;border-color:#FFB74D"' + disabled + '>Power Cycle</button>'
+          + '<button class="btn-secondary" data-action="smartPlugToggle" data-ip="' + escapeHtml(plug.ip) + '" style="font-size:12px;padding:5px 12px"' + disabled + '>' + toggleLabel + '</button>'
+          + '<button class="btn-secondary" data-action="smartPlugPowerCycle" data-ip="' + escapeHtml(plug.ip) + '" style="font-size:12px;padding:5px 12px;color:#FFB74D;border-color:#FFB74D"' + disabled + '>Power Cycle</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -2795,7 +2796,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var triggerIcon = TRIGGER_ICONS[trigger.type] || '?';
         var cmdCount = (step.commands || []).length;
         var cmdLabel = cmdCount > 0 ? cmdCount + ' cmd' + (cmdCount !== 1 ? 's' : '') : '';
-        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px;cursor:pointer" onclick="portalJumpToCue(' + i + ')">';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px;cursor:pointer" data-action="portalJumpToCue" data-cue-index="' + i + '">';
         html += '<span style="color:' + iconColor + ';font-size:13px;width:20px;text-align:center;font-weight:700">' + icon + '</span>';
         html += '<span style="font-size:12px" title="' + trigger.type + '">' + triggerIcon + '</span>';
         html += '<span style="color:' + nameColor + ';font-size:13px;flex:1">' + escapeHtml(stepName) + '</span>';
@@ -2806,13 +2807,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
       if (state !== 'completed') {
-        html += '<button class="btn-primary" onclick="portalSchedulerGo()" style="font-size:12px;padding:6px 14px">Go</button>';
-        html += '<button class="btn-secondary" onclick="portalSchedulerSkip()" style="font-size:12px;padding:6px 10px">Skip</button>';
-        html += '<button class="btn-secondary" onclick="portalSchedulerBack()" style="font-size:12px;padding:6px 10px">Back</button>';
-        if (state === 'running') html += '<button class="btn-secondary" onclick="portalSchedulerPause()" style="font-size:12px;padding:6px 10px">Pause</button>';
-        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#00E676;color:#00E676">Resume</button>';
+        html += '<button class="btn-primary" data-action="portalSchedulerGo" style="font-size:12px;padding:6px 14px">Go</button>';
+        html += '<button class="btn-secondary" data-action="portalSchedulerSkip" style="font-size:12px;padding:6px 10px">Skip</button>';
+        html += '<button class="btn-secondary" data-action="portalSchedulerBack" style="font-size:12px;padding:6px 10px">Back</button>';
+        if (state === 'running') html += '<button class="btn-secondary" data-action="portalSchedulerPause" style="font-size:12px;padding:6px 10px">Pause</button>';
+        else if (state === 'paused') html += '<button class="btn-secondary" data-action="portalSchedulerResume" style="font-size:12px;padding:6px 10px;border-color:#00E676;color:#00E676">Resume</button>';
       }
-      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 10px;border-color:#FF5252;color:#FF5252">End</button>';
+      html += '<button class="btn-secondary" data-action="portalEndRundown" style="font-size:12px;padding:6px 10px;border-color:#FF5252;color:#FF5252">End</button>';
       html += '</div>';
 
       if (steps[currentIdx] && steps[currentIdx].notes) {
@@ -2833,7 +2834,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#060D08;border-radius:6px">';
         html += '<div><span style="color:#F0F2F4;font-size:13px">' + escapeHtml(r.name) + '</span>' + autoLabel;
         html += ' <span style="color:#556270;font-size:11px">' + stepCount + ' cues</span></div>';
-        html += '<button class="btn-sm" onclick="portalActivateRundown(&apos;' + r.id + '&apos;)">Start</button>';
+        html += '<button class="btn-sm" data-action="portalActivateRundown" data-rundown-id="' + escapeHtml(String(r.id)) + '">Start</button>';
         html += '</div>';
       });
       html += '</div>';
@@ -3093,7 +3094,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule ' + SVG.arrowRight + '</a></span>';
+          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="schedule">Set up your schedule ' + SVG.arrowRight + '</a></span>';
         } else {
           body.innerHTML = html;
         }
@@ -3468,14 +3469,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           action: '<a href="https://telegram.org/" target="_blank" class="onboard-action-btn" style="margin-right:4px">' + pt('onboarding.step.telegram.download') + '</a>'
             + '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
             + ' <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>'
-            + '<br><span class="onboard-skip-link" onclick="skipTelegramStep()" style="font-size:11px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
+            + '<br><span class="onboard-skip-link" data-action="skipTelegramStep" style="font-size:11px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
         },
         {
           key: 'failover',
           done: !!d.onboarding_failover_tested_at,
           label: pt('onboarding.step.failover.label'),
           detail: pt('onboarding.step.failover.detail'),
-          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">' + pt('onboarding.step.failover.btn') + '</span>',
+          action: '<span class="onboard-action-btn" data-action="markFailoverTested" id="failover-test-btn">' + pt('onboarding.step.failover.btn') + '</span>',
         },
         {
           key: 'team',
@@ -3757,13 +3758,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '<option value="onvif"' + (item.protocol === 'onvif' ? ' selected' : '') + '>ONVIF</option>' +
           '</select>' +
           '<input type="number" class="eq-ptz-port" placeholder="Port" value="' + (item.port || '') + '" style="flex:0 0 80px" min="1" max="65535">' +
-          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+          '<button class="btn-secondary" data-action="removeParent" style="flex:0 0 auto;padding:4px 8px;font-size:11px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
       } else {
         // HyperDeck or VideoHub — just name + IP
         row.innerHTML =
           '<input type="text" class="eq-' + type + '-name" placeholder="Name" value="' + _escAttr(item.name || item.label || '') + '" style="flex:1">' +
           '<input type="text" class="eq-' + type + '-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
-          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+          '<button class="btn-secondary" data-action="removeParent" style="flex:0 0 auto;padding:4px 8px;font-size:11px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
       }
       container.appendChild(row);
     }
@@ -4978,11 +4979,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                   <input type="checkbox" ${portalOn ? 'checked' : ''} onchange="toggleTdPortalAccess('${tdId}', this.checked)" style="accent-color:#00E676">
                   ${portalOn ? 'On' : 'Off'}
                 </label>
-                <button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="promptSetTdPassword('${tdId}', '${escapeHtml(td.name || '')}')">${hasPassword ? 'Reset PW' : 'Set PW'}</button>
+                <button class="btn-secondary" data-action="promptSetTdPassword" data-td-id="${tdId}" data-td-name="${escapeHtml(td.name || '')}" style="font-size:11px;padding:2px 8px">${hasPassword ? 'Reset PW' : 'Set PW'}</button>
               </div>
               ${portalOn ? '<div style="font-size:10px;color:#6B7280;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}
             </td>
-            <td><button class="btn-danger" onclick="removeTd('${tdId}')">Remove</button></td>
+            <td><button class="btn-danger" data-action="removeTd" data-td-id="${tdId}">Remove</button></td>
           </tr>`;
         }).join('');
         document.getElementById('stat-tds').textContent = tds.length;
@@ -5604,7 +5605,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             <td style="color:${t.registered ? '#00E676' : '#6B7280'};font-size:12px">${t.registered ? SVG.check + ' Claimed' : 'Unclaimed'}</td>
             <td style="color:#8B9DAF;font-size:12px">${new Date(t.createdAt).toLocaleDateString()}</td>
             <td style="font-size:12px"><span style="color:${remainingColor};font-weight:600">${remaining}</span><br><span style="color:#556270;font-size:11px">${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
-            <td><button class="btn-danger" onclick="revokeToken('${t.token}')">Revoke</button></td>
+            <td><button class="btn-danger" data-action="revokeToken" data-token="${escapeHtml(t.token)}">Revoke</button></td>
           </tr>`;
         }).join('');
       } catch(e) {
@@ -5877,9 +5878,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '<span style="color:#556270;font-size:11px;font-weight:600;min-width:18px;text-align:right">' + (i + 1) + '</span>'
           + '<span style="font-family:monospace;font-size:13px;color:#E8F5E9;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(step) + '">' + escapeHtml(step) + '</span>'
           + '<div style="display:flex;gap:3px;flex-shrink:0">'
-          + (i > 0 ? '<button onclick="macroWizardMoveStep(' + i + ',-1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move up">' + upSvg + '</button>' : '<span style="width:26px"></span>')
-          + (i < total - 1 ? '<button onclick="macroWizardMoveStep(' + i + ',1)" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move down">' + downSvg + '</button>' : '<span style="width:26px"></span>')
-          + '<button onclick="macroWizardRemoveStep(' + i + ')" style="background:none;border:1px solid #2a0d0d;color:#FF5252;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0;margin-left:2px" title="Remove">' + xSvg + '</button>'
+          + (i > 0 ? '<button data-action="macroWizardMoveStep" data-step-index="' + i + '" data-step-dir="-1" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move up">' + upSvg + '</button>' : '<span style="width:26px"></span>')
+          + (i < total - 1 ? '<button data-action="macroWizardMoveStep" data-step-index="' + i + '" data-step-dir="1" style="background:none;border:1px solid #0d3320;color:#8B9DAF;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0" title="Move down">' + downSvg + '</button>' : '<span style="width:26px"></span>')
+          + '<button data-action="macroWizardRemoveStep" data-step-index="' + i + '" style="background:none;border:1px solid #2a0d0d;color:#FF5252;border-radius:4px;padding:3px 6px;cursor:pointer;line-height:0;margin-left:2px" title="Remove">' + xSvg + '</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -5949,8 +5950,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + (m.description ? '<span style="color:#8B9DAF;font-size:13px;margin-left:10px">' + escapeHtml(m.description) + '</span>' : '')
             + '</div>'
             + '<div style="display:flex;gap:6px">'
-            + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="editMacro(\'' + escapeHtml(String(m.id)) + '\')">Edit</button>'
-            + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\'' + escapeHtml(String(m.id)) + '\')">Delete</button>'
+            + '<button class="btn-secondary" data-action="editMacro" data-macro-id="' + escapeHtml(String(m.id)) + '" style="font-size:11px;padding:4px 10px">Edit</button>'
+            + '<button class="btn-danger" data-action="deleteMacro" data-macro-id="' + escapeHtml(String(m.id)) + '" style="font-size:11px;padding:4px 10px">Delete</button>'
             + '</div></div>'
             + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#6B7280;line-height:1.8">'
               + steps.map(function(s) { return SVG.arrowRight + ' ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
@@ -6070,9 +6071,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '</div>'
           + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
           +   '<span class="badge ' + enabledClass + '">' + escapeHtml(rule.enabled ? pt('status.enabled') : pt('status.disabled')) + '</span>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\'' + rule.id + '\')">'+  escapeHtml(pt('autopilot.test')) + '</button>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\'' + rule.id + '\',' + !rule.enabled + ')">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#FF5252;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">'+  escapeHtml(pt('btn.delete')) + '</button>'
+          +   '<button class="btn-secondary" data-action="testAutopilotRule" data-rule-id="' + rule.id + '" style="padding:4px 10px;font-size:11px">'+  escapeHtml(pt('autopilot.test')) + '</button>'
+          +   '<button class="btn-secondary" data-action="toggleAutopilotRule" data-rule-id="' + rule.id + '" data-rule-enabled="' + (!rule.enabled) + '" style="padding:4px 10px;font-size:11px">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
+          +   '<button class="btn-secondary" data-action="deleteAutopilotRule" data-rule-id="' + rule.id + '" style="padding:4px 10px;font-size:11px;color:#FF5252;border-color:rgba(239,68,68,0.4)">'+  escapeHtml(pt('btn.delete')) + '</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -6184,7 +6185,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               ? '<span style="color:#FF5252;font-size:11px;font-weight:600">Test stream (under 5 min)</span>'
               : '';
             const overrideBtn = s.ended_at && s.session_type
-              ? '<button onclick="toggleSessionType(\'' + s.id + '\',\'' + s.session_type + '\')" style="background:none;border:1px solid rgba(255,255,255,0.15);color:#8B9DAF;font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:6px" title="Reclassify session">' + (isTest ? 'Mark as service' : 'Mark as test') + '</button>'
+              ? '<button data-action="toggleSessionType" data-session-id="' + s.id + '" data-session-type="' + s.session_type + '" style="background:none;border:1px solid rgba(255,255,255,0.15);color:#8B9DAF;font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:6px" title="Reclassify session">' + (isTest ? 'Mark as service' : 'Mark as test') + '</button>'
               : '';
             return `<tr style="${rowStyle}">
               <td>${start.toLocaleDateString()} <span style="color:#556270">${start.toLocaleTimeString()}</span></td>
@@ -6238,7 +6239,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<span style="background:' + gradeColor + '22;color:' + gradeColor + ';border:1px solid ' + gradeColor + ';border-radius:6px;padding:2px 8px;font-size:13px;font-weight:700">' + grade + '</span>'
             + '</div></div>'
             + (r.ai_summary ? '<div style="font-size:12px;color:#8B9DAF;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
-            + (recs.length ? '<div style="font-size:11px;color:#FF5252">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#00E676">View report</a></div>' : '<div style="font-size:11px;color:#00E676">No critical issues</div>')
+            + (recs.length ? '<div style="font-size:11px;color:#FF5252">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" data-action="viewServiceReport" data-report-id="' + r.id + '" style="color:#00E676">View report</a></div>' : '<div style="font-size:11px;color:#00E676">No critical issues</div>')
             + '</div>';
         }).join('');
       } catch { el.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
@@ -6254,7 +6255,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         inner.style.cssText = 'background:#1a2433;border-radius:12px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto';
         inner.innerHTML = '<div style="position:sticky;top:0;background:#1a2433;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08)">'
           + '<span style="font-weight:600;color:#F0F2F4">Service Report</span>'
-          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#8B9DAF;font-size:18px;cursor:pointer;display:flex;align-items:center"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
+          + '<button data-action="removeClosestPositioned" style="background:none;border:none;color:#8B9DAF;font-size:18px;cursor:pointer;display:flex;align-items:center"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
           + '</div>'
           + '<div style="padding:16px">'
           + (r.ai_summary ? '<div style="background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#00E676;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F0F2F4;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
@@ -6475,7 +6476,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // CTA
-      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'team\', document.querySelector(\'[data-page=team]\'))" style="margin-right:8px">Set Up Tech Directors ' + SVG.arrowRight + '</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
+      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" data-action="showPage" data-page="team" style="margin-right:8px">Set Up Tech Directors ' + SVG.arrowRight + '</button><button class="btn-secondary" data-action="showPage" data-page="engineer">Open Tally Engineer</button></div>';
 
       step2.innerHTML = html;
       step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6563,7 +6564,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'On-call TD rotation</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 3 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="plus" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
 
           // Pro upgrade card
@@ -6579,7 +6580,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
@@ -6594,7 +6595,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
@@ -6602,7 +6603,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">';
           html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription ' + SVG.arrowRight + '</a>';
           if (['active','trialing'].includes(b.status) && !b.cancelAtPeriodEnd) {
-            html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
+            html += '<button data-action="cancelSubscription" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
           }
           html += '</div>';
           if (b.cancelAtPeriodEnd && b.currentPeriodEnd) {
@@ -6617,7 +6618,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Reactivate Your Subscription</div>';
           html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
-          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="reactivateSubscription" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
@@ -6626,10 +6627,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:16px 24px">';
           html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
-            html += '<button onclick="downgradePlan(\'plus\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="plus" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           }
           html += '</div>';
         }
@@ -6638,8 +6639,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #0d3320">';
         html += '<div style="font-size:14px;font-weight:700;color:#F0F2F4;margin-bottom:12px">Data & Privacy</div>';
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-        html += '<button onclick="exportData()" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Export All Data (JSON)</button>';
-        html += '<button onclick="deleteAccount()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Delete Account</button>';
+        html += '<button data-action="exportData" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Export All Data (JSON)</button>';
+        html += '<button data-action="deleteAccount" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Delete Account</button>';
         html += '</div>';
         html += '<p style="color:#556270;font-size:11px;margin-top:8px;line-height:1.5">Export downloads a JSON file with all your church data. Deletion is permanent and cannot be undone.</p>';
         html += '</div>';
@@ -6666,7 +6667,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } else if (b.status === 'past_due') {
         el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FF5252">' + pt('billing.banner.past_due_msg') + ' <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="' + lnk + '">' + pt('billing.banner.past_due_link') + '</a> ' + pt('billing.banner.past_due_post') + '</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FF5252">' + pt('billing.banner.canceled_msg') + ' <a href="#" onclick="showPage(\'billing\',document.querySelector(\'[data-page=billing]\'));return false" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FF5252">' + pt('billing.banner.canceled_msg') + ' <a href="#" data-action="showPage" data-page="billing" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
       } else if (b.status === 'inactive' || b.status === 'pending') {
         el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FFB74D">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
       } else {
@@ -6697,10 +6698,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });
 
       el.innerHTML = '<div style="margin-bottom:20px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
-        '<button onclick="dismissUpgradeBanner(\''+dismissKey+'\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#556270;cursor:pointer;padding:4px" title="Dismiss">' + SVG.xMark + '</button>' +
+        '<button data-action="dismissUpgradeBanner" data-dismiss-key="' + dismissKey + '" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#556270;cursor:pointer;padding:4px" title="Dismiss">' + SVG.xMark + '</button>' +
         '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:6px">' + headline + '</div>' +
         '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
-        '<button onclick="upgradePlan(\'' + nextTierSlug + '\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
+        '<button data-action="upgradePlan" data-plan-tier="' + nextTierSlug + '" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
         '</div>';
     }
 
@@ -6875,8 +6876,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '<div style="font-size:13px;color:#8B9DAF;margin-top:4px;line-height:1.5">Your review helps other church production teams discover Tally. Takes 60 seconds.</div>' +
             '</div>' +
             '<div style="display:flex;gap:8px;flex-shrink:0;align-items:center">' +
-            '<button class="btn-primary" onclick="openReviewModal()" style="padding:8px 16px;font-size:13px">Leave a Review</button>' +
-            '<button onclick="dismissReviewBanner()" style="background:none;border:1px solid #0d3320;color:#6B7280;font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer">Later</button>' +
+            '<button class="btn-primary" data-action="openReviewModal" style="padding:8px 16px;font-size:13px">Leave a Review</button>' +
+            '<button data-action="dismissReviewBanner" style="background:none;border:1px solid #0d3320;color:#6B7280;font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer">Later</button>' +
             '</div></div></div>';
         } else {
           banner.style.display = 'none';
@@ -6906,7 +6907,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var container = document.getElementById('star-rating');
       if (!container) return;
       container.innerHTML = [1,2,3,4,5].map(function(n) {
-        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;cursor:pointer;color:' + (n <= reviewRating ? '#00E676' : '#1a3a2a') + ';transition:color 0.15s">' + SVG.star + '</button>';
+        return '<button data-action="setRating" data-rating="' + n + '" style="background:none;border:none;cursor:pointer;color:' + (n <= reviewRating ? '#00E676' : '#1a3a2a') + ';transition:color 0.15s">' + SVG.star + '</button>';
       }).join('');
     }
 
@@ -6988,7 +6989,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         card.style.display = 'block';
         card.innerHTML = '<div style="margin-bottom:20px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:20px 24px">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
-          '<span style="font-size:18px">&#127873;</span>' +
           '<span style="font-size:15px;font-weight:700;color:#F0F2F4">' + pt('referral.title') + '</span>' +
           '</div>' +
           '<div style="font-size:13px;color:#8B9DAF;line-height:1.5;margin-bottom:14px">' +
@@ -6998,7 +6998,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           statsHtml +
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:200px;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + escapeHtml(data.shareUrl || '') + '</div>' +
-          '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">' + pt('referral.copy_btn') + '</button>' +
+          '<button data-action="copyReferralLink" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">' + pt('referral.copy_btn') + '</button>' +
           '</div>' +
           '</div>';
       } catch(e) { card.style.display = 'none'; }
@@ -7791,7 +7791,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // Client-side mirror of shared escapeHtml in src/auth.js
     // (inline because this runs in the browser, not Node)
     function escapeHtml(v) {
-      if (typeof v !== 'string') return '';
+      if (v === null || v === undefined) return '';
+      v = String(v);
       return v.replace(/[<>&"']/g, function(c) {
         return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];
       });
@@ -10249,7 +10250,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + ' class="' + (isCurrent ? 'live-cue-active' : '') + (isSelected ? ' rundown-batch-selected' : '') + '"'
           + ' style="' + rowStyle + '"'
           + (isCurrent ? '' : ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'' + rowBg + '\'"')
-          + (isLive ? ' onclick="if(typeof liveShowGoto===\'function\')liveShowGoto(' + i + ')"' : '') + '>';
+          + (isLive ? ' data-action="liveShowGoto" data-cue-index="' + i + '"' : '') + '>';
 
         // Selection checkbox (advanced only)
         html += '<td class="rundown-batch-check rundown-adv" style="padding:4px 4px;text-align:center;vertical-align:middle">';
@@ -10671,7 +10672,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       input.focus();
       input.select();
 
-      function save() {
+      function saveTitle() {
         var val = input.value.trim();
         if (field === 'title' && !val) val = item.title; // don't allow empty title
         var body = {};
@@ -10679,10 +10680,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         else body[field] = val;
         _rundownInlineSave(itemId, body);
       }
-      input.addEventListener('blur', save);
+      input.addEventListener('blur', saveTitle);
       input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', saveTitle); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
     }
 
@@ -10697,14 +10698,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       input.focus();
       input.select();
 
-      function save() {
+      function saveLength() {
         var seconds = _rundownParseMMSS(input.value);
         _rundownInlineSave(itemId, { lengthSeconds: seconds });
       }
-      input.addEventListener('blur', save);
+      input.addEventListener('blur', saveLength);
       input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', saveLength); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
     }
 
@@ -10840,17 +10841,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       input.focus();
       input.select();
 
-      function save() {
+      function saveNotes() {
         var val = input.value.trim();
         _rundownInlineSave(itemId, { directorNotes: val });
         // Show/hide the sub-row based on whether there's content
         var row = el.closest('tr');
         if (row) row.style.display = val ? 'table-row' : 'none';
       }
-      input.addEventListener('blur', save);
+      input.addEventListener('blur', saveNotes);
       input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', saveNotes); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
     }
 
@@ -10891,10 +10892,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       el.appendChild(select);
       select.focus();
 
-      function save() {
+      function saveType() {
         _rundownInlineSave(itemId, { itemType: select.value });
       }
-      select.addEventListener('change', save);
+      select.addEventListener('change', saveType);
       select.addEventListener('blur', function() {
         // Re-render after small delay to let change fire first
         setTimeout(function() {
@@ -11039,7 +11040,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           input.focus();
           if (typeof input.select === 'function') input.select();
 
-          function save() {
+          function saveColumn() {
             var val = String(input.value || '').trim();
             _rundownColumnValues[itemId + '_' + colId] = val;
             api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/columns/' + colId, { value: val })
@@ -11047,7 +11048,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               .catch(function(err) { toast('Failed: ' + err.message, true); });
           }
           if (colType === 'dropdown') {
-            input.addEventListener('change', save);
+            input.addEventListener('change', saveColumn);
             input.addEventListener('blur', function() {
               setTimeout(function() {
                 if (document.activeElement !== input) {
@@ -11056,11 +11057,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               }, 50);
             });
           } else {
-            input.addEventListener('blur', save);
+            input.addEventListener('blur', saveColumn);
           }
           input.addEventListener('keydown', function(ev) {
             if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
-            if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+            if (ev.key === 'Escape') { input.removeEventListener('blur', saveColumn); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
           });
         });
       });
@@ -12811,7 +12812,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownRevertRevision(revisionId) {
       if (!_rundownSelectedPlan) return;
-      styledConfirm('Revert Item', 'Revert this item to the selected revision? This will overwrite the current state.').then(function(ok) {
+      styledConfirm('Revert Plan', 'Revert this plan to revision #' + revisionId + '? This will replace the current version.').then(function(ok) {
         if (!ok) return;
         api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/revisions/' + revisionId + '/revert', {
           sessionId: _rundownSessionId
@@ -13522,7 +13523,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         '<span>Duration: ' + totalStr + '</span>' +
         '<span>' + plan.items.length + ' items</span>' +
         '</div></div>' +
-        '<button class="no-print" onclick="window.print()" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
+        '<button class="no-print" data-action="printPage" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
         '<table><thead><tr>' +
         '<th>#</th><th>Title</th><th>Type</th><th>Who</th>' +
         colHeaders +
@@ -13781,7 +13782,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var gearTitle = hasActions ? 'Edit Companion actions (' + _companionActionsCache[item.id].length + ')' : 'Configure Companion actions';
         var safeItemId = item.id.replace(/'/g, "\\'");
         var safeTitle = item.title.replace(/'/g, "\\'");
-        html += '<button onclick="openCompanionActionsModal(\'' + safeItemId + '\',\'' + safeTitle + '\')" title="' + gearTitle + '" style="flex-shrink:0;margin-left:6px;background:none;border:none;cursor:pointer;padding:4px;color:' + gearColor + ';opacity:0.8;line-height:0">';
+        html += '<button data-action="openCompanionActionsModal" data-item-id="' + safeItemId + '" data-item-title="' + safeTitle + '" title="' + gearTitle + '" style="flex-shrink:0;margin-left:6px;background:none;border:none;cursor:pointer;padding:4px;color:' + gearColor + ';opacity:0.8;line-height:0">';
         html += SVG.gear;
         html += '</button>';
 
@@ -14126,7 +14127,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<option value="button_press"' + (a.type === 'button_press' ? ' selected' : '') + '>Button Press</option>';
         html += '<option value="custom_variable"' + (a.type === 'custom_variable' ? ' selected' : '') + '>Custom Variable</option>';
         html += '</select>';
-        html += '<button onclick="companionActionRemove(' + i + ')" title="Remove action" style="background:none;border:none;cursor:pointer;color:#FF5252;padding:4px;line-height:0">';
+        html += '<button data-action="companionActionRemove" data-action-index="' + i + '" title="Remove action" style="background:none;border:none;cursor:pointer;color:#FF5252;padding:4px;line-height:0">';
         html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z"/></svg>';
         html += '</button>';
         html += '</div>';
@@ -14900,6 +14901,204 @@ document.addEventListener('DOMContentLoaded', function() {
           showPage(page, navBtnCmsp);
         }
         break;
+      case 'setReportsRange':
+        (function() {
+          document.querySelectorAll('.reports-range').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          _reportsSummaryDays = parseInt(btn.dataset.days, 10) || 7;
+          if (typeof loadReportsSummary === 'function') loadReportsSummary();
+        })();
+        break;
+      case 'setWindowsRange':
+        (function() {
+          document.querySelectorAll('.rpt-win-range').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          _reportsWindowsDays = parseInt(btn.dataset.days, 10) || 7;
+          if (typeof loadReportsWindows === 'function') loadReportsWindows();
+        })();
+        break;
+      case 'setHealthRange':
+        (function() {
+          document.querySelectorAll('.rpt-health-range').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          _reportsHealthDays = parseInt(btn.dataset.days, 10) || 7;
+          if (typeof loadReportsHealth === 'function') loadReportsHealth();
+        })();
+        break;
+      case 'setAiRange':
+        (function() {
+          document.querySelectorAll('.rpt-ai-range').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          _reportsAiDays = parseInt(btn.dataset.days, 10) || 7;
+          _reportsAiPage = 1;
+          if (typeof loadReportsAi === 'function') loadReportsAi();
+        })();
+        break;
+      case 'toggleViewMode':
+        if (typeof toggleViewMode === 'function') toggleViewMode();
+        break;
+      case 'toggleMoreNav':
+        if (typeof toggleMoreNav === 'function') toggleMoreNav();
+        break;
+      case 'toggleSidebarSettings':
+        if (typeof toggleSidebarSettings === 'function') toggleSidebarSettings();
+        break;
+      case 'filterNetworkDevices':
+        if (typeof filterNetworkDevices === 'function') filterNetworkDevices(btn);
+        break;
+      case 'refreshNetworkTopology':
+        (function() { _netLoaded = false; if (typeof loadNetworkTopology === 'function') loadNetworkTopology(); })();
+        break;
+      case 'streamProtectionRestart':
+        if (typeof streamProtectionRestart === 'function') streamProtectionRestart();
+        break;
+      case 'portalFbConnect':
+        if (typeof portalFbConnect === 'function') portalFbConnect();
+        break;
+      case 'portalFbSelectPage':
+        if (typeof portalFbSelectPage === 'function') portalFbSelectPage();
+        break;
+      case 'saveEquipmentRoles':
+        if (typeof saveEquipmentRoles === 'function') saveEquipmentRoles();
+        break;
+      case 'openMacroWizard':
+        if (typeof openMacroWizard === 'function') openMacroWizard();
+        break;
+      case 'macroWizardNext':
+        if (typeof macroWizardNext === 'function') macroWizardNext();
+        break;
+      case 'macroWizardBack':
+        if (typeof macroWizardBack === 'function') macroWizardBack();
+        break;
+      case 'macroWizardAddStep':
+        if (typeof macroWizardAddStep === 'function') macroWizardAddStep();
+        break;
+      case 'dismissAiError':
+        (function() { var el = document.getElementById('ai-triage-error-banner'); if (el) el.style.display = 'none'; })();
+        break;
+      case 'skipTelegramStep':
+        if (typeof skipTelegramStep === 'function') skipTelegramStep();
+        break;
+      case 'markFailoverTested':
+        if (typeof markFailoverTested === 'function') markFailoverTested();
+        break;
+      case 'removeParent':
+        btn.parentElement.remove();
+        break;
+      case 'removeClosestPositioned':
+        (function() { var p = btn.closest('[style*="position"]'); if (p) p.remove(); })();
+        break;
+      case 'smartPlugToggle':
+        if (typeof smartPlugToggle === 'function') smartPlugToggle(btn.dataset.ip);
+        break;
+      case 'smartPlugPowerCycle':
+        if (typeof smartPlugPowerCycle === 'function') smartPlugPowerCycle(btn.dataset.ip);
+        break;
+      case 'portalJumpToCue':
+        if (typeof portalJumpToCue === 'function') portalJumpToCue(parseInt(btn.dataset.cueIndex, 10));
+        break;
+      case 'portalSchedulerGo':
+        if (typeof portalSchedulerGo === 'function') portalSchedulerGo();
+        break;
+      case 'portalSchedulerSkip':
+        if (typeof portalSchedulerSkip === 'function') portalSchedulerSkip();
+        break;
+      case 'portalSchedulerBack':
+        if (typeof portalSchedulerBack === 'function') portalSchedulerBack();
+        break;
+      case 'portalSchedulerPause':
+        if (typeof portalSchedulerPause === 'function') portalSchedulerPause();
+        break;
+      case 'portalSchedulerResume':
+        if (typeof portalSchedulerResume === 'function') portalSchedulerResume();
+        break;
+      case 'portalEndRundown':
+        if (typeof portalEndRundown === 'function') portalEndRundown();
+        break;
+      case 'portalActivateRundown':
+        if (typeof portalActivateRundown === 'function') portalActivateRundown(btn.dataset.rundownId);
+        break;
+      case 'promptSetTdPassword':
+        if (typeof promptSetTdPassword === 'function') promptSetTdPassword(btn.dataset.tdId, btn.dataset.tdName);
+        break;
+      case 'removeTd':
+        if (typeof removeTd === 'function') removeTd(btn.dataset.tdId);
+        break;
+      case 'revokeToken':
+        if (typeof revokeToken === 'function') revokeToken(btn.dataset.token);
+        break;
+      case 'macroWizardMoveStep':
+        if (typeof macroWizardMoveStep === 'function') macroWizardMoveStep(parseInt(btn.dataset.stepIndex, 10), parseInt(btn.dataset.stepDir, 10));
+        break;
+      case 'macroWizardRemoveStep':
+        if (typeof macroWizardRemoveStep === 'function') macroWizardRemoveStep(parseInt(btn.dataset.stepIndex, 10));
+        break;
+      case 'editMacro':
+        if (typeof editMacro === 'function') editMacro(btn.dataset.macroId);
+        break;
+      case 'deleteMacro':
+        if (typeof deleteMacro === 'function') deleteMacro(btn.dataset.macroId);
+        break;
+      case 'testAutopilotRule':
+        if (typeof testAutopilotRule === 'function') testAutopilotRule(btn.dataset.ruleId);
+        break;
+      case 'toggleAutopilotRule':
+        if (typeof toggleAutopilotRule === 'function') toggleAutopilotRule(btn.dataset.ruleId, btn.dataset.ruleEnabled === 'true');
+        break;
+      case 'deleteAutopilotRule':
+        if (typeof deleteAutopilotRule === 'function') deleteAutopilotRule(btn.dataset.ruleId);
+        break;
+      case 'toggleSessionType':
+        if (typeof toggleSessionType === 'function') toggleSessionType(btn.dataset.sessionId, btn.dataset.sessionType);
+        break;
+      case 'viewServiceReport':
+        if (typeof viewServiceReport === 'function') viewServiceReport(btn.dataset.reportId);
+        break;
+      case 'upgradePlan':
+        if (typeof upgradePlan === 'function') upgradePlan(btn.dataset.planTier);
+        break;
+      case 'cancelSubscription':
+        if (typeof cancelSubscription === 'function') cancelSubscription();
+        break;
+      case 'reactivateSubscription':
+        if (typeof reactivateSubscription === 'function') reactivateSubscription();
+        break;
+      case 'downgradePlan':
+        if (typeof downgradePlan === 'function') downgradePlan(btn.dataset.planTier);
+        break;
+      case 'exportData':
+        if (typeof exportData === 'function') exportData();
+        break;
+      case 'deleteAccount':
+        if (typeof deleteAccount === 'function') deleteAccount();
+        break;
+      case 'dismissUpgradeBanner':
+        if (typeof dismissUpgradeBanner === 'function') dismissUpgradeBanner(btn.dataset.dismissKey);
+        break;
+      case 'openReviewModal':
+        if (typeof openReviewModal === 'function') openReviewModal();
+        break;
+      case 'dismissReviewBanner':
+        if (typeof dismissReviewBanner === 'function') dismissReviewBanner();
+        break;
+      case 'setRating':
+        if (typeof setRating === 'function') setRating(parseInt(btn.dataset.rating, 10));
+        break;
+      case 'copyReferralLink':
+        if (typeof copyReferralLink === 'function') copyReferralLink();
+        break;
+      case 'liveShowGoto':
+        if (typeof liveShowGoto === 'function') liveShowGoto(parseInt(btn.dataset.cueIndex, 10));
+        break;
+      case 'printPage':
+        window.print();
+        break;
+      case 'openCompanionActionsModal':
+        if (typeof openCompanionActionsModal === 'function') openCompanionActionsModal(btn.dataset.itemId, btn.dataset.itemTitle);
+        break;
+      case 'companionActionRemove':
+        if (typeof companionActionRemove === 'function') companionActionRemove(parseInt(btn.dataset.actionIndex, 10));
+        break;
     }
   });
 
@@ -14918,6 +15117,15 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'loadSchedule':
         if (typeof loadSchedule === 'function') loadSchedule();
         break;
+      case 'toggleStreamProtection':
+        if (typeof toggleStreamProtection === 'function') toggleStreamProtection(el.checked);
+        break;
+      case 'macroWizardCategoryChange':
+        if (typeof macroWizardCategoryChange === 'function') macroWizardCategoryChange();
+        break;
+      case 'macroWizardTemplateChange':
+        if (typeof macroWizardTemplateChange === 'function') macroWizardTemplateChange();
+        break;
     }
   });
 
@@ -14935,6 +15143,9 @@ document.addEventListener('DOMContentLoaded', function() {
           var createBtn = document.getElementById('zero-rooms-create-btn');
           if (createBtn) createBtn.click();
         }
+        break;
+      case 'macroWizardAddStep':
+        if (e.key === 'Enter' && typeof macroWizardAddStep === 'function') macroWizardAddStep();
         break;
     }
   });
@@ -15704,34 +15915,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Range button handler
-  document.addEventListener('click', function(e) {
-    if (e.target.matches('.reports-range')) {
-      document.querySelectorAll('.reports-range').forEach(function(b) { b.classList.remove('active'); });
-      e.target.classList.add('active');
-      _reportsSummaryDays = parseInt(e.target.dataset.days) || 7;
-      loadReportsSummary();
-    }
-    if (e.target.matches('.rpt-win-range')) {
-      document.querySelectorAll('.rpt-win-range').forEach(function(b) { b.classList.remove('active'); });
-      e.target.classList.add('active');
-      _reportsWindowsDays = parseInt(e.target.dataset.days) || 7;
-      loadReportsWindows();
-    }
-    if (e.target.matches('.rpt-health-range')) {
-      document.querySelectorAll('.rpt-health-range').forEach(function(b) { b.classList.remove('active'); });
-      e.target.classList.add('active');
-      _reportsHealthDays = parseInt(e.target.dataset.days) || 7;
-      loadReportsHealth();
-    }
-    if (e.target.matches('.rpt-ai-range')) {
-      document.querySelectorAll('.rpt-ai-range').forEach(function(b) { b.classList.remove('active'); });
-      e.target.classList.add('active');
-      _reportsAiDays = parseInt(e.target.dataset.days) || 7;
-      _reportsAiPage = 1;
-      loadReportsAi();
-    }
-  });
 
   // ── Event History ───────────────────────────────────────────────────────────
   loadReportsEvents = async function() {
@@ -16020,14 +16203,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function loadMoreAiActions() { _reportsAiPage++; loadReportsAi(); }
 
-  // HTML escaping utility for reports
-  function escapeHtml(str) {
-    if (!str) return '';
-    var d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-  }
-
   // Wire severity filter change
   document.getElementById('ai-triage-filter-severity').addEventListener('change', function() {
     refreshAiTriageEvents();
@@ -16202,6 +16377,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (!rows || rows.length === 0) {
       hero.className = 'readiness-hero offline';
+      icon.innerHTML = '';
       title.textContent = 'No Equipment Found';
       subtitle.textContent = 'Set up your equipment on the Equipment page';
       badge.textContent = '';
@@ -16399,17 +16575,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }).observe(_statDotEl, { attributes: true, attributeFilter: ['style'] });
   }
 
-  // ── Wire new actions in delegated handler ─────────────────────────
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    var action = btn.dataset.action;
-    if (action === 'toggleViewMode') toggleViewMode();
-    if (action === 'toggleMoreNav') toggleMoreNav();
-    if (action === 'toggleSidebarSettings') toggleSidebarSettings();
-    if (action === 'filterNetworkDevices') filterNetworkDevices(btn);
-    if (action === 'refreshNetworkTopology') { _netLoaded = false; loadNetworkTopology(); }
-  });
 
   // ── Restore last page/tab from localStorage (with URL ?page= deep link) ──
   try {
