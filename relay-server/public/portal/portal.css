@@ -1570,6 +1570,10 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   align-items: center;
   gap: 6px;
 }
+/* toolbar-primary-mobile is only visible on mobile when toolbar-secondary is hidden */
+.rundown-toolbar-group.toolbar-primary-mobile {
+  display: none;
+}
 .rundown-toolbar-divider {
   width: 1px;
   height: 24px;
@@ -1636,7 +1640,8 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   .rundown-toolbar-divider {
     display: none;
   }
-  /* 3.2: Hide secondary toolbar groups, show overflow */
+  /* 3.2: Hide secondary toolbar groups, show primary-mobile + overflow */
+  .rundown-toolbar-group.toolbar-primary-mobile { display: flex !important; }
   .rundown-toolbar-group.toolbar-secondary { display: none !important; }
   .rundown-toolbar-overflow { display: block; }
 }

@@ -12169,7 +12169,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             }),
             _rundownBuildOutputCard({
               kicker: 'Stage Display',
-              title: 'Stage timer',
+              title: 'Detailed timer',
               description: 'Countdown-focused display for speakers and production timing.',
               url: demoSetup.stageUrl || demoSetup.timerUrl,
               badge: 'Step 3',
@@ -13148,17 +13148,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _rundownEnsureShare(planId).then(openTimer).catch(function(e) { toast('Failed to open timer: ' + e.message, true); });
     }
 
-    var btnTimerDisplay = document.getElementById('btn-rundown-timer-display');
-    if (btnTimerDisplay) btnTimerDisplay.addEventListener('click', openTimerDisplay);
-    var btnShowMode = document.getElementById('btn-rundown-show-mode');
-    if (btnShowMode) btnShowMode.addEventListener('click', rundownOpenShowMode);
-    var btnPublicView = document.getElementById('btn-rundown-share');
-    if (btnPublicView) btnPublicView.addEventListener('click', rundownOpenPublicView);
-    // Mobile overflow menu duplicates
-    var btnPublicViewMobile = document.getElementById('btn-rundown-share-mobile');
-    if (btnPublicViewMobile) btnPublicViewMobile.addEventListener('click', rundownOpenPublicView);
-    var btnTimerMobile = document.getElementById('btn-rundown-timer-mobile');
-    if (btnTimerMobile) btnTimerMobile.addEventListener('click', openTimerDisplay);
+    // Live Mode, Public View, Timer View buttons now use data-action delegation
+    // (rundownOpenShowMode, rundownOpenPublicView, rundownOpenTimerDisplay)
     // Mobile status select sync
     var statusSelMobile = document.getElementById('rundown-editor-status-select-mobile');
     var statusSelDesktop = document.getElementById('rundown-editor-status-select');
@@ -14506,6 +14497,18 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownShare':
         if (typeof rundownShare === 'function') rundownShare();
         break;
+      case 'rundownOutputs':
+        if (typeof rundownShare === 'function') rundownShare();
+        break;
+      case 'rundownOpenShowMode':
+        if (typeof rundownOpenShowMode === 'function') rundownOpenShowMode();
+        break;
+      case 'rundownOpenPublicView':
+        if (typeof rundownOpenPublicView === 'function') rundownOpenPublicView();
+        break;
+      case 'rundownOpenTimerDisplay':
+        if (typeof openTimerDisplay === 'function') openTimerDisplay();
+        break;
       case 'rundownCopyShareLink':
         if (!_rundownSelectedPlan) break;
         (function() {
@@ -14514,8 +14517,8 @@ document.addEventListener('DOMContentLoaded', function() {
             var urls = _rundownResolveShareUrls(share || {});
             var url = _rundownBuildModeUrl(urls.publicUrl, '', {});
             if (!url) { toast('No share link available', true); return; }
-            _rundownCopyTextToClipboard(url, null, 'Share Link');
-            toast('Public view link copied to clipboard');
+            _rundownCopyTextToClipboard(url, btn, 'Share');
+            toast('Link copied to clipboard!');
           }
           if (_rundownShareData && _rundownShareData.share_token) {
             doCopy(_rundownShareData);

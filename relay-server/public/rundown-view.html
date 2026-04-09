@@ -2508,7 +2508,7 @@
         var html = '<div class="prompter-shell">';
         html += '<div class="header">';
         html += '<div>';
-        html += '<div class="plan-title">' + esc(plan.title || 'Rundown Prompter') + '</div>';
+        html += '<div class="plan-title">' + esc(plan.title || 'Rundown') + '</div>';
         if (serviceDateText) html += '<div class="plan-date">' + esc(serviceDateText) + '</div>';
         html += '</div>';
         html += '<div class="meta-right">';
@@ -3263,7 +3263,7 @@
               viewConnBanner.classList.remove('visible');
             }
             render(plan);
-            document.title = plan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
+            document.title = plan.title + (isPrompterMode ? ' — Large Text — Tally' : ' — Tally');
             // 12.1: Cache plan in localStorage for offline use
             try { window.localStorage.setItem(planCacheKey, JSON.stringify(plan)); } catch (e) {}
           })
@@ -3281,7 +3281,7 @@
                   if (cachedRaw) {
                     var cachedPlan = JSON.parse(cachedRaw);
                     render(cachedPlan);
-                    document.title = cachedPlan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
+                    document.title = cachedPlan.title + (isPrompterMode ? ' — Large Text — Tally' : ' — Tally');
                   } else {
                     showError('Could not load rundown', err.message || '');
                   }
