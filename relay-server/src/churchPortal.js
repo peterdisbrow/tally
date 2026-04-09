@@ -4275,6 +4275,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       } catch { /* table may not exist yet */ }
 
       // Weekly platform trends
+      const vsRoomFilter = instanceName ? ' AND instance_name = ?' : '';
+      const vsParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
       let weeklyTrend = [];
       try {
         weeklyTrend = await qAll(`
@@ -4287,10 +4289,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             ROUND(AVG(total), 0) AS avg_total,
             COUNT(*) AS snapshots
           FROM viewer_snapshots
-          WHERE church_id = ? AND captured_at >= ?
+          WHERE church_id = ? AND captured_at >= ?${vsRoomFilter}
           GROUP BY week_key
           ORDER BY week_key ASC
-        `, [churchId, since]);
+        `, vsParams);
       } catch {}
 
       // Platform summary
@@ -4308,22 +4310,23 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             MAX(vimeo) AS peak_vimeo,
             COUNT(*) AS total_snapshots
           FROM viewer_snapshots
-          WHERE church_id = ? AND captured_at >= ?
-        `, [churchId, since]);
+          WHERE church_id = ? AND captured_at >= ?${vsRoomFilter}
+        `, vsParams);
         if (row) platformSummary = row;
       } catch {}
 
       // Recent snapshots (last 2 hours for live view)
       const recentSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const recentParams = instanceName ? [churchId, recentSince, instanceName] : [churchId, recentSince];
       let recentSnapshots = [];
       try {
         recentSnapshots = await qAll(`
           SELECT total, youtube, facebook, vimeo, captured_at
           FROM viewer_snapshots
-          WHERE church_id = ? AND captured_at >= ?
+          WHERE church_id = ? AND captured_at >= ?${vsRoomFilter}
           ORDER BY captured_at ASC
           LIMIT 120
-        `, [churchId, recentSince]);
+        `, recentParams);
       } catch {}
 
       res.json({
@@ -4733,6 +4736,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const churchId = req.church.churchId;
         const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
         const since = new Date(Date.now() - days * 86400000).toISOString();
+        const instanceName = resolveRoomInstance(req, churches);
+        const roomFilter = instanceName ? ' AND instance_name = ?' : '';
+        const baseParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
         // Sessions aggregate
         let sessAgg = {};
@@ -4747,8 +4753,8 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
               COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
-          `, [churchId, since]) || {};
+            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+          `, baseParams) || {};
         } catch {}
 
         // Events detected/resolved
@@ -4760,8 +4766,8 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved_events,
               SUM(CASE WHEN auto_resolved = 1 THEN 1 ELSE 0 END) AS auto_resolved_events
             FROM service_events
-            WHERE church_id = ? AND timestamp >= ?
-          `, [churchId, since]) || {};
+            WHERE church_id = ? AND timestamp >= ?${roomFilter}
+          `, baseParams) || {};
         } catch {}
 
         // Device uptime from post_service_reports
@@ -4770,9 +4776,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           const reports = await qAll(`
             SELECT instance_name, uptime_pct, device_health, created_at
             FROM post_service_reports
-            WHERE church_id = ? AND created_at >= ?
+            WHERE church_id = ? AND created_at >= ?${roomFilter}
             ORDER BY created_at DESC
-          `, [churchId, since]);
+          `, baseParams);
 
           // Group by instance and average uptime
           const byDevice = {};
@@ -4883,6 +4889,12 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const churchId = req.church.churchId;
         const days = Math.min(Math.max(parseInt(req.query.days) || 14, 1), 90);
         const since = new Date(Date.now() - days * 86400000).toISOString();
+        const instanceName = resolveRoomInstance(req, churches);
+        const roomFilter = instanceName ? ' AND instance_name = ?' : '';
+        const baseParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
+        const roomId = req.query.roomId || null;
+        const triageRoomFilter = roomId ? ' AND room_id = ?' : '';
+        const triageParams = roomId ? [churchId, since, roomId] : [churchId, since];
 
         // Get church schedule
         let serviceTimes = [];
@@ -4897,9 +4909,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           sessions = await qAll(`
             SELECT id, started_at, ended_at, duration_minutes, alert_count, auto_recovered_count, instance_name, grade
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
+            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
             ORDER BY started_at DESC
-          `, [churchId, since]);
+          `, baseParams);
         } catch {}
 
         // Get events in range with time context
@@ -4908,9 +4920,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           const contextRows = await qAll(`
             SELECT time_context, COUNT(*) AS cnt
             FROM ai_triage_events
-            WHERE church_id = ? AND created_at >= ?
+            WHERE church_id = ? AND created_at >= ?${triageRoomFilter}
             GROUP BY time_context
-          `, [churchId, since]);
+          `, triageParams);
           for (const r of contextRows) {
             if (r.time_context && eventsByContext.hasOwnProperty(r.time_context)) {
               eventsByContext[r.time_context] = r.cnt;
@@ -4946,6 +4958,12 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
         const since = new Date(Date.now() - days * 86400000).toISOString();
         const compareSince = new Date(Date.now() - days * 2 * 86400000).toISOString();
+        const instanceName = resolveRoomInstance(req, churches);
+        const roomFilter = instanceName ? ' AND instance_name = ?' : '';
+        const baseParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
+        const roomId = req.query.roomId || null;
+        const triageRoomFilter = roomId ? ' AND room_id = ?' : '';
+        const triageParams = roomId ? [churchId, since, roomId] : [churchId, since];
 
         // Alerts by device type (current period)
         let currentAlerts = [];
@@ -4954,21 +4972,22 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             SELECT alert_type, COUNT(*) AS cnt,
               SUM(CASE WHEN resolution_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved_cnt
             FROM ai_triage_events
-            WHERE church_id = ? AND created_at >= ?
+            WHERE church_id = ? AND created_at >= ?${triageRoomFilter}
             GROUP BY alert_type
             ORDER BY cnt DESC
-          `, [churchId, since]);
+          `, triageParams);
         } catch {}
 
         // Previous period for trend comparison
         let previousAlerts = [];
         try {
+          const prevParams = roomId ? [churchId, compareSince, since, roomId] : [churchId, compareSince, since];
           previousAlerts = await qAll(`
             SELECT alert_type, COUNT(*) AS cnt
             FROM ai_triage_events
-            WHERE church_id = ? AND created_at >= ? AND created_at < ?
+            WHERE church_id = ? AND created_at >= ? AND created_at < ?${triageRoomFilter}
             GROUP BY alert_type
-          `, [churchId, compareSince, since]);
+          `, prevParams);
         } catch {}
         const prevMap = {};
         for (const p of previousAlerts) prevMap[p.alert_type] = p.cnt;
@@ -4984,9 +5003,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               ROUND(AVG(r.duration_ms)) AS avg_duration_ms
             FROM ai_resolutions r
             JOIN ai_triage_events t ON t.id = r.event_id
-            WHERE r.church_id = ? AND r.created_at >= ?
+            WHERE r.church_id = ? AND r.created_at >= ?${roomId ? ' AND t.room_id = ?' : ''}
             GROUP BY t.alert_type
-          `, [churchId, since]);
+          `, triageParams);
         } catch {}
         const reconnMap = {};
         for (const r of reconnStats) reconnMap[r.alert_type] = r;
@@ -4997,8 +5016,8 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           deviceUptimes = await qAll(`
             SELECT instance_name, uptime_pct
             FROM post_service_reports
-            WHERE church_id = ? AND created_at >= ?
-          `, [churchId, since]);
+            WHERE church_id = ? AND created_at >= ?${roomFilter}
+          `, baseParams);
         } catch {}
         const uptimeByDevice = {};
         for (const d of deviceUptimes) {
@@ -5047,6 +5066,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const page = Math.max(1, parseInt(req.query.page) || 1);
         const limit = Math.min(50, Math.max(10, parseInt(req.query.limit) || 20));
         const offset = (page - 1) * limit;
+        const roomId = req.query.roomId || null;
+        const triageRoomFilter = roomId ? ' AND t.room_id = ?' : '';
+        const triageParams = roomId ? [churchId, since, roomId] : [churchId, since];
 
         // Check AI mode
         let aiSettings = {};
@@ -5061,15 +5083,20 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             SELECT r.*, t.alert_type, t.triage_severity, t.time_context, t.room_id
             FROM ai_resolutions r
             JOIN ai_triage_events t ON t.id = r.event_id
-            WHERE r.church_id = ? AND r.created_at >= ?
+            WHERE r.church_id = ? AND r.created_at >= ?${triageRoomFilter}
             ORDER BY r.created_at DESC
             LIMIT ? OFFSET ?
-          `, [churchId, since, limit, offset]);
+          `, [...triageParams, limit, offset]);
         } catch {}
 
         let totalActions = 0;
         try {
-          const cnt = await qOne(`SELECT COUNT(*) AS cnt FROM ai_resolutions WHERE church_id = ? AND created_at >= ?`, [churchId, since]);
+          const triageCountParams = roomId ? [churchId, since, roomId] : [churchId, since];
+          const cnt = await qOne(`
+            SELECT COUNT(*) AS cnt FROM ai_resolutions r
+            JOIN ai_triage_events t ON t.id = r.event_id
+            WHERE r.church_id = ? AND r.created_at >= ?${triageRoomFilter}
+          `, triageCountParams);
           totalActions = cnt?.cnt || 0;
         } catch {}
 
@@ -5079,12 +5106,13 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           summary = await qOne(`
             SELECT
               COUNT(*) AS total_actions,
-              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful,
-              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed,
-              ROUND(AVG(duration_ms)) AS avg_duration_ms
-            FROM ai_resolutions
-            WHERE church_id = ? AND created_at >= ?
-          `, [churchId, since]) || {};
+              SUM(CASE WHEN r.success = 1 THEN 1 ELSE 0 END) AS successful,
+              SUM(CASE WHEN r.success = 0 THEN 1 ELSE 0 END) AS failed,
+              ROUND(AVG(r.duration_ms)) AS avg_duration_ms
+            FROM ai_resolutions r
+            JOIN ai_triage_events t ON t.id = r.event_id
+            WHERE r.church_id = ? AND r.created_at >= ?${triageRoomFilter}
+          `, triageParams) || {};
         } catch {}
 
         // Pending issues (triage events with no resolution)
@@ -5094,10 +5122,10 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             SELECT t.id, t.alert_type, t.triage_severity, t.time_context, t.room_id, t.created_at
             FROM ai_triage_events t
             LEFT JOIN ai_resolutions r ON r.event_id = t.id
-            WHERE t.church_id = ? AND t.created_at >= ? AND r.id IS NULL
+            WHERE t.church_id = ? AND t.created_at >= ? AND r.id IS NULL${roomId ? ' AND t.room_id = ?' : ''}
             ORDER BY t.triage_score DESC
             LIMIT 10
-          `, [churchId, since]);
+          `, triageParams);
         } catch {}
 
         res.json({
