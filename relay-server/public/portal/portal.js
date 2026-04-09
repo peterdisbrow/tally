@@ -12073,6 +12073,137 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       loadRundownManager();
     }
 
+    function rundownPrintPlan() {
+      var plan = _rundownSelectedPlan;
+      if (!plan || !Array.isArray(plan.items)) return;
+      var churchName = (document.getElementById('sidebar-church-name') || {}).textContent || '';
+      var roomName = plan.roomId && _rundownRoomMap[plan.roomId] ? _rundownRoomMap[plan.roomId] : '';
+      var startTime = _rundownStartTime || '09:00';
+
+      // Compute timing
+      var currentTime = startTime;
+      var timingData = [];
+      var totalSeconds = 0;
+      for (var i = 0; i < plan.items.length; i++) {
+        var item = plan.items[i];
+        var dur = item.lengthSeconds || 0;
+        if (item.startType === 'hard' && item.hardStartTime) {
+          currentTime = item.hardStartTime;
+        }
+        timingData.push({ start: currentTime, end: _rundownTimeAdd(currentTime, dur) });
+        totalSeconds += dur;
+        currentTime = _rundownTimeAdd(currentTime, dur);
+      }
+
+      var totalH = Math.floor(totalSeconds / 3600);
+      var totalM = Math.floor((totalSeconds % 3600) / 60);
+      var totalStr = (totalH > 0 ? totalH + 'h ' : '') + totalM + 'm';
+
+      // Format service date
+      var dateStr = '';
+      if (plan.serviceDate) {
+        var d = new Date(plan.serviceDate + 'T00:00:00');
+        dateStr = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      }
+
+      // Build column headers
+      var hasColumns = _rundownColumns.length > 0;
+      var colHeaders = '';
+      for (var ci = 0; ci < _rundownColumns.length; ci++) {
+        colHeaders += '<th>' + escapeHtml(_rundownColumns[ci].name) + '</th>';
+      }
+
+      // Build rows
+      var rows = '';
+      for (var i = 0; i < plan.items.length; i++) {
+        var item = plan.items[i];
+        var isSection = item.itemType === 'section';
+        var typeLabel = RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType || '';
+        var dur = item.lengthSeconds || 0;
+        var durStr = dur > 0 ? _rundownFormatMMSS(dur) : '';
+        var td = timingData[i];
+        var notes = item.notes || '';
+        // Strip HTML tags for clean text
+        var tmp = document.createElement('div');
+        tmp.innerHTML = notes;
+        var notesText = tmp.textContent || tmp.innerText || '';
+
+        if (isSection) {
+          var colspan = 6 + _rundownColumns.length;
+          rows += '<tr class="section-row"><td colspan="' + colspan + '">' + escapeHtml(item.title || '') + '</td></tr>';
+          continue;
+        }
+
+        rows += '<tr>';
+        rows += '<td class="num">' + (i + 1) + '</td>';
+        rows += '<td class="title">' + escapeHtml(item.title || '') + '</td>';
+        rows += '<td>' + escapeHtml(typeLabel) + '</td>';
+        rows += '<td>' + escapeHtml(item.assignee || '') + '</td>';
+        for (var ci = 0; ci < _rundownColumns.length; ci++) {
+          var colVal = _rundownColumnValues[item.id + '_' + _rundownColumns[ci].id] || '';
+          rows += '<td>' + escapeHtml(String(colVal)) + '</td>';
+        }
+        rows += '<td class="mono">' + durStr + '</td>';
+        rows += '<td class="mono">' + (td ? td.start : '') + '</td>';
+        if (notesText.trim()) {
+          rows += '</tr><tr class="notes-row"><td></td><td colspan="' + (4 + _rundownColumns.length + 1) + '" class="notes">' + escapeHtml(notesText) + '</td></tr>';
+        } else {
+          rows += '</tr>';
+        }
+      }
+
+      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeHtml(plan.title || 'Rundown') + '</title>' +
+        '<style>' +
+        '*, *::before, *::after { box-sizing: border-box; }' +
+        'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; margin: 0; padding: 24px 32px; font-size: 12px; }' +
+        '.header { margin-bottom: 20px; border-bottom: 2px solid #111; padding-bottom: 12px; }' +
+        '.church-name { font-size: 18px; font-weight: 700; margin-bottom: 2px; }' +
+        '.plan-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }' +
+        '.meta { font-size: 12px; color: #555; display: flex; gap: 16px; flex-wrap: wrap; }' +
+        'table { width: 100%; border-collapse: collapse; margin-top: 8px; }' +
+        'thead th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; white-space: nowrap; }' +
+        'tbody td { padding: 5px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }' +
+        'td.num { width: 28px; text-align: center; color: #999; }' +
+        'td.title { font-weight: 600; }' +
+        'td.mono, th.mono { font-family: "SF Mono", SFMono-Regular, ui-monospace, monospace; font-size: 11px; }' +
+        'td.notes { font-size: 11px; color: #555; padding-top: 0; padding-bottom: 8px; font-style: italic; }' +
+        'tr.notes-row td { border-bottom: 1px solid #e5e5e5; }' +
+        'tr.section-row td { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; background: #f3f3f3; padding: 8px; border-bottom: 1px solid #ccc; }' +
+        '.footer { margin-top: 16px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }' +
+        '@media print {' +
+        '  body { padding: 0; }' +
+        '  @page { size: auto; margin: 16mm 12mm; }' +
+        '  .no-print { display: none !important; }' +
+        '}' +
+        '</style></head><body>' +
+        '<div class="header">' +
+        (churchName ? '<div class="church-name">' + escapeHtml(churchName) + '</div>' : '') +
+        '<div class="plan-title">' + escapeHtml(plan.title || 'Untitled Plan') + '</div>' +
+        '<div class="meta">' +
+        (dateStr ? '<span>' + escapeHtml(dateStr) + '</span>' : '') +
+        (roomName ? '<span>' + escapeHtml(roomName) + '</span>' : '') +
+        '<span>Start: ' + startTime + '</span>' +
+        '<span>Duration: ' + totalStr + '</span>' +
+        '<span>' + plan.items.length + ' items</span>' +
+        '</div></div>' +
+        '<button class="no-print" onclick="window.print()" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
+        '<table><thead><tr>' +
+        '<th>#</th><th>Title</th><th>Type</th><th>Who</th>' +
+        colHeaders +
+        '<th class="mono">Duration</th><th class="mono">Start</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '<div class="footer"><span>Printed from TallyConnect</span><span></span></div>' +
+        '</body></html>';
+
+      var printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(html);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(function() { printWin.print(); }, 400);
+      }
+    }
+
     function rundownSaveTemplate() {
       if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
       styledPrompt('Save Template', 'Template name', _rundownSelectedPlan.title).then(function(name) {
@@ -13043,6 +13174,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownSaveTemplate':
         if (typeof rundownSaveTemplate === 'function') rundownSaveTemplate();
+        break;
+      case 'rundownPrintPlan':
+        if (typeof rundownPrintPlan === 'function') rundownPrintPlan();
         break;
       case 'rundownCollaboratorSave':
         if (typeof rundownSaveCollaboratorRole === 'function') rundownSaveCollaboratorRole(btn.dataset.collaboratorKey);
