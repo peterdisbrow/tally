@@ -20,6 +20,10 @@ const { runWithConcurrency } = require('./asyncPool');
 const POLL_INTERVAL_MS  = 60_000;  // poll every 60s (API quota friendly)
 const ALERT_THROTTLE_MS = 5 * 60 * 1000; // 5 min between repeated alerts
 const MAX_POLL_CONCURRENCY = Math.max(1, Number(process.env.BROADCAST_MONITOR_MAX_CONCURRENCY || 6));
+const CHURCH_CONFIG_CACHE_MS = Math.max(
+  POLL_INTERVAL_MS,
+  Number(process.env.BROADCAST_MONITOR_CHURCH_CACHE_MS || 5 * 60 * 1000)
+);
 
 /**
  * Derive a health status from YouTube stream health data.
@@ -71,6 +75,8 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
   const state = new Map();
   let schemaNotReadyLogged = false;
   let pollInFlight = null;
+  let churchConfigCacheRows = null;
+  let churchConfigCacheFetchedAt = 0;
 
   function _compositeKey(churchId, instanceName) {
     return instanceName ? `${churchId}::${instanceName}` : churchId;
@@ -108,9 +114,45 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
     return { changes: 0, lastInsertRowid: null, rows: [] };
   }
 
+  function updateCachedChurchRow(churchId, updates = {}) {
+    if (!Array.isArray(churchConfigCacheRows)) return;
+    const row = churchConfigCacheRows.find((candidate) => candidate?.churchId === churchId);
+    if (row) Object.assign(row, updates);
+  }
+
+  async function getConnectedChurchRows(force = false) {
+    const now = Date.now();
+    if (!force && Array.isArray(churchConfigCacheRows) && (now - churchConfigCacheFetchedAt) < CHURCH_CONFIG_CACHE_MS) {
+      return churchConfigCacheRows;
+    }
+
+    try {
+      churchConfigCacheRows = await qAll(
+        `SELECT churchId, room_id, room_name,
+                yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name,
+                fb_access_token, fb_page_id, fb_page_name
+         FROM churches
+         WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL`
+      );
+      churchConfigCacheFetchedAt = now;
+      schemaNotReadyLogged = false;
+      return churchConfigCacheRows;
+    } catch (error) {
+      const message = String(error?.message || '');
+      if (/column .* does not exist/i.test(message)) {
+        if (!schemaNotReadyLogged) {
+          console.warn(`[BroadcastMonitor] Skipping poll until stream token columns are available: ${message}`);
+          schemaNotReadyLogged = true;
+        }
+        return [];
+      }
+      throw error;
+    }
+  }
+
   // ── YouTube broadcast health polling ──────────────────────────────────────
 
-  async function refreshYouTubeToken(churchId, refreshToken) {
+  async function refreshYouTubeToken(churchId, refreshToken, churchRow = null) {
     const clientId = process.env.YOUTUBE_CLIENT_ID;
     const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
     if (!clientId || !clientSecret || !refreshToken) return null;
@@ -131,6 +173,14 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       const tokens = await resp.json();
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
       await qRun('UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?', [tokens.access_token, expiresAt, churchId]);
+      if (churchRow) {
+        churchRow.yt_access_token = tokens.access_token;
+        churchRow.yt_token_expires_at = expiresAt;
+      }
+      updateCachedChurchRow(churchId, {
+        yt_access_token: tokens.access_token,
+        yt_token_expires_at: expiresAt,
+      });
       return tokens.access_token;
     } catch {
       return null;
@@ -150,7 +200,7 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
     if (row.yt_token_expires_at) {
       const expiresAt = new Date(row.yt_token_expires_at);
       if (expiresAt.getTime() - Date.now() < 2 * 60 * 1000) {
-        const refreshed = await refreshYouTubeToken(churchId, row.yt_refresh_token);
+        const refreshed = await refreshYouTubeToken(churchId, row.yt_refresh_token, row);
         if (refreshed) accessToken = refreshed;
         else return; // can't refresh, skip this cycle
       }
@@ -369,29 +419,8 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
 
   async function pollAllInternal() {
     const { churches } = relay;
-
-    // Find churches with YouTube or Facebook tokens
-    let connectedChurches = [];
-    try {
-      connectedChurches = await qAll(
-        `SELECT churchId, room_id, room_name,
-                yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name,
-                fb_access_token, fb_page_id, fb_page_name
-         FROM churches
-         WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL`
-      );
-      schemaNotReadyLogged = false;
-    } catch (error) {
-      const message = String(error?.message || '');
-      if (/column .* does not exist/i.test(message)) {
-        if (!schemaNotReadyLogged) {
-          console.warn(`[BroadcastMonitor] Skipping poll until stream token columns are available: ${message}`);
-          schemaNotReadyLogged = true;
-        }
-        return;
-      }
-      throw error;
-    }
+    const connectedChurches = await getConnectedChurchRows();
+    if (!connectedChurches.length) return;
 
     await runWithConcurrency(connectedChurches, MAX_POLL_CONCURRENCY, async (row) => {
       const { churchId } = row;

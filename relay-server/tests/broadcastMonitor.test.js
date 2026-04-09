@@ -656,4 +656,30 @@ describe('setupBroadcastMonitor', () => {
     releaseQuery();
     await firstRun;
   });
+
+  it('reuses cached church config rows between nearby poll sweeps', async () => {
+    const queryClient = {
+      query: vi.fn().mockResolvedValue([
+        { churchId: 'c1', yt_access_token: null, fb_access_token: null },
+      ]),
+      queryOne: vi.fn().mockResolvedValue(null),
+      run: vi.fn().mockResolvedValue({ changes: 0 }),
+    };
+    const churches = new Map([['c1', { churchId: 'c1', name: 'Test Church' }]]);
+    const alertEngine = {
+      sendAlert: vi.fn().mockResolvedValue({ alertId: 'test', severity: 'WARNING' }),
+    };
+    const notifyUpdate = vi.fn();
+    const { setupBroadcastMonitor } = await import('../src/broadcastMonitor.js');
+    const monitor = setupBroadcastMonitor(queryClient, { churches }, alertEngine, notifyUpdate);
+
+    await monitor.pollAll();
+    await monitor.pollAll();
+
+    expect(queryClient.query).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+
+    expect(queryClient.query).toHaveBeenCalledTimes(2);
+  });
 });

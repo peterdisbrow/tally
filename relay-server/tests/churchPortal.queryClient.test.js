@@ -687,4 +687,41 @@ describe('churchPortal queryClient surface', () => {
       await sessionClient.close();
     }
   });
+
+  it('serves compact live status for overview polling', async () => {
+    db.prepare('INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)')
+      .run('room-1', churchId, JSON.stringify({ atemIp: '10.0.0.50', encoderType: 'obs' }), new Date().toISOString(), churchId);
+
+    churches.set(churchId, {
+      churchId,
+      name: 'Grace Church',
+      sockets: new Map([['instance-main', { readyState: 1 }]]),
+      roomInstanceMap: { 'room-1': 'instance-main' },
+      instanceStatus: {
+        'instance-main': {
+          atem: { connected: true, model: 'ATEM Mini' },
+          encoder: { connected: true, type: 'obs' },
+        },
+      },
+      status: {
+        atem: { connected: true, model: 'ATEM Mini' },
+        encoder: { connected: true, type: 'obs' },
+      },
+      lastSeen: '2025-03-11T09:30:00.000Z',
+      broadcastHealth: { youtube: { connected: true } },
+    });
+
+    const live = await client.get('/api/church/live-status?roomId=room-1', authCookie(token));
+    expect(live.status).toBe(200);
+    expect(live.body).toMatchObject({
+      connected: true,
+      lastSeen: '2025-03-11T09:30:00.000Z',
+      audio_via_atem: false,
+      broadcastHealth: { youtube: { connected: true } },
+    });
+    expect(live.body.status.atem).toMatchObject({ connected: true, model: 'ATEM Mini' });
+    expect(live.body.status.encoder).toMatchObject({ connected: true, type: 'obs' });
+    expect(live.body).not.toHaveProperty('tds');
+    expect(live.body).not.toHaveProperty('notifications');
+  });
 });

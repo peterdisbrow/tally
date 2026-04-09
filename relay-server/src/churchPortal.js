@@ -694,6 +694,67 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   }
 
+  async function resolvePortalLiveStatus(churchRow, req) {
+    const runtime = churches.get(churchRow.churchId);
+    const requestedRoomId = req.tdRoomId || req.query.roomId;
+    const requestedInstance = req.query.instance;
+    let resolvedInstance = requestedInstance || null;
+    let roomOffline = false;
+
+    if (requestedRoomId && runtime?.roomInstanceMap) {
+      resolvedInstance = runtime.roomInstanceMap[requestedRoomId] || null;
+      if (!resolvedInstance) roomOffline = true;
+    }
+
+    let statusObj = runtime?.status || {};
+    let isConnected = runtime?.sockets?.size
+      ? [...runtime.sockets.values()].some(s => s.readyState === 1)
+      : false;
+
+    if (roomOffline) {
+      statusObj = { _offline: true };
+      isConnected = false;
+    } else if (resolvedInstance && runtime?.instanceStatus?.[resolvedInstance]) {
+      statusObj = runtime.instanceStatus[resolvedInstance];
+      const instSocket = runtime.sockets?.get(resolvedInstance);
+      isConnected = !!(instSocket && instSocket.readyState === 1);
+    }
+
+    if (requestedRoomId && statusObj && !statusObj._offline) {
+      try {
+        const eqRow = await getRoomEquipment(requestedRoomId, churchRow.churchId);
+        if (eqRow) {
+          const eq = JSON.parse(eqRow.equipment);
+          const filtered = { ...statusObj };
+          if (!eq.atemIp) delete filtered.atem;
+          if (!eq.encoderType && !eq.encoderHost) delete filtered.encoder;
+          if (!eq.obsUrl) delete filtered.obs;
+          if (!eq.mixer?.type && !eq.mixer?.host) delete filtered.mixer;
+          if (!eq.proPresenter?.host) { delete filtered.proPresenter; delete filtered.propresenter; }
+          if (!eq.resolume?.host) delete filtered.resolume;
+          if (!eq.vmix?.host) delete filtered.vmix;
+          if (!eq.companionUrl) delete filtered.companion;
+          if (!eq.ptz?.length) { delete filtered.ptz; delete filtered.cameras; }
+          if (!eq.hyperdecks?.length) { delete filtered.hyperdeck; delete filtered.hyperDeck; delete filtered.hyperdecks; delete filtered.hyperDecks; }
+          if (!eq.videoHubs?.length) delete filtered.videoHubs;
+          statusObj = filtered;
+        }
+      } catch { /* If equipment config can't be read, show unfiltered status */ }
+    }
+
+    return {
+      connected: isConnected,
+      status: statusObj,
+      instanceStatus: resolvedInstance
+        ? { [resolvedInstance]: runtime?.instanceStatus?.[resolvedInstance] || {} }
+        : (runtime?.instanceStatus || {}),
+      instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
+      roomInstanceMap: runtime?.roomInstanceMap || {},
+      lastSeen: runtime?.lastSeen || null,
+      broadcastHealth: runtime?.broadcastHealth || null,
+    };
+  }
+
   // ── Rate limiting for login endpoint ───────────────────────────────────────
   const loginRateLimit = createRateLimit({
     scope: 'church_portal_login',
@@ -999,7 +1060,6 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/me ────────────────────────────────────────────────────────
   app.get('/api/church/me', authMiddleware, async (req, res) => {
     const c = req.church;
-    const runtime = churches.get(c.churchId);
     let tds = [];
     try {
       const tdsRows = await qAll('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC', [c.churchId]);
@@ -1009,77 +1069,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
-
-    // Resolve room/instance filtering:
-    //   req.tdRoomId → TD locked to a specific room via JWT
-    //   ?roomId=  → look up instance via roomInstanceMap
-    //   ?instance= → legacy direct instance filter
-    const requestedRoomId = req.tdRoomId || req.query.roomId;
-    const requestedInstance = req.query.instance;
-    let resolvedInstance = requestedInstance || null;
-    let roomOffline = false;
-
-    if (requestedRoomId && runtime?.roomInstanceMap) {
-      resolvedInstance = runtime.roomInstanceMap[requestedRoomId] || null;
-      if (!resolvedInstance) roomOffline = true; // room exists in DB but no Electron app connected
-    }
-
-    let statusObj = runtime?.status || {};
-    let isConnected = runtime?.sockets?.size
-      ? [...runtime.sockets.values()].some(s => s.readyState === 1)
-      : false;
-
-    if (roomOffline) {
-      // Return an offline placeholder status for the disconnected room
-      statusObj = { _offline: true };
-      isConnected = false;
-    } else if (resolvedInstance && runtime?.instanceStatus?.[resolvedInstance]) {
-      statusObj = runtime.instanceStatus[resolvedInstance];
-      const instSocket = runtime.sockets?.get(resolvedInstance);
-      isConnected = !!(instSocket && instSocket.readyState === 1);
-    }
-
-    // Filter status to only include devices configured for this room's equipment config.
-    // This prevents devices from other rooms bleeding through when a single Electron app
-    // serves multiple rooms. Uses a denylist approach: start with full status and remove
-    // only device keys that have a config mechanism AND are not configured for this room.
-    if (requestedRoomId && statusObj && !statusObj._offline) {
-      try {
-        const eqRow = await getRoomEquipment(requestedRoomId, c.churchId);
-        if (eqRow) {
-          const eq = JSON.parse(eqRow.equipment);
-          const filtered = { ...statusObj };
-          // Each config field maps to status keys — remove if NOT configured
-          if (!eq.atemIp)                         delete filtered.atem;
-          if (!eq.encoderType && !eq.encoderHost) delete filtered.encoder;
-          if (!eq.obsUrl)                         delete filtered.obs;
-          if (!eq.mixer?.type && !eq.mixer?.host) delete filtered.mixer;
-          if (!eq.proPresenter?.host)             { delete filtered.proPresenter; delete filtered.propresenter; }
-          if (!eq.resolume?.host)                 delete filtered.resolume;
-          if (!eq.vmix?.host)                     delete filtered.vmix;
-          if (!eq.companionUrl)                   delete filtered.companion;
-          if (!eq.ptz?.length)                    { delete filtered.ptz; delete filtered.cameras; }
-          if (!eq.hyperdecks?.length)             { delete filtered.hyperdeck; delete filtered.hyperDeck; delete filtered.hyperdecks; delete filtered.hyperDecks; }
-          if (!eq.videoHubs?.length)              delete filtered.videoHubs;
-          statusObj = filtered;
-        }
-      } catch { /* If equipment config can't be read, show unfiltered status */ }
-    }
+    const liveStatus = await resolvePortalLiveStatus(c, req);
 
     const response = {
       ...safe,
       notifications,
       tds,
-      connected: isConnected,
-      status: statusObj,
-      instanceStatus: resolvedInstance
-        ? { [resolvedInstance]: runtime?.instanceStatus?.[resolvedInstance] || {} }
-        : (runtime?.instanceStatus || {}),
-      instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
-      roomInstanceMap: runtime?.roomInstanceMap || {},
-      lastSeen: runtime?.lastSeen || null,
+      connected: liveStatus.connected,
+      status: liveStatus.status,
+      instanceStatus: liveStatus.instanceStatus,
+      instances: liveStatus.instances,
+      roomInstanceMap: liveStatus.roomInstanceMap,
+      lastSeen: liveStatus.lastSeen,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
-      broadcastHealth: runtime?.broadcastHealth || null,
+      broadcastHealth: liveStatus.broadcastHealth,
       facebookConnected: !!c.fb_access_token,
       facebookPageName: c.fb_page_name || null,
     };
@@ -1102,6 +1105,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
 
     res.json(response);
+  });
+
+  // ── GET /api/church/live-status ──────────────────────────────────────────────
+  // Lightweight live payload for dashboard polling. Keeps the frequent refresh
+  // path focused on connection/state instead of re-sending the full profile.
+  app.get('/api/church/live-status', authMiddleware, async (req, res) => {
+    const liveStatus = await resolvePortalLiveStatus(req.church, req);
+    res.json({
+      connected: liveStatus.connected,
+      status: liveStatus.status,
+      lastSeen: liveStatus.lastSeen,
+      broadcastHealth: liveStatus.broadcastHealth,
+      audio_via_atem: !!req.church.audio_via_atem,
+    });
   });
 
   // ── POST /api/church/onboarding/dismiss ──────────────────────────────────
