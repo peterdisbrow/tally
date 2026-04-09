@@ -40,6 +40,8 @@
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const Anthropic = require('@anthropic-ai/sdk');
+const pdfParse = require('pdf-parse');
 const { buildManualPlanTimerState } = require('../rundownPublic');
 
 const VALID_RUNDOWN_COLUMN_TYPES = new Set(['text', 'dropdown']);
@@ -1330,7 +1332,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!targetItem) {
           return res.status(404).json({ error: 'Item not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId, directorNotes, color } = req.body;
         const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
         const sanitizedDirectorNotes = directorNotes !== undefined ? sanitizeHtml(directorNotes) : undefined;
         await manualRundown.updateItem(req.params.itemId, {
@@ -1342,6 +1344,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
           parentId: parentId !== undefined ? (parentId || null) : undefined,
           directorNotes: sanitizedDirectorNotes,
+          color,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -2897,6 +2900,137 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         broadcastRundownEvent(churchId, 'room_dept_status_update', result);
         res.json(result);
       } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── AI Document Import ─────────────────────────────────────────────────────
+  // POST /api/churches/:churchId/rundown-plans/import/ai
+  // Accepts PDF, PNG, JPG, TXT, DOCX — extracts text/image, calls Claude to
+  // parse into structured rundown items. Returns { suggestedTitle, items[] }.
+  app.post(
+    '/api/churches/:churchId/rundown-plans/import/ai',
+    requireChurchWriteOrAdmin,
+    upload.single('file'),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const filePath = req.file.path;
+        const mime = req.file.mimetype;
+        let content = [];
+
+        // Extract content based on file type
+        if (mime === 'application/pdf') {
+          const dataBuffer = fs.readFileSync(filePath);
+          const pdf = await pdfParse(dataBuffer);
+          content = [{ type: 'text', text: pdf.text }];
+        } else if (mime.startsWith('image/')) {
+          const imageData = fs.readFileSync(filePath).toString('base64');
+          const mediaType = mime === 'image/jpg' ? 'image/jpeg' : mime;
+          content = [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageData } },
+            { type: 'text', text: 'Parse this image of a church service rundown / order of service into structured items.' }
+          ];
+        } else if (mime === 'text/plain') {
+          const text = fs.readFileSync(filePath, 'utf-8');
+          content = [{ type: 'text', text: text }];
+        } else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+          // DOCX: extract raw text from document.xml inside the zip
+          const AdmZip = require('adm-zip');
+          const zip = new AdmZip(filePath);
+          const docXml = zip.readAsText('word/document.xml');
+          // Strip XML tags to get plain text
+          const plainText = docXml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          content = [{ type: 'text', text: plainText }];
+        } else {
+          return res.status(400).json({ error: 'Unsupported file type: ' + mime });
+        }
+
+        // Clean up uploaded file
+        fs.unlink(filePath, () => {});
+
+        // Call Claude API
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return res.status(500).json({ error: 'AI import not configured — ANTHROPIC_API_KEY not set' });
+        }
+
+        const anthropic = new Anthropic({ apiKey });
+
+        const systemPrompt = `You are a church service rundown parser. Given a document (text, image, or PDF content) that describes a church service order, worship set, or event schedule, extract structured rundown items.
+
+Return a JSON object with this exact structure:
+{
+  "suggestedTitle": "Title for the rundown plan",
+  "items": [
+    {
+      "title": "Item title",
+      "itemType": "song|prayer|message|media|announcement|section|generic",
+      "lengthSeconds": 180,
+      "notes": "Any notes or details",
+      "assignee": "Person responsible (if mentioned)"
+    }
+  ]
+}
+
+Rules:
+- itemType must be one of: song, prayer, message, media, announcement, section, generic
+- Use "section" for headers/dividers that group items (e.g., "Pre-Service", "Worship", "Message")
+- lengthSeconds should be your best estimate if not explicitly stated (songs: 240, prayers: 120, messages: 1800, announcements: 180, media: 120)
+- Preserve the original order from the document
+- If a duration is mentioned (e.g., "5 min", "3:30"), convert to seconds
+- Extract assignee names when mentioned (e.g., "Pastor John", "Worship Team")
+- Return ONLY valid JSON, no markdown or explanation`;
+
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: content }],
+        });
+
+        // Parse the response
+        const responseText = response.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('');
+
+        // Extract JSON from response (handle possible markdown wrapping)
+        let parsed;
+        try {
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('No JSON found in response');
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch (parseErr) {
+          return res.status(500).json({ error: 'Failed to parse AI response', detail: responseText.slice(0, 500) });
+        }
+
+        // Validate structure
+        if (!parsed.items || !Array.isArray(parsed.items)) {
+          return res.status(500).json({ error: 'AI returned invalid structure' });
+        }
+
+        // Normalize items
+        const VALID_TYPES = new Set(['song', 'prayer', 'message', 'media', 'announcement', 'section', 'generic']);
+        const items = parsed.items.map((item, idx) => ({
+          title: String(item.title || 'Item ' + (idx + 1)).slice(0, 200),
+          itemType: VALID_TYPES.has(item.itemType) ? item.itemType : 'generic',
+          lengthSeconds: Math.max(0, Math.min(36000, parseInt(item.lengthSeconds, 10) || 0)),
+          notes: String(item.notes || '').slice(0, 2000),
+          assignee: String(item.assignee || '').slice(0, 100),
+        }));
+
+        res.json({
+          suggestedTitle: String(parsed.suggestedTitle || req.file.originalname || 'Imported Rundown').slice(0, 200),
+          items,
+        });
+      } catch (e) {
+        // Clean up file on error
+        if (req.file && req.file.path) fs.unlink(req.file.path, () => {});
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }

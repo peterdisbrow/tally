@@ -1253,6 +1253,17 @@
       return m + ':' + (s < 10 ? '0' : '') + s;
     }
 
+    function fmtProjectedEnd(remainingSeconds) {
+      if (remainingSeconds === null || remainingSeconds === undefined) return '--:--';
+      var endMs = Date.now() + (remainingSeconds * 1000);
+      var d = new Date(endMs);
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+    }
+
     // ── 10.4 Validation helpers ──
     function countValidationWarnings() {
       if (!columns.length) return 0;
@@ -1847,6 +1858,7 @@
         html += '<button class="status-expand-btn" id="status-expand-btn">More</button>';
         html += '<div class="status-secondary" id="status-secondary">';
         html += '<span class="pill pill-elapsed" id="pill-elapsed">Elapsed ' + fmtElapsed(liveState.startedAt) + '</span>';
+        html += '<span class="pill" id="pill-projected-end" style="color:var(--text-dim)">End ' + fmtProjectedEnd(rem) + '</span>';
         html += '</div>';
       } else {
         html += '<span class="pill pill-offline">STANDBY</span>';
@@ -2259,6 +2271,12 @@
           if (rem !== null && rem <= 0) cls += ' is-overtime';
           remEl.className = cls;
           remEl.textContent = 'Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--');
+        }
+
+        // Update projected end time
+        var projEndEl = document.getElementById('pill-projected-end');
+        if (projEndEl) {
+          projEndEl.textContent = 'End ' + fmtProjectedEnd(rem);
         }
 
         // 12.3: Update estimated start times for future cues

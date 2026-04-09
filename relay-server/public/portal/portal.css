@@ -1842,3 +1842,19 @@ body.light-theme #rundown-presence-bar.has-editors { background: rgba(22,163,74,
 body.light-theme .rundown-batch-bar { background: rgba(22,163,74,0.05); border-color: rgba(22,163,74,0.16); }
 body.light-theme .rundown-batch-checkbox { background: #fff; border-color: rgba(0,0,0,0.18); }
 body.light-theme .rundown-batch-checkbox:checked::after { background: #fff; }
+
+/* Focus-visible accessibility indicators */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* AI import spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

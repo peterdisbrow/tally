@@ -282,6 +282,11 @@ class ManualRundownStore {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN director_notes TEXT DEFAULT ''`);
     } catch { /* column already exists */ }
 
+    // ── Color column on items ──────────────────────────────────────────────
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN color TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+
     // ── Phase 9: locked_by / locked_at columns on plans ─────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_by TEXT DEFAULT NULL`);
@@ -546,7 +551,7 @@ class ManualRundownStore {
     return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', parent_id: parentId || null, created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes, parentId, color }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -559,6 +564,7 @@ class ManualRundownStore {
     if (autoAdvance !== undefined) { sets.push('auto_advance = ?'); params.push(autoAdvance ? 1 : 0); }
     if (directorNotes !== undefined) { sets.push('director_notes = ?'); params.push(directorNotes); }
     if (parentId !== undefined) { sets.push('parent_id = ?'); params.push(parentId || null); }
+    if (color !== undefined) { sets.push('color = ?'); params.push(color); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -1144,6 +1150,7 @@ class ManualRundownStore {
       hardStartTime: row.hard_start_time || null,
       autoAdvance: !!row.auto_advance,
       directorNotes: row.director_notes || '',
+      color: row.color || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
