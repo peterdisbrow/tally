@@ -1814,6 +1814,9 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   border-top-color: rgba(0,230,118,0.7) !important;
 }
 
+/* 4.5: Rundown Simple Mode — hide advanced features when not in advanced mode */
+body:not(.advanced-mode) .rundown-adv { display: none !important; }
+
 /* Light theme overrides */
 body.light-theme .rundown-dash-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
 body.light-theme .rundown-dash-card:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.12); }

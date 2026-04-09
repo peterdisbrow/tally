@@ -8259,7 +8259,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownBatchAnchorId = null;
 
     // ── Status display config ────────────────────────────────────────────────
-    var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Show Ready', live: 'Live', archived: 'Archived' };
+    var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Ready', live: 'Live', archived: 'Archived' };
+    var RUNDOWN_STATUS_TOOLTIPS = {
+      draft: 'Draft — still being built, not shared yet',
+      rehearsal: 'Rehearsal — ready for team walk-through',
+      show_ready: 'Ready — finalized and waiting for service',
+      live: 'Live — currently running during service',
+      archived: 'Archived — service completed, kept for reference'
+    };
     var RUNDOWN_STATUS_ORDER = ['live', 'show_ready', 'rehearsal', 'draft', 'archived'];
     var RUNDOWN_PRESENCE_COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#98D8C8','#F7DC6F'];
     var RUNDOWN_COLUMN_TYPE_LABELS = { text: 'Text', dropdown: 'Dropdown' };
@@ -8495,11 +8502,64 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
       api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans').then(function(data) {
         _rundownPlans = (data && data.plans) || [];
+        // 4.7: Auto-archive plans 24h past service date
+        _rundownPlans.forEach(function(p) { _rundownAutoTransitionStatus(p); });
         renderRundownDashboard();
+        // 4.2: Show onboarding if no plans exist
+        _rundownCheckFirstRunOnboarding();
       }).catch(function() {
         _rundownPlans = [];
         renderRundownDashboard();
       });
+    }
+
+    // ── 4.2 First-run onboarding flow ────────────────────────────────────────
+    function _rundownCheckFirstRunOnboarding() {
+      var nonTemplate = _rundownPlans.filter(function(p) { return !p.isTemplate; });
+      var dismissed = localStorage.getItem('tally.rundown.onboarding.dismissed.' + CHURCH_ID);
+      if (nonTemplate.length > 0 || dismissed === 'true') {
+        _rundownHideOnboarding();
+        return;
+      }
+      _rundownShowOnboarding();
+    }
+
+    function _rundownShowOnboarding() {
+      var existing = document.getElementById('rundown-onboarding-overlay');
+      if (existing) { existing.style.display = 'flex'; return; }
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-onboarding-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.82);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)';
+      overlay.innerHTML = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:18px;padding:36px 40px;max-width:480px;width:92%;text-align:center">'
+        + '<div style="margin-bottom:16px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00E676" width="48" height="48"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg></div>'
+        + '<div style="font-size:22px;font-weight:800;color:#F0F2F4;margin-bottom:8px">Welcome to Service Plans</div>'
+        + '<div style="font-size:14px;color:#8B9DAF;line-height:1.6;margin-bottom:24px">Build a plan for your service with items, timing, and team assignments. Share live views with your tech team and volunteers.</div>'
+        + '<div style="display:flex;flex-direction:column;gap:10px;text-align:left;margin-bottom:28px;padding:16px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="display:flex;align-items:flex-start;gap:10px"><span style="color:#00E676;font-weight:700;font-size:16px;line-height:1">1</span><div><div style="font-size:13px;font-weight:700;color:#F0F2F4">Create a plan</div><div style="font-size:12px;color:#8B9DAF">Give it a name, date, and optional room.</div></div></div>'
+        + '<div style="display:flex;align-items:flex-start;gap:10px"><span style="color:#00E676;font-weight:700;font-size:16px;line-height:1">2</span><div><div style="font-size:13px;font-weight:700;color:#F0F2F4">Add items</div><div style="font-size:12px;color:#8B9DAF">Songs, sermons, transitions — build your service order.</div></div></div>'
+        + '<div style="display:flex;align-items:flex-start;gap:10px"><span style="color:#00E676;font-weight:700;font-size:16px;line-height:1">3</span><div><div style="font-size:13px;font-weight:700;color:#F0F2F4">Share and go live</div><div style="font-size:12px;color:#8B9DAF">Copy a link for your team, then start live mode on Sunday.</div></div></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:10px;justify-content:center">'
+        + '<button id="rundown-onboarding-skip" style="background:none;border:1px solid rgba(255,255,255,0.1);color:#8B9DAF;border-radius:8px;padding:10px 20px;font-size:13px;cursor:pointer">Skip</button>'
+        + '<button id="rundown-onboarding-start" style="background:#00E676;border:none;color:#060D08;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer">Create First Plan</button>'
+        + '</div>'
+        + '</div>';
+      document.body.appendChild(overlay);
+      document.getElementById('rundown-onboarding-skip').addEventListener('click', function() {
+        localStorage.setItem('tally.rundown.onboarding.dismissed.' + CHURCH_ID, 'true');
+        _rundownHideOnboarding();
+      });
+      document.getElementById('rundown-onboarding-start').addEventListener('click', function() {
+        localStorage.setItem('tally.rundown.onboarding.dismissed.' + CHURCH_ID, 'true');
+        _rundownHideOnboarding();
+        // Trigger the new plan modal
+        if (typeof rundownAddPlan === 'function') rundownAddPlan();
+      });
+    }
+
+    function _rundownHideOnboarding() {
+      var el = document.getElementById('rundown-onboarding-overlay');
+      if (el) el.style.display = 'none';
     }
 
     function _rundownFilteredPlans() {
@@ -8815,13 +8875,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _rundownFillStationIdentityForm();
       _rundownUpdateCollaboratorButtons();
       if (!merged.length) {
-        listEl.innerHTML = '<div style="padding:20px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);font-size:13px;color:#8B9DAF;text-align:center">No team stations yet. Save this station or add an operator device to get started.</div>';
+        listEl.innerHTML = '<div style="padding:20px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);font-size:13px;color:#8B9DAF;text-align:center">No team devices yet. Save this device or add an operator device to get started.</div>';
         return;
       }
       var html = '';
       merged.forEach(function(entry, index) {
         var key = entry.collaboratorKey || '';
-        var name = entry.displayName || key || 'Unnamed station';
+        var name = entry.displayName || key || 'Unnamed device';
         var isSelf = key === _rundownSessionId;
         var role = entry.role || 'editor';
         var status = entry.status || 'active';
@@ -8961,11 +9021,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
       avatarsEl.innerHTML = avatarHtml;
       if (!activeEntries.length) {
-        textEl.textContent = 'No active stations yet. Open this rundown on another device to build your team board.';
+        textEl.textContent = 'No active devices yet. Open this rundown on another device to build your team board.';
       } else if (activeEntries.length === 1) {
-        textEl.textContent = 'Only this station is active right now. Add operator devices or view-only stations for a fuller demo.';
+        textEl.textContent = 'Only this device is active right now. Add operator devices or view-only devices for a fuller setup.';
       } else {
-        textEl.textContent = activeEntries.length + ' stations active · ' + editors + ' editing · ' + viewers + ' viewing';
+        textEl.textContent = activeEntries.length + ' devices active · ' + editors + ' editing · ' + viewers + ' viewing';
       }
       bar.style.display = 'flex';
       bar.classList.toggle('has-editors', activeEntries.length > 1);
@@ -8994,7 +9054,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var nextName = String(nameInput && nameInput.value || '').trim() || _rundownDefaultStationName();
       var nextKey = _rundownNormalizeStationKey(keyInput && keyInput.value);
       if (!nextKey) {
-        toast('Station key is required', true);
+        toast('Device key is required', true);
         return;
       }
       var previousKey = _rundownSessionId;
@@ -9243,7 +9303,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       offering: 'Offering', communion: 'Communion', scripture: 'Scripture',
       announcement: 'Announce', section: 'Section', other: 'Other'
     };
-    var RUNDOWN_TYPE_OPTIONS = ['song','sermon','media','prayer','announcement','transition','welcome','offering','communion','scripture','section','other'];
+    var RUNDOWN_TYPE_TOOLTIPS = {
+      song: 'Song — worship music or hymn',
+      sermon: 'Sermon — teaching or message',
+      message: 'Message — teaching or message',
+      media: 'Media — video clip, slides, or pre-recorded content',
+      prayer: 'Prayer — prayer time or invocation',
+      transition: 'Transition — movement between items (walk-on, video bumper, etc.)',
+      welcome: 'Welcome — greeting or opening remarks',
+      offering: 'Offering — tithes and offering collection',
+      communion: 'Communion — Lord\'s Supper / Eucharist',
+      scripture: 'Scripture — Bible reading',
+      announcement: 'Announcement — church news or updates',
+      section: 'Section — visual divider to group items',
+      other: 'Other — custom item type'
+    };
+    // Primary types shown by default (4.6 — sensible defaults first, "More..." for rest)
+    var RUNDOWN_TYPE_PRIMARY = ['song','sermon','media','prayer','scripture','transition'];
+    var RUNDOWN_TYPE_EXTENDED = ['welcome','offering','communion','announcement','other'];
+    var RUNDOWN_TYPE_OPTIONS = RUNDOWN_TYPE_PRIMARY.concat(RUNDOWN_TYPE_EXTENDED).concat(['section']);
+
+    // ── 4.8 Plain text notes by default, rich text opt-in ────────────────────
+    var _rundownNotesRichText = {}; // { itemId: true } — tracks which items have rich text enabled
+
+    // ── 4.7 Auto-manage plan status lifecycle ──────────────────────────────
+    function _rundownAutoTransitionStatus(plan) {
+      if (!plan || plan.source === 'pco') return;
+      var st = plan.status || 'draft';
+      // Don't touch archived plans or plans already live
+      if (st === 'archived' || st === 'live') return;
+      // Auto-archive: if service date is > 24h in the past
+      if (plan.serviceDate) {
+        var svcDate = new Date(plan.serviceDate + 'T23:59:59');
+        var hoursSince = (Date.now() - svcDate.getTime()) / (1000 * 60 * 60);
+        if (hoursSince > 24) {
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/status', { status: 'archived' }).catch(function() {});
+          plan.status = 'archived';
+        }
+      }
+    }
+
+    function _rundownAutoTransitionToLive(planId) {
+      // Auto-transition Draft → Live when show starts
+      var plan = _rundownPlans.find(function(p) { return p.id === planId; });
+      if (plan && (plan.status === 'draft' || plan.status === 'rehearsal' || plan.status === 'show_ready')) {
+        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/status', { status: 'live' }).catch(function() {});
+        plan.status = 'live';
+        if (_rundownSelectedPlan && _rundownSelectedPlan.id === planId) {
+          _rundownSelectedPlan.status = 'live';
+        }
+      }
+    }
 
     var _rundownStartTime = '09:00';
     var _rundownEndTime = '';
@@ -9445,7 +9555,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         } else if (action === 'top' || action === 'bottom') {
           _rundownBatchMoveSelected(action);
         } else if (action === 'before' || action === 'after') {
-          styledPrompt(action === 'before' ? 'Move Before Cue' : 'Move After Cue', 'Enter cue number or title', '').then(function(target) {
+          styledPrompt(action === 'before' ? 'Move Before Item' : 'Move After Item', 'Enter item number or title', '').then(function(target) {
             if (!target) return;
             _rundownBatchMoveSelected(action, target);
           });
@@ -9529,11 +9639,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } else {
         var target = _rundownResolveBatchTarget(targetQuery);
         if (!target) {
-          toast('Could not find that cue', true);
+          toast('Could not find that item', true);
           return;
         }
         if (selectedSet[target.id]) {
-          toast('Choose a cue outside the current selection', true);
+          toast('Choose an item outside the current selection', true);
           return;
         }
         var base = remainingIds.slice();
@@ -9556,7 +9666,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
       var selectedItems = _getRundownBatchSelectedItems();
       if (!selectedItems.length) return;
-      styledConfirm('Delete Selected Cues', 'Delete ' + selectedItems.length + ' selected cues from the rundown? This cannot be undone.').then(function(ok) {
+      styledConfirm('Delete Selected Items', 'Delete ' + selectedItems.length + ' selected items from the rundown? This cannot be undone.').then(function(ok) {
         if (!ok) return;
         var chain = Promise.resolve();
         selectedItems.forEach(function(item) {
@@ -9682,13 +9792,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         + '<div style="display:flex;align-items:center;gap:10px;min-width:0">'
         + '<span style="display:inline-flex;color:#64B5F6">' + SVG.clock + '</span>'
         + '<div style="min-width:0">'
-        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64B5F6;font-weight:700">Next hard start</div>'
-        + '<div style="font-size:13px;color:#F0F2F4;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(nextItem.title || 'Untitled cue') + '</div>'
+        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64B5F6;font-weight:700">Next fixed time</div>'
+        + '<div style="font-size:13px;color:#F0F2F4;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(nextItem.title || 'Untitled item') + '</div>'
         + '</div>'
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-end">'
         + '<div style="text-align:right">'
-        + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270">Hard start</div>'
+        + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270">Fixed time</div>'
         + '<div style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:13px;color:#F0F2F4;font-weight:700">' + escapeHtml(_rundownFormatTime12(timing.start)) + '</div>'
         + '</div>'
         + '<div style="text-align:right">'
@@ -9728,6 +9838,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var st = plan.status || 'draft';
         statusBadge.textContent = RUNDOWN_STATUS_LABELS[st] || 'Draft';
         statusBadge.className = 'rundown-status-badge status-' + st;
+        statusBadge.title = RUNDOWN_STATUS_TOOLTIPS[st] || '';
       }
       // Status select
       var statusSel = document.getElementById('rundown-editor-status-select');
@@ -9774,9 +9885,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<span id="live-show-elapsed" style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:14px;color:#F0F2F4;font-weight:600">0:00</span>'
             + '</div>'
             + '<div style="display:flex;align-items:center;gap:8px">'
-            + '<button class="btn-live-back" data-action="liveShowBack" title="Previous cue (Left Arrow)">' + SVG.arrowLeft + ' Back</button>'
-            + '<button class="btn-live-go" data-action="liveShowGo" title="Next cue (Space / Right Arrow)">GO ' + SVG.arrowRight + '</button>'
-            + '<button class="btn-live-end" data-action="liveShowStop" title="End Show (Esc)">End Show</button>'
+            + '<button class="btn-live-back" data-action="liveShowBack" title="Previous item (Left Arrow)">' + SVG.arrowLeft + ' Back</button>'
+            + '<button class="btn-live-go" data-action="liveShowGo" title="Next item (Space / Right Arrow)">GO ' + SVG.arrowRight + '</button>'
+            + '<button class="btn-live-end" data-action="liveShowStop" title="End Live (Esc)">End Live</button>'
             + '</div>'
             + '</div>';
           liveBar.style.marginBottom = '12px';
@@ -9913,18 +10024,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
-      html += '<th style="padding:8px 4px;width:30px;text-align:center"><span style="display:inline-flex;align-items:center;justify-content:center;color:#8B9DAF">Sel</span></th>';
+      html += '<th class="rundown-adv" style="padding:8px 4px;width:30px;text-align:center" title="Select items for batch operations"><span style="display:inline-flex;align-items:center;justify-content:center;color:#8B9DAF">Sel</span></th>';
       html += '<th style="padding:8px 4px;width:24px"></th>'; // drag
-      html += '<th style="padding:8px 2px;width:28px;text-align:center">#</th>';
-      html += '<th style="padding:8px 6px;text-align:left">Title</th>';
-      html += '<th style="padding:8px 6px;width:90px;text-align:left">Type</th>';
-      html += '<th style="padding:8px 6px;width:100px;text-align:left">Who</th>';
+      html += '<th style="padding:8px 2px;width:28px;text-align:center" title="Item number in order">#</th>';
+      html += '<th style="padding:8px 6px;text-align:left" title="The name of this service item">Title</th>';
+      html += '<th style="padding:8px 6px;width:90px;text-align:left" title="Category: Song, Sermon, Media, Prayer, etc.">Type</th>';
+      html += '<th style="padding:8px 6px;width:100px;text-align:left" title="Person or team responsible for this item">Who</th>';
       // Custom department columns (between Assignee and Duration)
       for (var ci = 0; ci < _rundownColumns.length; ci++) {
         var headerCol = _rundownColumns[ci];
         var headerType = _normalizeRundownColumnType(headerCol.type);
         var headerBinding = headerCol.equipmentBinding ? _getRundownBindingLabel(headerCol.equipmentBinding) : '';
-        html += '<th style="padding:8px 6px;width:120px;text-align:left;position:relative" data-col-id="' + headerCol.id + '">';
+        html += '<th class="rundown-adv" style="padding:8px 6px;width:120px;text-align:left;position:relative" data-col-id="' + headerCol.id + '">';
         html += '<span style="display:inline-flex;align-items:center;gap:4px">';
         html += escapeHtml(headerCol.name);
         html += '<span class="rundown-col-gear" data-col-id="' + headerCol.id + '" data-col-name="' + escapeHtml(headerCol.name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Configure column">' + SVG.wrench + '</span>';
@@ -9932,16 +10043,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="font-size:10px;color:#556270;margin-top:2px;line-height:1.3">' + escapeHtml(RUNDOWN_COLUMN_TYPE_LABELS[headerType] || 'Text') + (headerBinding ? ' · Live: ' + escapeHtml(headerBinding) : '') + '</div>';
         html += '</th>';
       }
-      // Add column button header
-      html += '<th style="padding:8px 2px;width:28px;text-align:center">';
+      // Add column button header (advanced only)
+      html += '<th class="rundown-adv" style="padding:8px 2px;width:28px;text-align:center">';
       html += '<span data-action="rundownAddColumn" style="cursor:pointer;color:#556270;display:inline-flex" title="Add department column">';
       html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
       html += '</span></th>';
-      html += '<th style="padding:8px 6px;width:60px;text-align:center">Duration</th>';
-      html += '<th style="padding:8px 6px;width:72px;text-align:center">Start</th>';
-      html += '<th style="padding:8px 6px;width:72px;text-align:center">End</th>';
-      html += '<th style="padding:8px 6px;width:28px;text-align:center" title="Hard start (clock icon) or Auto-advance (play icon)">' + SVG.clock + '</th>';
-      html += '<th style="padding:8px 6px;text-align:left">Notes</th>';
+      html += '<th style="padding:8px 6px;width:60px;text-align:center" title="How long this item should take">Duration</th>';
+      html += '<th style="padding:8px 6px;width:72px;text-align:center" title="Calculated start time based on plan start and durations">Start</th>';
+      html += '<th style="padding:8px 6px;width:72px;text-align:center" title="Calculated end time">End</th>';
+      html += '<th class="rundown-adv" style="padding:8px 6px;width:28px;text-align:center" title="Fixed Time: locks item to a wall-clock time. Auto-advance: automatically moves to next item when timer expires.">' + SVG.clock + '</th>';
+      html += '<th style="padding:8px 6px;text-align:left" title="Optional notes — click to edit, use Format toggle for rich text">Notes</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // attachments
       if (isLive) html += '<th style="padding:8px 6px;width:72px;text-align:center">Timer</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
@@ -9963,7 +10074,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Section header — full-width divider row
         if (item.itemType === 'section') {
           html += '<tr data-item-id="' + item.id + '" draggable="true" class="' + (isSelected ? 'rundown-batch-section-selected' : '') + '" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
-          html += '<td class="rundown-batch-check" style="padding:6px 4px;vertical-align:middle;text-align:center">';
+          html += '<td class="rundown-batch-check rundown-adv" style="padding:6px 4px;vertical-align:middle;text-align:center">';
           html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select section">';
           html += '</td>';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
@@ -9983,11 +10094,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var helperTone = hasOverlap ? '#FF5252' : '#64B5F6';
           var helperBg = hasOverlap ? 'rgba(239,68,68,0.08)' : 'rgba(100,181,246,0.08)';
           var helperBody = hasOverlap
-            ? 'This hard start collides with the current schedule. Trim time earlier in the rundown or move the cue.'
-            : 'You have built-in cushion before this hard start. Leave it as padding or add time to earlier cues.';
+            ? 'This fixed time collides with the current schedule. Trim time earlier in the rundown or move the item.'
+            : 'You have built-in cushion before this fixed time. Leave it as padding or add time to earlier items.';
           html += '<tr class="rundown-hard-start-helper" data-hard-start-target="' + item.id + '">';
           html += '<td colspan="' + colCount + '" style="padding:6px 10px;background:' + helperBg + ';border-left:4px solid ' + helperTone + ';font-size:11px;color:' + helperTone + '">';
-          html += '<span style="font-weight:700">' + (hasOverlap ? 'Overlap before hard start' : 'Gap before hard start') + '</span>';
+          html += '<span style="font-weight:700">' + (hasOverlap ? 'Overlap before fixed time' : 'Gap before fixed time') + '</span>';
           html += '<span style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-weight:700;margin-left:8px">' + deltaCopy + '</span>';
           html += '<span style="margin-left:10px;color:#8B9DAF">' + helperBody + '</span>';
           html += '</td>';
@@ -10013,9 +10124,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + (isCurrent ? '' : ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'' + rowBg + '\'"')
           + (isLive ? ' onclick="if(typeof liveShowGoto===\'function\')liveShowGoto(' + i + ')"' : '') + '>';
 
-        // Selection checkbox
-        html += '<td class="rundown-batch-check" style="padding:4px 4px;text-align:center;vertical-align:middle">';
-        html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select cue">';
+        // Selection checkbox (advanced only)
+        html += '<td class="rundown-batch-check rundown-adv" style="padding:4px 4px;text-align:center;vertical-align:middle">';
+        html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select item">';
         html += '</td>';
 
         // Drag handle
@@ -10031,7 +10142,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Type (inline select)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
-        html += '<span class="rundown-inline-type" data-item-id="' + item.id + '" style="cursor:pointer;font-size:11px;color:' + color + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;display:inline-block" title="Click to change">' + escapeHtml(RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType) + '</span>';
+        html += '<span class="rundown-inline-type" data-item-id="' + item.id + '" style="cursor:pointer;font-size:11px;color:' + color + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;display:inline-block" title="' + escapeHtml(RUNDOWN_TYPE_TOOLTIPS[item.itemType] || 'Click to change type') + '">' + escapeHtml(RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType) + '</span>';
         html += '</td>';
 
         // Who / Assignee (inline editable)
@@ -10039,14 +10150,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="assignee" data-item-id="' + item.id + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (item.assignee ? escapeHtml(item.assignee) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
 
-        // Custom column cells (inline editable)
+        // Custom column cells (inline editable, advanced only)
         for (var ci = 0; ci < _rundownColumns.length; ci++) {
           var column = _rundownColumns[ci];
           var colId = column.id;
           var cellVal = _rundownColumnValues[item.id + '_' + colId] || '';
           var colType = _normalizeRundownColumnType(column.type);
           var liveStatus = isLive && isCurrent ? _getRundownColumnLiveStatus(column, cellVal) : null;
-          html += '<td style="padding:4px 6px;vertical-align:middle">';
+          html += '<td class="rundown-adv" style="padding:4px 6px;vertical-align:middle">';
           html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" data-col-type="' + colType + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
           if (liveStatus) {
             var liveColor = liveStatus.tone === 'good' ? '#00E676' : liveStatus.tone === 'bad' ? '#FF5252' : liveStatus.tone === 'warn' ? '#FFB74D' : '#556270';
@@ -10056,8 +10167,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           html += '</td>';
         }
-        // Empty cell under the add-column header
-        html += '<td style="padding:4px 2px"></td>';
+        // Empty cell under the add-column header (advanced only)
+        html += '<td class="rundown-adv" style="padding:4px 2px"></td>';
 
         // Duration (inline editable, MM:SS)
         html += '<td style="padding:4px 6px;text-align:center;vertical-align:middle">';
@@ -10080,13 +10191,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // End time (auto-calculated)
         html += '<td style="padding:4px 6px;text-align:center;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:11px;color:#556270;vertical-align:middle">' + _rundownFormatTime12(t.end) + '</td>';
 
-        // Hard/Soft start + Auto-advance indicators column
-        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle">';
+        // Fixed Time + Auto-advance indicators column (advanced only)
+        html += '<td class="rundown-adv" style="padding:4px 4px;text-align:center;vertical-align:middle">';
         var indicators = [];
         if (item.startType === 'hard' && item.hardStartTime) {
-          indicators.push('<span title="Hard start: ' + escapeHtml(item.hardStartTime) + '" style="color:#64B5F6;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
+          indicators.push('<span title="Fixed time: ' + escapeHtml(item.hardStartTime) + ' — this item starts at a set wall-clock time" style="color:#64B5F6;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
         } else {
-          indicators.push('<span title="Soft start (click for hard)" style="color:#3A4556;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
+          indicators.push('<span title="Flexible start (click for fixed time)" style="color:#3A4556;cursor:pointer" class="rundown-toggle-start-type" data-item-id="' + item.id + '">' + SVG.clock + '</span>');
         }
         if (item.autoAdvance) {
           indicators.push('<span title="Auto-advance ON (click to toggle)" style="color:#00E676;cursor:pointer" class="rundown-toggle-auto" data-item-id="' + item.id + '">' + SVG.play + '</span>');
@@ -10306,7 +10417,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               }
             }
             // Prompt for hard start time — native time picker
-            styledPrompt('Hard Start Time', 'Select the wall-clock start time', defaultHardStart, 'time').then(function(val) {
+            styledPrompt('Fixed Time', 'Select the wall-clock start time', defaultHardStart, 'time').then(function(val) {
               if (!val) return;
               val = val.trim();
               if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(val)) { toast('Invalid time format', true); return; }
@@ -10416,93 +10527,158 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownInlineTextarea(el, item, itemId) {
-      // Rich text editor with toolbar
+      // 4.8: Plain text by default, "Format" toggle for rich text
+      var isRich = !!_rundownNotesRichText[itemId];
       var wrapper = document.createElement('div');
       wrapper.style.cssText = 'min-width:220px;background:rgba(255,255,255,0.08);border:1px solid rgba(66,165,245,0.5);border-radius:4px;overflow:hidden';
 
-      // Mini toolbar
-      var toolbar = document.createElement('div');
-      toolbar.style.cssText = 'display:flex;gap:2px;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04)';
-      var btns = [
-        { cmd: 'bold', label: 'B', style: 'font-weight:700' },
-        { cmd: 'italic', label: 'I', style: 'font-style:italic' },
-        { cmd: 'underline', label: 'U', style: 'text-decoration:underline' },
-        { cmd: 'insertUnorderedList', label: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M2.5 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm2.25-.75a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1-.75-.75ZM5.5 8a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7A.75.75 0 0 1 5.5 8Zm.75 3.25a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7ZM2.5 8.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM2.5 12.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd"/></svg>', isHtml: true },
-      ];
-      btns.forEach(function(b) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        if (b.isHtml) btn.innerHTML = b.label;
-        else { btn.textContent = b.label; btn.style.cssText = b.style + ';'; }
-        btn.style.cssText += 'background:none;border:none;color:#8B9DAF;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center';
-        btn.addEventListener('mousedown', function(e) {
-          e.preventDefault();
-          document.execCommand(b.cmd, false, null);
-        });
-        toolbar.appendChild(btn);
-      });
-      // Text color picker
-      var colorBtn = document.createElement('button');
-      colorBtn.type = 'button';
-      colorBtn.textContent = 'A';
-      colorBtn.style.cssText = 'background:none;border:none;color:#FF5252;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;font-weight:700;line-height:1';
-      var colorInput = document.createElement('input');
-      colorInput.type = 'color';
-      colorInput.value = '#FF5252';
-      colorInput.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:0;height:0';
-      colorBtn.appendChild(colorInput);
-      colorBtn.addEventListener('mousedown', function(e) {
+      // Top bar with Format toggle
+      var topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04)';
+      var formatBtn = document.createElement('button');
+      formatBtn.type = 'button';
+      formatBtn.textContent = isRich ? 'Plain Text' : 'Format';
+      formatBtn.title = isRich ? 'Switch to plain text editing' : 'Enable bold, italic, and other formatting';
+      formatBtn.style.cssText = 'background:none;border:1px solid rgba(255,255,255,0.1);color:' + (isRich ? '#00E676' : '#8B9DAF') + ';cursor:pointer;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.3px';
+      formatBtn.addEventListener('mousedown', function(e) {
         e.preventDefault();
-        colorInput.style.pointerEvents = 'auto';
-        colorInput.click();
+        _rundownNotesRichText[itemId] = !_rundownNotesRichText[itemId];
+        _rundownInlineTextarea(el, item, itemId);
       });
-      colorInput.addEventListener('input', function() {
-        document.execCommand('foreColor', false, colorInput.value);
-        colorBtn.style.color = colorInput.value;
-        colorInput.style.pointerEvents = 'none';
-      });
-      toolbar.appendChild(colorBtn);
-      wrapper.appendChild(toolbar);
+      topBar.appendChild(formatBtn);
 
-      // Editable area
-      var editor = document.createElement('div');
-      editor.contentEditable = 'true';
-      editor.innerHTML = item.notes || '';
-      editor.style.cssText = 'min-height:48px;max-height:140px;overflow-y:auto;padding:4px 6px;font-size:11px;color:#F0F2F4;outline:none;font-family:inherit;line-height:1.5';
-      wrapper.appendChild(editor);
-
-      el.innerHTML = '';
-      el.appendChild(wrapper);
-      editor.focus();
+      // Rich text toolbar (only when Format is on)
+      if (isRich) {
+        var toolbarGroup = document.createElement('div');
+        toolbarGroup.style.cssText = 'display:flex;gap:2px';
+        var btns = [
+          { cmd: 'bold', label: 'B', style: 'font-weight:700' },
+          { cmd: 'italic', label: 'I', style: 'font-style:italic' },
+          { cmd: 'underline', label: 'U', style: 'text-decoration:underline' },
+          { cmd: 'insertUnorderedList', label: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M2.5 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm2.25-.75a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1-.75-.75ZM5.5 8a.75.75 0 0 1 .75-.75h7a.75.75 0 0 1 0 1.5h-7A.75.75 0 0 1 5.5 8Zm.75 3.25a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7ZM2.5 8.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM2.5 12.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd"/></svg>', isHtml: true },
+        ];
+        btns.forEach(function(b) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          if (b.isHtml) btn.innerHTML = b.label;
+          else { btn.textContent = b.label; btn.style.cssText = b.style + ';'; }
+          btn.style.cssText += 'background:none;border:none;color:#8B9DAF;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center';
+          btn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            document.execCommand(b.cmd, false, null);
+          });
+          toolbarGroup.appendChild(btn);
+        });
+        // Text color picker
+        var colorBtn = document.createElement('button');
+        colorBtn.type = 'button';
+        colorBtn.textContent = 'A';
+        colorBtn.style.cssText = 'background:none;border:none;color:#FF5252;cursor:pointer;padding:2px 5px;border-radius:2px;font-size:11px;font-weight:700;line-height:1';
+        var colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = '#FF5252';
+        colorInput.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:0;height:0';
+        colorBtn.appendChild(colorInput);
+        colorBtn.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          colorInput.style.pointerEvents = 'auto';
+          colorInput.click();
+        });
+        colorInput.addEventListener('input', function() {
+          document.execCommand('foreColor', false, colorInput.value);
+          colorBtn.style.color = colorInput.value;
+          colorInput.style.pointerEvents = 'none';
+        });
+        toolbarGroup.appendChild(colorBtn);
+        topBar.appendChild(toolbarGroup);
+      }
+      wrapper.appendChild(topBar);
 
       var saving = false;
-      function save() {
-        if (saving) return;
-        saving = true;
-        _rundownInlineSave(itemId, { notes: editor.innerHTML });
+      if (isRich) {
+        // Rich text: contenteditable div
+        var editor = document.createElement('div');
+        editor.contentEditable = 'true';
+        editor.innerHTML = item.notes || '';
+        editor.style.cssText = 'min-height:48px;max-height:140px;overflow-y:auto;padding:4px 6px;font-size:11px;color:#F0F2F4;outline:none;font-family:inherit;line-height:1.5';
+        wrapper.appendChild(editor);
+        el.innerHTML = '';
+        el.appendChild(wrapper);
+        editor.focus();
+        function saveRich() {
+          if (saving) return;
+          saving = true;
+          _rundownInlineSave(itemId, { notes: editor.innerHTML });
+        }
+        editor.addEventListener('blur', function(e) {
+          if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
+          setTimeout(function() {
+            if (!wrapper.contains(document.activeElement)) saveRich();
+          }, 100);
+        });
+        editor.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        });
+      } else {
+        // Plain text: simple textarea
+        var textarea = document.createElement('textarea');
+        textarea.value = (item.notes || '').replace(/<[^>]*>/g, '');
+        textarea.style.cssText = 'width:100%;min-height:48px;max-height:140px;resize:vertical;padding:4px 6px;font-size:11px;color:#F0F2F4;background:transparent;border:none;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box';
+        textarea.placeholder = 'Add notes...';
+        wrapper.appendChild(textarea);
+        el.innerHTML = '';
+        el.appendChild(wrapper);
+        textarea.focus();
+        function savePlain() {
+          if (saving) return;
+          saving = true;
+          _rundownInlineSave(itemId, { notes: textarea.value });
+        }
+        textarea.addEventListener('blur', function(e) {
+          if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
+          setTimeout(function() {
+            if (!wrapper.contains(document.activeElement)) savePlain();
+          }, 100);
+        });
+        textarea.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        });
       }
-      editor.addEventListener('blur', function(e) {
-        // Don't save if clicking toolbar
-        if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
-        setTimeout(function() {
-          if (!wrapper.contains(document.activeElement)) save();
-        }, 100);
-      });
-      editor.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
-      });
     }
 
     function _rundownInlineType(el, item, itemId) {
       var select = document.createElement('select');
       select.style.cssText = 'background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 4px;font-size:11px;outline:none;font-family:inherit';
-      RUNDOWN_TYPE_OPTIONS.forEach(function(t) {
+      // 4.6: Show primary types first, then extended in optgroup
+      var grpCommon = document.createElement('optgroup');
+      grpCommon.label = 'Common';
+      RUNDOWN_TYPE_PRIMARY.forEach(function(t) {
         var opt = document.createElement('option');
         opt.value = t;
         opt.textContent = RUNDOWN_TYPE_LABELS[t] || t;
         if (t === item.itemType) opt.selected = true;
-        select.appendChild(opt);
+        grpCommon.appendChild(opt);
       });
+      select.appendChild(grpCommon);
+      var grpMore = document.createElement('optgroup');
+      grpMore.label = 'More';
+      RUNDOWN_TYPE_EXTENDED.forEach(function(t) {
+        var opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = RUNDOWN_TYPE_LABELS[t] || t;
+        if (t === item.itemType) opt.selected = true;
+        grpMore.appendChild(opt);
+      });
+      select.appendChild(grpMore);
+      // Section header option
+      var grpStruct = document.createElement('optgroup');
+      grpStruct.label = 'Structure';
+      var secOpt = document.createElement('option');
+      secOpt.value = 'section';
+      secOpt.textContent = 'Section';
+      if (item.itemType === 'section') secOpt.selected = true;
+      grpStruct.appendChild(secOpt);
+      select.appendChild(grpStruct);
       el.innerHTML = '';
       el.appendChild(select);
       select.focus();
@@ -11547,15 +11723,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var stageUrl = _rundownBuildModeUrl(urls.timerUrl, 'stage', {});
       var confidenceUrl = _rundownBuildModeUrl(urls.timerUrl, 'confidence', {});
       var note = [
-        planTitle + ' demo setup',
+        planTitle + ' sample setup',
         '',
         'Caller / producer laptop:',
         publicUrl || compactUrl || 'No public rundown link yet',
         '',
-        'Stage or teleprompter screen:',
-        prompterUrl || publicUrl || 'No prompter link yet',
+        'Stage or large text screen:',
+        prompterUrl || publicUrl || 'No large text link yet',
         '',
-        'Confidence / timer display:',
+        'Stage display / timer:',
         stageUrl || confidenceUrl || timerUrl || 'No timer link yet',
       ];
       if (_rundownColumns && _rundownColumns.length && publicUrl) {
@@ -11589,18 +11765,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var hasOperatorLinks = false;
 
       if (introEl) {
-        introEl.textContent = 'Choose the output your team needs. One share token powers read-only public views, countdown timers, and department-specific feeds.';
+        introEl.textContent = 'Choose how to share your service plan. One link powers read-only public views, countdown timers, and department-specific feeds.';
       }
 
       if (demoSetup.publicUrl || demoSetup.prompterUrl || demoSetup.stageUrl || demoSetup.timerUrl) {
         sections.push(_rundownBuildSectionCard(
           'Suggested launch order',
-          'Use this when you want a polished three-screen demo quickly: one desk view, one stage/prompt view, and one timer display.',
+          'Use this when you want a polished three-screen setup quickly: one desk view, one large text view, and one timer display.',
           [
             _rundownBuildOutputCard({
               kicker: 'Desk screen',
               title: 'Caller / producer',
-              description: 'Best default desk view for the person running cues.',
+              description: 'Best default desk view for the person running items.',
               url: demoSetup.publicUrl || demoSetup.compactUrl,
               badge: 'Step 1',
               badgeBg: 'rgba(0,230,118,0.12)',
@@ -11609,8 +11785,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             }),
             _rundownBuildOutputCard({
               kicker: 'Stage display',
-              title: 'Prompter screen',
-              description: 'Large, stage-friendly cue following for presenters or backstage confidence.',
+              title: 'Large Text screen',
+              description: 'Large, stage-friendly item following for presenters or backstage monitors.',
               url: demoSetup.prompterUrl || demoSetup.publicUrl,
               badge: 'Step 2',
               badgeBg: 'rgba(171,71,188,0.10)',
@@ -11618,7 +11794,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               accent: '#CE93D8',
             }),
             _rundownBuildOutputCard({
-              kicker: 'Confidence display',
+              kicker: 'Stage Display',
               title: 'Stage timer',
               description: 'Countdown-focused display for speakers and production timing.',
               url: demoSetup.stageUrl || demoSetup.timerUrl,
@@ -11628,19 +11804,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               accent: '#FFB74D',
             })
           ],
-          { label: 'Demo set', bg: 'rgba(255,255,255,0.05)', fg: '#F0F2F4' }
+          { label: 'Sample Setup', bg: 'rgba(255,255,255,0.05)', fg: '#F0F2F4' }
         ));
       }
 
       if (urls.showUrl) {
         sections.push(_rundownBuildSectionCard(
-          'Show mode',
+          'Live Mode',
           'A dedicated operator view for running live services. Includes large Go/Back controls, live countdown, inline editing, and next-up preview.',
           [
             _rundownBuildOutputCard({
               kicker: 'Operator view',
-              title: 'Show Mode',
-              description: 'Full cue control with start/stop, advance, countdown timers, and quick edits. Built for the tech booth.',
+              title: 'Live Mode',
+              description: 'Full item control with start/stop, advance, countdown timers, and quick edits. Built for the tech booth.',
               url: urls.showUrl,
               badge: 'Live control',
               badgeBg: 'rgba(255,167,38,0.10)',
@@ -11649,8 +11825,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             }),
             _rundownBuildOutputCard({
               kicker: 'Follow-along view',
-              title: 'Read-Only Show Mode',
-              description: 'Live-following cue list with countdown and Next Up panel, but no Go/Back/Start/Stop controls. Safe to share with volunteers.',
+              title: 'Read-Only Live Mode',
+              description: 'Live-following item list with countdown and Next Up panel, but no Go/Back/Start/Stop controls. Safe to share with volunteers.',
               url: urls.readonlyShowUrl,
               badge: 'Read only',
               badgeBg: 'rgba(0,230,118,0.12)',
@@ -11685,12 +11861,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (publicUrl) {
         sections.push(_rundownBuildSectionCard(
           'Public view modes',
-          'Read-only public views built from the same token. Full view is best for desk-side review; compact and prompter are better on larger screens.',
+          'Read-only public views built from the same token. Full view is best for desk-side review; compact and large text are better on larger screens.',
           [
             _rundownBuildOutputCard({
               kicker: 'Primary view',
               title: 'Full rundown',
-              description: 'All cues, columns, attachments, and timing details in one read-only view.',
+              description: 'All items, columns, attachments, and timing details in one read-only view.',
               url: _rundownBuildModeUrl(publicUrl, '', {}),
               badge: 'Recommended',
               badgeBg: 'rgba(0,230,118,0.12)',
@@ -11708,9 +11884,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               accent: '#81D4FA',
             }),
             _rundownBuildOutputCard({
-              kicker: 'Prompter view',
-              title: 'Prompter',
-              description: 'Full-screen, stage-friendly layout that keeps the active cue centered.',
+              kicker: 'Large Text view',
+              title: 'Large Text',
+              description: 'Full-screen, stage-friendly layout that keeps the active item centered.',
               url: _rundownBuildModeUrl(publicUrl, 'prompter', {}),
               badge: 'Stage ready',
               badgeBg: 'rgba(171,71,188,0.10)',
@@ -11725,7 +11901,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (timerUrl) {
         timerSections.push(_rundownBuildSectionCard(
           'Timer modes',
-          'The same token powers every countdown view. Use the default timer for speakers, stage mode for production screens, and confidence mode for high-visibility countdowns.',
+          'The same token powers every countdown view. Use the default timer for speakers, detailed mode for production screens, and stage display mode for high-visibility countdowns.',
           [
             _rundownBuildOutputCard({
               kicker: 'Default timer',
@@ -11738,9 +11914,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               accent: '#00E676',
             }),
             _rundownBuildOutputCard({
-              kicker: 'Production mode',
-              title: 'Stage timer',
-              description: 'A larger stage layout with more context for production teams.',
+              kicker: 'Detailed mode',
+              title: 'Detailed timer',
+              description: 'A larger layout with more context for production teams.',
               url: _rundownBuildModeUrl(timerUrl, 'stage', {}),
               badge: 'Big display',
               badgeBg: 'rgba(255,167,38,0.10)',
@@ -11749,10 +11925,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             }),
             _rundownBuildOutputCard({
               kicker: 'High visibility',
-              title: 'Confidence timer',
-              description: 'A confident, highly readable timer for fast-moving show environments.',
+              title: 'Stage Display timer',
+              description: 'A highly readable timer for fast-moving live service environments.',
               url: _rundownBuildModeUrl(timerUrl, 'confidence', {}),
-              badge: 'Confidence',
+              badge: 'Stage Display',
               badgeBg: 'rgba(66,165,245,0.10)',
               badgeColor: '#81D4FA',
               accent: '#81D4FA',
@@ -11922,7 +12098,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           _rundownOpenUrl(url);
         });
         _updateSharedBadge(true);
-        toast('Opened demo set');
+        toast('Opened sample setup');
       };
       if (_rundownShareData && _rundownShareData.share_token) {
         openWindows(_rundownShareData);
@@ -11941,17 +12117,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var selfKey = _rundownSessionId || '';
       var selfName = _rundownPresenceDisplayName || _rundownDefaultStationName();
       var note = [
-        'Tally station setup',
+        'Tally device setup',
         '',
         '1. Open the rundown on the operator device.',
         '2. Open Team Access.',
-        '3. Set the station name and station key.',
-        '4. Save the station, then give it the right role:',
+        '3. Set the device name and device key.',
+        '4. Save the device, then give it the right role:',
         '   Owner manages access',
-        '   Editor can run and update the show',
+        '   Editor can run and update the service',
         '   Viewer stays read only',
         '',
-        'This station:',
+        'This device:',
         'Name: ' + selfName,
         'Key: ' + (selfKey || 'not set'),
       ].join('\n');
@@ -12157,21 +12333,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/start').then(function(data) {
         _liveShowState = data;
         _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        // 4.7: Auto-transition status to Live
+        _rundownAutoTransitionToLive(_rundownSelectedPlan.id);
         renderRundownEditor(_rundownSelectedPlan);
         _startLiveShowTimer();
-        toast('Show started');
+        toast('Live started');
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
     function liveShowStop() {
       if (!_rundownSelectedPlan || !_liveShowState) return;
-      styledConfirm('End Show', 'End live show mode?').then(function(ok) {
+      styledConfirm('End Live', 'End live mode?').then(function(ok) {
         if (!ok) return;
         api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/live/stop').then(function() {
           _stopLiveShowTimer();
           _liveShowState = null;
           renderRundownEditor(_rundownSelectedPlan);
-          toast('Show ended');
+          toast('Live ended');
         }).catch(function(e) { toast('Failed: ' + e.message, true); });
       });
     }

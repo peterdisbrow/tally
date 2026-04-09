@@ -1539,7 +1539,7 @@
       <div class="display-help-item"><div class="display-help-key">R</div><div class="display-help-label">Refresh</div><div class="display-help-text">Force an immediate reload from the public rundown.</div></div>
       <div class="display-help-item"><div class="display-help-key">P</div><div class="display-help-label">Print</div><div class="display-help-text">Open a printer-friendly view of the rundown.</div></div>
       <div class="display-help-item"><div class="display-help-key">C</div><div class="display-help-label">Columns</div><div class="display-help-text">Show or hide table columns. Preferences persist across refreshes.</div></div>
-      <div class="display-help-item"><div class="display-help-key">1-4</div><div class="display-help-label">Modes</div><div class="display-help-text">Jump between full, compact, prompter, and stage timer views.</div></div>
+      <div class="display-help-item"><div class="display-help-key">1-4</div><div class="display-help-label">Modes</div><div class="display-help-text">Jump between full, compact, large text, and stage timer views.</div></div>
     </div>
   </section>
   <div class="container">
@@ -2937,11 +2937,20 @@
             '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>'
           : '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
             '<a class="mode-link active" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
-        html += '<a class="mode-link' + (isPrompterMode ? ' active' : '') + '" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
+        html += '<a class="mode-link' + (isPrompterMode ? ' active' : '') + '" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Large Text</a>';
         html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
+
+        // 4.3: First-visit orientation banner
+        var orientationKey = 'tally.rundown-view.orientation-dismissed:' + token;
+        if (!localStorage.getItem(orientationKey)) {
+          html += '<div id="orientation-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;margin-bottom:16px;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);border-radius:10px;font-size:13px;color:#D0D8E0;line-height:1.5">';
+          html += '<div><strong style="color:#00E676">Welcome!</strong> You\'re viewing the service plan for <strong>' + esc(plan.title) + '</strong>. The current item is highlighted in green.</div>';
+          html += '<button id="orientation-dismiss" style="background:none;border:1px solid rgba(255,255,255,0.1);color:#8B9DAF;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;white-space:nowrap">Got it</button>';
+          html += '</div>';
+        }
 
         html += renderLiveBanner(plan, liveState, items);
 
@@ -3135,6 +3144,16 @@
               });
             }
           }
+        }
+
+        // 4.3: Orientation banner dismiss handler
+        var orientationDismiss = document.getElementById('orientation-dismiss');
+        if (orientationDismiss) {
+          orientationDismiss.addEventListener('click', function() {
+            localStorage.setItem(orientationKey, 'true');
+            var banner = document.getElementById('orientation-banner');
+            if (banner) banner.style.display = 'none';
+          });
         }
 
         // Keep "updated X ago" label live

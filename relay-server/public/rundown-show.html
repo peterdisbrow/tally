@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Show Mode — Tally</title>
+  <title>Live Mode — Tally</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -888,11 +888,11 @@
   <!-- Styled confirm modal -->
   <div class="confirm-overlay" id="confirm-overlay">
     <div class="confirm-panel">
-      <h3 id="confirm-title">End Show</h3>
-      <p id="confirm-message">End the live show? This will stop all timers and cue tracking.</p>
+      <h3 id="confirm-title">End Live</h3>
+      <p id="confirm-message">End live mode? This will stop all timers and item tracking.</p>
       <div class="confirm-actions">
         <button class="btn btn-cancel" id="confirm-cancel">Cancel</button>
-        <button class="btn btn-danger" id="confirm-ok">End Show</button>
+        <button class="btn btn-danger" id="confirm-ok">End Live</button>
       </div>
     </div>
   </div>
@@ -1290,7 +1290,7 @@
     }
 
     function liveStop() {
-      showConfirm('End Show', 'End the live show? This will stop all timers and cue tracking.', 'End Show').then(function(ok) {
+      showConfirm('End Live', 'End live mode? This will stop all timers and item tracking.', 'End Live').then(function(ok) {
         if (!ok) return;
         showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/stop')
           .then(function() {
