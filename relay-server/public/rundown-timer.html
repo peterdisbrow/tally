@@ -468,7 +468,7 @@
     <button id="btn-theme" title="Toggle light/dark theme">Light</button>
     <button id="btn-fullscreen" title="Fullscreen">Fullscreen</button>
     <button id="btn-refresh" class="secondary" title="Refresh now (R)">Refresh</button>
-    <button id="btn-mode" title="Switch display mode">Stage</button>
+    <button id="btn-mode" title="Switch display mode">Detailed</button>
     <button id="btn-prompter" title="Open the large text view">Large Text</button>
   </div>
 
@@ -482,7 +482,7 @@
       <div class="help-item"><div class="help-key">- / +</div><div class="help-label">Text size</div><div class="help-text">Make the timer and stage text smaller or larger.</div></div>
       <div class="help-item"><div class="help-key">R</div><div class="help-label">Refresh</div><div class="help-text">Pull the latest timer state immediately.</div></div>
       <div class="help-item"><div class="help-key">1</div><div class="help-label">Timer</div><div class="help-text">Jump to the standard countdown surface.</div></div>
-      <div class="help-item"><div class="help-key">2</div><div class="help-label">Stage</div><div class="help-text">Jump to the stage-style output.</div></div>
+      <div class="help-item"><div class="help-key">2</div><div class="help-label">Detailed</div><div class="help-text">Jump to the detailed stage-style output.</div></div>
       <div class="help-item"><div class="help-key">3</div><div class="help-label">Large Text</div><div class="help-text">Open the public large text view.</div></div>
       <div class="help-item"><div class="help-key">F</div><div class="help-label">Fullscreen</div><div class="help-text">Use the browser's fullscreen mode for the display.</div></div>
     </div>
@@ -520,7 +520,6 @@
 
           <div class="timer-label" id="timer-label">REMAINING</div>
           <div class="cue-title" id="cue-title"></div>
-          <div class="stage-subtitle" id="dept-context" style="display:none;color:#00E676;font-weight:700;font-size:clamp(13px,1.8vw,18px);margin-top:2px"></div>
           <div class="timer-display" id="timer-display">00:00</div>
           <div class="progress-bar-container">
             <div class="progress-bar-fill" id="progress-bar"></div>
@@ -573,7 +572,7 @@
   var params = new URLSearchParams(window.location.search);
   var roomId = params.get('room');
   var displayMode = (params.get('mode') || '').toLowerCase();
-  var isStageMode = displayMode === 'stage' || displayMode === 'confidence';
+  var isStageMode = displayMode === 'stage' || displayMode === 'confidence' || displayMode === 'detailed';
   if (isStageMode) document.body.classList.add('stage-mode');
   var displayStorageKey = 'tally.rundown-timer-display:' + token;
 
@@ -611,12 +610,6 @@
   var stageDuration = document.getElementById('stage-duration');
   var stageBadges = document.getElementById('stage-badges');
   var stageKicker = document.getElementById('stage-kicker');
-
-  // 5.5: Department context — parse columns filter from URL
-  var columnFilterRaw = params.get('columns');
-  var columnFilter = columnFilterRaw ? columnFilterRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
-  var deptContext = document.getElementById('dept-context');
-  var rundownColumnData = null; // { columns: [...], valueMap: { itemId: { colId: value } }, items: [...] }
 
   var ws = null;
   var reconnectTimer = null;
@@ -763,11 +756,6 @@
     else url.searchParams.delete('mode');
     if (roomId) url.searchParams.set('room', roomId);
     else url.searchParams.delete('room');
-    // 5.5: Preserve column filter when switching to rundown view
-    if (columnFilter.length) {
-      url.searchParams.set('columns', columnFilter.join(','));
-      url.searchParams.set('hideEmpty', '1');
-    }
     return url.pathname + url.search + url.hash;
   }
 
@@ -811,8 +799,6 @@
 
     // Cue title
     cueTitle.textContent = state.cue_title || '';
-    // 5.5: Update department context
-    updateDeptContext(state);
     if (isStageMode) {
       stageSide.style.display = 'block';
       stagePlanTitle.textContent = state.plan_title || 'Live Rundown';
@@ -906,82 +892,6 @@
     }
   }
 
-  // 5.5: Fetch full rundown data to extract column values for department context
-  function fetchRundownColumns() {
-    if (!columnFilter.length) return;
-    fetch('/api/public/rundown/' + encodeURIComponent(token))
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(plan) {
-        if (!plan) return;
-        var rawCols = plan.columns || plan.customColumns || [];
-        if (!Array.isArray(rawCols)) rawCols = [];
-        var cols = rawCols.filter(function(c) {
-          var id = c && (c.id || c.columnId || c.column_id);
-          return id && columnFilter.indexOf(String(id)) >= 0;
-        });
-        var items = plan.items || [];
-        var valueMap = {};
-        // Build value map from all sources
-        function setVal(itemId, colId, val) {
-          if (!itemId || !colId) return;
-          var ik = String(itemId), ck = String(colId);
-          if (!valueMap[ik]) valueMap[ik] = {};
-          var v = val;
-          if (v && typeof v === 'object') v = v.value || v.text || v.label || '';
-          if (Array.isArray(v)) v = v.filter(Boolean).join(', ');
-          valueMap[ik][ck] = String(v || '');
-        }
-        if (Array.isArray(plan.values)) plan.values.forEach(function(e) { if (e) setVal(e.itemId || e.item_id, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
-        if (Array.isArray(plan.columnValues)) plan.columnValues.forEach(function(e) { if (e) setVal(e.itemId || e.item_id, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
-        if (plan.valuesByItem) Object.keys(plan.valuesByItem).forEach(function(iid) { var row = plan.valuesByItem[iid]; if (row) Object.keys(row).forEach(function(cid) { setVal(iid, cid, row[cid]); }); });
-        items.forEach(function(item) {
-          if (!item) return;
-          var iid = item.id || item.itemId || item.item_id;
-          if (!iid) return;
-          if (Array.isArray(item.columns)) item.columns.forEach(function(e) { if (e) setVal(iid, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
-          if (Array.isArray(item.values)) item.values.forEach(function(e) { if (e) setVal(iid, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
-          if (item.columnValues) Object.keys(item.columnValues).forEach(function(cid) { setVal(iid, cid, item.columnValues[cid]); });
-          if (item.customColumns) Object.keys(item.customColumns).forEach(function(cid) { setVal(iid, cid, item.customColumns[cid]); });
-          if (item.columnData) Object.keys(item.columnData).forEach(function(cid) { setVal(iid, cid, item.columnData[cid]); });
-          if (item.cells) Object.keys(item.cells).forEach(function(cid) { var cell = item.cells[cid]; setVal(iid, cid, cell && cell.value !== undefined ? cell.value : cell); });
-        });
-        rundownColumnData = { columns: cols, valueMap: valueMap, items: items };
-        // Re-render with latest state
-        if (lastState) updateDeptContext(lastState);
-      })
-      .catch(function() {});
-  }
-
-  // 5.5: Update department context below cue title
-  function updateDeptContext(state) {
-    if (!deptContext || !columnFilter.length || !rundownColumnData) {
-      if (deptContext) deptContext.style.display = 'none';
-      return;
-    }
-    var cueIdx = state.cue_index != null ? state.cue_index : (state.current_cue_index != null ? state.current_cue_index : null);
-    if (cueIdx === null || !rundownColumnData.items[cueIdx]) {
-      deptContext.style.display = 'none';
-      return;
-    }
-    var item = rundownColumnData.items[cueIdx];
-    var itemId = String(item.id || item.itemId || item.item_id || '');
-    var parts = [];
-    for (var i = 0; i < rundownColumnData.columns.length; i++) {
-      var col = rundownColumnData.columns[i];
-      var colId = String(col.id || col.columnId || col.column_id || '');
-      var val = rundownColumnData.valueMap[itemId] && rundownColumnData.valueMap[itemId][colId];
-      if (val && val.trim()) {
-        parts.push((col.name || col.title || 'Column') + ': ' + val);
-      }
-    }
-    if (parts.length) {
-      deptContext.textContent = parts.join(' · ');
-      deptContext.style.display = '';
-    } else {
-      deptContext.style.display = 'none';
-    }
-  }
-
   // ─── HTTP Polling (fallback + initial state) ────────────────────────────────
 
   function fetchTimerState() {
@@ -1058,9 +968,28 @@
   // ─── Theme toggle ──────────────────────────────────────────────────────────
 
   var btnTheme = document.getElementById('btn-theme');
-  btnTheme.addEventListener('click', function() {
-    document.body.classList.toggle('light');
-    btnTheme.textContent = document.body.classList.contains('light') ? 'Dark' : 'Light';
+  var timerThemeKey = 'tally.rundown-timer-theme:' + token;
+
+  function applyTimerTheme(light) {
+    document.body.classList.toggle('light', light);
+    if (btnTheme) btnTheme.textContent = light ? 'Dark' : 'Light';
+    try { window.localStorage.setItem(timerThemeKey, light ? 'light' : 'dark'); } catch(e) {}
+  }
+
+  // Initialize: stored pref → prefers-color-scheme → default dark
+  (function() {
+    try {
+      var stored = window.localStorage.getItem(timerThemeKey);
+      if (stored === 'light') { applyTimerTheme(true); return; }
+      if (stored === 'dark') { applyTimerTheme(false); return; }
+    } catch(e) {}
+    // No stored pref: follow system preference
+    var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    applyTimerTheme(prefersLight);
+  })();
+
+  if (btnTheme) btnTheme.addEventListener('click', function() {
+    applyTimerTheme(!document.body.classList.contains('light'));
   });
 
   // ─── Fullscreen ────────────────────────────────────────────────────────────
@@ -1075,9 +1004,9 @@
   });
 
   btnMode.addEventListener('click', function() {
-    window.location.href = buildModeUrl(isStageMode ? '' : 'stage');
+    window.location.href = buildModeUrl(isStageMode ? '' : 'detailed');
   });
-  btnMode.textContent = isStageMode ? 'Timer' : 'Stage';
+  btnMode.textContent = isStageMode ? 'Timer' : 'Detailed';
 
   btnPrompter.addEventListener('click', function() {
     window.location.href = buildRundownUrl('prompter');
@@ -1200,7 +1129,6 @@
   // ─── Init ──────────────────────────────────────────────────────────────────
 
   fetchTimerState();
-  fetchRundownColumns(); // 5.5: Load column data for department context
   connectWebSocket();
 
   // Poll as fallback every 5 seconds in case WS drops

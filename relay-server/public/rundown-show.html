@@ -29,12 +29,33 @@
       --radius-lg: 14px;
     }
 
+    body.light-theme {
+      --bg: #F5F7F5;
+      --surface: #FFFFFF;
+      --surface2: #F0F2F0;
+      --border: rgba(0,0,0,0.10);
+      --border-active: rgba(0,168,87,0.4);
+      --text: #1A1D27;
+      --text-muted: #4A5568;
+      --text-dim: #718096;
+      --green: #00A857;
+      --green-bg: rgba(0,168,87,0.10);
+      --red: #CC3333;
+      --red-bg: rgba(204,51,51,0.10);
+      --amber: #C47900;
+      --amber-bg: rgba(196,121,0,0.10);
+      --blue: #2B7CBD;
+      --blue-bg: rgba(43,124,189,0.10);
+      --section-bg: rgba(0,168,87,0.06);
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       overflow-x: hidden;
+      transition: background 0.25s, color 0.25s;
     }
 
     /* ── Layout ── */
@@ -939,6 +960,7 @@
     var countdownTimer = null;
     var editingItemId = null;
     var hiddenColumns = {};
+    var lightTheme = false;
     var showStorageKey = 'tally.rundown-show-display:' + token;
     var connBanner = document.getElementById('connection-lost-banner');
     var consecutivePollFailures = 0;
@@ -957,8 +979,21 @@
         var data = {};
         var keys = Object.keys(hiddenColumns).filter(function (k) { return hiddenColumns[k]; });
         if (keys.length) data.hiddenColumns = keys;
+        if (lightTheme) data.lightTheme = true;
         window.localStorage.setItem(showStorageKey, JSON.stringify(data));
       } catch (e) {}
+    }
+
+    function applyShowTheme() {
+      document.body.classList.toggle('light-theme', lightTheme);
+      var btn = document.getElementById('btn-show-theme');
+      if (btn) btn.textContent = lightTheme ? 'Dark' : 'Light';
+    }
+
+    function toggleShowTheme() {
+      lightTheme = !lightTheme;
+      applyShowTheme();
+      writeShowPrefs();
     }
 
     function isColumnHidden(key) {
@@ -1015,6 +1050,10 @@
       var prefs = readShowPrefs();
       if (prefs && Array.isArray(prefs.hiddenColumns)) {
         prefs.hiddenColumns.forEach(function (k) { hiddenColumns[k] = true; });
+      }
+      if (prefs && prefs.lightTheme) {
+        lightTheme = true;
+        applyShowTheme();
       }
     })();
 
@@ -1464,6 +1503,7 @@
             '</div>' +
           '</div>' : '') +
           (isReadOnly ? '<span class="pill pill-offline" style="font-size:10px;padding:3px 10px">Read Only</span>' : '') +
+          '<button class="col-toggle-btn" id="btn-show-theme" title="Toggle light/dark theme">' + (lightTheme ? 'Dark' : 'Light') + '</button>' +
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
       app.appendChild(topbar);
@@ -1513,6 +1553,8 @@
       // Print button
       var btnPrint = document.getElementById('btn-print');
       if (btnPrint) btnPrint.addEventListener('click', function () { printRundown(); });
+      var btnShowTheme = document.getElementById('btn-show-theme');
+      if (btnShowTheme) btnShowTheme.addEventListener('click', function () { toggleShowTheme(); });
     }
 
     function renderStatusBar() {

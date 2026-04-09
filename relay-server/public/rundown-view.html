@@ -7,13 +7,89 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Theme variables (light default; dark via media query or .dark-theme) ── */
+    :root {
+      --bg: #F5F7F5;
+      --text: #1A1D27;
+      --text-muted: #4A5568;
+      --text-dim: #718096;
+      --text-secondary: #2D3748;
+      --surface: #FFFFFF;
+      --surface-tint: rgba(0,0,0,0.03);
+      --border: rgba(0,0,0,0.10);
+      --border-faint: rgba(0,0,0,0.06);
+      --row-hover: rgba(0,0,0,0.02);
+      --toolbar-bg: rgba(250,251,250,0.92);
+      --toolbar-border: rgba(0,0,0,0.12);
+      --ui-green: #00A857;
+      --ui-green-bg: rgba(0,168,87,0.10);
+      --ui-green-border: rgba(0,168,87,0.20);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0A0F0D;
+        --text: #F0F2F4;
+        --text-muted: #8B9DAF;
+        --text-dim: #556270;
+        --text-secondary: #D0D8E0;
+        --surface: #111816;
+        --surface-tint: rgba(255,255,255,0.04);
+        --border: rgba(255,255,255,0.07);
+        --border-faint: rgba(255,255,255,0.05);
+        --row-hover: rgba(255,255,255,0.02);
+        --toolbar-bg: rgba(10,15,13,0.72);
+        --toolbar-border: rgba(255,255,255,0.08);
+        --ui-green: #00E676;
+        --ui-green-bg: rgba(0,230,118,0.10);
+        --ui-green-border: rgba(0,230,118,0.18);
+      }
+    }
+
+    body.dark-theme {
+      --bg: #0A0F0D;
+      --text: #F0F2F4;
+      --text-muted: #8B9DAF;
+      --text-dim: #556270;
+      --text-secondary: #D0D8E0;
+      --surface: #111816;
+      --surface-tint: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.07);
+      --border-faint: rgba(255,255,255,0.05);
+      --row-hover: rgba(255,255,255,0.02);
+      --toolbar-bg: rgba(10,15,13,0.72);
+      --toolbar-border: rgba(255,255,255,0.08);
+      --ui-green: #00E676;
+      --ui-green-bg: rgba(0,230,118,0.10);
+      --ui-green-border: rgba(0,230,118,0.18);
+    }
+
+    body.light-theme {
+      --bg: #F5F7F5;
+      --text: #1A1D27;
+      --text-muted: #4A5568;
+      --text-dim: #718096;
+      --text-secondary: #2D3748;
+      --surface: #FFFFFF;
+      --surface-tint: rgba(0,0,0,0.03);
+      --border: rgba(0,0,0,0.10);
+      --border-faint: rgba(0,0,0,0.06);
+      --row-hover: rgba(0,0,0,0.02);
+      --toolbar-bg: rgba(250,251,250,0.92);
+      --toolbar-border: rgba(0,0,0,0.12);
+      --ui-green: #00A857;
+      --ui-green-bg: rgba(0,168,87,0.10);
+      --ui-green-border: rgba(0,168,87,0.20);
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0A0F0D;
-      color: #F0F2F4;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
       padding: 24px 16px 48px;
       --display-scale: 1;
+      transition: background 0.25s, color 0.25s;
     }
 
     body.prompter-mode {
@@ -104,20 +180,20 @@
     .brand-name {
       font-size: 14px;
       font-weight: 700;
-      color: #8B9DAF;
+      color: var(--text-muted);
       letter-spacing: 0.5px;
     }
 
     .plan-title {
       font-size: calc(26px * var(--display-scale));
       font-weight: 800;
-      color: #F0F2F4;
+      color: var(--text);
       line-height: 1.2;
     }
 
     .plan-date {
       font-size: 14px;
-      color: #8B9DAF;
+      color: var(--text-muted);
       margin-top: 4px;
     }
 
@@ -132,7 +208,7 @@
 
     .last-updated {
       font-size: 12px;
-      color: #556270;
+      color: var(--text-dim);
     }
 
     .refresh-badge {
@@ -140,9 +216,9 @@
       align-items: center;
       gap: 4px;
       font-size: 11px;
-      color: #556270;
+      color: var(--text-dim);
       margin-top: 4px;
-      background: rgba(255,255,255,0.04);
+      background: var(--surface-tint);
       padding: 3px 8px;
       border-radius: 10px;
     }
@@ -160,9 +236,9 @@
       gap: 6px;
       padding: 4px 10px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.04);
-      color: #8B9DAF;
+      border: 1px solid var(--border);
+      background: var(--surface-tint);
+      color: var(--text-muted);
       text-decoration: none;
       font-size: 11px;
       font-weight: 700;
@@ -172,14 +248,14 @@
 
     .mode-link:hover {
       transform: translateY(-1px);
-      color: #F0F2F4;
-      background: rgba(255,255,255,0.07);
+      color: var(--text);
+      background: var(--surface-tint);
     }
 
     .mode-link.active {
-      color: #00E676;
-      border-color: rgba(0,230,118,0.18);
-      background: rgba(0,230,118,0.10);
+      color: var(--ui-green);
+      border-color: var(--ui-green-border);
+      background: var(--ui-green-bg);
     }
 
     .display-toolbar {
@@ -193,10 +269,10 @@
       gap: 6px;
       padding: 8px;
       border-radius: 14px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(10,15,13,0.72);
+      border: 1px solid var(--toolbar-border);
+      background: var(--toolbar-bg);
       backdrop-filter: blur(14px);
-      box-shadow: 0 16px 40px rgba(0,0,0,0.22);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.12);
       opacity: 1;
       transition: opacity 0.8s;
     }
@@ -212,15 +288,15 @@
       font-weight: 800;
       letter-spacing: 0.8px;
       text-transform: uppercase;
-      color: #8B9DAF;
+      color: var(--text-muted);
       padding: 0 4px 0 2px;
     }
 
     .display-toolbar button {
       appearance: none;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.04);
-      color: #D0D8E0;
+      border: 1px solid var(--border);
+      background: var(--surface-tint);
+      color: var(--text-secondary);
       border-radius: 999px;
       padding: 6px 10px;
       font-size: 11px;
@@ -232,29 +308,22 @@
 
     .display-toolbar button:hover {
       transform: translateY(-1px);
-      color: #F0F2F4;
-      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      background: var(--surface-tint);
     }
 
     .display-toolbar button.active {
-      color: #00E676;
-      border-color: rgba(0,230,118,0.18);
-      background: rgba(0,230,118,0.10);
-    }
-    @keyframes cue-flash {
-      0%   { box-shadow: inset 0 0 0 4px rgba(0,230,118,0.7); }
-      100% { box-shadow: inset 0 0 0 4px transparent; }
-    }
-    .cue-flash {
-      animation: cue-flash 0.6s ease-out 2;
+      color: var(--ui-green);
+      border-color: var(--ui-green-border);
+      background: var(--ui-green-bg);
     }
 
     .display-toolbar button.secondary {
-      color: #8B9DAF;
+      color: var(--text-muted);
     }
 
     .display-toolbar button.secondary:hover {
-      color: #F0F2F4;
+      color: var(--text);
     }
 
     .display-help-backdrop {
@@ -467,8 +536,8 @@
 
     /* ── Table ── */
     .table-wrap {
-      background: #111816;
-      border: 1px solid rgba(255,255,255,0.07);
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 12px;
       overflow: auto;
       -webkit-overflow-scrolling: touch;
@@ -482,8 +551,8 @@
     }
 
     thead th {
-      background: rgba(255,255,255,0.04);
-      color: #8B9DAF;
+      background: var(--surface-tint);
+      color: var(--text-muted);
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
@@ -491,11 +560,11 @@
       padding: 10px 14px;
       text-align: left;
       white-space: nowrap;
-      border-bottom: 1px solid rgba(255,255,255,0.07);
+      border-bottom: 1px solid var(--border);
     }
 
     tbody tr {
-      border-bottom: 1px solid rgba(255,255,255,0.05);
+      border-bottom: 1px solid var(--border-faint);
       transition: background 0.1s;
     }
 
@@ -504,17 +573,17 @@
     }
 
     tbody tr:hover {
-      background: rgba(255,255,255,0.03);
+      background: var(--row-hover);
     }
 
     tbody td {
       padding: 11px 14px;
       vertical-align: middle;
-      color: #D0D8E0;
+      color: var(--text-secondary);
     }
 
     td.num {
-      color: #556270;
+      color: var(--text-dim);
       font-variant-numeric: tabular-nums;
       width: 32px;
     }
@@ -533,7 +602,7 @@
 
     td.title-cell {
       font-weight: 600;
-      color: #F0F2F4;
+      color: var(--text);
     }
 
     .title-wrap {
@@ -619,7 +688,7 @@
 
     .item-notes {
       font-size: 11px;
-      color: #556270;
+      color: var(--text-dim);
       margin-top: 2px;
       font-weight: 400;
     }
@@ -649,18 +718,18 @@
     td.dur-cell, td.start-cell, td.end-cell {
       font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
       font-size: calc(12px * var(--display-scale));
-      color: #8B9DAF;
+      color: var(--text-muted);
       white-space: nowrap;
     }
 
     td.notes-cell {
       font-size: calc(12px * var(--display-scale));
-      color: #556270;
+      color: var(--text-dim);
       max-width: 200px;
     }
 
     td.custom-cell {
-      color: #D0D8E0;
+      color: var(--text-secondary);
       max-width: 180px;
       white-space: normal;
       word-break: break-word;
@@ -1248,194 +1317,16 @@
     .state-title {
       font-size: calc(20px * var(--display-scale));
       font-weight: 700;
-      color: #F0F2F4;
+      color: var(--text);
       margin-bottom: 8px;
     }
 
     .state-sub {
       font-size: calc(14px * var(--display-scale));
-      color: #556270;
+      color: var(--text-dim);
       line-height: 1.6;
       max-width: 340px;
       margin: 0 auto;
-    }
-
-    /* ── 5.1 Row filtering — de-emphasized rows ── */
-    tr.row-filtered {
-      opacity: 0.35;
-      transition: opacity 0.2s;
-    }
-    tr.row-filtered:hover {
-      opacity: 0.65;
-    }
-
-    /* ── 5.2 Filter bar ── */
-    .filter-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 18px;
-      padding: 10px 14px;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.07);
-    }
-    .filter-bar-label {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #556270;
-      flex-shrink: 0;
-    }
-    .filter-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 4px 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.10);
-      background: rgba(255,255,255,0.04);
-      color: #8B9DAF;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-      white-space: nowrap;
-    }
-    .filter-chip:hover {
-      background: rgba(255,255,255,0.07);
-      color: #F0F2F4;
-    }
-    .filter-chip.active {
-      background: rgba(0,230,118,0.12);
-      border-color: rgba(0,230,118,0.25);
-      color: #00E676;
-    }
-    .filter-chip .chip-x {
-      font-size: 10px;
-      opacity: 0.6;
-    }
-    .filter-toggle-group {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      margin-left: auto;
-    }
-    .filter-toggle-btn {
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      color: #8B9DAF;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-    }
-    .filter-toggle-btn:hover {
-      background: rgba(255,255,255,0.07);
-      color: #F0F2F4;
-    }
-    .filter-toggle-btn.active {
-      background: rgba(0,230,118,0.10);
-      border-color: rgba(0,230,118,0.20);
-      color: #00E676;
-    }
-    .filter-count {
-      font-size: 11px;
-      color: #556270;
-      font-weight: 600;
-    }
-
-    /* ── 5.3 My Next Cue floating card ── */
-    .next-cue-card {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 15;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 14px 22px;
-      border-radius: 16px;
-      background: rgba(10,15,13,0.88);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(0,230,118,0.25);
-      box-shadow: 0 12px 40px rgba(0,0,0,0.3);
-      max-width: 90vw;
-      animation: next-cue-slide-up 0.3s ease-out;
-    }
-    @keyframes next-cue-slide-up {
-      from { opacity: 0; transform: translateX(-50%) translateY(16px); }
-      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-    }
-    .next-cue-card-icon {
-      flex-shrink: 0;
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: rgba(0,230,118,0.15);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #00E676;
-    }
-    .next-cue-card-body {
-      min-width: 0;
-    }
-    .next-cue-card-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: #00E676;
-      font-weight: 800;
-      margin-bottom: 2px;
-    }
-    .next-cue-card-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: #F0F2F4;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 50vw;
-    }
-    .next-cue-card-eta {
-      font-size: 12px;
-      color: #8B9DAF;
-      margin-top: 1px;
-    }
-    .next-cue-card-dismiss {
-      flex-shrink: 0;
-      background: none;
-      border: none;
-      color: #556270;
-      cursor: pointer;
-      padding: 4px;
-      font-size: 16px;
-      line-height: 1;
-      transition: color 0.15s;
-    }
-    .next-cue-card-dismiss:hover {
-      color: #F0F2F4;
-    }
-
-    /* ── 5.4 Assignee highlight ── */
-    tr.row-assignee-match {
-      background: rgba(0,230,118,0.06);
-    }
-    tr.row-assignee-match td:first-child {
-      box-shadow: inset 3px 0 0 #00E676;
-    }
-    tr.row-assignee-dim {
-      opacity: 0.45;
-      transition: opacity 0.2s;
-    }
-    tr.row-assignee-dim:hover {
-      opacity: 0.7;
     }
 
     /* ── Footer ── */
@@ -1443,11 +1334,11 @@
       text-align: center;
       margin-top: 32px;
       font-size: calc(12px * var(--display-scale));
-      color: #3A4550;
+      color: var(--text-dim);
     }
 
     .footer a {
-      color: #556270;
+      color: var(--text-muted);
       text-decoration: none;
     }
 
@@ -1504,6 +1395,83 @@
       tbody td { padding: 10px 12px; }
       thead th { padding: 9px 12px; }
     }
+
+    /* ── Print / Save PDF ── */
+    @media print {
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+      .display-toolbar, .display-help, .display-help-backdrop,
+      .connection-lost-banner, .col-toggle-popover, .col-toggle-backdrop,
+      .live-banner-countdown, .refresh-badge, .footer { display: none !important; }
+
+      body {
+        background: #fff !important;
+        color: #111 !important;
+        padding: 0 !important;
+        font-size: 11px;
+        --display-scale: 1 !important;
+        transition: none !important;
+      }
+
+      body.prompter-mode { background: #fff !important; }
+
+      .container { width: 100% !important; }
+
+      .header {
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #222;
+      }
+
+      .brand { margin-bottom: 6px; }
+      .plan-title { color: #000 !important; font-size: 18px !important; }
+      .plan-date { color: #555 !important; }
+      .mode-switch { display: none !important; }
+
+      .table-wrap {
+        background: #fff !important;
+        border: 1px solid #ccc !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+      }
+
+      thead th {
+        background: #f0f0f0 !important;
+        color: #333 !important;
+        border-bottom: 2px solid #666 !important;
+      }
+
+      tbody tr { border-bottom: 1px solid #ddd !important; page-break-inside: avoid; }
+      tbody td { color: #222 !important; }
+      td.title-cell { color: #000 !important; font-weight: 700; }
+      td.dur-cell, td.start-cell, td.end-cell { color: #444 !important; }
+      td.notes-cell { color: #444 !important; }
+      td.custom-cell { color: #333 !important; }
+      td.num { color: #666 !important; }
+
+      .type-badge { background: #eee !important; color: #333 !important; }
+      .pill { background: #eee !important; color: #555 !important; border-color: #ccc !important; }
+      .item-notes { color: #555 !important; }
+
+      .live-banner { background: #eefff5 !important; border-color: #009944 !important; }
+      .live-banner-title { color: #000 !important; }
+      tbody tr.current-row { background: #eefff5 !important; }
+
+      /* Prompter mode: render cards clean */
+      .prompter-hero, .prompter-panel, .prompter-card {
+        background: #f8f8f8 !important;
+        border-color: #ddd !important;
+        color: #111 !important;
+        page-break-inside: avoid;
+      }
+      .prompter-title, .prompter-card-title { color: #000 !important; }
+      .prompter-subtitle, .prompter-card-sub, .prompter-card-notes { color: #555 !important; }
+      .prompter-field-label { color: #666 !important; }
+      .prompter-field-value { color: #111 !important; }
+
+      @page { size: letter; margin: 0.65in 0.5in; }
+    }
   </style>
 </head>
 <body>
@@ -1516,8 +1484,8 @@
     <button type="button" id="btn-text-down" title="Smaller text (-)">A-</button>
     <button type="button" id="btn-text-up" title="Larger text (+)">A+</button>
     <button type="button" id="btn-refresh" title="Refresh now (R)">Refresh</button>
-    <button type="button" id="btn-print" title="Print rundown (P)">Print</button>
-    <button type="button" id="btn-notify" title="Notify on cue change (N)">Notify</button>
+    <button type="button" id="btn-theme" title="Toggle light/dark theme (T)">Dark</button>
+    <button type="button" id="btn-print" title="Print / Save PDF (P)">Print</button>
     <div class="col-toggle-wrap">
       <button type="button" id="btn-columns" title="Show/hide columns (C)">Columns</button>
       <div class="col-toggle-backdrop" id="col-toggle-backdrop"></div>
@@ -1537,9 +1505,10 @@
       <div class="display-help-item"><div class="display-help-key">D</div><div class="display-help-label">Density</div><div class="display-help-text">Switch between roomier and tighter spacing.</div></div>
       <div class="display-help-item"><div class="display-help-key">- / +</div><div class="display-help-label">Text size</div><div class="display-help-text">Make the public surface smaller or larger.</div></div>
       <div class="display-help-item"><div class="display-help-key">R</div><div class="display-help-label">Refresh</div><div class="display-help-text">Force an immediate reload from the public rundown.</div></div>
-      <div class="display-help-item"><div class="display-help-key">P</div><div class="display-help-label">Print</div><div class="display-help-text">Open a printer-friendly view of the rundown.</div></div>
+      <div class="display-help-item"><div class="display-help-key">T</div><div class="display-help-label">Theme</div><div class="display-help-text">Toggle between light and dark display theme.</div></div>
+      <div class="display-help-item"><div class="display-help-key">P</div><div class="display-help-label">Print</div><div class="display-help-text">Print or save the rundown as a PDF.</div></div>
       <div class="display-help-item"><div class="display-help-key">C</div><div class="display-help-label">Columns</div><div class="display-help-text">Show or hide table columns. Preferences persist across refreshes.</div></div>
-      <div class="display-help-item"><div class="display-help-key">1-4</div><div class="display-help-label">Modes</div><div class="display-help-text">Jump between full, compact, large text, and stage timer views.</div></div>
+      <div class="display-help-item"><div class="display-help-key">1-4</div><div class="display-help-label">Modes</div><div class="display-help-text">Jump between Full Detail, Summary, Large Text, and Detailed timer views.</div></div>
     </div>
   </section>
   <div class="container">
@@ -1569,8 +1538,8 @@
       var token = location.pathname.split('/').pop();
       var query = new URLSearchParams(location.search);
       var viewMode = (query.get('mode') || query.get('view') || '').toLowerCase();
-      var isCompactMode = viewMode === 'compact' || viewMode === 'operator';
-      var isPrompterMode = viewMode === 'prompter';
+      var isCompactMode = viewMode === 'compact' || viewMode === 'operator' || viewMode === 'summary';
+      var isPrompterMode = viewMode === 'prompter' || viewMode === 'large-text';
       var showDetail = query.get('detail') === '1';
       var apiBase = location.origin;
       var lastUpdated = null;
@@ -1578,10 +1547,6 @@
       var updatedClockTimer = null;
       var refreshIntervalMs = isPrompterMode ? 5000 : 30000;
       var columnFilter = parseColumnFilter(query.get('columns'));
-      var hideEmpty = query.get('hideEmpty') === '1';
-      var assigneeFilter = query.get('assignee') || '';
-      var showAllRows = false; // toggle for "Show all / Show mine"
-      var nextCueDismissed = false;
       var toolbarHelp = document.getElementById('btn-help');
       var toolbarMirror = document.getElementById('btn-mirror');
       var toolbarDensity = document.getElementById('btn-density');
@@ -1612,6 +1577,7 @@
         density: 'roomy',
         scale: 1,
         help: false,
+        theme: '', // '' = auto (follows prefers-color-scheme), 'light', 'dark'
       };
       // 3.4: Default to Prompter mode on small screens (<768px) unless user explicitly chose a mode
       var mobilePrompterKey = 'tally.rundown-mobile-mode-chosen:' + token;
@@ -1651,6 +1617,7 @@
             density: displayPrefs.density || 'roomy',
             scale: displayPrefs.scale || 1,
           };
+          if (displayPrefs.theme) data.theme = displayPrefs.theme;
           var hiddenKeys = Object.keys(hiddenColumns).filter(function (k) { return hiddenColumns[k]; });
           if (hiddenKeys.length) data.hiddenColumns = hiddenKeys;
           window.localStorage.setItem(storageKey, JSON.stringify(data));
@@ -1681,6 +1648,8 @@
         document.body.classList.toggle('mirror-mode', !!displayPrefs.mirror);
         document.body.classList.toggle('dense-mode', displayPrefs.density === 'dense');
         document.body.classList.toggle('display-help-open', !!displayPrefs.help);
+        document.body.classList.toggle('light-theme', displayPrefs.theme === 'light');
+        document.body.classList.toggle('dark-theme', displayPrefs.theme === 'dark');
         document.body.style.setProperty('--display-scale', String(displayPrefs.scale || 1));
         if (toolbarMirror) {
           toolbarMirror.classList.toggle('active', !!displayPrefs.mirror);
@@ -1690,6 +1659,12 @@
           toolbarDensity.classList.toggle('active', displayPrefs.density === 'dense');
           toolbarDensity.textContent = displayPrefs.density === 'dense' ? 'Dense' : 'Roomy';
         }
+        var toolbarTheme = document.getElementById('btn-theme');
+        if (toolbarTheme) {
+          var isDark = displayPrefs.theme === 'dark' ||
+            (displayPrefs.theme === '' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          toolbarTheme.textContent = isDark ? 'Light' : 'Dark';
+        }
       }
 
       function setDisplayPrefs(next) {
@@ -1697,8 +1672,17 @@
         displayPrefs.density = next.density === 'dense' ? 'dense' : 'roomy';
         displayPrefs.scale = clampScale(next.scale);
         displayPrefs.help = !!next.help;
+        if (next.theme !== undefined) displayPrefs.theme = next.theme;
         syncDisplayPrefs();
         syncDisplayPrefsUrl();
+        writeStoredPrefs();
+      }
+
+      function toggleTheme() {
+        var isDark = displayPrefs.theme === 'dark' ||
+          (displayPrefs.theme === '' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        displayPrefs.theme = isDark ? 'light' : 'dark';
+        syncDisplayPrefs();
         writeStoredPrefs();
       }
 
@@ -1842,6 +1826,9 @@
         displayPrefs.scale = clampScale(query.get('scale') || 1);
       }
       displayPrefs.help = query.get('help') === '1';
+      if (storedPrefs && storedPrefs.theme) {
+        displayPrefs.theme = storedPrefs.theme;
+      }
       if (storedPrefs && Array.isArray(storedPrefs.hiddenColumns)) {
         storedPrefs.hiddenColumns.forEach(function (k) { hiddenColumns[k] = true; });
       }
@@ -2296,176 +2283,6 @@
         return '<span class="custom-value">' + esc(text) + '</span>';
       }
 
-      // 5.1 Check if a row has any value in the filtered columns
-      function rowHasFilteredValue(itemId, columns, valueMap) {
-        if (!columns.length) return true;
-        for (var i = 0; i < columns.length; i++) {
-          var val = valueMap[String(itemId)] && valueMap[String(itemId)][String(columns[i].id)];
-          if (val && String(val).trim()) return true;
-        }
-        return false;
-      }
-
-      // 5.4 Check if item is assigned to assignee
-      function itemMatchesAssignee(item, assignee) {
-        if (!assignee) return false;
-        var name = assignee.toLowerCase();
-        var itemAssignee = String(item.assignee || '').toLowerCase();
-        if (itemAssignee && itemAssignee.indexOf(name) !== -1) return true;
-        return false;
-      }
-
-      // 5.3 Compute next cue where filtered column has value
-      function computeNextCue(items, currentIndex, columns, valueMap) {
-        if (!columns.length || currentIndex === null || currentIndex === undefined) return null;
-        var startIdx = currentIndex + 1;
-        for (var i = startIdx; i < items.length; i++) {
-          if (isSectionItem(items[i])) continue;
-          var itemId = items[i].id || items[i].itemId || items[i].item_id;
-          if (rowHasFilteredValue(itemId, columns, valueMap)) {
-            return { index: i, item: items[i] };
-          }
-        }
-        return null;
-      }
-
-      // Estimate minutes until a cue based on remaining durations
-      function estimateMinutesUntil(items, currentIndex, targetIndex, liveState) {
-        if (currentIndex === null || targetIndex <= currentIndex) return null;
-        var totalSec = 0;
-        // Remaining time on current cue
-        var currentItem = items[currentIndex];
-        if (currentItem && currentItem.lengthSeconds > 0 && liveState) {
-          var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
-          var elapsedOnCue = (Date.now() - cueStartedAt) / 1000;
-          totalSec += Math.max(0, currentItem.lengthSeconds - elapsedOnCue);
-        }
-        // Sum durations of cues between current and target
-        for (var i = currentIndex + 1; i < targetIndex; i++) {
-          if (!isSectionItem(items[i])) {
-            totalSec += items[i].lengthSeconds || 0;
-          }
-        }
-        return Math.max(1, Math.round(totalSec / 60));
-      }
-
-      // 5.2 Render the interactive filter bar
-      function renderFilterBar(allColumns, activeColumnIds, totalItems, visibleItems, assignee) {
-        if (!allColumns.length && !assignee) return '';
-        var html = '<div class="filter-bar" id="filter-bar">';
-        html += '<span class="filter-bar-label">Filter</span>';
-        for (var i = 0; i < allColumns.length; i++) {
-          var col = allColumns[i];
-          var isActive = false;
-          if (activeColumnIds) {
-            for (var a = 0; a < activeColumnIds.length; a++) {
-              if (String(activeColumnIds[a]) === String(col.id)) { isActive = true; break; }
-            }
-          }
-          html += '<span class="filter-chip' + (isActive ? ' active' : '') + '" data-filter-col="' + esc(col.id) + '">';
-          html += esc(col.name);
-          if (isActive) html += ' <span class="chip-x">&times;</span>';
-          html += '</span>';
-        }
-        if (assignee) {
-          html += '<span class="filter-chip active" data-filter-assignee="1">';
-          html += 'Assignee: ' + esc(assignee) + ' <span class="chip-x">&times;</span>';
-          html += '</span>';
-        }
-        if (activeColumnIds && activeColumnIds.length && totalItems !== visibleItems) {
-          html += '<span class="filter-count" id="filter-count">Showing ' + visibleItems + ' of ' + totalItems + ' items</span>';
-          html += '<span class="filter-toggle-group">';
-          html += '<button class="filter-toggle-btn' + (showAllRows ? '' : ' active') + '" id="filter-toggle-mine">Show mine</button>';
-          html += '<button class="filter-toggle-btn' + (showAllRows ? ' active' : '') + '" id="filter-toggle-all">Show all</button>';
-          html += '</span>';
-        }
-        html += '</div>';
-        return html;
-      }
-
-      // 5.3 Render the floating "My Next Cue" card
-      function renderNextCueCard(nextCue, minutesUntil) {
-        if (!nextCue || nextCueDismissed) return '';
-        var etaText = minutesUntil !== null ? 'in ~' + minutesUntil + ' minute' + (minutesUntil !== 1 ? 's' : '') : '';
-        var html = '<div class="next-cue-card" id="next-cue-card">';
-        html += '<div class="next-cue-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></div>';
-        html += '<div class="next-cue-card-body">';
-        html += '<div class="next-cue-card-label">Your next</div>';
-        html += '<div class="next-cue-card-title">' + esc(nextCue.item.title || 'Untitled') + '</div>';
-        if (etaText) html += '<div class="next-cue-card-eta">' + esc(etaText) + '</div>';
-        html += '</div>';
-        html += '<button class="next-cue-card-dismiss" id="next-cue-dismiss" title="Dismiss">&times;</button>';
-        html += '</div>';
-        return html;
-      }
-
-      // Handle filter chip clicks (5.2)
-      function bindFilterBar(allColumns) {
-        var bar = document.getElementById('filter-bar');
-        if (!bar) return;
-        bar.addEventListener('click', function (e) {
-          var chip = e.target.closest('[data-filter-col]');
-          if (chip) {
-            var colId = chip.getAttribute('data-filter-col');
-            toggleColumnFilter(colId, allColumns);
-            return;
-          }
-          var assigneeChip = e.target.closest('[data-filter-assignee]');
-          if (assigneeChip) {
-            assigneeFilter = '';
-            var next = new URLSearchParams(location.search);
-            next.delete('assignee');
-            history.replaceState(null, '', location.pathname + (next.toString() ? '?' + next.toString() : ''));
-            if (lastPlan) render(lastPlan);
-            return;
-          }
-          if (e.target.id === 'filter-toggle-mine') {
-            showAllRows = false;
-            if (lastPlan) render(lastPlan);
-            return;
-          }
-          if (e.target.id === 'filter-toggle-all') {
-            showAllRows = true;
-            if (lastPlan) render(lastPlan);
-            return;
-          }
-        });
-        var dismissBtn = document.getElementById('next-cue-dismiss');
-        if (dismissBtn) {
-          dismissBtn.addEventListener('click', function () {
-            nextCueDismissed = true;
-            var card = document.getElementById('next-cue-card');
-            if (card) card.remove();
-          });
-        }
-      }
-
-      // Toggle a column in the filter without full page navigation (5.2)
-      function toggleColumnFilter(colId, allColumns) {
-        var currentIds = columnFilter ? columnFilter.slice() : [];
-        var idx = currentIds.indexOf(colId);
-        if (idx >= 0) {
-          currentIds.splice(idx, 1);
-        } else {
-          currentIds.push(colId);
-        }
-        columnFilter = currentIds.length ? currentIds : null;
-        hideEmpty = !!columnFilter;
-        // Update URL without reload
-        var next = new URLSearchParams(location.search);
-        if (columnFilter) {
-          next.set('columns', columnFilter.join(','));
-          next.set('hideEmpty', '1');
-        } else {
-          next.delete('columns');
-          next.delete('hideEmpty');
-        }
-        history.replaceState(null, '', location.pathname + (next.toString() ? '?' + next.toString() : ''));
-        nextCueDismissed = false;
-        showAllRows = false;
-        if (lastPlan) render(lastPlan);
-      }
-
       function renderNotesCell(item) {
         var parts = [];
         if (item && item.notes) {
@@ -2603,10 +2420,10 @@
         if (plan.updatedAt) html += '<div class="last-updated" id="last-updated-label">Updated ' + timeAgo(plan.updatedAt) + '</div>';
         html += '<div class="refresh-badge"><span class="refresh-dot"></span> Auto-following live cue</div>';
         html += '<div class="mode-switch">';
-        html += '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>';
-        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
-        html += '<a class="mode-link active" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
-        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Summary</a>';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full Detail</a>';
+        html += '<a class="mode-link active" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Large Text</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Detailed</a>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
@@ -2745,10 +2562,10 @@
         html += '<div class="summary-subtitle">' + esc(serviceDateText ? 'Service ' + serviceDateText : 'Live rundown surface') + '</div>';
         html += '</div>';
         html += '<div class="mode-switch">';
-        html += '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>';
-        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
-        html += '<a class="mode-link" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
-        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
+        html += '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Summary</a>';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full Detail</a>';
+        html += '<a class="mode-link" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Large Text</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Detailed</a>';
         html += '</div>';
         html += '</div>';
 
@@ -2933,45 +2750,17 @@
         html += '<div class="refresh-badge"><span class="refresh-dot"></span> Live</div>';
         html += '<div class="mode-switch">';
         html += isCompactMode
-          ? '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
-            '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>'
-          : '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
-            '<a class="mode-link active" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+          ? '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Summary</a>' +
+            '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full Detail</a>'
+          : '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Summary</a>' +
+            '<a class="mode-link active" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full Detail</a>';
         html += '<a class="mode-link' + (isPrompterMode ? ' active' : '') + '" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Large Text</a>';
-        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Detailed</a>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
-
-        // 4.3: First-visit orientation banner
-        var orientationKey = 'tally.rundown-view.orientation-dismissed:' + token;
-        if (!localStorage.getItem(orientationKey)) {
-          html += '<div id="orientation-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;margin-bottom:16px;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);border-radius:10px;font-size:13px;color:#D0D8E0;line-height:1.5">';
-          html += '<div><strong style="color:#00E676">Welcome!</strong> You\'re viewing the service plan for <strong>' + esc(plan.title) + '</strong>. The current item is highlighted in green.</div>';
-          html += '<button id="orientation-dismiss" style="background:none;border:1px solid rgba(255,255,255,0.1);color:#8B9DAF;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;white-space:nowrap">Got it</button>';
-          html += '</div>';
-        }
 
         html += renderLiveBanner(plan, liveState, items);
-
-        // 5.1/5.2/5.4: Filter bar and row counting
-        var allPlanColumns = (function () {
-          var raw = plan.columns || plan.customColumns || [];
-          if (!Array.isArray(raw)) return [];
-          return raw.map(normalizeColumn).filter(Boolean);
-        })();
-        var totalNonSection = 0;
-        var visibleNonSection = 0;
-        var filteredColumns = columns;
-        for (var fc = 0; fc < items.length; fc++) {
-          if (isSectionItem(items[fc])) continue;
-          totalNonSection++;
-          var fcId = items[fc].id || items[fc].itemId || items[fc].item_id;
-          if (!hideEmpty || !filteredColumns.length || rowHasFilteredValue(fcId, filteredColumns, valueMap)) {
-            visibleNonSection++;
-          }
-        }
-        html += renderFilterBar(allPlanColumns, columnFilter, totalNonSection, visibleNonSection, assigneeFilter);
 
         if (items.length === 0) {
           html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no items added yet.</div></div>';
@@ -3022,18 +2811,7 @@
             html += '</tr>';
             continue;
           }
-          // 5.1: Row-level filtering — hide or de-emphasize rows with no filtered column value
-          var rowHasValue = !filteredColumns.length || rowHasFilteredValue(itemId, filteredColumns, valueMap);
-          var isRowFiltered = hideEmpty && filteredColumns.length && !rowHasValue && !showAllRows;
-          // 5.4: Assignee highlighting
-          var isAssigneeMatch = assigneeFilter && itemMatchesAssignee(item, assigneeFilter);
-          var isAssigneeDim = assigneeFilter && !isAssigneeMatch;
-          var rowClasses = [];
-          if (isCurrent) rowClasses.push('current-row');
-          if (isRowFiltered) rowClasses.push('row-filtered');
-          if (isAssigneeMatch) rowClasses.push('row-assignee-match');
-          if (isAssigneeDim && !isCurrent) rowClasses.push('row-assignee-dim');
-          html += '<tr' + (rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '') + '>';
+          html += '<tr' + (isCurrent ? ' class="current-row"' : '') + '>';
           html += '<td class="num">' + esc(String(item.sequence || (j + 1))) + '</td>';
           html += '<td class="color-cell"><div class="color-bar" style="background:' + colorForType(item.itemType) + '"></div></td>';
           if (showTitle) {
@@ -3083,78 +2861,6 @@
 
         document.getElementById('app').innerHTML = html;
         lastUpdated = plan.updatedAt;
-
-        // 5.2: Bind filter bar interactions
-        bindFilterBar(allPlanColumns);
-
-        // 5.3: My Next Cue floating card (only when column filter active and show is live)
-        var existingCard = document.getElementById('next-cue-card');
-        if (existingCard) existingCard.remove();
-        if (liveState && liveState.isLive !== false && columnFilter && columnFilter.length && !nextCueDismissed) {
-          var nextCueData = computeNextCue(items, currentIndex, filteredColumns, valueMap);
-          if (nextCueData) {
-            var minutesEta = estimateMinutesUntil(items, currentIndex, nextCueData.index, liveState);
-            var cardHtml = renderNextCueCard(nextCueData, minutesEta);
-            if (cardHtml) {
-              var cardContainer = document.createElement('div');
-              cardContainer.innerHTML = cardHtml;
-              document.body.appendChild(cardContainer.firstChild);
-              var dismissBtn = document.getElementById('next-cue-dismiss');
-              if (dismissBtn) {
-                dismissBtn.addEventListener('click', function () {
-                  nextCueDismissed = true;
-                  var card = document.getElementById('next-cue-card');
-                  if (card) card.remove();
-                });
-              }
-            }
-          }
-        }
-        // 5.3/5.4: Combined "You're up next" for assignee filter
-        if (liveState && liveState.isLive !== false && assigneeFilter && !nextCueDismissed) {
-          var assigneeNextIdx = null;
-          for (var an = (currentIndex || 0) + 1; an < items.length; an++) {
-            if (!isSectionItem(items[an]) && itemMatchesAssignee(items[an], assigneeFilter)) {
-              assigneeNextIdx = an;
-              break;
-            }
-          }
-          if (assigneeNextIdx !== null && !document.getElementById('next-cue-card')) {
-            var aMinutes = estimateMinutesUntil(items, currentIndex, assigneeNextIdx, liveState);
-            var aItem = items[assigneeNextIdx];
-            var aEta = aMinutes !== null ? "You're up next in ~" + aMinutes + ' minute' + (aMinutes !== 1 ? 's' : '') : "You're up next";
-            var aCardHtml = '<div class="next-cue-card" id="next-cue-card">';
-            aCardHtml += '<div class="next-cue-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></div>';
-            aCardHtml += '<div class="next-cue-card-body">';
-            aCardHtml += '<div class="next-cue-card-label">Your next</div>';
-            aCardHtml += '<div class="next-cue-card-title">' + esc(aItem.title || 'Untitled') + '</div>';
-            aCardHtml += '<div class="next-cue-card-eta">' + esc(aEta) + '</div>';
-            aCardHtml += '</div>';
-            aCardHtml += '<button class="next-cue-card-dismiss" id="next-cue-dismiss" title="Dismiss">&times;</button>';
-            aCardHtml += '</div>';
-            var aContainer = document.createElement('div');
-            aContainer.innerHTML = aCardHtml;
-            document.body.appendChild(aContainer.firstChild);
-            var aDismiss = document.getElementById('next-cue-dismiss');
-            if (aDismiss) {
-              aDismiss.addEventListener('click', function () {
-                nextCueDismissed = true;
-                var card = document.getElementById('next-cue-card');
-                if (card) card.remove();
-              });
-            }
-          }
-        }
-
-        // 4.3: Orientation banner dismiss handler
-        var orientationDismiss = document.getElementById('orientation-dismiss');
-        if (orientationDismiss) {
-          orientationDismiss.addEventListener('click', function() {
-            localStorage.setItem(orientationKey, 'true');
-            var banner = document.getElementById('orientation-banner');
-            if (banner) banner.style.display = 'none';
-          });
-        }
 
         // Keep "updated X ago" label live
         if (updatedClockTimer) clearInterval(updatedClockTimer);
@@ -3294,208 +3000,6 @@
           '</div>';
       }
 
-      // ── WebSocket transport (6.2) ──
-      var viewWs = null;
-      var viewWsReconnectTimer = null;
-      var viewWsReconnectDelay = 1000;
-      var viewWsConnected = false;
-      var viewServerTimeOffset = 0;
-      var viewLastWsCueIndex = null;
-
-      function viewComputeServerOffset(serverTs) {
-        if (!serverTs) return;
-        viewServerTimeOffset = Date.now() - serverTs;
-      }
-
-      function viewConnectWebSocket() {
-        if (viewWs && (viewWs.readyState === WebSocket.OPEN || viewWs.readyState === WebSocket.CONNECTING)) return;
-        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = proto + '//' + location.host + '/rundown-view?token=' + encodeURIComponent(token);
-        try { viewWs = new WebSocket(wsUrl); } catch (e) { viewStartPolling(); return; }
-
-        viewWs.onopen = function() {
-          viewWsConnected = true;
-          viewWsReconnectDelay = 1000;
-          viewStopPolling();
-          consecutiveLoadFailures = 0;
-          if (viewConnBanner) viewConnBanner.classList.remove('visible');
-        };
-
-        viewWs.onmessage = function(event) {
-          try {
-            var msg = JSON.parse(event.data);
-            if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
-              viewComputeServerOffset(msg.server_timestamp);
-              viewHandleTimerWs(msg);
-            } else if (msg.type === 'rundown_ended') {
-              viewComputeServerOffset(msg.server_timestamp);
-              if (lastPlan) {
-                lastPlan.liveState = { isLive: false, currentCueIndex: -1, timer: null };
-                render(lastPlan);
-              }
-              viewFireCueNotification(null, 'Show ended');
-            }
-          } catch (e) { /* ignore */ }
-        };
-
-        viewWs.onclose = function() {
-          viewWsConnected = false;
-          viewWs = null;
-          viewStartPolling();
-          viewScheduleWsReconnect();
-        };
-
-        viewWs.onerror = function() {};
-
-        var hb = setInterval(function() {
-          if (viewWs && viewWs.readyState === WebSocket.OPEN) {
-            viewWs.send(JSON.stringify({ type: 'ping' }));
-          } else {
-            clearInterval(hb);
-          }
-        }, 25000);
-      }
-
-      function viewScheduleWsReconnect() {
-        if (viewWsReconnectTimer) clearTimeout(viewWsReconnectTimer);
-        viewWsReconnectTimer = setTimeout(function() {
-          viewConnectWebSocket();
-        }, viewWsReconnectDelay);
-        viewWsReconnectDelay = Math.min(viewWsReconnectDelay * 1.5, 10000);
-      }
-
-      function viewStartPolling() {
-        viewStopPolling();
-        refreshTimer = setInterval(load, refreshIntervalMs);
-      }
-
-      function viewStopPolling() {
-        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-      }
-
-      function viewHandleTimerWs(timer) {
-        if (!lastPlan) return;
-        consecutiveLoadFailures = 0;
-        if (viewConnBanner) viewConnBanner.classList.remove('visible');
-
-        var prevCueIndex = viewLastWsCueIndex;
-        var newCueIndex = timer.cue_index != null ? timer.cue_index : -1;
-
-        if (timer.is_live) {
-          lastPlan.liveState = {
-            isLive: true,
-            currentCueIndex: newCueIndex,
-            startedAt: timer.started_at,
-            currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : Date.now(),
-            elapsedSeconds: timer.elapsed_seconds,
-            remainingSeconds: timer.remaining_seconds,
-            overtimeSeconds: timer.overtime_seconds || 0,
-            nextCueTitle: timer.next_cue_title || null,
-            nextCueIndex: timer.next_cue_index,
-            nextCueDuration: timer.next_cue_duration,
-            timer: timer,
-          };
-        } else {
-          lastPlan.liveState = { isLive: false, currentCueIndex: -1, timer: null };
-        }
-
-        lastUpdated = new Date();
-        render(lastPlan);
-
-        // Detect cue change for notifications (6.3)
-        if (prevCueIndex !== null && newCueIndex !== prevCueIndex && timer.is_live) {
-          var cueTitle = timer.cue_title || ('Cue ' + (newCueIndex + 1));
-          viewFireCueNotification(newCueIndex, cueTitle);
-        }
-        viewLastWsCueIndex = timer.is_live ? newCueIndex : null;
-      }
-
-      // ── Cue-change notification system (6.3) ──
-      var notifyEnabled = false;
-      var notifyPermission = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
-      var toolbarNotify = document.getElementById('btn-notify');
-      var notifyChimeUrl = null; // could be set to an audio file URL
-
-      function toggleNotify() {
-        if (!notifyEnabled) {
-          if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-            Notification.requestPermission().then(function(perm) {
-              notifyPermission = perm;
-              enableNotify();
-            });
-          } else {
-            enableNotify();
-          }
-        } else {
-          notifyEnabled = false;
-          if (toolbarNotify) toolbarNotify.classList.remove('active');
-          localStorage.removeItem('tally.rundown-notify:' + token);
-        }
-      }
-
-      function enableNotify() {
-        notifyEnabled = true;
-        if (toolbarNotify) toolbarNotify.classList.add('active');
-        localStorage.setItem('tally.rundown-notify:' + token, '1');
-      }
-
-      // Restore saved preference
-      if (localStorage.getItem('tally.rundown-notify:' + token) === '1') {
-        enableNotify();
-      }
-
-      function viewFireCueNotification(cueIndex, cueTitle) {
-        if (!notifyEnabled) return;
-
-        // When assignee or column filter is active, only notify for relevant cues
-        if (lastPlan && cueIndex !== null) {
-          var items = lastPlan.items || [];
-          var item = items[cueIndex];
-          if (item) {
-            // Assignee filter check
-            if (assigneeFilter && !itemMatchesAssignee(item, assigneeFilter)) return;
-            // Column filter check: skip if no filtered column has a value for this item
-            if (columnFilter && columnFilter.length) {
-              var columns = getColumns(lastPlan).filter(function(c) {
-                for (var k = 0; k < columnFilter.length; k++) {
-                  if (String(columnFilter[k]) === String(c.id)) return true;
-                }
-                return false;
-              });
-              var valueMap = buildColumnValueMap(lastPlan, items, columns);
-              var itemId = item.id || item.itemId || item.item_id;
-              if (!rowHasFilteredValue(itemId, columns, valueMap)) return;
-            }
-          }
-        }
-
-        // Screen flash
-        var app = document.getElementById('app');
-        if (app) {
-          app.classList.remove('cue-flash');
-          void app.offsetWidth; // force reflow
-          app.classList.add('cue-flash');
-          setTimeout(function() { app.classList.remove('cue-flash'); }, 1500);
-        }
-
-        // Browser notification
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          try {
-            var n = new Notification('Cue Change', {
-              body: cueTitle,
-              tag: 'rundown-cue-' + token,
-              renotify: true,
-            });
-            setTimeout(function() { n.close(); }, 5000);
-          } catch (e) { /* ignore */ }
-        }
-
-        // Audio chime (if configured)
-        if (notifyChimeUrl) {
-          try { new Audio(notifyChimeUrl).play(); } catch (e) { /* ignore */ }
-        }
-      }
-
       function load() {
         fetch(apiBase + '/api/public/rundown/' + encodeURIComponent(token))
           .then(function (r) {
@@ -3508,7 +3012,6 @@
           .then(function (plan) {
             consecutiveLoadFailures = 0;
             if (viewConnBanner) viewConnBanner.classList.remove('visible');
-            viewComputeServerOffset(plan.server_timestamp);
             render(plan);
             document.title = plan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
           })
@@ -3525,10 +3028,7 @@
           });
       }
 
-      // Initial load + start polling, then connect WS (WS stops polling on success)
       load();
-      viewStartPolling();
-      viewConnectWebSocket();
 
       if (toolbarHelp) toolbarHelp.addEventListener('click', function () { toggleHelp(); });
       if (toolbarMirror) toolbarMirror.addEventListener('click', function () { toggleMirror(); });
@@ -3536,9 +3036,10 @@
       if (toolbarTextDown) toolbarTextDown.addEventListener('click', function () { updateDisplayScale(-getScaleStep()); });
       if (toolbarTextUp) toolbarTextUp.addEventListener('click', function () { updateDisplayScale(getScaleStep()); });
       if (toolbarRefresh) toolbarRefresh.addEventListener('click', function () { load(); });
+      var toolbarThemeBtn = document.getElementById('btn-theme');
+      if (toolbarThemeBtn) toolbarThemeBtn.addEventListener('click', function () { toggleTheme(); });
       var toolbarPrint = document.getElementById('btn-print');
-      if (toolbarPrint) toolbarPrint.addEventListener('click', function () { printRundown(); });
-      if (toolbarNotify) toolbarNotify.addEventListener('click', function () { toggleNotify(); });
+      if (toolbarPrint) toolbarPrint.addEventListener('click', function () { window.print(); });
       if (toolbarColumns) toolbarColumns.addEventListener('click', function () { toggleColumnsPopover(); });
       if (colToggleBackdrop) colToggleBackdrop.addEventListener('click', function () { toggleColumnsPopover(false); });
       if (helpBackdrop) helpBackdrop.addEventListener('click', function () { toggleHelp(false); });
@@ -3596,19 +3097,19 @@
           setDisplayPrefs({ mirror: false, density: 'roomy', scale: 1, help: displayPrefs.help });
           return;
         }
-        if (key === 'n' || key === 'N') {
-          evt.preventDefault();
-          toggleNotify();
-          return;
-        }
         if (key === 'r' || key === 'R') {
           evt.preventDefault();
           load();
           return;
         }
+        if (key === 't' || key === 'T') {
+          evt.preventDefault();
+          toggleTheme();
+          return;
+        }
         if (key === 'p' || key === 'P') {
           evt.preventDefault();
-          printRundown();
+          window.print();
           return;
         }
         if (key === '1') {
@@ -3633,8 +3134,8 @@
         }
       });
 
-      // Polling is started by viewConnectWebSocket fallback or viewStartPolling.
-      // If WS connected, polling is stopped. If WS never connects, fallback fires.
+      // Auto-refresh faster in prompter mode so the active cue follows more closely.
+      refreshTimer = setInterval(load, refreshIntervalMs);
 
       // Toolbar auto-fade: full opacity for 10s then fade to 40%
       (function() {
