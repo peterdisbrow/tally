@@ -316,7 +316,7 @@
           <div style="display:flex;align-items:center;gap:8px">
             <span id="sp-state-label" style="font-size:12px;color:#8B9DAF;background:#0a1610;border:1px solid #0d3320;border-radius:6px;padding:3px 10px">OFF</span>
             <label style="position:relative;display:inline-block;width:36px;height:20px;cursor:pointer">
-              <input type="checkbox" id="sp-toggle" style="opacity:0;width:0;height:0" onchange="toggleStreamProtection(this.checked)">
+              <input type="checkbox" id="sp-toggle" style="opacity:0;width:0;height:0" data-action-change="toggleStreamProtection">
               <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:#1a3a2a;border-radius:10px;transition:background .2s"></span>
               <span id="sp-toggle-knob" style="position:absolute;top:2px;left:2px;width:16px;height:16px;background:#F0F2F4;border-radius:50%;transition:transform .2s"></span>
             </label>
@@ -330,7 +330,7 @@
         <div id="sp-event-row" style="font-size:13px;color:#8B9DAF;margin-bottom:8px;display:none"></div>
         <div id="sp-alert-row" style="display:none;padding:10px 14px;border-radius:8px;background:#1a1408;border:1px solid #7c4a1a;margin-bottom:8px">
           <div id="sp-alert-text" style="font-size:13px;color:#FFB74D;margin-bottom:8px"></div>
-          <button id="sp-restart-btn" class="btn-primary" style="font-size:12px;padding:5px 14px;display:none" onclick="streamProtectionRestart()">Restart Stream</button>
+          <button id="sp-restart-btn" class="btn-primary" data-action="streamProtectionRestart" style="font-size:12px;padding:5px 14px;display:none">Restart Stream</button>
         </div>
       </div>
 
@@ -857,16 +857,16 @@
             <span style="font-size:16px;">&#9673;</span>
             <span style="font-weight:600;font-size:13px;">Facebook</span>
             <span id="portal-oauth-fb-status" style="font-size:12px;color:#6B7280;flex:1">Not connected</span>
-            <button class="btn-primary" id="btn-portal-fb-connect" onclick="portalFbConnect()" style="font-size:12px;padding:6px 14px;">Connect Facebook</button>
+            <button class="btn-primary" id="btn-portal-fb-connect" data-action="portalFbConnect" style="font-size:12px;padding:6px 14px;">Connect Facebook</button>
           </div>
           <div id="portal-fb-page-selector" style="display:none;margin-top:10px;padding:10px;background:#060D08;border-radius:8px;">
             <label style="font-size:12px;color:#8B9DAF;">Select your Facebook Page:</label>
             <select id="portal-fb-page-select" style="width:100%;margin-top:4px;padding:6px;background:#0d3320;color:#e2e8f0;border:1px solid #1a3a2a;border-radius:4px;font-size:12px;"></select>
-            <button class="btn-primary" onclick="portalFbSelectPage()" style="margin-top:8px;font-size:12px;padding:6px 14px;">Use This Page</button>
+            <button class="btn-primary" data-action="portalFbSelectPage" style="margin-top:8px;font-size:12px;padding:6px 14px;">Use This Page</button>
           </div>
           <div id="portal-oauth-fb-expiry" style="display:none;margin-top:8px;padding:8px 10px;background:#7c4a1a22;border:1px solid #7c4a1a;border-radius:6px;font-size:12px;color:#FFB74D;">
             <span id="portal-oauth-fb-expiry-text"></span>
-            <button class="btn-primary" onclick="portalFbConnect()" style="margin-left:8px;font-size:11px;padding:4px 10px;">Reconnect</button>
+            <button class="btn-primary" data-action="portalFbConnect" style="margin-left:8px;font-size:11px;padding:4px 10px;">Reconnect</button>
           </div>
         </div>
 
@@ -942,7 +942,7 @@
             <div class="card-title" style="margin:0">&#9881; Equipment Roles <span id="roles-room-label" style="font-size:12px;color:#00E676;font-weight:normal;margin-left:8px"></span></div>
             <div style="display:flex;align-items:center;gap:8px">
               <span id="roles-auto-badge" style="display:none;font-size:11px;color:#3b82f6;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:6px;padding:2px 8px">Auto-detected</span>
-              <button class="btn-secondary" id="btn-save-roles" style="padding:4px 10px;font-size:11px" onclick="saveEquipmentRoles()">Save Roles</button>
+              <button class="btn-secondary" id="btn-save-roles" data-action="saveEquipmentRoles" style="padding:4px 10px;font-size:11px">Save Roles</button>
             </div>
           </div>
           <div id="roles-body" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -1251,7 +1251,7 @@
       <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" id="btn-open-add-macro" onclick="openMacroWizard()" data-i18n="macros.add_btn">+ New Macro</button>
+          <button class="btn-primary" id="btn-open-add-macro" data-action="openMacroWizard" data-i18n="macros.add_btn">+ New Macro</button>
         </div>
         <div id="macros-list">
           <div style="color:#556270;text-align:center;padding:20px;font-size:13px">Loading…</div>
@@ -1333,7 +1333,7 @@
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button class="btn-secondary" data-action="closeMacroModal">Cancel</button>
-            <button class="btn-primary" onclick="macroWizardNext()">Next: Add Commands</button>
+            <button class="btn-primary" data-action="macroWizardNext">Next: Add Commands</button>
           </div>
         </div>
         <!-- Step 2: Build command sequence -->
@@ -1341,29 +1341,29 @@
           <div style="margin-bottom:14px">
             <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500">Add a command</label>
             <div style="display:flex;gap:8px;margin-bottom:8px">
-              <select id="macro-cmd-category" onchange="macroWizardCategoryChange()" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1;min-width:0">
+              <select id="macro-cmd-category" data-action-change="macroWizardCategoryChange" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1;min-width:0">
                 <option value="">Category…</option>
               </select>
-              <select id="macro-cmd-template" onchange="macroWizardTemplateChange()" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1.4;min-width:0">
+              <select id="macro-cmd-template" data-action-change="macroWizardTemplateChange" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 10px;font-size:13px;flex:1.4;min-width:0">
                 <option value="">Command…</option>
               </select>
             </div>
             <div style="display:flex;gap:8px">
-              <input type="text" id="macro-cmd-text" placeholder="or type any command…" style="font-family:monospace;font-size:13px;flex:1" onkeydown="if(event.key==='Enter')macroWizardAddStep()">
-              <button class="btn-primary" onclick="macroWizardAddStep()" style="white-space:nowrap;flex-shrink:0">+ Add Step</button>
+              <input type="text" id="macro-cmd-text" placeholder="or type any command…" style="font-family:monospace;font-size:13px;flex:1" data-action-keydown="macroWizardAddStep">
+              <button class="btn-primary" data-action="macroWizardAddStep" style="white-space:nowrap;flex-shrink:0">+ Add Step</button>
             </div>
           </div>
           <div id="macro-steps-list"></div>
           <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px">
-            <button class="btn-secondary" onclick="macroWizardBack()">Back</button>
-            <button class="btn-primary" onclick="macroWizardNext()">Next: Review</button>
+            <button class="btn-secondary" data-action="macroWizardBack">Back</button>
+            <button class="btn-primary" data-action="macroWizardNext">Next: Review</button>
           </div>
         </div>
         <!-- Step 3: Review & Save -->
         <div id="macro-step-3" style="padding:20px;display:none">
           <div id="macro-review-content"></div>
           <div style="display:flex;gap:8px;justify-content:space-between;margin-top:20px">
-            <button class="btn-secondary" onclick="macroWizardBack()">Back</button>
+            <button class="btn-secondary" data-action="macroWizardBack">Back</button>
             <button class="btn-primary" id="btn-save-macro" data-action="saveMacro">Save Macro</button>
           </div>
         </div>
@@ -2027,7 +2027,7 @@
             <div style="margin-bottom:12px;color:#8B9DAF"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="32" height="32" aria-hidden="true"><path d="M8 1.75a.75.75 0 0 1 .75.75v.75h2A2.25 2.25 0 0 1 13 5.5v5A2.25 2.25 0 0 1 10.75 12.75h-5.5A2.25 2.25 0 0 1 3 10.5v-5A2.25 2.25 0 0 1 5.25 3.25h2V2.5A.75.75 0 0 1 8 1.75ZM5.5 6.5a1 1 0 1 0 2 0 1 1 0 0 0-2 0Zm4-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM5.5 9.5a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5Z"/></svg></div>
             <div style="font-size:16px;font-weight:600;color:#F0F2F4;margin-bottom:8px">Diagnostics Not Enabled</div>
             <div style="font-size:13px;color:#8B9DAF;margin-bottom:16px">Enable AI diagnostics on the Diagnostics page to see automated actions and recommendations here.</div>
-            <button class="btn-primary" onclick="showPage('ai-triage', document.querySelector('[data-page=ai-triage]'))">Go to Diagnostics <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.97 4.78a.75.75 0 0 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.47-2.47H2.75A.75.75 0 0 1 2 8Z" clip-rule="evenodd"/></svg></button>
+            <button class="btn-primary" data-action="showPage" data-page="ai-triage">Go to Diagnostics <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.97 4.78a.75.75 0 0 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.47-2.47H2.75A.75.75 0 0 1 2 8Z" clip-rule="evenodd"/></svg></button>
           </div>
         </div>
         <div id="rpt-ai-content" style="display:none">
@@ -2092,7 +2092,7 @@
       <!-- Error Banner -->
       <div id="ai-triage-error-banner" class="alert alert-danger" style="display:none;background:#991b1b;border:1px solid #FF5252;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#fca5a5;font-size:13px;align-items:center;justify-content:space-between">
         <span id="ai-triage-error-message"></span>
-        <button type="button" style="background:none;border:none;color:#fca5a5;font-size:18px;cursor:pointer;padding:0 4px" onclick="document.getElementById('ai-triage-error-banner').style.display='none'">&times;</button>
+        <button type="button" data-action="dismissAiError" style="background:none;border:none;color:#fca5a5;font-size:18px;cursor:pointer;padding:0 4px">&times;</button>
       </div>
 
       <!-- Time Context Banner -->
@@ -2379,10 +2379,10 @@
           <!-- Timing bar -->
           <div class="card" style="margin-bottom:12px;padding:10px 18px;display:flex;align-items:center;gap:16px">
             <label style="font-size:12px;color:#8B9DAF;font-weight:600;white-space:nowrap">Start Time</label>
-            <input type="time" id="rundown-start-time" value="09:00" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark" data-action="rundownStartTimeChange">
+            <input type="time" id="rundown-start-time" value="09:00" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark">
             <div style="flex:1"></div>
             <label style="font-size:12px;color:#8B9DAF;font-weight:600;white-space:nowrap">Target End</label>
-            <input type="time" id="rundown-end-time" value="" placeholder="--:--" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark" data-action="rundownEndTimeChange">
+            <input type="time" id="rundown-end-time" value="" placeholder="--:--" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark">
             <div id="rundown-over-under" style="font-size:13px;font-weight:700;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;min-width:80px;text-align:right"></div>
           </div>
 
