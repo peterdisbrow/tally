@@ -714,6 +714,9 @@
           <div class="page-sub" data-i18n="rooms.page_sub">Manage rooms, equipment configuration, and service schedule</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
+          <div id="eq-room-selector-wrap" style="display:none">
+            <select id="eq-room-selector" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:6px 10px;font-size:13px;min-width:140px"></select>
+          </div>
           <button class="help-icon-btn" data-action="openHelp" data-help-page="rooms" title="Help with Rooms">?</button>
         </div>
       </div>
@@ -759,13 +762,6 @@
           </div>
         </div>
 
-        <!-- Room Selector -->
-        <div id="eq-room-selector-wrap" style="display:none;margin-bottom:16px;padding:12px 16px;background:#0a1610;border:1px solid #0d3320;border-radius:8px">
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <label style="font-size:13px;font-weight:600;color:#F0F2F4;white-space:nowrap">Room:</label>
-            <select id="eq-room-selector" style="flex:1;min-width:180px;background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:8px 12px;font-size:14px"></select>
-          </div>
-        </div>
 
         <!-- Video Switcher -->
         <div class="card advanced-only" style="margin-bottom:16px">
