@@ -2297,9 +2297,12 @@
         <!-- Plan editor (shown when a plan is selected) -->
         <div id="rundown-editor" style="display:none">
           <!-- Presence bar: shows other editors -->
-          <div id="rundown-presence-bar" style="display:none;margin-bottom:8px;padding:6px 14px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:12px;color:#8B9DAF;display:flex;align-items:center;gap:8px">
-            <div id="rundown-presence-avatars" style="display:flex;gap:-4px;align-items:center"></div>
-            <span id="rundown-presence-text"></span>
+          <div id="rundown-presence-bar" style="display:none;margin-bottom:8px;padding:8px 14px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:8px;font-size:12px;color:#8B9DAF;display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+              <div id="rundown-presence-avatars" style="display:flex;gap:-4px;align-items:center"></div>
+              <span id="rundown-presence-text" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            </div>
+            <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:11px;padding:4px 10px;white-space:nowrap">Team Access</button>
           </div>
 
           <!-- Header card with plan info -->
@@ -2328,11 +2331,12 @@
                   <option value="archived">Archived</option>
                 </select>
                 <span id="rundown-shared-badge" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Shared</span>
-                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:4px 10px">Share</button>
+                <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:12px;padding:4px 10px">Team</button>
+                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:4px 10px">Outputs</button>
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
                 <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
-                <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:4px 10px">Share</button>
-                <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:4px 10px" title="Open countdown timer for speakers">Timer Display</button>
+                <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:4px 10px" title="Open the public rundown in a new tab">Public View</button>
+                <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:4px 10px" title="Open the default countdown timer display">Timer View</button>
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
               </div>
             </div>
@@ -2562,34 +2566,28 @@
 
     <!-- Share / Guest Pass Modal -->
     <div class="modal-backdrop" id="modal-rundown-share">
-      <div class="modal" style="max-width:480px">
+      <div class="modal" style="max-width:640px">
         <div class="modal-header">
-          <div class="modal-title">Share Rundown</div>
+          <div class="modal-title">Rundown Outputs</div>
           <button class="modal-close" id="rundown-share-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
         <div style="padding:0 20px 20px">
           <div id="rundown-share-loading" style="text-align:center;padding:24px;color:#556270;font-size:13px">Loading&hellip;</div>
           <div id="rundown-share-content" style="display:none">
-            <div style="font-size:13px;color:#8B9DAF;margin-bottom:16px;line-height:1.5">Anyone with these links can view the rundown in read-only mode. The guest link expires after 7 days. The timer and operator output links are built from the same public share token.</div>
-            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
-              <div>
-                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Public rundown link</div>
-                <div style="display:flex;gap:8px;align-items:stretch">
-                  <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-url"></div>
-                  <button class="btn-primary" id="rundown-share-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
-                </div>
-              </div>
-              <div>
-                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Timer link</div>
-                <div style="display:flex;gap:8px;align-items:stretch">
-                  <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-timer-url"></div>
-                  <button class="btn-primary" id="rundown-share-timer-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
-                </div>
-              </div>
+            <div id="rundown-share-intro" style="font-size:13px;color:#8B9DAF;margin-bottom:16px;line-height:1.5">Choose the output your team needs. One share token powers read-only public views, countdown timers, and department-specific feeds.</div>
+            <div id="rundown-share-demo-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+              <button class="btn-primary" id="rundown-share-launch-demo-btn" style="font-size:12px;padding:7px 14px">Launch Demo Set</button>
+              <button class="btn-secondary" id="rundown-share-copy-demo-btn" style="font-size:12px;padding:7px 14px">Copy Setup Notes</button>
             </div>
+            <div id="rundown-share-output-suite" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px"></div>
             <div id="rundown-share-operator-wrap" style="display:none;margin-bottom:16px">
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Operator outputs</div>
-              <div style="font-size:12px;color:#8B9DAF;margin-bottom:10px;line-height:1.45">Quick-copy filtered public links for each custom column.</div>
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
+                <div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Column feeds</div>
+                  <div style="font-size:12px;color:#8B9DAF;line-height:1.45">Quick-copy filtered public links for each custom column.</div>
+                </div>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Optional</span>
+              </div>
               <div id="rundown-share-operator-links" style="display:flex;flex-direction:column;gap:8px"></div>
             </div>
             <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
@@ -2598,6 +2596,84 @@
             </div>
           </div>
           <div id="rundown-share-error" style="display:none;text-align:center;padding:16px;color:#FF5252;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="modal-rundown-collaborators">
+      <div class="modal" style="max-width:720px">
+        <div class="modal-header">
+          <div class="modal-title">Team Access</div>
+          <button class="modal-close" id="rundown-collaborators-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div style="font-size:13px;color:#8B9DAF;margin-bottom:16px;line-height:1.55">Each browser can keep a stable station key for demos and rehearsals. Set a name for this station, then manage who can edit or view this rundown from the same panel.</div>
+          <div class="card" style="margin-bottom:16px;padding:14px 16px">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:#F0F2F4">Quick Setup Recipe</div>
+                <div style="font-size:12px;color:#556270;margin-top:4px;line-height:1.55">Keep one station as the caller or producer, make operator stations editors, and mark public-only devices as viewers so your team demo clearly shows active workstations and read-only displays.</div>
+              </div>
+              <button class="btn-secondary" id="rundown-collaborators-copy-note" style="font-size:12px;padding:7px 14px;white-space:nowrap">Copy Setup Notes</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:rgba(0,230,118,0.12);color:#00E676">Owner manages access</span>
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:rgba(66,165,245,0.10);color:#81D4FA">Editor can run the show</span>
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.05);color:#D0D8E0">Viewer stays read only</span>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:16px;padding:14px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:#F0F2F4">This Station</div>
+                <div style="font-size:12px;color:#556270;margin-top:2px">Use a friendly label and keep the same station key on shared operator devices.</div>
+              </div>
+              <div id="rundown-collaborators-self-role" style="font-size:11px;color:#8B9DAF"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end">
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">Station name</span>
+                <input id="rundown-station-name" type="text" placeholder="Front of house MacBook" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px 10px;font-size:13px">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">Station key</span>
+                <input id="rundown-station-key" type="text" placeholder="foh-macbook" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px 10px;font-size:13px;font-family:ui-monospace,monospace">
+              </label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn-secondary" id="rundown-station-copy-key" style="font-size:12px;padding:8px 14px;white-space:nowrap">Copy Key</button>
+                <button class="btn-primary" id="rundown-station-save" style="font-size:12px;padding:8px 14px;white-space:nowrap">Save Station</button>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:16px;padding:14px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:#F0F2F4">Add Team Station</div>
+                <div style="font-size:12px;color:#556270;margin-top:2px">Use the same station key shown on an operator device to give it editor or view-only access.</div>
+              </div>
+              <div id="rundown-collaborators-summary" style="font-size:11px;color:#556270"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">Station key</span>
+                <input id="rundown-collaborator-key" type="text" placeholder="stage-ipad" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px 10px;font-size:13px;font-family:ui-monospace,monospace">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">Display name</span>
+                <input id="rundown-collaborator-name" type="text" placeholder="Stage Manager iPad" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px 10px;font-size:13px">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">Role</span>
+                <select id="rundown-collaborator-role" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px 10px;font-size:13px;color-scheme:dark">
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </label>
+              <button class="btn-primary" id="rundown-collaborator-add" style="font-size:12px;padding:8px 14px;white-space:nowrap">Save Team Access</button>
+            </div>
+          </div>
+          <div id="rundown-collaborators-list" style="display:flex;flex-direction:column;gap:10px"></div>
         </div>
       </div>
     </div>

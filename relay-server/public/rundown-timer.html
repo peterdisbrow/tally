@@ -36,6 +36,11 @@
     justify-content: center;
     overflow: hidden;
     transition: background 0.3s, color 0.3s;
+    --display-scale: 1;
+  }
+  body.mirror-mode .container {
+    transform: scaleX(-1);
+    transform-origin: center top;
   }
   .container {
     width: 100%;
@@ -63,7 +68,7 @@
     align-items: flex-start;
   }
   .cue-title {
-    font-size: clamp(24px, 5vw, 48px);
+    font-size: clamp(24px, calc(5vw * var(--display-scale)), 48px);
     font-weight: 800;
     color: var(--text-primary);
     line-height: 1.2;
@@ -74,7 +79,7 @@
   }
   .timer-display {
     font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-    font-size: clamp(72px, 20vw, 200px);
+    font-size: clamp(72px, calc(20vw * var(--display-scale)), 200px);
     font-weight: 800;
     letter-spacing: -4px;
     line-height: 1;
@@ -82,11 +87,11 @@
     transition: color 0.3s;
   }
   .stage-mode .timer-display {
-    font-size: clamp(88px, 16vw, 240px);
+    font-size: clamp(88px, calc(16vw * var(--display-scale)), 240px);
     letter-spacing: -6px;
   }
   .timer-label {
-    font-size: clamp(12px, 2vw, 16px);
+    font-size: clamp(12px, calc(2vw * var(--display-scale)), 16px);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 2px;
@@ -114,7 +119,7 @@
     max-width: none;
   }
   .next-cue {
-    font-size: clamp(14px, 2.5vw, 20px);
+    font-size: clamp(14px, calc(2.5vw * var(--display-scale)), 20px);
     color: var(--text-muted);
     max-width: 100%;
     overflow: hidden;
@@ -122,7 +127,7 @@
     white-space: nowrap;
   }
   .next-cue-label {
-    font-size: clamp(10px, 1.5vw, 13px);
+    font-size: clamp(10px, calc(1.5vw * var(--display-scale)), 13px);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -162,13 +167,13 @@
     color: #8B9DAF;
   }
   .stage-title {
-    font-size: clamp(18px, 2.2vw, 26px);
+    font-size: clamp(18px, calc(2.2vw * var(--display-scale)), 26px);
     font-weight: 800;
     color: var(--text-primary);
     line-height: 1.25;
   }
   .stage-subtitle {
-    font-size: 13px;
+    font-size: calc(13px * var(--display-scale));
     color: var(--text-secondary);
     line-height: 1.45;
     margin-top: 4px;
@@ -193,7 +198,7 @@
     font-weight: 700;
   }
   .stage-stat-value {
-    font-size: 14px;
+    font-size: calc(14px * var(--display-scale));
     font-weight: 700;
     color: var(--text-primary);
     line-height: 1.3;
@@ -218,14 +223,14 @@
     margin-bottom: 10px;
   }
   .stage-panel-hero {
-    font-size: clamp(22px, 2.8vw, 36px);
+    font-size: clamp(22px, calc(2.8vw * var(--display-scale)), 36px);
     font-weight: 800;
     color: var(--text-primary);
     line-height: 1.18;
     margin-bottom: 8px;
   }
   .stage-panel-copy {
-    font-size: 14px;
+    font-size: calc(14px * var(--display-scale));
     color: var(--text-secondary);
     line-height: 1.5;
   }
@@ -290,7 +295,101 @@
     font-size: 12px;
     font-weight: 600;
   }
+  .toolbar button.active {
+    color: var(--green);
+    border-color: rgba(0,230,118,0.18);
+    background: rgba(0,230,118,0.08);
+  }
   .toolbar button:hover { color: var(--text-primary); }
+  .toolbar .toolbar-divider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 0 2px;
+  }
+  .toolbar button.secondary {
+    color: var(--text-muted);
+  }
+  .toolbar button.secondary:hover {
+    color: var(--text-primary);
+  }
+  .help-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,8,7,0.62);
+    backdrop-filter: blur(8px);
+    z-index: 12;
+    display: none;
+  }
+  .help-panel {
+    position: fixed;
+    top: 72px;
+    right: 12px;
+    width: min(420px, calc(100vw - 24px));
+    z-index: 13;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: rgba(16,18,24,0.96);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.38);
+  }
+  .help-panel-title {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .help-panel-copy {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+  }
+  .help-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .help-item {
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+  }
+  .help-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .help-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+  .help-text {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+  }
+  body.help-open {
+    overflow: hidden;
+  }
+  body.help-open .help-backdrop,
+  body.help-open .help-panel {
+    display: flex;
+  }
   .status-bar {
     position: fixed;
     bottom: 12px;
@@ -339,10 +438,33 @@
 </head>
 <body>
   <div class="toolbar">
+    <button id="btn-help" class="secondary" title="Keyboard shortcuts (?)">Help</button>
+    <button id="btn-mirror" class="secondary" title="Mirror the output (M)">Mirror</button>
+    <button id="btn-text-down" class="secondary" title="Smaller text (-)">A-</button>
+    <button id="btn-text-up" class="secondary" title="Larger text (+)">A+</button>
+    <span class="toolbar-divider" aria-hidden="true"></span>
     <button id="btn-theme" title="Toggle light/dark theme">Light</button>
     <button id="btn-fullscreen" title="Fullscreen">Fullscreen</button>
+    <button id="btn-refresh" class="secondary" title="Refresh now (R)">Refresh</button>
     <button id="btn-mode" title="Switch display mode">Stage</button>
+    <button id="btn-prompter" title="Open the prompter view">Prompter</button>
   </div>
+
+  <div class="help-backdrop" id="help-backdrop"></div>
+  <section class="help-panel" id="help-panel" aria-label="Keyboard shortcuts" aria-hidden="true">
+    <div class="help-panel-title">Keyboard shortcuts</div>
+    <div class="help-panel-copy">These controls keep the timer hands-off during a demo. Text size and mirror mode stay local to this browser.</div>
+    <div class="help-grid">
+      <div class="help-item"><div class="help-key">?</div><div class="help-label">Help</div><div class="help-text">Open or close this shortcut sheet.</div></div>
+      <div class="help-item"><div class="help-key">M</div><div class="help-label">Mirror</div><div class="help-text">Flip the active display for mirrored monitors or teleprompter use.</div></div>
+      <div class="help-item"><div class="help-key">- / +</div><div class="help-label">Text size</div><div class="help-text">Make the timer and stage text smaller or larger.</div></div>
+      <div class="help-item"><div class="help-key">R</div><div class="help-label">Refresh</div><div class="help-text">Pull the latest timer state immediately.</div></div>
+      <div class="help-item"><div class="help-key">1</div><div class="help-label">Timer</div><div class="help-text">Jump to the standard countdown surface.</div></div>
+      <div class="help-item"><div class="help-key">2</div><div class="help-label">Stage</div><div class="help-text">Jump to the stage-style output.</div></div>
+      <div class="help-item"><div class="help-key">3</div><div class="help-label">Prompter</div><div class="help-text">Open the public prompter view.</div></div>
+      <div class="help-item"><div class="help-key">F</div><div class="help-label">Fullscreen</div><div class="help-text">Use the browser's fullscreen mode for the display.</div></div>
+    </div>
+  </section>
 
   <div class="status-bar">
     <div class="status-dot" id="status-dot"></div>
@@ -430,6 +552,7 @@
   var displayMode = (params.get('mode') || '').toLowerCase();
   var isStageMode = displayMode === 'stage' || displayMode === 'confidence';
   if (isStageMode) document.body.classList.add('stage-mode');
+  var displayStorageKey = 'tally.rundown-timer-display:' + token;
 
   // DOM refs
   var waitingScreen = document.getElementById('waiting-screen');
@@ -444,6 +567,14 @@
   var statusText = document.getElementById('status-text');
   var waitingTitle = document.getElementById('waiting-title');
   var btnMode = document.getElementById('btn-mode');
+  var btnPrompter = document.getElementById('btn-prompter');
+  var btnHelp = document.getElementById('btn-help');
+  var btnMirror = document.getElementById('btn-mirror');
+  var btnTextDown = document.getElementById('btn-text-down');
+  var btnTextUp = document.getElementById('btn-text-up');
+  var btnRefresh = document.getElementById('btn-refresh');
+  var helpBackdrop = document.getElementById('help-backdrop');
+  var helpPanel = document.getElementById('help-panel');
   var stageSide = document.getElementById('stage-side');
   var stagePlanTitle = document.getElementById('stage-plan-title');
   var stagePlanSubtitle = document.getElementById('stage-plan-subtitle');
@@ -465,6 +596,11 @@
   var isLive = false;
   var lastState = null;
   var pollTimer = null;
+  var displayPrefs = {
+    mirror: false,
+    scale: 1,
+    help: false,
+  };
 
   function formatTime(seconds) {
     if (seconds == null || seconds < 0) seconds = 0;
@@ -483,10 +619,120 @@
       .replace(/"/g, '&quot;');
   }
 
+  function clampScale(value) {
+    var num = Number(value);
+    if (!isFinite(num) || num <= 0) return 1;
+    return Math.max(0.9, Math.min(1.18, Math.round(num * 100) / 100));
+  }
+
+  function getScaleStep() {
+    return displayPrefs.scale >= 1.08 ? 0.08 : 0.06;
+  }
+
+  function readStoredPrefs() {
+    try {
+      var raw = window.localStorage.getItem(displayStorageKey);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function writeStoredPrefs() {
+    try {
+      window.localStorage.setItem(displayStorageKey, JSON.stringify({
+        mirror: !!displayPrefs.mirror,
+        scale: displayPrefs.scale || 1,
+      }));
+    } catch (err) {}
+  }
+
+  function syncDisplayState() {
+    document.body.classList.toggle('mirror-mode', !!displayPrefs.mirror);
+    document.body.classList.toggle('help-open', !!displayPrefs.help);
+    document.body.style.setProperty('--display-scale', String(displayPrefs.scale || 1));
+    if (btnHelp) btnHelp.classList.toggle('active', !!displayPrefs.help);
+    if (btnMirror) {
+      btnMirror.classList.toggle('active', !!displayPrefs.mirror);
+      btnMirror.textContent = displayPrefs.mirror ? 'Mirror on' : 'Mirror';
+    }
+    if (btnTextDown) btnTextDown.classList.remove('active');
+    if (btnTextUp) btnTextUp.classList.remove('active');
+  }
+
+  function syncDisplayUrl() {
+    var url = new URL(window.location.href);
+    if (displayPrefs.mirror) url.searchParams.set('mirror', '1');
+    else url.searchParams.delete('mirror');
+    if (Math.abs((displayPrefs.scale || 1) - 1) > 0.001) url.searchParams.set('scale', String(displayPrefs.scale));
+    else url.searchParams.delete('scale');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+
+  function setDisplayPrefs(next) {
+    displayPrefs.mirror = !!next.mirror;
+    displayPrefs.scale = clampScale(next.scale);
+    displayPrefs.help = !!next.help;
+    syncDisplayState();
+    syncDisplayUrl();
+    writeStoredPrefs();
+  }
+
+  function updateDisplayScale(delta) {
+    setDisplayPrefs({
+      mirror: displayPrefs.mirror,
+      scale: clampScale(displayPrefs.scale + delta),
+      help: displayPrefs.help,
+    });
+  }
+
+  function toggleMirror() {
+    setDisplayPrefs({
+      mirror: !displayPrefs.mirror,
+      scale: displayPrefs.scale,
+      help: displayPrefs.help,
+    });
+  }
+
+  function toggleHelp(force) {
+    setDisplayPrefs({
+      mirror: displayPrefs.mirror,
+      scale: displayPrefs.scale,
+      help: typeof force === 'boolean' ? force : !displayPrefs.help,
+    });
+  }
+
+  function goToUrl(nextMode) {
+    var url = new URL(window.location.href);
+    if (nextMode) url.searchParams.set('mode', nextMode);
+    else url.searchParams.delete('mode');
+    window.location.href = url.pathname + url.search + url.hash;
+  }
+
+  var storedPrefs = readStoredPrefs();
+  displayPrefs.mirror = params.get('mirror') === '1' || !!(storedPrefs && storedPrefs.mirror);
+  displayPrefs.scale = clampScale(params.get('scale') || (storedPrefs && storedPrefs.scale) || 1);
+  displayPrefs.help = params.get('help') === '1';
+  syncDisplayState();
+  syncDisplayUrl();
+  writeStoredPrefs();
+
   function buildModeUrl(nextMode) {
     var url = new URL(window.location.href);
     if (nextMode) url.searchParams.set('mode', nextMode);
     else url.searchParams.delete('mode');
+    return url.pathname + url.search + url.hash;
+  }
+
+  function buildRundownUrl(nextMode) {
+    var url = new URL(window.location.href);
+    url.pathname = '/rundown/view/' + encodeURIComponent(token);
+    if (nextMode) url.searchParams.set('mode', nextMode);
+    else url.searchParams.delete('mode');
+    if (roomId) url.searchParams.set('room', roomId);
+    else url.searchParams.delete('room');
     return url.pathname + url.search + url.hash;
   }
 
@@ -715,6 +961,101 @@
     window.location.href = buildModeUrl(isStageMode ? '' : 'stage');
   });
   btnMode.textContent = isStageMode ? 'Timer' : 'Stage';
+
+  btnPrompter.addEventListener('click', function() {
+    window.location.href = buildRundownUrl('prompter');
+  });
+
+  if (btnHelp) {
+    btnHelp.addEventListener('click', function() {
+      toggleHelp();
+    });
+  }
+  if (btnMirror) {
+    btnMirror.addEventListener('click', function() {
+      toggleMirror();
+    });
+  }
+  if (btnTextDown) {
+    btnTextDown.addEventListener('click', function() {
+      updateDisplayScale(-getScaleStep());
+    });
+  }
+  if (btnTextUp) {
+    btnTextUp.addEventListener('click', function() {
+      updateDisplayScale(getScaleStep());
+    });
+  }
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', function() {
+      fetchTimerState();
+    });
+  }
+  if (helpBackdrop) {
+    helpBackdrop.addEventListener('click', function() {
+      toggleHelp(false);
+    });
+  }
+
+  document.addEventListener('keydown', function(evt) {
+    if (!evt) return;
+    var tag = evt.target && evt.target.tagName ? evt.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || evt.metaKey || evt.ctrlKey || evt.altKey) return;
+    if (evt.key === '?') {
+      evt.preventDefault();
+      toggleHelp();
+      return;
+    }
+    if (evt.key === 'Escape' && displayPrefs.help) {
+      evt.preventDefault();
+      toggleHelp(false);
+      return;
+    }
+    var key = String(evt.key || '').toLowerCase();
+    if (key === 'm') {
+      evt.preventDefault();
+      toggleMirror();
+      return;
+    }
+    if (key === '-' || key === '_') {
+      evt.preventDefault();
+      updateDisplayScale(-getScaleStep());
+      return;
+    }
+    if (key === '+' || key === '=') {
+      evt.preventDefault();
+      updateDisplayScale(getScaleStep());
+      return;
+    }
+    if (key === 'r') {
+      evt.preventDefault();
+      fetchTimerState();
+      return;
+    }
+    if (key === 'f') {
+      evt.preventDefault();
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(function(){});
+      } else {
+        document.exitFullscreen().catch(function(){});
+      }
+      return;
+    }
+    if (key === '1') {
+      evt.preventDefault();
+      goToUrl('');
+      return;
+    }
+    if (key === '2') {
+      evt.preventDefault();
+      goToUrl('stage');
+      return;
+    }
+    if (key === '3') {
+      evt.preventDefault();
+      window.location.href = buildRundownUrl('prompter');
+    }
+  });
 
   // ─── Init ──────────────────────────────────────────────────────────────────
 
