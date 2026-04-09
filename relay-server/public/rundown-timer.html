@@ -468,8 +468,8 @@
     <button id="btn-theme" title="Toggle light/dark theme">Light</button>
     <button id="btn-fullscreen" title="Fullscreen">Fullscreen</button>
     <button id="btn-refresh" class="secondary" title="Refresh now (R)">Refresh</button>
-    <button id="btn-mode" title="Switch display mode">Stage</button>
-    <button id="btn-prompter" title="Open the prompter view">Prompter</button>
+    <button id="btn-mode" title="Switch display mode">Detailed</button>
+    <button id="btn-prompter" title="Open the large text view">Large Text</button>
   </div>
 
   <div class="help-backdrop" id="help-backdrop"></div>
@@ -482,8 +482,8 @@
       <div class="help-item"><div class="help-key">- / +</div><div class="help-label">Text size</div><div class="help-text">Make the timer and stage text smaller or larger.</div></div>
       <div class="help-item"><div class="help-key">R</div><div class="help-label">Refresh</div><div class="help-text">Pull the latest timer state immediately.</div></div>
       <div class="help-item"><div class="help-key">1</div><div class="help-label">Timer</div><div class="help-text">Jump to the standard countdown surface.</div></div>
-      <div class="help-item"><div class="help-key">2</div><div class="help-label">Stage</div><div class="help-text">Jump to the stage-style output.</div></div>
-      <div class="help-item"><div class="help-key">3</div><div class="help-label">Prompter</div><div class="help-text">Open the public prompter view.</div></div>
+      <div class="help-item"><div class="help-key">2</div><div class="help-label">Detailed</div><div class="help-text">Jump to the detailed stage-style output.</div></div>
+      <div class="help-item"><div class="help-key">3</div><div class="help-label">Large Text</div><div class="help-text">Open the public large text view.</div></div>
       <div class="help-item"><div class="help-key">F</div><div class="help-label">Fullscreen</div><div class="help-text">Use the browser's fullscreen mode for the display.</div></div>
     </div>
   </section>
@@ -572,7 +572,7 @@
   var params = new URLSearchParams(window.location.search);
   var roomId = params.get('room');
   var displayMode = (params.get('mode') || '').toLowerCase();
-  var isStageMode = displayMode === 'stage' || displayMode === 'confidence';
+  var isStageMode = displayMode === 'stage' || displayMode === 'confidence' || displayMode === 'detailed';
   if (isStageMode) document.body.classList.add('stage-mode');
   var displayStorageKey = 'tally.rundown-timer-display:' + token;
 
@@ -968,9 +968,28 @@
   // ─── Theme toggle ──────────────────────────────────────────────────────────
 
   var btnTheme = document.getElementById('btn-theme');
-  btnTheme.addEventListener('click', function() {
-    document.body.classList.toggle('light');
-    btnTheme.textContent = document.body.classList.contains('light') ? 'Dark' : 'Light';
+  var timerThemeKey = 'tally.rundown-timer-theme:' + token;
+
+  function applyTimerTheme(light) {
+    document.body.classList.toggle('light', light);
+    if (btnTheme) btnTheme.textContent = light ? 'Dark' : 'Light';
+    try { window.localStorage.setItem(timerThemeKey, light ? 'light' : 'dark'); } catch(e) {}
+  }
+
+  // Initialize: stored pref → prefers-color-scheme → default dark
+  (function() {
+    try {
+      var stored = window.localStorage.getItem(timerThemeKey);
+      if (stored === 'light') { applyTimerTheme(true); return; }
+      if (stored === 'dark') { applyTimerTheme(false); return; }
+    } catch(e) {}
+    // No stored pref: follow system preference
+    var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    applyTimerTheme(prefersLight);
+  })();
+
+  if (btnTheme) btnTheme.addEventListener('click', function() {
+    applyTimerTheme(!document.body.classList.contains('light'));
   });
 
   // ─── Fullscreen ────────────────────────────────────────────────────────────
@@ -985,9 +1004,9 @@
   });
 
   btnMode.addEventListener('click', function() {
-    window.location.href = buildModeUrl(isStageMode ? '' : 'stage');
+    window.location.href = buildModeUrl(isStageMode ? '' : 'detailed');
   });
-  btnMode.textContent = isStageMode ? 'Timer' : 'Stage';
+  btnMode.textContent = isStageMode ? 'Timer' : 'Detailed';
 
   btnPrompter.addEventListener('click', function() {
     window.location.href = buildRundownUrl('prompter');
