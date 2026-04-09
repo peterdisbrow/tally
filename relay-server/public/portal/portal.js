@@ -11333,7 +11333,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (token) {
         showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + token, window.location.origin).href);
       }
-      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl };
+      var equipmentUrl = '';
+      if (token) {
+        equipmentUrl = _rundownNormalizeShareUrl(new URL('/rundown/equipment/' + token, window.location.origin).href);
+      }
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, equipmentUrl: equipmentUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -11512,6 +11516,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             })
           ],
           { label: 'Operator', bg: 'rgba(255,167,38,0.10)', fg: '#FFB74D' }
+        ));
+      }
+
+      if (urls.equipmentUrl) {
+        sections.push(_rundownBuildSectionCard(
+          'Equipment status',
+          'A live equipment monitoring view alongside the rundown. Shows ATEM switcher state, encoder status, stream health, and audio monitoring in real time.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Tech booth',
+              title: 'Equipment Status',
+              description: 'Split-screen rundown with live device status, stream verification, and audio monitoring. Auto-refreshes every 3 seconds.',
+              url: urls.equipmentUrl,
+              badge: 'Live data',
+              badgeBg: 'rgba(66,165,245,0.10)',
+              badgeColor: '#81D4FA',
+              accent: '#42A5F5',
+            })
+          ],
+          { label: 'Monitoring', bg: 'rgba(66,165,245,0.10)', fg: '#81D4FA' }
         ));
       }
 

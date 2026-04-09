@@ -98,6 +98,11 @@ app.get('/rundown/show/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-show.html'));
 });
 
+// Serve the standalone equipment status page at /rundown/equipment/:token
+app.get('/rundown/equipment/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-equipment.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
@@ -3257,6 +3262,146 @@ app.get('/api/public/rundown/:token', async (req, res) => {
   } catch (e) {
     console.error('[rundown-public] error:', e);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/public/rundown/:token/equipment — live device status for a shared rundown
+app.get('/api/public/rundown/:token/equipment', async (req, res) => {
+  try {
+    const access = await manualRundown.resolvePublicAccess(req.params.token);
+    if (!access?.plan) return res.status(404).json({ error: 'Invalid share token' });
+    const plan = access.plan;
+    const church = churches.get(plan.churchId);
+    if (!church) return res.json({ connected: false, devices: [], columns: [] });
+
+    // Resolve room-specific status if the plan is bound to a room
+    const roomId = plan.roomId || '';
+    let status = church.status || {};
+    if (roomId && church.instanceStatus && church.roomInstanceMap) {
+      const instance = church.roomInstanceMap[roomId];
+      if (instance && church.instanceStatus[instance]) {
+        status = church.instanceStatus[instance];
+      }
+    }
+
+    // Build device list from status
+    const devices = [];
+    if (status.atem) {
+      devices.push({
+        type: 'atem',
+        label: 'ATEM Switcher',
+        connected: !!status.atem.connected,
+        model: status.atem.model || '',
+        programInput: status.atem.programInput ?? null,
+        previewInput: status.atem.previewInput ?? null,
+        streaming: !!status.atem.streaming,
+        recording: !!status.atem.recording,
+        streamingBitrate: status.atem.streamingBitrate || 0,
+      });
+    }
+    if (status.obs) {
+      devices.push({
+        type: 'obs',
+        label: 'OBS Studio',
+        connected: !!status.obs.connected,
+        streaming: !!status.obs.streaming,
+        recording: !!status.obs.recording,
+        bitrate: status.obs.bitrate || 0,
+        fps: status.obs.fps || 0,
+        version: status.obs.version || '',
+      });
+    }
+    if (status.vmix) {
+      devices.push({
+        type: 'vmix',
+        label: 'vMix',
+        connected: true,
+        streaming: !!status.vmix.streaming,
+        recording: !!status.vmix.recording,
+        version: status.vmix.version || '',
+      });
+    }
+    if (status.encoder) {
+      devices.push({
+        type: 'encoder',
+        label: (status.encoder.type ? status.encoder.type.charAt(0).toUpperCase() + status.encoder.type.slice(1) : 'Encoder'),
+        connected: !!status.encoder.connected,
+        live: !!status.encoder.live,
+        streaming: !!status.encoder.streaming,
+        bitrateKbps: status.encoder.bitrateKbps || 0,
+        fps: status.encoder.fps || 0,
+        encoderType: status.encoder.type || '',
+      });
+    }
+    if (status.hyperdeck || status.hyperdecks || status.hyperDecks) {
+      const decks = status.hyperdecks || status.hyperDecks || (status.hyperdeck?.decks) || [];
+      devices.push({
+        type: 'hyperdeck',
+        label: 'HyperDeck',
+        connected: true,
+        recording: !!(status.hyperdeck?.recording || status.hyperDeck?.recording || decks.some(d => d && (d.recording || /record/i.test(d.status || d.transport || '')))),
+        deckCount: decks.length || 1,
+      });
+    }
+    if (status.mixer) {
+      devices.push({
+        type: 'mixer',
+        label: status.mixer.name || 'Audio Mixer',
+        connected: !!status.mixer.connected,
+        mainMuted: !!status.mixer.mainMuted,
+        mixerType: status.mixer.type || '',
+      });
+    }
+    if (status.proPresenter) {
+      devices.push({
+        type: 'propresenter',
+        label: 'ProPresenter',
+        connected: !!status.proPresenter.connected,
+      });
+    }
+
+    // Stream verification (YouTube/Facebook CDN checks)
+    const streamVerification = {};
+    if (status.streamVerification?.youtube) {
+      streamVerification.youtube = {
+        live: !!status.streamVerification.youtube.live,
+        viewerCount: status.streamVerification.youtube.viewerCount ?? null,
+        lastChecked: status.streamVerification.youtube.checked || null,
+      };
+    }
+    if (status.streamVerification?.facebook) {
+      streamVerification.facebook = {
+        live: !!status.streamVerification.facebook.live,
+        viewerCount: status.streamVerification.facebook.viewerCount ?? null,
+        lastChecked: status.streamVerification.facebook.checked || null,
+      };
+    }
+
+    // Audio monitoring
+    const audio = status.audio ? {
+      monitoring: !!status.audio.monitoring,
+      silenceDetected: !!status.audio.silenceDetected,
+    } : null;
+
+    // Get equipment-bound columns for this plan
+    const columns = await manualRundown.getColumns(plan.id);
+    const equipmentColumns = columns.filter(c => c.equipmentBinding);
+
+    res.json({
+      connected: !!(church.ws || (church.sockets && church.sockets.size > 0)),
+      lastSeen: church.lastSeen,
+      devices,
+      streamVerification,
+      audio,
+      equipmentColumns: equipmentColumns.map(c => ({
+        id: c.id,
+        name: c.name,
+        binding: c.equipmentBinding,
+      })),
+    });
+  } catch (e) {
+    console.error('[rundown-public] equipment error:', e);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
