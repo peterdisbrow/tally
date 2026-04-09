@@ -39,6 +39,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const { buildManualPlanTimerState } = require('../rundownPublic');
 
@@ -874,6 +875,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           ownerKey: actor.sessionId || actor.displayName || churchId,
           ownerName: actor.displayName || (actor.role === 'viewer' ? 'Viewer' : 'Owner'),
         });
+        if (ctx._fireWebhooks) ctx._fireWebhooks(churchId, 'plan.created', { planId: plan.id, title: plan.title });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -925,6 +927,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (await ensureRoomWriteAccess(req, res, existing)) return;
         const plan = await manualRundown.updatePlan(req.params.planId, req.body);
         broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: plan.id, plan: { id: plan.id, title: plan.title, status: plan.status, serviceDate: plan.serviceDate, roomId: plan.roomId, updatedAt: plan.updatedAt } });
+        if (ctx._fireWebhooks) ctx._fireWebhooks(churchId, 'plan.updated', { planId: plan.id, title: plan.title });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -2901,4 +2904,151 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── PHASE 5: WEBHOOK SUPPORT ─────────────────────────────────────────────
+
+  /**
+   * Fire webhooks asynchronously for a given event.
+   * Uses HMAC-SHA256 signing with per-webhook secret.
+   * Retries 3 times with exponential backoff on failure.
+   */
+  function fireWebhooks(churchId, eventType, data) {
+    manualRundown.getActiveWebhooksForEvent(churchId, eventType).then(function(hooks) {
+      for (const hook of hooks) {
+        const payload = JSON.stringify({ event: eventType, timestamp: new Date().toISOString(), data });
+        const signature = hook.secret
+          ? crypto.createHmac('sha256', hook.secret).update(payload).digest('hex')
+          : '';
+
+        (async function deliverWithRetry() {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const resp = await fetch(hook.url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Webhook-Signature': signature,
+                  'X-Webhook-Event': eventType,
+                },
+                body: payload,
+                signal: AbortSignal.timeout(10000),
+              });
+              if (resp.ok) return;
+            } catch { /* retry */ }
+            if (attempt < 2) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+          }
+        })();
+      }
+    }).catch(function() { /* non-critical */ });
+  }
+
+  // Expose fireWebhooks to caller scope (used by start/end/advance hooks)
+  ctx._fireWebhooks = fireWebhooks;
+
+  // GET /api/churches/:churchId/webhooks
+  app.get('/api/churches/:churchId/webhooks', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const rows = await manualRundown.listWebhooks(req.params.churchId);
+      res.json({ webhooks: rows.map(w => ({ ...w, events: JSON.parse(w.events || '[]'), active: !!w.active })) });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/churches/:churchId/webhooks
+  app.post('/api/churches/:churchId/webhooks', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const { url, events, secret } = req.body;
+      if (!url) return res.status(400).json({ error: 'url is required' });
+      const hook = await manualRundown.createWebhook(req.params.churchId, { url, events: events || [], secret: secret || '' });
+      res.json({ ...hook, events: JSON.parse(hook.events || '[]'), active: !!hook.active });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PUT /api/churches/:churchId/webhooks/:webhookId
+  app.put('/api/churches/:churchId/webhooks/:webhookId', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const existing = await manualRundown.getWebhook(req.params.webhookId);
+      if (!existing || existing.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
+      const { url, events, secret, active } = req.body;
+      const updated = await manualRundown.updateWebhook(req.params.webhookId, { url, events, secret, active });
+      res.json({ ...updated, events: JSON.parse(updated.events || '[]'), active: !!updated.active });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/churches/:churchId/webhooks/:webhookId
+  app.delete('/api/churches/:churchId/webhooks/:webhookId', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const existing = await manualRundown.getWebhook(req.params.webhookId);
+      if (!existing || existing.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
+      await manualRundown.deleteWebhook(req.params.webhookId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/churches/:churchId/webhooks/:webhookId/test
+  app.post('/api/churches/:churchId/webhooks/:webhookId/test', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const hook = await manualRundown.getWebhook(req.params.webhookId);
+      if (!hook || hook.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
+      const payload = JSON.stringify({ event: 'test', timestamp: new Date().toISOString(), data: { message: 'Test webhook from Tally' } });
+      const signature = hook.secret ? crypto.createHmac('sha256', hook.secret).update(payload).digest('hex') : '';
+      const resp = await fetch(hook.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Webhook-Signature': signature, 'X-Webhook-Event': 'test' },
+        body: payload,
+        signal: AbortSignal.timeout(10000),
+      });
+      res.json({ ok: resp.ok, status: resp.status });
+    } catch (e) {
+      res.status(500).json({ error: 'Delivery failed: ' + (e.message || 'timeout') });
+    }
+  });
+
+  // ─── PHASE 5: ANALYTICS ───────────────────────────────────────────────────
+
+  // GET /api/churches/:churchId/rundown-analytics?range=30d|90d|all
+  app.get('/api/churches/:churchId/rundown-analytics', requireChurchOrAdmin, async (req, res) => {
+    try {
+      const range = req.query.range || '30d';
+      const analytics = await manualRundown.getRundownAnalytics(req.params.churchId, range);
+      res.json(analytics);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ─── Wire webhook events into existing session lifecycle ──────────────────
+  // Patch: fire webhooks on show start/end/advance
+  const origStart = liveRundown.startSession.bind(liveRundown);
+  liveRundown.startSession = function(churchId, roomId, plan, callerName, companionActionsMap) {
+    const state = origStart(churchId, roomId, plan, callerName, companionActionsMap);
+    fireWebhooks(churchId, 'show.started', { planId: plan.id, title: plan.title, roomId, callerName });
+    return state;
+  };
+
+  const origEnd = liveRundown.endSession.bind(liveRundown);
+  liveRundown.endSession = function(churchId, roomId) {
+    const state = liveRundown.getState(churchId, roomId);
+    const result = origEnd(churchId, roomId);
+    if (state) {
+      fireWebhooks(churchId, 'show.ended', { planId: state.planId, title: state.planTitle, roomId });
+    }
+    return result;
+  };
+
+  const origAdvance = liveRundown.advance.bind(liveRundown);
+  liveRundown.advance = function(churchId, roomId) {
+    const state = origAdvance(churchId, roomId);
+    if (state) {
+      fireWebhooks(churchId, 'cue.advanced', { planId: state.planId, currentIndex: state.currentIndex, itemTitle: state.currentItem?.title || '' });
+    }
+    return state;
+  };
 };

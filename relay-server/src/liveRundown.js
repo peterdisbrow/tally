@@ -845,22 +845,33 @@ class LiveRundownManager {
         }
       }
 
-      const tick = {
-        type: 'rundown_tick',
-        churchId,
-        roomId: roomId || '',
-        currentIndex: session.currentIndex,
-        elapsedSeconds: Math.round(elapsedOnItem),
-        remainingSeconds: remainingOnItem !== null ? Math.round(remainingOnItem) : null,
-        isOvertime: currentItem.lengthSeconds > 0 && elapsedOnItem > currentItem.lengthSeconds,
-        overtimeSeconds: currentItem.lengthSeconds > 0 ? Math.round(Math.max(0, elapsedOnItem - currentItem.lengthSeconds)) : 0,
-        isWarning: currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= session.warningThresholdSec && remainingOnItem > 0,
-        scheduleDelta: this._calculateScheduleDelta(session, now),
-        totalElapsed: Math.round((now - session.startedAt) / 1000),
-        autoAdvance: session.autoAdvance,
-        effectiveAutoAdvance: shouldAutoAdvance,
-        autoAdvancedFrom: session.autoAdvancedFrom || null,
-        timestamp: now,
+      const elapsed = Math.round(elapsedOnItem);
+      const remaining = remainingOnItem !== null ? Math.round(remainingOnItem) : null;
+      const isOvertime = currentItem.lengthSeconds > 0 && elapsedOnItem > currentItem.lengthSeconds;
+      const overtime = currentItem.lengthSeconds > 0 ? Math.round(Math.max(0, elapsedOnItem - currentItem.lengthSeconds)) : 0;
+      const isWarn = currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= session.warningThresholdSec && remainingOnItem > 0;
+      const delta = this._calculateScheduleDelta(session, now);
+      const totalEl = Math.round((now - session.startedAt) / 1000);
+
+      // Delta encoding: only send fields that changed since last tick
+      const prev = session._lastTick || {};
+      const tick = { type: 'rundown_tick', roomId: roomId || '' };
+      if (prev.currentIndex !== session.currentIndex) tick.currentIndex = session.currentIndex;
+      tick.elapsedSeconds = elapsed;
+      if (remaining !== prev.remainingSeconds) tick.remainingSeconds = remaining;
+      if (isOvertime !== prev.isOvertime) tick.isOvertime = isOvertime;
+      if (overtime !== prev.overtimeSeconds) tick.overtimeSeconds = overtime;
+      if (isWarn !== prev.isWarning) tick.isWarning = isWarn;
+      if (delta !== prev.scheduleDelta) tick.scheduleDelta = delta;
+      tick.totalElapsed = totalEl;
+      if (session.autoAdvancedFrom) {
+        tick.autoAdvancedFrom = session.autoAdvancedFrom;
+      }
+
+      session._lastTick = {
+        currentIndex: session.currentIndex, elapsedSeconds: elapsed,
+        remainingSeconds: remaining, isOvertime, overtimeSeconds: overtime,
+        isWarning: isWarn, scheduleDelta: delta, totalElapsed: totalEl,
       };
 
       // Clear autoAdvancedFrom after broadcasting once
