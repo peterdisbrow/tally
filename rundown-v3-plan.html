@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TallyConnect Rundown v3 — Revamp Plan</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232736;
+    --border: #2e3345;
+    --text: #e4e6ed;
+    --text2: #9ca3b8;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --green: #22c55e;
+    --green-bg: rgba(34,197,94,0.12);
+    --yellow: #eab308;
+    --yellow-bg: rgba(234,179,8,0.12);
+    --red: #ef4444;
+    --red-bg: rgba(239,68,68,0.12);
+    --blue: #3b82f6;
+    --blue-bg: rgba(59,130,246,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, #6366f1, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { color: var(--text2); font-size: 1.1rem; margin-bottom: 48px; }
+  h2 { font-size: 1.5rem; font-weight: 600; margin: 48px 0 16px; color: var(--text); display: flex; align-items: center; gap: 10px; }
+  h2 .badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 99px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  h3 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 10px; color: var(--accent2); }
+  p, li { color: var(--text2); }
+  p { margin-bottom: 12px; }
+
+  .scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 32px 0; }
+  .score-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+  .score-card .label { font-size: 0.8rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .score-card .value { font-size: 2rem; font-weight: 700; }
+  .score-card .sub { font-size: 0.8rem; color: var(--text2); margin-top: 4px; }
+  .us { color: var(--accent2); }
+  .them { color: var(--text2); }
+  .gap { color: var(--red); }
+  .win { color: var(--green); }
+
+  .comparison { width: 100%; border-collapse: collapse; margin: 24px 0; }
+  .comparison th { text-align: left; padding: 12px 16px; background: var(--surface2); color: var(--text); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid var(--border); }
+  .comparison td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.9rem; vertical-align: top; }
+  .comparison tr:hover td { background: rgba(99,102,241,0.04); }
+  .check { color: var(--green); font-weight: 700; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .miss { color: var(--red); opacity: 0.6; }
+  .new-tag { display: inline-block; background: var(--accent); color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 600; vertical-align: middle; margin-left: 4px; }
+
+  .phase { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin: 24px 0; position: relative; overflow: hidden; }
+  .phase::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .phase.p-green::before { background: linear-gradient(90deg, #22c55e, #4ade80); }
+  .phase.p-yellow::before { background: linear-gradient(90deg, #eab308, #facc15); }
+  .phase.p-blue::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+  .phase.p-purple::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+  .phase-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .phase-title { font-size: 1.2rem; font-weight: 600; color: var(--text); }
+  .phase-meta { text-align: right; }
+  .phase-est { font-size: 0.8rem; color: var(--text2); }
+  .phase-impact { display: inline-block; font-size: 0.7rem; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
+  .impact-high { background: var(--red-bg); color: var(--red); }
+  .impact-med { background: var(--yellow-bg); color: var(--yellow); }
+  .impact-polish { background: var(--blue-bg); color: var(--blue); }
+
+  .feature-list { list-style: none; padding: 0; }
+  .feature-list li { padding: 8px 0; border-bottom: 1px solid rgba(46,51,69,0.5); display: flex; align-items: flex-start; gap: 10px; }
+  .feature-list li:last-child { border-bottom: none; }
+  .feature-list .icon { flex-shrink: 0; width: 20px; text-align: center; margin-top: 2px; }
+  .feature-list .desc { flex: 1; }
+  .feature-list .desc strong { color: var(--text); font-weight: 600; }
+
+  .competitor-note { background: var(--surface2); border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+  .competitor-note .who { color: var(--accent2); font-weight: 600; }
+
+  .stack-rec { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 24px 0; }
+  .stack-rec h4 { color: var(--text); font-weight: 600; margin-bottom: 8px; }
+
+  .timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 24px 0; }
+  .timeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .timeline-card .week { font-size: 0.75rem; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .timeline-card .title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .timeline-card ul { padding-left: 18px; margin: 0; }
+  .timeline-card li { font-size: 0.85rem; color: var(--text2); margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>TallyConnect Rundown v3</h1>
+<p class="subtitle">Competitive revamp plan — beat every rundown tool in the church AV market</p>
+
+<!-- ==================== COMPETITIVE SCORECARD ==================== -->
+<h2>Competitive Scorecard</h2>
+<p>How TallyConnect stacks up against the top show-rundown tools right now. Scores are feature completeness (not quality) on a 1-10 scale.</p>
+
+<div class="scorecard">
+  <div class="score-card">
+    <div class="label">TallyConnect (current)</div>
+    <div class="value us">7.5</div>
+    <div class="sub">Strong backend, rough UI</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Rundown Studio</div>
+    <div class="value them">8.5</div>
+    <div class="sub">Best UX, smart timing</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Rundown Creator</div>
+    <div class="value them">7.0</div>
+    <div class="sub">Broadcast-focused, dated UI</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Ontime</div>
+    <div class="value them">7.0</div>
+    <div class="sub">Free/OSS, dev-friendly</div>
+  </div>
+</div>
+
+<!-- ==================== WHERE WE ALREADY WIN ==================== -->
+<h2>Where We Already Win <span class="badge" style="background:var(--green-bg);color:var(--green)">Strengths</span></h2>
+<p>Features where TallyConnect is already ahead of or on par with the competition. Don't touch these — protect them.</p>
+
+<table class="comparison">
+<tr><th>Feature</th><th>Us</th><th>Best Competitor</th></tr>
+<tr><td>Custom columns with equipment bindings (ATEM, ProPresenter, Encoder)</td><td class="check">Unique</td><td class="miss">Nobody has this</td></tr>
+<tr><td>Multi-campus monitor with cross-room sync</td><td class="check">Built</td><td class="miss">None offer it</td></tr>
+<tr><td>Planning Center integration</td><td class="check">Native</td><td class="partial">Rundown Creator (basic)</td></tr>
+<tr><td>Companion actions per cue</td><td class="check">Built</td><td class="partial">Studio/Ontime (module only)</td></tr>
+<tr><td>Real-time collaboration with presence + edit locks</td><td class="check">Full</td><td class="check">Rundown Studio</td></tr>
+<tr><td>Post-show timing reports</td><td class="check">Auto-generated</td><td class="miss">None</td></tr>
+<tr><td>Director notes (rich text, per item)</td><td class="check">Built</td><td class="miss">None</td></tr>
+<tr><td>File attachments per item</td><td class="check">Built</td><td class="partial">Rundown Studio (media drag)</td></tr>
+<tr><td>Role-based collaborator access (owner/editor/viewer)</td><td class="check">Built</td><td class="check">Rundown Creator (4 levels)</td></tr>
+<tr><td>Church-specific multi-room architecture</td><td class="check">Native</td><td class="miss">Nobody</td></tr>
+</table>
+
+<!-- ==================== FEATURE GAP ANALYSIS ==================== -->
+<h2>Feature Gaps <span class="badge" style="background:var(--red-bg);color:var(--red)">Must Fix</span></h2>
+<p>Where competitors beat us. Each gap maps to a v3 phase below.</p>
+
+<table class="comparison">
+<tr><th>Gap</th><th>Who Does It Better</th><th>Impact</th><th>v3 Phase</th></tr>
+<tr><td>Smart cue timing (auto-adjust when items run over/under)</td><td class="who">Rundown Studio</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 2</td></tr>
+<tr><td>Modern, polished UI/UX (clean design, smooth animations)</td><td>Rundown Studio</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 1</td></tr>
+<tr><td>Color coding per item/section (visual organization)</td><td>Rundown Studio</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 1</td></tr>
+<tr><td>Per-item checklists (task tracking inside cues)</td><td>Rundown Studio</td><td><span class="phase-impact impact-med">Medium</span></td><td>Phase 3</td></tr>
+<tr><td>Built-in teleprompter/script editor</td><td>Rundown Creator</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 4</td></tr>
+<tr><td>Keyboard shortcuts for live control (spacebar=GO, etc.)</td><td>Ontime</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 1</td></tr>
+<tr><td>PDF export with professional formatting</td><td>Rundown Creator</td><td><span class="phase-impact impact-med">Medium</span></td><td>Phase 3</td></tr>
+<tr><td>CSV/spreadsheet import</td><td>Rundown Creator</td><td><span class="phase-impact impact-med">Medium</span></td><td>Phase 3</td></tr>
+<tr><td>Confidence monitor display (dedicated output)</td><td>Rundown Studio, Ontime</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 2</td></tr>
+<tr><td>Studio clock view</td><td>Ontime</td><td><span class="phase-impact impact-med">Medium</span></td><td>Phase 2</td></tr>
+<tr><td>Church-specific templates (Sunday service, Christmas, Easter)</td><td>Nobody — opportunity</td><td><span class="phase-impact impact-high">High</span></td><td>Phase 1</td></tr>
+<tr><td>OSC protocol support</td><td>Ontime</td><td><span class="phase-impact impact-polish">Low</span></td><td>Phase 5</td></tr>
+<tr><td>Undo/redo for edits</td><td>Common expectation</td><td><span class="phase-impact impact-med">Medium</span></td><td>Phase 3</td></tr>
+<tr><td>Drag-and-drop media into items</td><td>Rundown Studio</td><td><span class="phase-impact impact-polish">Low</span></td><td>Phase 5</td></tr>
+</table>
+
+<!-- ==================== V3 PHASES ==================== -->
+<h2>v3 Implementation Phases</h2>
+<p>Ordered by impact. Each phase ships independently — you get wins along the way, not all at the end.</p>
+
+<!-- PHASE 1 -->
+<div class="phase p-green">
+  <div class="phase-header">
+    <div class="phase-title">Phase 1 — UI Overhaul + Visual Organization</div>
+    <div class="phase-meta">
+      <span class="phase-impact impact-high">Highest Impact</span>
+      <div class="phase-est">~2 weeks</div>
+    </div>
+  </div>
+  <p style="margin-bottom:16px">The single biggest gap. Rundown Studio wins users because it <em>looks</em> modern and feels fast. We need to match that bar while keeping our power-user features.</p>
+
+  <ul class="feature-list">
+    <li><div class="icon" style="color:var(--green)">1</div><div class="desc"><strong>Redesigned rundown editor</strong> — Clean card-based layout with proper spacing, subtle shadows, smooth transitions. Each item row gets a left color stripe for visual categorization.</div></li>
+    <li><div class="icon" style="color:var(--green)">2</div><div class="desc"><strong>Item color coding</strong> — Color picker per item or section header. Pre-set palette (worship=blue, message=purple, transition=gray, media=orange, prayer=green) plus custom hex. Colors carry through to all output views.</div></li>
+    <li><div class="icon" style="color:var(--green)">3</div><div class="desc"><strong>Section headers redesign</strong> — Collapsible section groups with color bands, item counts, and cumulative duration. Drag entire sections as a unit.</div></li>
+    <li><div class="icon" style="color:var(--green)">4</div><div class="desc"><strong>Keyboard shortcuts for live show</strong> — Spacebar or Right Arrow = GO, Left Arrow = Back, Escape = End Show confirm, N = toggle Next Up panel, T = toggle theme, F = fullscreen. Show a shortcuts overlay on "?".</div></li>
+    <li><div class="icon" style="color:var(--green)">5</div><div class="desc"><strong>Smooth drag-and-drop</strong> — Replace current drag implementation with a polished version: spring animations, clear drop zones, drag preview card, haptic-style visual feedback.</div></li>
+    <li><div class="icon" style="color:var(--green)">6</div><div class="desc"><strong>Church service templates</strong> — Ship 6 built-in templates: Standard Sunday, Contemporary Worship, Traditional/Liturgical, Christmas Eve, Easter Sunday, Youth Service. Each pre-populated with typical items, durations, and column structure.</div></li>
+    <li><div class="icon" style="color:var(--green)">7</div><div class="desc"><strong>Empty state redesign</strong> — When no plans exist, show a beautiful onboarding card: "Create your first rundown" with template previews and a quick-start wizard.</div></li>
+    <li><div class="icon" style="color:var(--green)">8</div><div class="desc"><strong>Inline duration editor</strong> — Click duration to get a smart picker (not just a text field): preset buttons (0:30, 1:00, 2:00, 5:00, 10:00, 15:00, 30:00) plus manual entry. Shows running total for the service.</div></li>
+  </ul>
+
+  <div class="competitor-note">
+    <span class="who">Why this matters:</span> In user testing, Rundown Studio converts users in under 2 minutes because the UI is self-explanatory. Our current UI requires a learning curve that loses casual volunteers.
+  </div>
+</div>
+
+<!-- PHASE 2 -->
+<div class="phase p-yellow">
+  <div class="phase-header">
+    <div class="phase-title">Phase 2 — Smart Timing + New Output Views</div>
+    <div class="phase-meta">
+      <span class="phase-impact impact-high">High Impact</span>
+      <div class="phase-est">~2 weeks</div>
+    </div>
+  </div>
+  <p style="margin-bottom:16px">This is Rundown Studio's killer feature. When a worship set runs 3 minutes long, every downstream item should auto-adjust. Plus we need dedicated output views that competitors offer.</p>
+
+  <ul class="feature-list">
+    <li><div class="icon" style="color:var(--yellow)">1</div><div class="desc"><strong>Smart cue timing engine</strong> — Track planned vs. actual duration per item. When an item runs over/under, cascade the delta to all subsequent items' start times in real-time. Show +/- variance inline on each row. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--yellow)">2</div><div class="desc"><strong>Over/under indicator</strong> — Each item in show mode shows a colored badge: green (on time), yellow (within 1 min), red (over by 1+ min). The current item's timer changes color as it approaches zero.</div></li>
+    <li><div class="icon" style="color:var(--yellow)">3</div><div class="desc"><strong>Projected end time</strong> — Show "Service ends at 11:47 AM (+3 min late)" in the show mode header, updating in real-time as items run over/under. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--yellow)">4</div><div class="desc"><strong>Confidence monitor view</strong> — New output at <code>/rundown/confidence/:token</code>. Large current-item display with timer, next 3 items preview, over/under status, and projected end time. Designed for stage-side monitors. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--yellow)">5</div><div class="desc"><strong>Studio clock view</strong> — New output at <code>/rundown/clock/:token</code>. Large digital clock with current item countdown underneath, minimal chrome. Optionally shows next item. Designed for wall-mounted displays. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--yellow)">6</div><div class="desc"><strong>Enhanced speaker timer</strong> — Add "time remaining in service" below the item timer. Add a progress ring animation. Color transitions: green → yellow → red → flashing red (overtime).</div></li>
+    <li><div class="icon" style="color:var(--yellow)">7</div><div class="desc"><strong>Show mode redesign</strong> — Bigger, bolder current cue. Redesigned Next Up panel with color stripes and over/under badges. Floating GO/Back buttons always visible. Show elapsed service time prominently.</div></li>
+    <li><div class="icon" style="color:var(--yellow)">8</div><div class="desc"><strong>Timer color theming</strong> — All timer views (speaker, confidence, studio clock) support custom color themes: standard dark, standard light, red/green (for cameras), and custom brand colors.</div></li>
+  </ul>
+
+  <div class="competitor-note">
+    <span class="who">Rundown Studio's edge:</span> Their smart timing is why production teams choose them. No other tool auto-cascades timing changes. We build this and we're the first church-focused tool with it.
+  </div>
+</div>
+
+<!-- PHASE 3 -->
+<div class="phase p-blue">
+  <div class="phase-header">
+    <div class="phase-title">Phase 3 — Workflow Power Features</div>
+    <div class="phase-meta">
+      <span class="phase-impact impact-med">Medium Impact</span>
+      <div class="phase-est">~2 weeks</div>
+    </div>
+  </div>
+  <p style="margin-bottom:16px">Quality-of-life features that make the daily workflow faster. These are the things that make TDs stay on the platform once they've tried it.</p>
+
+  <ul class="feature-list">
+    <li><div class="icon" style="color:var(--blue)">1</div><div class="desc"><strong>Per-item checklists</strong> — Add a checklist to any item (e.g., "Mic check", "Slides loaded", "Video cued"). Checkboxes sync in real-time across collaborators. Show completion percentage on each item row. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">2</div><div class="desc"><strong>PDF export</strong> — Generate a clean, print-ready PDF of the rundown. Include: church logo, service date, all items with durations, custom columns, color coding, notes. Option for "tech team" (all columns) vs "band" (music items only) vs "pastor" (message + notes). <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">3</div><div class="desc"><strong>CSV import/export</strong> — Import from spreadsheet (map columns on import). Export to CSV for use in other tools. Support Planning Center CSV format. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">4</div><div class="desc"><strong>Undo/redo</strong> — Client-side undo stack for the last 20 actions (add, edit, delete, reorder). Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z to redo. Visual toast showing "Undid: Delete item 'Worship Set'". <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">5</div><div class="desc"><strong>Duplicate item</strong> — Right-click or action menu to duplicate an item (with all metadata, notes, attachments). Also duplicate section (all items within). <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">6</div><div class="desc"><strong>Item notes markdown</strong> — Support basic markdown in notes (bold, italic, lists, links). Render preview in the notes panel and in output views.</div></li>
+    <li><div class="icon" style="color:var(--blue)">7</div><div class="desc"><strong>Quick-add from keyboard</strong> — Press "A" to add a new item at the bottom, or "I" to insert below current selection. Tab through fields (title → duration → assignee → notes → done). Enter to save and start next item.</div></li>
+    <li><div class="icon" style="color:var(--blue)">8</div><div class="desc"><strong>Plan comparison</strong> — Side-by-side diff of two plans (this week vs last week). Highlight what changed, what was added/removed. Great for reviewing plan changes before going live. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--blue)">9</div><div class="desc"><strong>Notification preferences</strong> — Collaborators can opt into email/push notifications for: plan changes, going live, show ended, assignment changes. <span class="new-tag">NEW</span></div></li>
+  </ul>
+</div>
+
+<!-- PHASE 4 -->
+<div class="phase p-purple">
+  <div class="phase-header">
+    <div class="phase-title">Phase 4 — Teleprompter + Script System</div>
+    <div class="phase-meta">
+      <span class="phase-impact impact-high">High Impact</span>
+      <div class="phase-est">~1.5 weeks</div>
+    </div>
+  </div>
+  <p style="margin-bottom:16px">Rundown Creator's strongest feature. Pastors and worship leaders need scripts — song lyrics, sermon notes, liturgy, announcements. Building this in means one less tool in the workflow.</p>
+
+  <ul class="feature-list">
+    <li><div class="icon" style="color:#a855f7">1</div><div class="desc"><strong>Script editor per item</strong> — Rich text editor panel that opens alongside the item. Support headings, bold/italic, highlight, and speaker labels. Separate from "notes" — scripts are for on-screen display, notes are for the tech team. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:#a855f7">2</div><div class="desc"><strong>Teleprompter output</strong> — New view at <code>/rundown/prompter/:token</code>. Large scrolling text, auto-scroll at configurable speed, manual scroll override. Current item's script highlighted, next item previewed below. Dark background, high-contrast text. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:#a855f7">3</div><div class="desc"><strong>Auto-advance script</strong> — When the operator advances to the next cue, the teleprompter automatically scrolls to the next item's script. No manual intervention needed.</div></li>
+    <li><div class="icon" style="color:#a855f7">4</div><div class="desc"><strong>Lyrics integration</strong> — If an item is tagged as "Worship/Song", offer to pull lyrics from a built-in search (public domain hymns + user-uploaded lyrics library). <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:#a855f7">5</div><div class="desc"><strong>Announcement cards</strong> — Rich announcement templates that can be assigned to items. Include title, body, image, and display duration. Outputtable to a separate "announcements" display view. <span class="new-tag">NEW</span></div></li>
+  </ul>
+
+  <div class="competitor-note">
+    <span class="who">Rundown Creator's edge:</span> Their built-in teleprompter is why broadcast teams choose them over Rundown Studio. We build this church-optimized (with lyrics + liturgy support) and we beat both.
+  </div>
+</div>
+
+<!-- PHASE 5 -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-title">Phase 5 — Integrations + Polish</div>
+    <div class="phase-meta">
+      <span class="phase-impact impact-polish">Polish</span>
+      <div class="phase-est">~1.5 weeks</div>
+    </div>
+  </div>
+  <p style="margin-bottom:16px">Final layer. These are the features that make reviewers write "wow, they thought of everything."</p>
+
+  <ul class="feature-list">
+    <li><div class="icon" style="color:var(--text2)">1</div><div class="desc"><strong>OSC protocol support</strong> — Send/receive OSC messages for show control integration with lighting boards (ETC Eos, GrandMA), audio consoles, and custom systems. Map OSC triggers per cue item. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--text2)">2</div><div class="desc"><strong>Drag-and-drop media</strong> — Drag images, PDFs, or videos directly into item rows from the desktop. Auto-attach and show thumbnail preview inline.</div></li>
+    <li><div class="icon" style="color:var(--text2)">3</div><div class="desc"><strong>Multi-week calendar view</strong> — See plans on a calendar grid (week/month view). Quickly spot gaps, copy plans to future dates, see which rooms have plans scheduled.</div></li>
+    <li><div class="icon" style="color:var(--text2)">4</div><div class="desc"><strong>Analytics dashboard</strong> — Service timing trends over weeks/months. Average overtime per item type. Most-used templates. Team utilization. Which items consistently run over? <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--text2)">5</div><div class="desc"><strong>Webhook support</strong> — Fire webhooks on key events (show started, show ended, cue advanced). Let churches integrate with their own systems (automation, logging, notifications). <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--text2)">6</div><div class="desc"><strong>Offline mode</strong> — Cache the current plan locally. If internet drops during a live show, keep running from cache. Sync changes when reconnected. <span class="new-tag">NEW</span></div></li>
+    <li><div class="icon" style="color:var(--text2)">7</div><div class="desc"><strong>Accessibility audit</strong> — WCAG 2.1 AA compliance across all views. Screen reader support, keyboard navigation, high contrast mode, focus indicators.</div></li>
+    <li><div class="icon" style="color:var(--text2)">8</div><div class="desc"><strong>Performance optimization</strong> — Lazy-load output views. Optimize WebSocket payload sizes. Add service worker for caching static assets. Target sub-1s initial load on show mode.</div></li>
+  </ul>
+</div>
+
+<!-- ==================== WHAT WE'LL HAVE THAT NOBODY DOES ==================== -->
+<h2>v3 Unique Advantages <span class="badge" style="background:var(--green-bg);color:var(--green)">Moat</span></h2>
+<p>After v3, these are features no competitor will have:</p>
+
+<table class="comparison">
+<tr><th>Feature</th><th>Why It's Unique</th></tr>
+<tr><td>Equipment column bindings (ATEM, ProPresenter, Encoder)</td><td>Only tool that shows live equipment state per cue</td></tr>
+<tr><td>Smart timing + church-specific templates</td><td>Rundown Studio has timing but no church focus; PCO has church focus but no smart timing</td></tr>
+<tr><td>Multi-campus sync with per-room scoping</td><td>No rundown tool handles multi-site churches</td></tr>
+<tr><td>Companion actions + OSC per cue</td><td>Full show control from the rundown — lighting, video, audio all triggered per cue</td></tr>
+<tr><td>Integrated teleprompter with lyrics library</td><td>Rundown Creator has teleprompter but no church-specific lyrics/liturgy</td></tr>
+<tr><td>Post-show analytics over time</td><td>Nobody tracks service timing trends across weeks</td></tr>
+<tr><td>Planning Center deep integration + manual mode</td><td>Only tool that handles both PCO-synced and standalone plans in one UI</td></tr>
+<tr><td>Offline-resilient live show mode</td><td>Cloud-only competitors fail if internet drops mid-service</td></tr>
+</table>
+
+<!-- ==================== SUGGESTED TIMELINE ==================== -->
+<h2>Suggested Timeline</h2>
+<p>9-10 weeks total. Each phase ships independently so you get value along the way.</p>
+
+<div class="timeline">
+  <div class="timeline-card">
+    <div class="week">Weeks 1-2</div>
+    <div class="title">Phase 1: UI Overhaul</div>
+    <ul>
+      <li>Redesigned editor layout</li>
+      <li>Color coding system</li>
+      <li>Section headers + collapsible groups</li>
+      <li>Keyboard shortcuts</li>
+      <li>Church templates (6)</li>
+      <li>Polished drag-and-drop</li>
+    </ul>
+  </div>
+  <div class="timeline-card">
+    <div class="week">Weeks 3-4</div>
+    <div class="title">Phase 2: Smart Timing</div>
+    <ul>
+      <li>Timing cascade engine</li>
+      <li>Over/under indicators</li>
+      <li>Projected end time</li>
+      <li>Confidence monitor view</li>
+      <li>Studio clock view</li>
+      <li>Show mode redesign</li>
+    </ul>
+  </div>
+  <div class="timeline-card">
+    <div class="week">Weeks 5-6</div>
+    <div class="title">Phase 3: Workflow Features</div>
+    <ul>
+      <li>Item checklists</li>
+      <li>PDF export (3 formats)</li>
+      <li>CSV import/export</li>
+      <li>Undo/redo stack</li>
+      <li>Duplicate items/sections</li>
+      <li>Plan comparison view</li>
+    </ul>
+  </div>
+  <div class="timeline-card">
+    <div class="week">Weeks 7-8</div>
+    <div class="title">Phase 4: Teleprompter</div>
+    <ul>
+      <li>Script editor per item</li>
+      <li>Prompter output view</li>
+      <li>Auto-advance scripts</li>
+      <li>Lyrics integration</li>
+      <li>Announcement cards</li>
+    </ul>
+  </div>
+  <div class="timeline-card">
+    <div class="week">Weeks 9-10</div>
+    <div class="title">Phase 5: Polish + Integrations</div>
+    <ul>
+      <li>OSC support</li>
+      <li>Calendar view</li>
+      <li>Analytics dashboard</li>
+      <li>Webhooks</li>
+      <li>Offline mode</li>
+      <li>Accessibility + performance</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ==================== STACK DECISION ==================== -->
+<h2>Stack Recommendation</h2>
+<div class="stack-rec">
+  <h4>Stay vanilla HTML/JS/CSS — but modernize the patterns</h4>
+  <p>The current stack works. A React migration would burn 3+ weeks on infrastructure with zero user-visible improvement. Instead:</p>
+  <ul class="feature-list" style="margin-top:12px">
+    <li><div class="icon" style="color:var(--accent)">-</div><div class="desc"><strong>Adopt a component pattern</strong> — Each UI element (item row, section header, modal, timer display) becomes a self-contained render function with its own state. No framework needed.</div></li>
+    <li><div class="icon" style="color:var(--accent)">-</div><div class="desc"><strong>CSS custom properties for theming</strong> — All colors, spacing, and sizes as CSS variables. Switch themes by changing one class on the body.</div></li>
+    <li><div class="icon" style="color:var(--accent)">-</div><div class="desc"><strong>CSS animations for polish</strong> — Transitions on drag, status changes, timer color shifts. Pure CSS, no library.</div></li>
+    <li><div class="icon" style="color:var(--accent)">-</div><div class="desc"><strong>Keep server-rendered output views</strong> — Show mode, timer, confidence monitor stay as standalone HTML pages. Fast initial load, no JS framework overhead, works on any device.</div></li>
+  </ul>
+</div>
+
+<!-- ==================== FINAL SCORECARD ==================== -->
+<h2>Post-v3 Scorecard (Projected)</h2>
+<div class="scorecard">
+  <div class="score-card">
+    <div class="label">TallyConnect v3</div>
+    <div class="value win">9.5</div>
+    <div class="sub">Best-in-class for church AV</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Rundown Studio</div>
+    <div class="value them">8.5</div>
+    <div class="sub">Still strong, but no church focus</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Rundown Creator</div>
+    <div class="value them">7.0</div>
+    <div class="sub">Broadcast-only, stagnant</div>
+  </div>
+  <div class="score-card">
+    <div class="label">Ontime</div>
+    <div class="value them">7.0</div>
+    <div class="sub">Free but limited scope</div>
+  </div>
+</div>
+
+<p style="text-align:center;color:var(--text2);margin-top:48px;font-size:0.85rem">TallyConnect Rundown v3 Plan — April 2026</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1.0">
+<title>Tally Rundown — Mobile Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* iPhone Frame */
+  .phone-frame {
+    width: 390px;
+    background: #0a0a0f;
+    border-radius: 44px;
+    border: 3px solid #2a2a3a;
+    overflow: hidden;
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+    position: relative;
+  }
+
+  /* Status Bar */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 28px 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .status-bar .time { font-weight: 700; }
+  .status-bar .icons { display: flex; gap: 5px; align-items: center; font-size: 12px; }
+
+  /* Dynamic Island */
+  .dynamic-island {
+    width: 120px;
+    height: 34px;
+    background: #000;
+    border-radius: 20px;
+    margin: 0 auto 6px;
+    position: relative;
+  }
+
+  /* Screen Content */
+  .screen {
+    padding: 0 0 34px;
+    max-height: 812px;
+    overflow-y: auto;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* LIVE Header */
+  .live-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .live-badge-row { display: flex; align-items: center; gap: 10px; }
+  .live-dot {
+    width: 8px; height: 8px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  }
+  .live-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ef4444;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .service-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .end-btn {
+    background: rgba(239,68,68,0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239,68,68,0.3);
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* Hero Countdown Card */
+  .hero-card {
+    margin: 12px 16px;
+    background: linear-gradient(145deg, #111827 0%, #0c1220 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(34,197,94,0.25);
+    border-left: 4px solid #22c55e;
+    padding: 16px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-card::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, rgba(34,197,94,0.06) 0%, transparent 70%);
+  }
+  .hero-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 2px;
+  }
+  .hero-item-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 8px;
+  }
+  .hero-countdown {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 56px;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: -1px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .hero-subtitle {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 10px;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .delta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .delta-behind {
+    background: rgba(239,68,68,0.15);
+    color: #f87171;
+    border: 1px solid rgba(239,68,68,0.2);
+  }
+  .delta-ahead {
+    background: rgba(59,130,246,0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59,130,246,0.2);
+  }
+  .progress-text {
+    font-size: 12px;
+    color: #64748b;
+  }
+
+  /* Show Caller Controls */
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 12px 20px;
+  }
+  .ctrl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: #e2e8f0;
+    font-size: 22px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .ctrl-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.08); }
+  .ctrl-next {
+    width: 72px;
+    height: 56px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    border: none;
+    color: #fff;
+    font-weight: 700;
+    font-size: 22px;
+  }
+  .ctrl-progress {
+    font-size: 13px;
+    font-weight: 600;
+    color: #94a3b8;
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  /* Section Headers */
+  .section-header {
+    padding: 14px 20px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  /* Rundown Items */
+  .rundown-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    gap: 12px;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+  .rundown-item.completed {
+    opacity: 0.45;
+  }
+  .rundown-item.current {
+    background: rgba(34,197,94,0.06);
+    border-left: 4px solid #22c55e;
+    padding-left: 12px;
+  }
+  .rundown-item.upcoming {}
+
+  /* Type Icon */
+  .item-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .icon-song { background: rgba(139,92,246,0.15); }
+  .icon-message { background: rgba(59,130,246,0.15); }
+  .icon-media { background: rgba(236,72,153,0.15); }
+  .icon-prayer { background: rgba(234,179,8,0.15); }
+  .icon-transition { background: rgba(107,114,128,0.15); }
+  .icon-welcome { background: rgba(34,197,94,0.15); }
+  .icon-offering { background: rgba(245,158,11,0.15); }
+  .icon-announce { background: rgba(6,182,212,0.15); }
+
+  .item-content { flex: 1; min-width: 0; }
+  .item-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-subtitle {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 1px;
+  }
+  .item-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .item-duration {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .item-delta {
+    font-size: 10px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .item-delta.over {
+    color: #f87171;
+    background: rgba(239,68,68,0.12);
+  }
+  .item-delta.under {
+    color: #60a5fa;
+    background: rgba(59,130,246,0.12);
+  }
+  .item-check {
+    color: #22c55e;
+    font-size: 14px;
+    margin-right: 2px;
+  }
+  .key-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: #a78bfa;
+    background: rgba(139,92,246,0.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  /* EQ Bars Animation (current song) */
+  .eq-bars {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 16px;
+  }
+  .eq-bar {
+    width: 3px;
+    background: #22c55e;
+    border-radius: 2px;
+    animation: eq-bounce 0.8s ease-in-out infinite;
+  }
+  .eq-bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+  .eq-bar:nth-child(2) { height: 14px; animation-delay: 0.15s; }
+  .eq-bar:nth-child(3) { height: 6px; animation-delay: 0.3s; }
+  .eq-bar:nth-child(4) { height: 12px; animation-delay: 0.1s; }
+  @keyframes eq-bounce {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+
+  /* Team Section */
+  .team-section {
+    padding: 12px 20px 16px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin-top: 8px;
+  }
+  .team-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 10px;
+  }
+  .team-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .team-member {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 6px 12px 6px 6px;
+    border-radius: 10px;
+  }
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .av-blue { background: #3b82f6; }
+  .av-purple { background: #8b5cf6; }
+  .av-green { background: #22c55e; }
+  .av-pink { background: #ec4899; }
+  .av-amber { background: #f59e0b; }
+  .av-cyan { background: #06b6d4; }
+  .member-name { font-size: 12px; color: #cbd5e1; font-weight: 500; }
+  .member-role { font-size: 10px; color: #64748b; }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-left: auto;
+  }
+  .confirmed { background: #22c55e; }
+  .unconfirmed { background: #eab308; }
+  .declined { background: #ef4444; }
+
+  /* Home Indicator */
+  .home-indicator {
+    width: 134px;
+    height: 5px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 3px;
+    margin: 8px auto 8px;
+  }
+
+  /* Progress Bar */
+  .progress-bar-container {
+    padding: 0 20px 4px;
+  }
+  .progress-bar {
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 42%;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+</style>
+</head>
+<body>
+
+<div class="phone-frame">
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span class="time">9:47</span>
+    <div class="icons">
+      <span>&#9679;&#9679;&#9679;&#9679;</span>
+      <span>WiFi</span>
+      <span>97%</span>
+    </div>
+  </div>
+  <div class="dynamic-island"></div>
+
+  <div class="screen">
+    <!-- LIVE Header -->
+    <div class="live-header">
+      <div>
+        <div class="live-badge-row">
+          <div class="live-dot"></div>
+          <span class="live-text">Live</span>
+        </div>
+        <div class="service-title">Sunday Morning Worship</div>
+      </div>
+      <button class="end-btn">End Service</button>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-bar-container">
+      <div class="progress-bar"><div class="progress-fill"></div></div>
+    </div>
+
+    <!-- Hero Countdown Card -->
+    <div class="hero-card">
+      <div class="hero-label">Now Playing</div>
+      <div class="hero-item-title">How Great Is Our God</div>
+      <div class="hero-countdown">02:34</div>
+      <div class="hero-subtitle">5:00 planned &middot; Key of G</div>
+      <div class="hero-meta">
+        <span class="delta-badge delta-behind">&#9660; 1m 12s behind</span>
+        <span class="progress-text">6 of 14</span>
+      </div>
+    </div>
+
+    <!-- Show Caller Controls -->
+    <div class="controls">
+      <div class="ctrl-btn">&#9664;</div>
+      <div class="ctrl-progress">6 / 14</div>
+      <div class="ctrl-btn ctrl-next">&#9654;</div>
+    </div>
+
+    <!-- PRE-SERVICE -->
+    <div class="section-header">Pre-Service</div>
+
+    <!-- Item 1: Completed -->
+    <div class="rundown-item completed">
+      <span class="item-check">&#10003;</span>
+      <div class="item-icon icon-media">&#9654;</div>
+      <div class="item-content">
+        <div class="item-title">Pre-Service Loop</div>
+        <div class="item-subtitle">Announcements video</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">10:00</span>
+        <span class="item-delta under">32s ahead</span>
+      </div>
+    </div>
+
+    <!-- Item 2: Completed -->
+    <div class="rundown-item completed">
+      <span class="item-check">&#10003;</span>
+      <div class="item-icon icon-transition">&#8644;</div>
+      <div class="item-content">
+        <div class="item-title">Band Sound Check</div>
+        <div class="item-subtitle">Final levels &amp; monitors</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">5:00</span>
+        <span class="item-delta over">+1m 02s</span>
+      </div>
+    </div>
+
+    <!-- SERVICE RUNDOWN -->
+    <div class="section-header">Service Rundown</div>
+
+    <!-- Item 3: Completed -->
+    <div class="rundown-item completed">
+      <span class="item-check">&#10003;</span>
+      <div class="item-icon icon-welcome">&#128075;</div>
+      <div class="item-content">
+        <div class="item-title">Welcome &amp; Greeting</div>
+        <div class="item-subtitle">Pastor Mike</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">3:00</span>
+        <span class="item-delta over">+28s</span>
+      </div>
+    </div>
+
+    <!-- Item 4: Completed -->
+    <div class="rundown-item completed">
+      <span class="item-check">&#10003;</span>
+      <div class="item-icon icon-song">&#9835;</div>
+      <div class="item-content">
+        <div class="item-title">Build My Life</div>
+        <div class="item-subtitle">Worship Team</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">5:30</span>
+        <span class="key-badge">Key: A</span>
+      </div>
+    </div>
+
+    <!-- Item 5: Completed -->
+    <div class="rundown-item completed">
+      <span class="item-check">&#10003;</span>
+      <div class="item-icon icon-song">&#9835;</div>
+      <div class="item-content">
+        <div class="item-title">King of Kings</div>
+        <div class="item-subtitle">Worship Team</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">4:30</span>
+        <span class="key-badge">Key: D</span>
+      </div>
+    </div>
+
+    <!-- Item 6: CURRENT -->
+    <div class="rundown-item current">
+      <div class="eq-bars">
+        <div class="eq-bar"></div>
+        <div class="eq-bar"></div>
+        <div class="eq-bar"></div>
+        <div class="eq-bar"></div>
+      </div>
+      <div class="item-icon icon-song">&#9835;</div>
+      <div class="item-content">
+        <div class="item-title" style="color:#22c55e;">How Great Is Our God</div>
+        <div class="item-subtitle">Worship Team &middot; 2:34 remaining</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration" style="color:#22c55e;">02:34</span>
+        <span class="key-badge">Key: G</span>
+      </div>
+    </div>
+
+    <!-- Item 7: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-prayer">&#128591;</div>
+      <div class="item-content">
+        <div class="item-title">Prayer</div>
+        <div class="item-subtitle">Worship Pastor</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">2:00</span>
+      </div>
+    </div>
+
+    <!-- Item 8: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-offering">&#128176;</div>
+      <div class="item-content">
+        <div class="item-title">Offering &amp; Announcements</div>
+        <div class="item-subtitle">Pastor Mike</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">4:00</span>
+      </div>
+    </div>
+
+    <!-- Item 9: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-media">&#9654;</div>
+      <div class="item-content">
+        <div class="item-title">Sermon Bumper Video</div>
+        <div class="item-subtitle">Media</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">0:45</span>
+      </div>
+    </div>
+
+    <!-- Item 10: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-message">&#128172;</div>
+      <div class="item-content">
+        <div class="item-title">Message: Unshakeable Faith</div>
+        <div class="item-subtitle">Pastor Mike</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">35:00</span>
+      </div>
+    </div>
+
+    <!-- Item 11: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-song">&#9835;</div>
+      <div class="item-content">
+        <div class="item-title">Goodness of God</div>
+        <div class="item-subtitle">Response Song</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">5:00</span>
+        <span class="key-badge">Key: Bb</span>
+      </div>
+    </div>
+
+    <!-- Item 12: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-announce">&#128226;</div>
+      <div class="item-content">
+        <div class="item-title">Closing &amp; Benediction</div>
+        <div class="item-subtitle">Pastor Mike</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">2:00</span>
+      </div>
+    </div>
+
+    <!-- POST-SERVICE -->
+    <div class="section-header">Post-Service</div>
+
+    <!-- Item 13: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-media">&#9654;</div>
+      <div class="item-content">
+        <div class="item-title">Post-Service Loop</div>
+        <div class="item-subtitle">Exit music &amp; slides</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">10:00</span>
+      </div>
+    </div>
+
+    <!-- Item 14: Upcoming -->
+    <div class="rundown-item upcoming">
+      <div class="item-icon icon-transition">&#8644;</div>
+      <div class="item-content">
+        <div class="item-title">Teardown</div>
+        <div class="item-subtitle">Strike equipment</div>
+      </div>
+      <div class="item-right">
+        <span class="item-duration">15:00</span>
+      </div>
+    </div>
+
+    <!-- Service Team -->
+    <div class="team-section">
+      <div class="team-title">Service Team</div>
+      <div class="team-grid">
+        <div class="team-member">
+          <div class="avatar av-blue">MJ</div>
+          <div>
+            <div class="member-name">Mike Johnson</div>
+            <div class="member-role">Lead Pastor</div>
+          </div>
+          <div class="status-dot confirmed"></div>
+        </div>
+        <div class="team-member">
+          <div class="avatar av-purple">SL</div>
+          <div>
+            <div class="member-name">Sarah Lee</div>
+            <div class="member-role">Worship Leader</div>
+          </div>
+          <div class="status-dot confirmed"></div>
+        </div>
+        <div class="team-member">
+          <div class="avatar av-green">AD</div>
+          <div>
+            <div class="member-name">Andrew D</div>
+            <div class="member-role">Tech Director</div>
+          </div>
+          <div class="status-dot confirmed"></div>
+        </div>
+        <div class="team-member">
+          <div class="avatar av-pink">JR</div>
+          <div>
+            <div class="member-name">Jess Rivera</div>
+            <div class="member-role">Keys</div>
+          </div>
+          <div class="status-dot confirmed"></div>
+        </div>
+        <div class="team-member">
+          <div class="avatar av-amber">TW</div>
+          <div>
+            <div class="member-name">Tyler West</div>
+            <div class="member-role">Camera Op</div>
+          </div>
+          <div class="status-dot unconfirmed"></div>
+        </div>
+        <div class="team-member">
+          <div class="avatar av-cyan">KP</div>
+          <div>
+            <div class="member-name">Kim Park</div>
+            <div class="member-role">Graphics</div>
+          </div>
+          <div class="status-dot confirmed"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="home-indicator"></div>
+  </div>
+</div>
+
+</body>
+</html>
