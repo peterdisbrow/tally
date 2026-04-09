@@ -2296,39 +2296,50 @@
 
           <!-- Header card with plan info -->
           <div class="card" style="margin-bottom:12px;padding:14px 18px">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:0">
-                <div style="flex:1;min-width:0">
-                  <div style="display:flex;align-items:center;gap:10px">
-                    <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4;cursor:pointer" data-action="rundownEditPlanTitle" title="Click to edit title"></div>
-                    <span id="rundown-editor-status-badge" class="rundown-status-badge" style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px"></span>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
-                    <span id="rundown-editor-date" style="font-size:12px;color:#556270"></span>
-                    <span id="rundown-editor-room" style="font-size:12px;color:#556270"></span>
-                    <span id="rundown-editor-item-count" style="font-size:12px;color:#556270"></span>
-                    <span id="rundown-editor-total-duration" style="font-size:12px;color:#8B9DAF;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;font-weight:600"></span>
-                  </div>
+            <!-- Title row -->
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div id="rundown-editor-title" style="font-size:18px;font-weight:700;color:#F0F2F4;cursor:pointer" data-action="rundownEditPlanTitle" title="Click to edit title"></div>
+                  <span id="rundown-editor-status-badge" class="rundown-status-badge" style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px"></span>
+                  <span id="rundown-shared-badge" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Shared</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+                  <span id="rundown-editor-date" style="font-size:12px;color:#556270"></span>
+                  <span id="rundown-editor-room" style="font-size:12px;color:#556270"></span>
+                  <span id="rundown-editor-item-count" style="font-size:12px;color:#556270"></span>
+                  <span id="rundown-editor-total-duration" style="font-size:12px;color:#8B9DAF;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;font-weight:600"></span>
                 </div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                <button class="btn-primary" id="btn-rundown-show-mode" style="font-size:13px;padding:5px 14px;font-weight:700;letter-spacing:0.3px" title="Open the live operator view in a new tab">Show Mode</button>
-                <div style="width:1px;height:20px;background:rgba(255,255,255,0.12);margin:0 2px"></div>
-                <select id="rundown-editor-status-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
+            </div>
+            <!-- Toolbar row -->
+            <div class="rundown-toolbar">
+              <div class="rundown-toolbar-group">
+                <button class="btn-primary" id="btn-rundown-show-mode" style="font-size:13px;padding:6px 16px;font-weight:700;letter-spacing:0.3px" title="Open the live operator view in a new tab">Show Mode</button>
+              </div>
+              <div class="rundown-toolbar-divider"></div>
+              <div class="rundown-toolbar-group">
+                <select id="rundown-editor-status-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
                   <option value="draft">Draft</option>
                   <option value="rehearsal">Rehearsal</option>
                   <option value="show_ready">Show Ready</option>
                   <option value="live">Live</option>
                   <option value="archived">Archived</option>
                 </select>
-                <span id="rundown-shared-badge" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Shared</span>
-                <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:12px;padding:4px 10px">Team</button>
-                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:4px 10px">Outputs</button>
-                <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:4px 10px">Edit</button>
-                <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:4px 10px">Save as Template</button>
-                <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:4px 10px" title="Open the public rundown in a new tab">Public View</button>
-                <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:4px 10px" title="Open the default countdown timer display">Timer View</button>
-                <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:4px 10px;color:#FF5252">Delete</button>
+                <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:12px;padding:5px 12px">Team</button>
+                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:5px 12px">Outputs</button>
+                <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:5px 12px">Edit</button>
+              </div>
+              <div class="rundown-toolbar-divider"></div>
+              <div class="rundown-toolbar-group">
+                <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:5px 12px">Save as Template</button>
+                <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:5px 12px" title="Open the public rundown in a new tab">Public View</button>
+                <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:5px 12px" title="Open the default countdown timer display">Timer View</button>
+                <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>
+              </div>
+              <div style="flex:1"></div>
+              <div class="rundown-toolbar-group">
+                <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
               </div>
             </div>
           </div>

@@ -41,7 +41,9 @@
     .app {
       display: flex;
       flex-direction: column;
-      min-height: 100vh;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
     }
 
     .topbar {
@@ -581,6 +583,110 @@
       padding: 8px 16px;
     }
 
+    /* ── Column Toggle ── */
+    .col-toggle-wrap {
+      position: relative;
+    }
+
+    .col-toggle-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .col-toggle-btn:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.08);
+    }
+
+    .col-toggle-btn.active {
+      color: var(--green);
+      border-color: rgba(0,230,118,0.3);
+    }
+
+    .col-toggle-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 50;
+      width: min(260px, calc(100vw - 32px));
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+      max-height: min(360px, calc(100vh - 80px));
+      overflow-y: auto;
+    }
+
+    .col-toggle-popover.open { display: flex; }
+
+    .col-toggle-title {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 2px;
+    }
+
+    .col-toggle-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .col-toggle-item:hover { background: rgba(255,255,255,0.04); }
+
+    .col-toggle-check {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      border: 1.5px solid rgba(255,255,255,0.2);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .col-toggle-item.checked .col-toggle-check {
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .col-toggle-check svg { width: 10px; height: 10px; opacity: 0; }
+    .col-toggle-item.checked .col-toggle-check svg { opacity: 1; }
+
+    .col-toggle-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .col-toggle-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      display: none;
+    }
+
+    .col-toggle-backdrop.open { display: block; }
+
     /* ── Responsive ── */
     @media (max-width: 600px) {
       .btn-go {
@@ -649,12 +755,97 @@
     var clockTimer = null;
     var countdownTimer = null;
     var editingItemId = null;
+    var hiddenColumns = {};
+    var showStorageKey = 'tally.rundown-show-display:' + token;
+
+    function readShowPrefs() {
+      try {
+        var raw = window.localStorage.getItem(showStorageKey);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (e) { return null; }
+    }
+
+    function writeShowPrefs() {
+      try {
+        var data = {};
+        var keys = Object.keys(hiddenColumns).filter(function (k) { return hiddenColumns[k]; });
+        if (keys.length) data.hiddenColumns = keys;
+        window.localStorage.setItem(showStorageKey, JSON.stringify(data));
+      } catch (e) {}
+    }
+
+    function isColumnHidden(key) {
+      return !!hiddenColumns[key];
+    }
+
+    function toggleShowColumn(key) {
+      if (hiddenColumns[key]) delete hiddenColumns[key];
+      else hiddenColumns[key] = true;
+      writeShowPrefs();
+      renderCueList();
+      renderShowColumnToggle();
+    }
+
+    function renderShowColumnToggle() {
+      var list = document.getElementById('show-col-list');
+      if (!list) return;
+      var checkSvg = '<svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#0A0F0D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      var html = '';
+      for (var i = 0; i < columns.length; i++) {
+        var col = columns[i];
+        var colKey = col.id || col.name;
+        var checked = !isColumnHidden(colKey);
+        html += '<div class="col-toggle-item' + (checked ? ' checked' : '') + '" data-col-key="' + escapeHtml(colKey) + '">';
+        html += '<div class="col-toggle-check">' + checkSvg + '</div>';
+        html += '<span class="col-toggle-label">' + escapeHtml(col.name || col.title || 'Column') + '</span>';
+        html += '</div>';
+      }
+      list.innerHTML = html;
+      var items = list.querySelectorAll('.col-toggle-item');
+      for (var j = 0; j < items.length; j++) {
+        (function (el) {
+          el.addEventListener('click', function () {
+            toggleShowColumn(el.getAttribute('data-col-key'));
+          });
+        })(items[j]);
+      }
+    }
+
+    function toggleShowColumnsPopover(force) {
+      var pop = document.getElementById('show-col-popover');
+      var bd = document.getElementById('show-col-backdrop');
+      var btn = document.getElementById('show-col-btn');
+      if (!pop) return;
+      var isOpen = typeof force === 'boolean' ? force : !pop.classList.contains('open');
+      pop.classList.toggle('open', isOpen);
+      if (bd) bd.classList.toggle('open', isOpen);
+      if (btn) btn.classList.toggle('active', isOpen);
+      if (isOpen) renderShowColumnToggle();
+    }
+
+    // Load stored prefs
+    (function () {
+      var prefs = readShowPrefs();
+      if (prefs && Array.isArray(prefs.hiddenColumns)) {
+        prefs.hiddenColumns.forEach(function (k) { hiddenColumns[k] = true; });
+      }
+    })();
 
     // ── API helper ──
+    function getCsrfToken() {
+      var m = document.cookie.match(/(?:^|;\s*)tally_csrf=([^;]+)/);
+      return m ? m[1] : '';
+    }
+
     function showApi(method, path, body) {
+      var headers = { 'Content-Type': 'application/json' };
+      var csrf = getCsrfToken();
+      if (csrf) headers['x-csrf-token'] = csrf;
       var opts = {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         credentials: 'same-origin'
       };
       if (body && method !== 'GET') opts.body = JSON.stringify(body);
@@ -945,9 +1136,25 @@
           '</div>' +
         '</div>' +
         '<div class="topbar-right">' +
+          '<button class="btn btn-back" id="btn-print" style="padding:6px 12px;font-size:12px;" title="Print rundown">Print</button>' +
+          (columns.length ? '<div class="col-toggle-wrap">' +
+            '<button class="col-toggle-btn" id="show-col-btn" title="Show/hide columns">Columns</button>' +
+            '<div class="col-toggle-backdrop" id="show-col-backdrop"></div>' +
+            '<div class="col-toggle-popover" id="show-col-popover">' +
+              '<div class="col-toggle-title">Visible Columns</div>' +
+              '<div id="show-col-list"></div>' +
+            '</div>' +
+          '</div>' : '') +
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
       app.appendChild(topbar);
+
+      // Bind column toggle events
+      var colBtn = document.getElementById('show-col-btn');
+      var colBd = document.getElementById('show-col-backdrop');
+      if (colBtn) colBtn.addEventListener('click', function () { toggleShowColumnsPopover(); });
+      if (colBd) colBd.addEventListener('click', function () { toggleShowColumnsPopover(false); });
+      if (columns.length) renderShowColumnToggle();
 
       // Status bar
       var sb = document.createElement('div');
@@ -981,6 +1188,10 @@
       startClockTimer();
       startCountdownTimer();
       scrollToActive();
+
+      // Print button
+      var btnPrint = document.getElementById('btn-print');
+      if (btnPrint) btnPrint.addEventListener('click', function () { printRundown(); });
     }
 
     function renderStatusBar() {
@@ -1119,7 +1330,8 @@
           var colHtml = '';
           for (var c = 0; c < item.customCells.length; c++) {
             var cell = item.customCells[c];
-            if (cell.value) {
+            var cellKey = cell.id || cell.columnId || cell.name;
+            if (cell.value && !isColumnHidden(cellKey)) {
               colHtml += '<span class="cue-col-chip"><span class="col-name">' + escapeHtml(cell.name) + ':</span><span class="col-val">' + escapeHtml(cell.value) + '</span></span>';
             }
           }
@@ -1247,6 +1459,134 @@
           remEl.textContent = 'Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--');
         }
       }, 250);
+    }
+
+    // ── Print ──
+    function printRundown() {
+      if (!plan || !items.length) return;
+
+      var serviceDate = plan.serviceDate
+        ? new Date(plan.serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+
+      var totalSeconds = 0;
+      var startMs = plan.serviceDate ? new Date(plan.serviceDate + 'T09:00:00').getTime() : Date.now();
+      var cursor = startMs;
+      var itemTimes = [];
+      for (var i = 0; i < items.length; i++) {
+        var dur = items[i].lengthSeconds || 0;
+        itemTimes.push({ start: cursor, end: cursor + dur * 1000 });
+        cursor += dur * 1000;
+        totalSeconds += dur;
+      }
+
+      function fmtStartTime(ms) {
+        var d = new Date(ms);
+        var h = d.getHours();
+        var m = d.getMinutes();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+      }
+
+      var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+      html += '<title>' + escapeHtml(plan.title || 'Rundown') + ' — Print</title>';
+      html += '<style>';
+      html += '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }';
+      html += 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; padding: 24px; font-size: 11px; }';
+      html += 'h1 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }';
+      html += '.date { font-size: 13px; color: #555; margin-bottom: 16px; }';
+      html += 'table { width: 100%; border-collapse: collapse; margin-top: 8px; }';
+      html += 'thead th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #666; padding: 6px 8px; border-bottom: 2px solid #222; }';
+      html += 'tbody td { padding: 5px 8px; border-bottom: 1px solid #ddd; vertical-align: top; font-size: 11px; }';
+      html += '.section-row td { background: #f0f0f0; font-weight: 700; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid #ccc; }';
+      html += '.section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #888; margin-right: 6px; }';
+      html += '.num { width: 28px; text-align: center; color: #999; }';
+      html += '.type { text-transform: capitalize; color: #555; }';
+      html += '.dur, .start, .end { white-space: nowrap; font-family: ui-monospace, "SF Mono", monospace; font-size: 10px; }';
+      html += '.notes { color: #444; max-width: 200px; white-space: pre-line; }';
+      html += '.total-row td { border-top: 2px solid #222; font-weight: 700; border-bottom: none; }';
+      html += '@media print { body { padding: 12px; } @page { size: letter landscape; margin: 0.5in; } }';
+      html += '</style></head><body>';
+
+      html += '<h1>' + escapeHtml(plan.title || 'Rundown') + '</h1>';
+      if (serviceDate) html += '<div class="date">' + escapeHtml(serviceDate) + '</div>';
+
+      var colCount = 7 + columns.length;
+      html += '<table><thead><tr>';
+      html += '<th class="num">#</th>';
+      html += '<th>Title</th>';
+      html += '<th>Type</th>';
+      html += '<th>Assignee</th>';
+      html += '<th>Duration</th>';
+      html += '<th>Start</th>';
+      html += '<th>Notes</th>';
+      for (var c = 0; c < columns.length; c++) {
+        html += '<th>' + escapeHtml(columns[c].name || columns[c].title || 'Column') + '</th>';
+      }
+      html += '</tr></thead><tbody>';
+
+      var seq = 0;
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var isSection = item.itemType === 'section';
+
+        if (isSection) {
+          html += '<tr class="section-row"><td colspan="' + colCount + '">';
+          html += '<span class="section-label">Section</span>' + escapeHtml(item.title || 'Section');
+          var sNotes = item.notesText || stripHtml(item.notes || '');
+          if (sNotes) html += ' — ' + escapeHtml(sNotes);
+          html += '</td></tr>';
+          continue;
+        }
+
+        seq++;
+        var startTime = item.lengthSeconds > 0 ? fmtStartTime(itemTimes[j].start) : '--';
+        var notesText = item.notesText || stripHtml(item.notes || '');
+
+        html += '<tr>';
+        html += '<td class="num">' + seq + '</td>';
+        html += '<td>' + escapeHtml(item.title || '') + '</td>';
+        html += '<td class="type">' + escapeHtml(item.itemType || '') + '</td>';
+        html += '<td>' + escapeHtml(item.assignee || '') + '</td>';
+        html += '<td class="dur">' + fmtDuration(item.lengthSeconds || 0) + '</td>';
+        html += '<td class="start">' + escapeHtml(startTime) + '</td>';
+        html += '<td class="notes">' + escapeHtml(notesText) + '</td>';
+
+        if (columns.length && item.customCells) {
+          for (var k = 0; k < columns.length; k++) {
+            var cellVal = '';
+            for (var m = 0; m < (item.customCells || []).length; m++) {
+              if (item.customCells[m].columnId === columns[k].id || item.customCells[m].name === columns[k].name) {
+                cellVal = item.customCells[m].value || '';
+                break;
+              }
+            }
+            html += '<td>' + escapeHtml(cellVal) + '</td>';
+          }
+        } else {
+          for (var k2 = 0; k2 < columns.length; k2++) {
+            html += '<td></td>';
+          }
+        }
+
+        html += '</tr>';
+      }
+
+      html += '</tbody><tfoot><tr class="total-row">';
+      html += '<td colspan="4" style="text-align:right;color:#666">Total</td>';
+      html += '<td class="dur">' + fmtDuration(totalSeconds) + '</td>';
+      html += '<td colspan="' + (2 + columns.length) + '"></td>';
+      html += '</tr></tfoot></table>';
+      html += '</body></html>';
+
+      var printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.onload = function () { printWindow.print(); };
+      }
     }
 
     // ── Edit overlay events ──
