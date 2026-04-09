@@ -520,6 +520,7 @@
 
           <div class="timer-label" id="timer-label">REMAINING</div>
           <div class="cue-title" id="cue-title"></div>
+          <div class="stage-subtitle" id="dept-context" style="display:none;color:#00E676;font-weight:700;font-size:clamp(13px,1.8vw,18px);margin-top:2px"></div>
           <div class="timer-display" id="timer-display">00:00</div>
           <div class="progress-bar-container">
             <div class="progress-bar-fill" id="progress-bar"></div>
@@ -610,6 +611,12 @@
   var stageDuration = document.getElementById('stage-duration');
   var stageBadges = document.getElementById('stage-badges');
   var stageKicker = document.getElementById('stage-kicker');
+
+  // 5.5: Department context — parse columns filter from URL
+  var columnFilterRaw = params.get('columns');
+  var columnFilter = columnFilterRaw ? columnFilterRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+  var deptContext = document.getElementById('dept-context');
+  var rundownColumnData = null; // { columns: [...], valueMap: { itemId: { colId: value } }, items: [...] }
 
   var ws = null;
   var reconnectTimer = null;
@@ -756,6 +763,11 @@
     else url.searchParams.delete('mode');
     if (roomId) url.searchParams.set('room', roomId);
     else url.searchParams.delete('room');
+    // 5.5: Preserve column filter when switching to rundown view
+    if (columnFilter.length) {
+      url.searchParams.set('columns', columnFilter.join(','));
+      url.searchParams.set('hideEmpty', '1');
+    }
     return url.pathname + url.search + url.hash;
   }
 
@@ -799,6 +811,8 @@
 
     // Cue title
     cueTitle.textContent = state.cue_title || '';
+    // 5.5: Update department context
+    updateDeptContext(state);
     if (isStageMode) {
       stageSide.style.display = 'block';
       stagePlanTitle.textContent = state.plan_title || 'Live Rundown';
@@ -889,6 +903,82 @@
       stageElapsed.textContent = formatTime(elapsed);
       stageRemaining.textContent = remaining !== null ? formatTime(remaining) : '--:--';
       stageDuration.textContent = duration > 0 ? formatTime(duration) : '--:--';
+    }
+  }
+
+  // 5.5: Fetch full rundown data to extract column values for department context
+  function fetchRundownColumns() {
+    if (!columnFilter.length) return;
+    fetch('/api/public/rundown/' + encodeURIComponent(token))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(plan) {
+        if (!plan) return;
+        var rawCols = plan.columns || plan.customColumns || [];
+        if (!Array.isArray(rawCols)) rawCols = [];
+        var cols = rawCols.filter(function(c) {
+          var id = c && (c.id || c.columnId || c.column_id);
+          return id && columnFilter.indexOf(String(id)) >= 0;
+        });
+        var items = plan.items || [];
+        var valueMap = {};
+        // Build value map from all sources
+        function setVal(itemId, colId, val) {
+          if (!itemId || !colId) return;
+          var ik = String(itemId), ck = String(colId);
+          if (!valueMap[ik]) valueMap[ik] = {};
+          var v = val;
+          if (v && typeof v === 'object') v = v.value || v.text || v.label || '';
+          if (Array.isArray(v)) v = v.filter(Boolean).join(', ');
+          valueMap[ik][ck] = String(v || '');
+        }
+        if (Array.isArray(plan.values)) plan.values.forEach(function(e) { if (e) setVal(e.itemId || e.item_id, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
+        if (Array.isArray(plan.columnValues)) plan.columnValues.forEach(function(e) { if (e) setVal(e.itemId || e.item_id, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
+        if (plan.valuesByItem) Object.keys(plan.valuesByItem).forEach(function(iid) { var row = plan.valuesByItem[iid]; if (row) Object.keys(row).forEach(function(cid) { setVal(iid, cid, row[cid]); }); });
+        items.forEach(function(item) {
+          if (!item) return;
+          var iid = item.id || item.itemId || item.item_id;
+          if (!iid) return;
+          if (Array.isArray(item.columns)) item.columns.forEach(function(e) { if (e) setVal(iid, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
+          if (Array.isArray(item.values)) item.values.forEach(function(e) { if (e) setVal(iid, e.columnId || e.column_id || e.id, e.value !== undefined ? e.value : e.text); });
+          if (item.columnValues) Object.keys(item.columnValues).forEach(function(cid) { setVal(iid, cid, item.columnValues[cid]); });
+          if (item.customColumns) Object.keys(item.customColumns).forEach(function(cid) { setVal(iid, cid, item.customColumns[cid]); });
+          if (item.columnData) Object.keys(item.columnData).forEach(function(cid) { setVal(iid, cid, item.columnData[cid]); });
+          if (item.cells) Object.keys(item.cells).forEach(function(cid) { var cell = item.cells[cid]; setVal(iid, cid, cell && cell.value !== undefined ? cell.value : cell); });
+        });
+        rundownColumnData = { columns: cols, valueMap: valueMap, items: items };
+        // Re-render with latest state
+        if (lastState) updateDeptContext(lastState);
+      })
+      .catch(function() {});
+  }
+
+  // 5.5: Update department context below cue title
+  function updateDeptContext(state) {
+    if (!deptContext || !columnFilter.length || !rundownColumnData) {
+      if (deptContext) deptContext.style.display = 'none';
+      return;
+    }
+    var cueIdx = state.cue_index != null ? state.cue_index : (state.current_cue_index != null ? state.current_cue_index : null);
+    if (cueIdx === null || !rundownColumnData.items[cueIdx]) {
+      deptContext.style.display = 'none';
+      return;
+    }
+    var item = rundownColumnData.items[cueIdx];
+    var itemId = String(item.id || item.itemId || item.item_id || '');
+    var parts = [];
+    for (var i = 0; i < rundownColumnData.columns.length; i++) {
+      var col = rundownColumnData.columns[i];
+      var colId = String(col.id || col.columnId || col.column_id || '');
+      var val = rundownColumnData.valueMap[itemId] && rundownColumnData.valueMap[itemId][colId];
+      if (val && val.trim()) {
+        parts.push((col.name || col.title || 'Column') + ': ' + val);
+      }
+    }
+    if (parts.length) {
+      deptContext.textContent = parts.join(' · ');
+      deptContext.style.display = '';
+    } else {
+      deptContext.style.display = 'none';
     }
   }
 
@@ -1110,6 +1200,7 @@
   // ─── Init ──────────────────────────────────────────────────────────────────
 
   fetchTimerState();
+  fetchRundownColumns(); // 5.5: Load column data for department context
   connectWebSocket();
 
   // Poll as fallback every 5 seconds in case WS drops

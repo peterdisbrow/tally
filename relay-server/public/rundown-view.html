@@ -1253,6 +1253,184 @@
       margin: 0 auto;
     }
 
+    /* ── 5.1 Row filtering — de-emphasized rows ── */
+    tr.row-filtered {
+      opacity: 0.35;
+      transition: opacity 0.2s;
+    }
+    tr.row-filtered:hover {
+      opacity: 0.65;
+    }
+
+    /* ── 5.2 Filter bar ── */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .filter-bar-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #556270;
+      flex-shrink: 0;
+    }
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      color: #8B9DAF;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .filter-chip:hover {
+      background: rgba(255,255,255,0.07);
+      color: #F0F2F4;
+    }
+    .filter-chip.active {
+      background: rgba(0,230,118,0.12);
+      border-color: rgba(0,230,118,0.25);
+      color: #00E676;
+    }
+    .filter-chip .chip-x {
+      font-size: 10px;
+      opacity: 0.6;
+    }
+    .filter-toggle-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .filter-toggle-btn {
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #8B9DAF;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .filter-toggle-btn:hover {
+      background: rgba(255,255,255,0.07);
+      color: #F0F2F4;
+    }
+    .filter-toggle-btn.active {
+      background: rgba(0,230,118,0.10);
+      border-color: rgba(0,230,118,0.20);
+      color: #00E676;
+    }
+    .filter-count {
+      font-size: 11px;
+      color: #556270;
+      font-weight: 600;
+    }
+
+    /* ── 5.3 My Next Cue floating card ── */
+    .next-cue-card {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 22px;
+      border-radius: 16px;
+      background: rgba(10,15,13,0.88);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(0,230,118,0.25);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+      max-width: 90vw;
+      animation: next-cue-slide-up 0.3s ease-out;
+    }
+    @keyframes next-cue-slide-up {
+      from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .next-cue-card-icon {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(0,230,118,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #00E676;
+    }
+    .next-cue-card-body {
+      min-width: 0;
+    }
+    .next-cue-card-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #00E676;
+      font-weight: 800;
+      margin-bottom: 2px;
+    }
+    .next-cue-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #F0F2F4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 50vw;
+    }
+    .next-cue-card-eta {
+      font-size: 12px;
+      color: #8B9DAF;
+      margin-top: 1px;
+    }
+    .next-cue-card-dismiss {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: #556270;
+      cursor: pointer;
+      padding: 4px;
+      font-size: 16px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .next-cue-card-dismiss:hover {
+      color: #F0F2F4;
+    }
+
+    /* ── 5.4 Assignee highlight ── */
+    tr.row-assignee-match {
+      background: rgba(0,230,118,0.06);
+    }
+    tr.row-assignee-match td:first-child {
+      box-shadow: inset 3px 0 0 #00E676;
+    }
+    tr.row-assignee-dim {
+      opacity: 0.45;
+      transition: opacity 0.2s;
+    }
+    tr.row-assignee-dim:hover {
+      opacity: 0.7;
+    }
+
     /* ── Footer ── */
     .footer {
       text-align: center;
@@ -1392,6 +1570,10 @@
       var updatedClockTimer = null;
       var refreshIntervalMs = isPrompterMode ? 5000 : 30000;
       var columnFilter = parseColumnFilter(query.get('columns'));
+      var hideEmpty = query.get('hideEmpty') === '1';
+      var assigneeFilter = query.get('assignee') || '';
+      var showAllRows = false; // toggle for "Show all / Show mine"
+      var nextCueDismissed = false;
       var toolbarHelp = document.getElementById('btn-help');
       var toolbarMirror = document.getElementById('btn-mirror');
       var toolbarDensity = document.getElementById('btn-density');
@@ -2106,6 +2288,176 @@
         return '<span class="custom-value">' + esc(text) + '</span>';
       }
 
+      // 5.1 Check if a row has any value in the filtered columns
+      function rowHasFilteredValue(itemId, columns, valueMap) {
+        if (!columns.length) return true;
+        for (var i = 0; i < columns.length; i++) {
+          var val = valueMap[String(itemId)] && valueMap[String(itemId)][String(columns[i].id)];
+          if (val && String(val).trim()) return true;
+        }
+        return false;
+      }
+
+      // 5.4 Check if item is assigned to assignee
+      function itemMatchesAssignee(item, assignee) {
+        if (!assignee) return false;
+        var name = assignee.toLowerCase();
+        var itemAssignee = String(item.assignee || '').toLowerCase();
+        if (itemAssignee && itemAssignee.indexOf(name) !== -1) return true;
+        return false;
+      }
+
+      // 5.3 Compute next cue where filtered column has value
+      function computeNextCue(items, currentIndex, columns, valueMap) {
+        if (!columns.length || currentIndex === null || currentIndex === undefined) return null;
+        var startIdx = currentIndex + 1;
+        for (var i = startIdx; i < items.length; i++) {
+          if (isSectionItem(items[i])) continue;
+          var itemId = items[i].id || items[i].itemId || items[i].item_id;
+          if (rowHasFilteredValue(itemId, columns, valueMap)) {
+            return { index: i, item: items[i] };
+          }
+        }
+        return null;
+      }
+
+      // Estimate minutes until a cue based on remaining durations
+      function estimateMinutesUntil(items, currentIndex, targetIndex, liveState) {
+        if (currentIndex === null || targetIndex <= currentIndex) return null;
+        var totalSec = 0;
+        // Remaining time on current cue
+        var currentItem = items[currentIndex];
+        if (currentItem && currentItem.lengthSeconds > 0 && liveState) {
+          var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+          var elapsedOnCue = (Date.now() - cueStartedAt) / 1000;
+          totalSec += Math.max(0, currentItem.lengthSeconds - elapsedOnCue);
+        }
+        // Sum durations of cues between current and target
+        for (var i = currentIndex + 1; i < targetIndex; i++) {
+          if (!isSectionItem(items[i])) {
+            totalSec += items[i].lengthSeconds || 0;
+          }
+        }
+        return Math.max(1, Math.round(totalSec / 60));
+      }
+
+      // 5.2 Render the interactive filter bar
+      function renderFilterBar(allColumns, activeColumnIds, totalItems, visibleItems, assignee) {
+        if (!allColumns.length && !assignee) return '';
+        var html = '<div class="filter-bar" id="filter-bar">';
+        html += '<span class="filter-bar-label">Filter</span>';
+        for (var i = 0; i < allColumns.length; i++) {
+          var col = allColumns[i];
+          var isActive = false;
+          if (activeColumnIds) {
+            for (var a = 0; a < activeColumnIds.length; a++) {
+              if (String(activeColumnIds[a]) === String(col.id)) { isActive = true; break; }
+            }
+          }
+          html += '<span class="filter-chip' + (isActive ? ' active' : '') + '" data-filter-col="' + esc(col.id) + '">';
+          html += esc(col.name);
+          if (isActive) html += ' <span class="chip-x">&times;</span>';
+          html += '</span>';
+        }
+        if (assignee) {
+          html += '<span class="filter-chip active" data-filter-assignee="1">';
+          html += 'Assignee: ' + esc(assignee) + ' <span class="chip-x">&times;</span>';
+          html += '</span>';
+        }
+        if (activeColumnIds && activeColumnIds.length && totalItems !== visibleItems) {
+          html += '<span class="filter-count" id="filter-count">Showing ' + visibleItems + ' of ' + totalItems + ' items</span>';
+          html += '<span class="filter-toggle-group">';
+          html += '<button class="filter-toggle-btn' + (showAllRows ? '' : ' active') + '" id="filter-toggle-mine">Show mine</button>';
+          html += '<button class="filter-toggle-btn' + (showAllRows ? ' active' : '') + '" id="filter-toggle-all">Show all</button>';
+          html += '</span>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      // 5.3 Render the floating "My Next Cue" card
+      function renderNextCueCard(nextCue, minutesUntil) {
+        if (!nextCue || nextCueDismissed) return '';
+        var etaText = minutesUntil !== null ? 'in ~' + minutesUntil + ' minute' + (minutesUntil !== 1 ? 's' : '') : '';
+        var html = '<div class="next-cue-card" id="next-cue-card">';
+        html += '<div class="next-cue-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></div>';
+        html += '<div class="next-cue-card-body">';
+        html += '<div class="next-cue-card-label">Your next</div>';
+        html += '<div class="next-cue-card-title">' + esc(nextCue.item.title || 'Untitled') + '</div>';
+        if (etaText) html += '<div class="next-cue-card-eta">' + esc(etaText) + '</div>';
+        html += '</div>';
+        html += '<button class="next-cue-card-dismiss" id="next-cue-dismiss" title="Dismiss">&times;</button>';
+        html += '</div>';
+        return html;
+      }
+
+      // Handle filter chip clicks (5.2)
+      function bindFilterBar(allColumns) {
+        var bar = document.getElementById('filter-bar');
+        if (!bar) return;
+        bar.addEventListener('click', function (e) {
+          var chip = e.target.closest('[data-filter-col]');
+          if (chip) {
+            var colId = chip.getAttribute('data-filter-col');
+            toggleColumnFilter(colId, allColumns);
+            return;
+          }
+          var assigneeChip = e.target.closest('[data-filter-assignee]');
+          if (assigneeChip) {
+            assigneeFilter = '';
+            var next = new URLSearchParams(location.search);
+            next.delete('assignee');
+            history.replaceState(null, '', location.pathname + (next.toString() ? '?' + next.toString() : ''));
+            if (lastPlan) render(lastPlan);
+            return;
+          }
+          if (e.target.id === 'filter-toggle-mine') {
+            showAllRows = false;
+            if (lastPlan) render(lastPlan);
+            return;
+          }
+          if (e.target.id === 'filter-toggle-all') {
+            showAllRows = true;
+            if (lastPlan) render(lastPlan);
+            return;
+          }
+        });
+        var dismissBtn = document.getElementById('next-cue-dismiss');
+        if (dismissBtn) {
+          dismissBtn.addEventListener('click', function () {
+            nextCueDismissed = true;
+            var card = document.getElementById('next-cue-card');
+            if (card) card.remove();
+          });
+        }
+      }
+
+      // Toggle a column in the filter without full page navigation (5.2)
+      function toggleColumnFilter(colId, allColumns) {
+        var currentIds = columnFilter ? columnFilter.slice() : [];
+        var idx = currentIds.indexOf(colId);
+        if (idx >= 0) {
+          currentIds.splice(idx, 1);
+        } else {
+          currentIds.push(colId);
+        }
+        columnFilter = currentIds.length ? currentIds : null;
+        hideEmpty = !!columnFilter;
+        // Update URL without reload
+        var next = new URLSearchParams(location.search);
+        if (columnFilter) {
+          next.set('columns', columnFilter.join(','));
+          next.set('hideEmpty', '1');
+        } else {
+          next.delete('columns');
+          next.delete('hideEmpty');
+        }
+        history.replaceState(null, '', location.pathname + (next.toString() ? '?' + next.toString() : ''));
+        nextCueDismissed = false;
+        showAllRows = false;
+        if (lastPlan) render(lastPlan);
+      }
+
       function renderNotesCell(item) {
         var parts = [];
         if (item && item.notes) {
@@ -2585,6 +2937,25 @@
 
         html += renderLiveBanner(plan, liveState, items);
 
+        // 5.1/5.2/5.4: Filter bar and row counting
+        var allPlanColumns = (function () {
+          var raw = plan.columns || plan.customColumns || [];
+          if (!Array.isArray(raw)) return [];
+          return raw.map(normalizeColumn).filter(Boolean);
+        })();
+        var totalNonSection = 0;
+        var visibleNonSection = 0;
+        var filteredColumns = columns;
+        for (var fc = 0; fc < items.length; fc++) {
+          if (isSectionItem(items[fc])) continue;
+          totalNonSection++;
+          var fcId = items[fc].id || items[fc].itemId || items[fc].item_id;
+          if (!hideEmpty || !filteredColumns.length || rowHasFilteredValue(fcId, filteredColumns, valueMap)) {
+            visibleNonSection++;
+          }
+        }
+        html += renderFilterBar(allPlanColumns, columnFilter, totalNonSection, visibleNonSection, assigneeFilter);
+
         if (items.length === 0) {
           html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no items added yet.</div></div>';
           document.getElementById('app').innerHTML = html;
@@ -2634,7 +3005,18 @@
             html += '</tr>';
             continue;
           }
-          html += '<tr' + (isCurrent ? ' class="current-row"' : '') + '>';
+          // 5.1: Row-level filtering — hide or de-emphasize rows with no filtered column value
+          var rowHasValue = !filteredColumns.length || rowHasFilteredValue(itemId, filteredColumns, valueMap);
+          var isRowFiltered = hideEmpty && filteredColumns.length && !rowHasValue && !showAllRows;
+          // 5.4: Assignee highlighting
+          var isAssigneeMatch = assigneeFilter && itemMatchesAssignee(item, assigneeFilter);
+          var isAssigneeDim = assigneeFilter && !isAssigneeMatch;
+          var rowClasses = [];
+          if (isCurrent) rowClasses.push('current-row');
+          if (isRowFiltered) rowClasses.push('row-filtered');
+          if (isAssigneeMatch) rowClasses.push('row-assignee-match');
+          if (isAssigneeDim && !isCurrent) rowClasses.push('row-assignee-dim');
+          html += '<tr' + (rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '') + '>';
           html += '<td class="num">' + esc(String(item.sequence || (j + 1))) + '</td>';
           html += '<td class="color-cell"><div class="color-bar" style="background:' + colorForType(item.itemType) + '"></div></td>';
           if (showTitle) {
@@ -2684,6 +3066,68 @@
 
         document.getElementById('app').innerHTML = html;
         lastUpdated = plan.updatedAt;
+
+        // 5.2: Bind filter bar interactions
+        bindFilterBar(allPlanColumns);
+
+        // 5.3: My Next Cue floating card (only when column filter active and show is live)
+        var existingCard = document.getElementById('next-cue-card');
+        if (existingCard) existingCard.remove();
+        if (liveState && liveState.isLive !== false && columnFilter && columnFilter.length && !nextCueDismissed) {
+          var nextCueData = computeNextCue(items, currentIndex, filteredColumns, valueMap);
+          if (nextCueData) {
+            var minutesEta = estimateMinutesUntil(items, currentIndex, nextCueData.index, liveState);
+            var cardHtml = renderNextCueCard(nextCueData, minutesEta);
+            if (cardHtml) {
+              var cardContainer = document.createElement('div');
+              cardContainer.innerHTML = cardHtml;
+              document.body.appendChild(cardContainer.firstChild);
+              var dismissBtn = document.getElementById('next-cue-dismiss');
+              if (dismissBtn) {
+                dismissBtn.addEventListener('click', function () {
+                  nextCueDismissed = true;
+                  var card = document.getElementById('next-cue-card');
+                  if (card) card.remove();
+                });
+              }
+            }
+          }
+        }
+        // 5.3/5.4: Combined "You're up next" for assignee filter
+        if (liveState && liveState.isLive !== false && assigneeFilter && !nextCueDismissed) {
+          var assigneeNextIdx = null;
+          for (var an = (currentIndex || 0) + 1; an < items.length; an++) {
+            if (!isSectionItem(items[an]) && itemMatchesAssignee(items[an], assigneeFilter)) {
+              assigneeNextIdx = an;
+              break;
+            }
+          }
+          if (assigneeNextIdx !== null && !document.getElementById('next-cue-card')) {
+            var aMinutes = estimateMinutesUntil(items, currentIndex, assigneeNextIdx, liveState);
+            var aItem = items[assigneeNextIdx];
+            var aEta = aMinutes !== null ? "You're up next in ~" + aMinutes + ' minute' + (aMinutes !== 1 ? 's' : '') : "You're up next";
+            var aCardHtml = '<div class="next-cue-card" id="next-cue-card">';
+            aCardHtml += '<div class="next-cue-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></div>';
+            aCardHtml += '<div class="next-cue-card-body">';
+            aCardHtml += '<div class="next-cue-card-label">Your next</div>';
+            aCardHtml += '<div class="next-cue-card-title">' + esc(aItem.title || 'Untitled') + '</div>';
+            aCardHtml += '<div class="next-cue-card-eta">' + esc(aEta) + '</div>';
+            aCardHtml += '</div>';
+            aCardHtml += '<button class="next-cue-card-dismiss" id="next-cue-dismiss" title="Dismiss">&times;</button>';
+            aCardHtml += '</div>';
+            var aContainer = document.createElement('div');
+            aContainer.innerHTML = aCardHtml;
+            document.body.appendChild(aContainer.firstChild);
+            var aDismiss = document.getElementById('next-cue-dismiss');
+            if (aDismiss) {
+              aDismiss.addEventListener('click', function () {
+                nextCueDismissed = true;
+                var card = document.getElementById('next-cue-card');
+                if (card) card.remove();
+              });
+            }
+          }
+        }
 
         // Keep "updated X ago" label live
         if (updatedClockTimer) clearInterval(updatedClockTimer);

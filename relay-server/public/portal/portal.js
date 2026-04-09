@@ -11448,7 +11448,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownBuildOperatorOutputUrl(baseUrl, columnId) {
-      return _rundownBuildModeUrl(baseUrl, '', { columns: columnId });
+      return _rundownBuildModeUrl(baseUrl, '', { columns: columnId, hideEmpty: '1' });
     }
 
     function _rundownResolveShareUrls(share) {
