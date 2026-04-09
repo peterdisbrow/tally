@@ -1552,6 +1552,39 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   animation: rundown-cell-flash 1s ease-out;
 }
 
+.rundown-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.rundown-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rundown-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255,255,255,0.10);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .rundown-toolbar {
+    gap: 8px;
+  }
+  .rundown-toolbar-group {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .rundown-toolbar-divider {
+    display: none;
+  }
+}
+
 .rundown-batch-bar {
   display: flex;
   align-items: center;
