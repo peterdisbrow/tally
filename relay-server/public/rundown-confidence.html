@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confidence Monitor - TallyConnect</title>
+<style>
+  :root {
+    --bg: #0A0F0D;
+    --surface: #111916;
+    --surface2: #19221E;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F2F4;
+    --text-muted: #8B9DAF;
+    --text-dim: #556270;
+    --green: #00E676;
+    --green-bg: rgba(0,230,118,0.12);
+    --red: #FF5252;
+    --red-bg: rgba(255,82,82,0.12);
+    --amber: #FFB74D;
+    --amber-bg: rgba(255,183,77,0.12);
+    --blue: #42A5F5;
+    --blue-bg: rgba(66,165,245,0.10);
+  }
+  body.light-theme {
+    --bg: #F5F7F5;
+    --surface: #FFFFFF;
+    --surface2: #F0F2F0;
+    --border: rgba(0,0,0,0.10);
+    --text: #1A1D27;
+    --text-muted: #4A5568;
+    --text-dim: #718096;
+    --green: #00A857;
+    --green-bg: rgba(0,168,87,0.10);
+    --red: #CC3333;
+    --red-bg: rgba(204,51,51,0.10);
+    --amber: #C47900;
+    --amber-bg: rgba(196,121,0,0.10);
+    --blue: #2B7CBD;
+    --blue-bg: rgba(43,124,189,0.10);
+  }
+  body.theme-red-green {
+    --green: #00C853;
+    --red: #FF1744;
+    --amber: #FFAB00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background 0.25s, color 0.25s;
+  }
+
+  /* Header bar */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .live-badge {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--green-bg);
+    color: var(--green);
+    animation: pulse-live 2s ease-in-out infinite;
+  }
+  .live-badge.offline { background: var(--surface2); color: var(--text-dim); animation: none; }
+  @keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  .plan-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    max-width: 300px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .variance-badge {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: ui-monospace, 'SF Mono', monospace;
+  }
+  .variance-badge.ahead { background: var(--green-bg); color: var(--green); }
+  .variance-badge.behind { background: var(--red-bg); color: var(--red); }
+  .variance-badge.ontime { background: var(--surface2); color: var(--text-dim); }
+  .projected-end {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .projected-end .time { font-weight: 700; color: var(--text); }
+
+  /* Main content area */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  /* Current cue section */
+  .current-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+  }
+  .current-title {
+    font-size: clamp(28px, 5vw, 56px);
+    font-weight: 800;
+    color: var(--text);
+    text-align: center;
+    line-height: 1.2;
+    max-width: 90%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Timer display */
+  .timer {
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
+    font-size: clamp(80px, 18vw, 200px);
+    font-weight: 800;
+    letter-spacing: -4px;
+    line-height: 1;
+    color: var(--green);
+    transition: color 0.3s;
+    text-align: center;
+  }
+  .timer.warning { color: var(--amber); }
+  .timer.danger { color: var(--red); }
+  .timer.flashing { animation: flash-red 1s ease-in-out infinite; }
+  @keyframes flash-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .timer-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+  }
+
+  /* Item variance badge */
+  .item-variance {
+    font-size: 14px;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-family: ui-monospace, 'SF Mono', monospace;
+  }
+  .item-variance.under { background: var(--green-bg); color: var(--green); }
+  .item-variance.over-slight { background: var(--amber-bg); color: var(--amber); }
+  .item-variance.over-significant { background: var(--red-bg); color: var(--red); }
+
+  /* Progress bar */
+  .progress-container {
+    width: 100%;
+    max-width: 700px;
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 3px;
+    transition: width 1s linear, background 0.3s;
+    width: 0%;
+  }
+
+  /* Upcoming items */
+  .upcoming {
+    width: 100%;
+    max-width: 700px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .upcoming-label {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .upcoming-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .upcoming-color {
+    width: 4px;
+    height: 28px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .upcoming-title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .upcoming-dur {
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  /* Footer / service info */
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 12px 24px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .footer-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .footer-stat .label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+  }
+  .footer-stat .value {
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* Waiting state */
+  .waiting {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+  }
+  .waiting svg { width: 64px; height: 64px; color: var(--text-dim); }
+  .waiting h2 { font-size: 24px; font-weight: 700; color: var(--text); }
+  .waiting p { font-size: 14px; color: var(--text-muted); }
+
+  /* Connection banner */
+  .connection-lost {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    padding: 8px 16px; background: linear-gradient(90deg, #FF5252, #FF7043);
+    color: #fff; font-size: 13px; font-weight: 700; text-align: center;
+    display: none;
+  }
+  .connection-lost.visible { display: block; }
+
+  /* Status dot */
+  .status-bar {
+    position: fixed; bottom: 8px; left: 12px;
+    font-size: 11px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0.3; transition: opacity 0.3s;
+  }
+  .status-bar:hover { opacity: 1; }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--red); transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+</style>
+</head>
+<body>
+  <div class="connection-lost" id="conn-banner">Connection lost - reconnecting...</div>
+
+  <!-- Header -->
+  <div class="header" id="header" style="display:none">
+    <div class="header-left">
+      <span class="live-badge" id="live-badge">LIVE</span>
+      <span class="plan-title" id="plan-title"></span>
+    </div>
+    <div class="header-right">
+      <span class="variance-badge ontime" id="variance-badge">On Time</span>
+      <span class="projected-end" id="projected-end"></span>
+    </div>
+  </div>
+
+  <!-- Waiting screen -->
+  <div class="waiting" id="waiting-screen">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+    </svg>
+    <h2 id="waiting-title">Waiting for Live Rundown</h2>
+    <p>The confidence monitor will activate when the show goes live.</p>
+  </div>
+
+  <!-- Active display -->
+  <div class="main" id="main-screen" style="display:none">
+    <div class="current-label">NOW</div>
+    <div class="current-title" id="current-title"></div>
+    <div class="timer-label" id="timer-label">REMAINING</div>
+    <div class="timer" id="timer-display">00:00</div>
+    <span class="item-variance" id="item-variance" style="display:none"></span>
+    <div class="progress-container">
+      <div class="progress-fill" id="progress-bar"></div>
+    </div>
+    <div class="upcoming" id="upcoming-list"></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer" id="footer" style="display:none">
+    <div class="footer-stat">
+      <span class="label">Elapsed</span>
+      <span class="value" id="service-elapsed">--:--</span>
+    </div>
+    <div class="footer-stat">
+      <span class="label">Remaining</span>
+      <span class="value" id="service-remaining">--:--</span>
+    </div>
+    <div class="footer-stat">
+      <span class="label">Projected End</span>
+      <span class="value" id="projected-end-time">--:--</span>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  var pathParts = window.location.pathname.split('/');
+  var token = pathParts[pathParts.length - 1];
+  var params = new URLSearchParams(window.location.search);
+  var themeParam = params.get('theme') || '';
+  var storedTheme = '';
+  try { storedTheme = localStorage.getItem('tally.confidence-theme:' + token) || ''; } catch(e) {}
+  var currentTheme = themeParam || storedTheme || 'dark';
+  applyTheme(currentTheme);
+
+  // DOM refs
+  var waitingScreen = document.getElementById('waiting-screen');
+  var mainScreen = document.getElementById('main-screen');
+  var header = document.getElementById('header');
+  var footer = document.getElementById('footer');
+  var currentTitle = document.getElementById('current-title');
+  var timerDisplay = document.getElementById('timer-display');
+  var timerLabel = document.getElementById('timer-label');
+  var progressBar = document.getElementById('progress-bar');
+  var planTitle = document.getElementById('plan-title');
+  var liveBadge = document.getElementById('live-badge');
+  var varianceBadge = document.getElementById('variance-badge');
+  var projectedEnd = document.getElementById('projected-end');
+  var itemVariance = document.getElementById('item-variance');
+  var upcomingList = document.getElementById('upcoming-list');
+  var serviceElapsed = document.getElementById('service-elapsed');
+  var serviceRemaining = document.getElementById('service-remaining');
+  var projectedEndTime = document.getElementById('projected-end-time');
+  var statusDot = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+  var connBanner = document.getElementById('conn-banner');
+  var waitingTitle = document.getElementById('waiting-title');
+
+  var ws = null;
+  var reconnectTimer = null;
+  var reconnectDelay = 1000;
+  var lastState = null;
+
+  function formatTime(seconds) {
+    if (seconds == null || seconds < 0) seconds = 0;
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.round(seconds % 60);
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function formatClockTime(isoString) {
+    if (!isoString) return '--:--';
+    var d = new Date(isoString);
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return h + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+  }
+
+  function formatVariance(seconds) {
+    var abs = Math.abs(seconds);
+    var m = Math.floor(abs / 60);
+    var s = abs % 60;
+    var str = m > 0 ? m + ':' + String(s).padStart(2, '0') : s + 's';
+    if (seconds > 0) return '+' + str + ' over';
+    if (seconds < 0) return '-' + str + ' ahead';
+    return 'On Time';
+  }
+
+  function esc(text) {
+    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function applyTheme(theme) {
+    currentTheme = theme;
+    document.body.classList.remove('light-theme', 'theme-red-green');
+    if (theme === 'light') document.body.classList.add('light-theme');
+    else if (theme === 'red-green') document.body.classList.add('theme-red-green');
+    try { localStorage.setItem('tally.confidence-theme:' + token, theme); } catch(e) {}
+  }
+
+  function updateDisplay(state) {
+    lastState = state;
+
+    if (!state || !state.is_live) {
+      waitingScreen.style.display = 'flex';
+      mainScreen.style.display = 'none';
+      header.style.display = 'none';
+      footer.style.display = 'none';
+      waitingTitle.textContent = state && state.plan_title
+        ? '"' + state.plan_title + '" is not live'
+        : 'Waiting for Live Rundown';
+      liveBadge.className = 'live-badge offline';
+      liveBadge.textContent = 'OFFLINE';
+      return;
+    }
+
+    waitingScreen.style.display = 'none';
+    mainScreen.style.display = 'flex';
+    header.style.display = 'flex';
+    footer.style.display = 'flex';
+
+    // Header
+    planTitle.textContent = state.plan_title || 'Live Rundown';
+    liveBadge.className = 'live-badge';
+    liveBadge.textContent = 'LIVE';
+
+    // Variance badge
+    var variance = state.variance || 0;
+    if (Math.abs(variance) < 15) {
+      varianceBadge.className = 'variance-badge ontime';
+      varianceBadge.textContent = 'On Time';
+    } else if (variance > 0) {
+      varianceBadge.className = 'variance-badge behind';
+      varianceBadge.textContent = formatVariance(variance);
+    } else {
+      varianceBadge.className = 'variance-badge ahead';
+      varianceBadge.textContent = formatVariance(variance);
+    }
+
+    // Projected end
+    if (state.projected_end_time) {
+      var endStr = formatClockTime(state.projected_end_time);
+      var deltaMin = Math.round(Math.abs(variance) / 60);
+      var deltaLabel = '';
+      if (Math.abs(variance) >= 15) {
+        deltaLabel = variance > 0 ? ' (+' + deltaMin + ' min late)' : ' (' + deltaMin + ' min early)';
+      }
+      projectedEnd.innerHTML = 'Ends at <span class="time">' + esc(endStr) + '</span>' + esc(deltaLabel);
+    } else {
+      projectedEnd.textContent = '';
+    }
+
+    // Current title
+    currentTitle.textContent = state.cue_title || '';
+
+    // Timer
+    var remaining = state.remaining_seconds;
+    var duration = state.cue_duration_seconds || 0;
+    var elapsed = state.elapsed_seconds || 0;
+
+    if (state.is_overtime) {
+      timerDisplay.textContent = '+' + formatTime(state.overtime_seconds);
+      timerDisplay.className = 'timer flashing';
+      timerLabel.textContent = 'OVERTIME';
+      progressBar.style.width = '100%';
+      progressBar.style.background = 'var(--red)';
+    } else if (remaining !== null) {
+      timerDisplay.textContent = formatTime(remaining);
+      if (remaining <= 10) {
+        timerDisplay.className = 'timer danger';
+        progressBar.style.background = 'var(--red)';
+      } else if (remaining <= 30) {
+        timerDisplay.className = 'timer warning';
+        progressBar.style.background = 'var(--amber)';
+      } else {
+        timerDisplay.className = 'timer';
+        progressBar.style.background = 'var(--green)';
+      }
+      timerLabel.textContent = 'REMAINING';
+      if (duration > 0) {
+        progressBar.style.width = Math.min(100, (elapsed / duration) * 100) + '%';
+      } else {
+        progressBar.style.width = '0%';
+      }
+    } else {
+      timerDisplay.textContent = formatTime(elapsed);
+      timerDisplay.className = 'timer';
+      timerDisplay.style.color = 'var(--text-muted)';
+      timerLabel.textContent = 'ELAPSED';
+      progressBar.style.width = '0%';
+    }
+
+    // Current item variance badge (show for overtime)
+    if (state.is_overtime && state.overtime_seconds > 0) {
+      itemVariance.style.display = '';
+      if (state.overtime_seconds > 60) {
+        itemVariance.className = 'item-variance over-significant';
+      } else {
+        itemVariance.className = 'item-variance over-slight';
+      }
+      itemVariance.textContent = '+' + formatTime(state.overtime_seconds) + ' over';
+    } else {
+      itemVariance.style.display = 'none';
+    }
+
+    // Upcoming items
+    var items = state.upcoming_items || [];
+    var html = '';
+    if (items.length > 0) {
+      html += '<div class="upcoming-label">NEXT UP</div>';
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var colorStyle = item.color ? 'background:' + esc(item.color) : 'background:var(--text-dim)';
+        html += '<div class="upcoming-item">';
+        html += '<div class="upcoming-color" style="' + colorStyle + '"></div>';
+        html += '<span class="upcoming-title">' + esc(item.title) + '</span>';
+        html += '<span class="upcoming-dur">' + (item.lengthSeconds > 0 ? formatTime(item.lengthSeconds) : '--:--') + '</span>';
+        html += '</div>';
+      }
+    }
+    upcomingList.innerHTML = html;
+
+    // Footer stats
+    serviceElapsed.textContent = state.service_elapsed != null ? formatTime(state.service_elapsed) : '--:--';
+    serviceRemaining.textContent = state.service_remaining != null ? formatTime(state.service_remaining) : '--:--';
+    projectedEndTime.textContent = state.projected_end_time ? formatClockTime(state.projected_end_time) : '--:--';
+  }
+
+  // WebSocket connection
+  function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = proto + '//' + location.host + '/rundown-confidence?token=' + encodeURIComponent(token);
+    try { ws = new WebSocket(wsUrl); } catch(e) { scheduleReconnect(); return; }
+
+    ws.onopen = function() {
+      reconnectDelay = 1000;
+      statusDot.classList.add('connected');
+      statusText.textContent = 'Connected';
+      connBanner.classList.remove('visible');
+    };
+
+    ws.onmessage = function(event) {
+      try {
+        var msg = JSON.parse(event.data);
+        if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+          updateDisplay(msg);
+        } else if (msg.type === 'rundown_ended') {
+          updateDisplay({ is_live: false, plan_title: lastState ? lastState.plan_title : '' });
+        }
+      } catch(e) {}
+    };
+
+    ws.onclose = function() {
+      ws = null;
+      statusDot.classList.remove('connected');
+      statusText.textContent = 'Disconnected';
+      connBanner.classList.add('visible');
+      scheduleReconnect();
+    };
+
+    ws.onerror = function() {};
+
+    // Heartbeat
+    var heartbeat = setInterval(function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 25000);
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+  }
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 't' || e.key === 'T') {
+      var themes = ['dark', 'light', 'red-green'];
+      var idx = themes.indexOf(currentTheme);
+      applyTheme(themes[(idx + 1) % themes.length]);
+    }
+    if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(function(){});
+    }
+  });
+
+  // Wake lock
+  var wakeLock = null;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    navigator.wakeLock.request('screen').then(function(lock) {
+      wakeLock = lock;
+      lock.addEventListener('release', function() { wakeLock = null; });
+    }).catch(function(){});
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && lastState && lastState.is_live) requestWakeLock();
+  });
+
+  connect();
+  requestWakeLock();
+})();
+</script>
+</body>
+</html>
