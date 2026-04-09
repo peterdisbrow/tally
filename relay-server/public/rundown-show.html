@@ -955,6 +955,7 @@
           '</div>' +
         '</div>' +
         '<div class="topbar-right">' +
+          '<button class="btn btn-back" id="btn-print" style="padding:6px 12px;font-size:12px;" title="Print rundown">Print</button>' +
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
       app.appendChild(topbar);
@@ -991,6 +992,10 @@
       startClockTimer();
       startCountdownTimer();
       scrollToActive();
+
+      // Print button
+      var btnPrint = document.getElementById('btn-print');
+      if (btnPrint) btnPrint.addEventListener('click', function () { printRundown(); });
     }
 
     function renderStatusBar() {
@@ -1257,6 +1262,134 @@
           remEl.textContent = 'Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--');
         }
       }, 250);
+    }
+
+    // ── Print ──
+    function printRundown() {
+      if (!plan || !items.length) return;
+
+      var serviceDate = plan.serviceDate
+        ? new Date(plan.serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+
+      var totalSeconds = 0;
+      var startMs = plan.serviceDate ? new Date(plan.serviceDate + 'T09:00:00').getTime() : Date.now();
+      var cursor = startMs;
+      var itemTimes = [];
+      for (var i = 0; i < items.length; i++) {
+        var dur = items[i].lengthSeconds || 0;
+        itemTimes.push({ start: cursor, end: cursor + dur * 1000 });
+        cursor += dur * 1000;
+        totalSeconds += dur;
+      }
+
+      function fmtStartTime(ms) {
+        var d = new Date(ms);
+        var h = d.getHours();
+        var m = d.getMinutes();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+      }
+
+      var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+      html += '<title>' + escapeHtml(plan.title || 'Rundown') + ' — Print</title>';
+      html += '<style>';
+      html += '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }';
+      html += 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; padding: 24px; font-size: 11px; }';
+      html += 'h1 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }';
+      html += '.date { font-size: 13px; color: #555; margin-bottom: 16px; }';
+      html += 'table { width: 100%; border-collapse: collapse; margin-top: 8px; }';
+      html += 'thead th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #666; padding: 6px 8px; border-bottom: 2px solid #222; }';
+      html += 'tbody td { padding: 5px 8px; border-bottom: 1px solid #ddd; vertical-align: top; font-size: 11px; }';
+      html += '.section-row td { background: #f0f0f0; font-weight: 700; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid #ccc; }';
+      html += '.section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #888; margin-right: 6px; }';
+      html += '.num { width: 28px; text-align: center; color: #999; }';
+      html += '.type { text-transform: capitalize; color: #555; }';
+      html += '.dur, .start, .end { white-space: nowrap; font-family: ui-monospace, "SF Mono", monospace; font-size: 10px; }';
+      html += '.notes { color: #444; max-width: 200px; white-space: pre-line; }';
+      html += '.total-row td { border-top: 2px solid #222; font-weight: 700; border-bottom: none; }';
+      html += '@media print { body { padding: 12px; } @page { size: letter landscape; margin: 0.5in; } }';
+      html += '</style></head><body>';
+
+      html += '<h1>' + escapeHtml(plan.title || 'Rundown') + '</h1>';
+      if (serviceDate) html += '<div class="date">' + escapeHtml(serviceDate) + '</div>';
+
+      var colCount = 7 + columns.length;
+      html += '<table><thead><tr>';
+      html += '<th class="num">#</th>';
+      html += '<th>Title</th>';
+      html += '<th>Type</th>';
+      html += '<th>Assignee</th>';
+      html += '<th>Duration</th>';
+      html += '<th>Start</th>';
+      html += '<th>Notes</th>';
+      for (var c = 0; c < columns.length; c++) {
+        html += '<th>' + escapeHtml(columns[c].name || columns[c].title || 'Column') + '</th>';
+      }
+      html += '</tr></thead><tbody>';
+
+      var seq = 0;
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var isSection = item.itemType === 'section';
+
+        if (isSection) {
+          html += '<tr class="section-row"><td colspan="' + colCount + '">';
+          html += '<span class="section-label">Section</span>' + escapeHtml(item.title || 'Section');
+          var sNotes = item.notesText || stripHtml(item.notes || '');
+          if (sNotes) html += ' — ' + escapeHtml(sNotes);
+          html += '</td></tr>';
+          continue;
+        }
+
+        seq++;
+        var startTime = item.lengthSeconds > 0 ? fmtStartTime(itemTimes[j].start) : '--';
+        var notesText = item.notesText || stripHtml(item.notes || '');
+
+        html += '<tr>';
+        html += '<td class="num">' + seq + '</td>';
+        html += '<td>' + escapeHtml(item.title || '') + '</td>';
+        html += '<td class="type">' + escapeHtml(item.itemType || '') + '</td>';
+        html += '<td>' + escapeHtml(item.assignee || '') + '</td>';
+        html += '<td class="dur">' + fmtDuration(item.lengthSeconds || 0) + '</td>';
+        html += '<td class="start">' + escapeHtml(startTime) + '</td>';
+        html += '<td class="notes">' + escapeHtml(notesText) + '</td>';
+
+        if (columns.length && item.customCells) {
+          for (var k = 0; k < columns.length; k++) {
+            var cellVal = '';
+            for (var m = 0; m < (item.customCells || []).length; m++) {
+              if (item.customCells[m].columnId === columns[k].id || item.customCells[m].name === columns[k].name) {
+                cellVal = item.customCells[m].value || '';
+                break;
+              }
+            }
+            html += '<td>' + escapeHtml(cellVal) + '</td>';
+          }
+        } else {
+          for (var k2 = 0; k2 < columns.length; k2++) {
+            html += '<td></td>';
+          }
+        }
+
+        html += '</tr>';
+      }
+
+      html += '</tbody><tfoot><tr class="total-row">';
+      html += '<td colspan="4" style="text-align:right;color:#666">Total</td>';
+      html += '<td class="dur">' + fmtDuration(totalSeconds) + '</td>';
+      html += '<td colspan="' + (2 + columns.length) + '"></td>';
+      html += '</tr></tfoot></table>';
+      html += '</body></html>';
+
+      var printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.onload = function () { printWindow.print(); };
+      }
     }
 
     // ── Edit overlay events ──
