@@ -2348,6 +2348,23 @@
                 <button class="btn-secondary" data-action="rundownShowReports" style="font-size:12px;padding:5px 12px" title="View post-show timing reports">Reports</button>
                 <button class="btn-secondary" data-action="rundownShowRehearsals" style="font-size:12px;padding:5px 12px" title="View rehearsal run results">Rehearsals</button>
               </div>
+              <div class="rundown-toolbar-divider"></div>
+              <div class="rundown-toolbar-group toolbar-secondary">
+                <button class="btn-secondary" id="btn-rundown-undo" data-action="rundownUndo" style="font-size:12px;padding:5px 10px" title="Undo (Ctrl+Z)" disabled>Undo</button>
+                <button class="btn-secondary" id="btn-rundown-redo" data-action="rundownRedo" style="font-size:12px;padding:5px 10px" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+                <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px" title="Compare with another plan">Compare</button>
+                <div style="position:relative;display:inline-block">
+                  <button class="btn-secondary" id="btn-rundown-export" style="font-size:12px;padding:5px 12px" title="Export plan">Export</button>
+                  <div class="rundown-export-menu" id="rundown-export-menu" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#0d1f14;border:1px solid #0d3320;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.5);margin-top:4px">
+                    <div data-action="rundownExportPDFTech" style="padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer">PDF — Tech Team</div>
+                    <div data-action="rundownExportPDFBand" style="padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer">PDF — Band/Worship</div>
+                    <div data-action="rundownExportPDFPastor" style="padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer">PDF — Pastor</div>
+                    <div style="height:1px;background:rgba(255,255,255,0.08);margin:4px 0"></div>
+                    <div data-action="rundownExportCSV" style="padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer">Export CSV</div>
+                    <div data-action="rundownImportCSV" style="padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer">Import CSV</div>
+                  </div>
+                </div>
+              </div>
               <div style="flex:1"></div>
               <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary rundown-adv" data-action="rundownSyncSettings" style="font-size:12px;padding:5px 12px" title="Configure cross-room timing sync">Sync</button>
@@ -2370,6 +2387,10 @@
                   <button class="btn-secondary" id="btn-rundown-share-mobile" data-action="rundownOpenPublicView" style="font-size:12px;padding:5px 12px">Public View</button>
                   <button class="btn-secondary" id="btn-rundown-timer-mobile" data-action="rundownOpenTimerDisplay" style="font-size:12px;padding:5px 12px">Timer View</button>
                   <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>
+                  <button class="btn-secondary" data-action="rundownExportPDFTech" style="font-size:12px;padding:5px 12px">Export PDF</button>
+                  <button class="btn-secondary" data-action="rundownExportCSV" style="font-size:12px;padding:5px 12px">Export CSV</button>
+                  <button class="btn-secondary" data-action="rundownImportCSV" style="font-size:12px;padding:5px 12px">Import CSV</button>
+                  <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px">Compare</button>
                   <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
                 </div>
               </div>
