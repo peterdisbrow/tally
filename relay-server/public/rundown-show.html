@@ -764,28 +764,118 @@
       50% { opacity: 0.85; }
     }
 
-    /* ── Responsive ── */
+    /* ── 3.5 Landscape tablet layout (1024px) ── */
+    @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
+      .app {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      .topbar {
+        width: 100%;
+        flex-shrink: 0;
+      }
+      .status-bar {
+        width: 100%;
+        flex-shrink: 0;
+      }
+      .controls {
+        width: 100%;
+        flex-shrink: 0;
+      }
+      .cue-list-wrap {
+        width: 60%;
+        flex: none;
+        overflow-y: auto;
+        border-right: 1px solid var(--border);
+      }
+      .next-up {
+        width: 40%;
+        flex: 1;
+        position: sticky;
+        top: 0;
+        overflow-y: auto;
+        max-height: calc(100vh - 160px);
+        border-top: none;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      /* Persistent current cue + notes + timer panel on right side */
+      .show-current-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 16px;
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        border: 1px solid var(--border-active);
+      }
+    }
+
+    /* Current cue panel: hidden by default, shown in landscape tablet */
+    .show-current-panel { display: none; }
+
+    /* ── 3.7 Compact status bar on narrow screens ── */
+    .status-secondary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .status-expand-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;
+    }
     @media (max-width: 600px) {
+      .status-secondary { display: none; }
+      .status-secondary.expanded { display: flex; width: 100%; }
+      .status-expand-btn { display: inline-flex; }
+    }
+
+    /* ── 3.6 GO/Back mobile layout ── */
+    @media (max-width: 600px) {
+      .controls {
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 12px;
+      }
       .btn-go {
-        font-size: 15px;
-        padding: 12px 28px;
-        min-width: 120px;
+        font-size: 18px;
+        padding: 16px 40px;
+        min-width: 100%;
+        border-radius: var(--radius-lg);
+        order: -1;
       }
       .btn-back {
         font-size: 13px;
-        padding: 12px 16px;
+        padding: 10px 16px;
+        min-width: 100%;
+      }
+      .btn-stop {
+        min-width: 100%;
+      }
+      .btn-start {
+        min-width: 100%;
       }
       .plan-title { max-width: 160px; }
       .cue-item { grid-template-columns: 28px 1fr auto; gap: 8px; padding: 8px 12px; }
       .cue-item.is-current { padding-left: 9px; }
-      .controls { padding: 10px 12px; }
       .cue-countdown { font-size: 16px; }
     }
 
     @media (max-width: 380px) {
       .topbar { padding: 10px 12px; }
       .status-bar { padding: 8px 12px; }
-      .btn-go { padding: 12px 20px; min-width: 100px; }
+      .btn-go { padding: 14px 20px; }
     }
   </style>
 </head>
@@ -1357,12 +1447,24 @@
       var html = '<div class="status-pills">';
       if (isLive) {
         html += '<span class="pill pill-live">LIVE</span>';
-        html += '<span class="pill pill-elapsed" id="pill-elapsed">Elapsed ' + fmtElapsed(liveState.startedAt) + '</span>';
+        // Primary: current cue + remaining (always visible)
+        var cueIdx = liveState.currentCueIndex || 0;
+        var nonSectionCount = items.filter(function(it) { return it.itemType !== 'section'; }).length;
+        var currentSeq = 0;
+        for (var i = 0; i <= cueIdx && i < items.length; i++) {
+          if (items[i].itemType !== 'section') currentSeq++;
+        }
+        html += '<span class="cue-counter">Cue ' + currentSeq + '/' + nonSectionCount + '</span>';
         var rem = totalRemaining();
         var remClass = 'pill pill-remaining';
         if (rem !== null && rem <= 30 && rem > 0) remClass += ' is-warning';
         if (rem !== null && rem <= 0) remClass += ' is-overtime';
-        html += '<span class="' + remClass + '" id="pill-remaining">Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--') + '</span>';
+        html += '<span class="' + remClass + '" id="pill-remaining">' + (rem !== null ? fmtDuration(rem) : '--:--') + '</span>';
+        // Secondary: elapsed (hidden on narrow, tap to expand)
+        html += '<button class="status-expand-btn" id="status-expand-btn">More</button>';
+        html += '<div class="status-secondary" id="status-secondary">';
+        html += '<span class="pill pill-elapsed" id="pill-elapsed">Elapsed ' + fmtElapsed(liveState.startedAt) + '</span>';
+        html += '</div>';
       } else {
         html += '<span class="pill pill-offline">STANDBY</span>';
         var totalDur = items.reduce(function(sum, it) { return sum + (it.itemType === 'section' ? 0 : (it.lengthSeconds || 0)); }, 0);
@@ -1370,17 +1472,19 @@
       }
       html += '</div>';
 
-      if (isLive) {
-        var cueIdx = liveState.currentCueIndex || 0;
-        var nonSectionCount = items.filter(function(it) { return it.itemType !== 'section'; }).length;
-        var currentSeq = 0;
-        for (var i = 0; i <= cueIdx && i < items.length; i++) {
-          if (items[i].itemType !== 'section') currentSeq++;
-        }
-        html += '<span class="cue-counter">Cue ' + currentSeq + ' / ' + nonSectionCount + '</span>';
-      }
-
       sb.innerHTML = html;
+
+      // Bind expand button
+      var expandBtn = document.getElementById('status-expand-btn');
+      if (expandBtn) {
+        expandBtn.addEventListener('click', function() {
+          var sec = document.getElementById('status-secondary');
+          if (sec) {
+            var expanded = sec.classList.toggle('expanded');
+            expandBtn.textContent = expanded ? 'Less' : 'More';
+          }
+        });
+      }
     }
 
     function renderControls() {
@@ -1545,17 +1649,36 @@
       wrap.style.display = '';
 
       var activeIdx = liveState.currentCueIndex || 0;
+      var currentItem = items[activeIdx];
       var upcoming = [];
       for (var i = activeIdx + 1; i < items.length && upcoming.length < 3; i++) {
         if (items[i].itemType !== 'section') upcoming.push(items[i]);
       }
 
+      var html = '';
+
+      // 3.5: Current cue panel (visible on landscape tablets via CSS)
+      if (currentItem) {
+        html += '<div class="show-current-panel">';
+        html += '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:' + 'var(--green)' + '">Now Playing</div>';
+        html += '<div style="font-size:18px;font-weight:800;color:var(--text);line-height:1.2">' + escapeHtml(currentItem.title) + '</div>';
+        if (currentItem.lengthSeconds > 0) {
+          html += '<div style="font-family:ui-monospace,\'SF Mono\',monospace;font-size:28px;font-weight:800;color:var(--green);margin-top:4px" id="panel-cue-cd">' + fmtDuration(currentItem.lengthSeconds) + '</div>';
+        }
+        var notesText = currentItem.notesText || stripHtml(currentItem.notes || '');
+        if (notesText) {
+          html += '<div style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-top:8px">' + escapeHtml(notesText) + '</div>';
+        }
+        html += '</div>';
+      }
+
       if (!upcoming.length) {
-        wrap.innerHTML = '<div class="next-up-label">End of show</div>';
+        html += '<div class="next-up-label">End of show</div>';
+        wrap.innerHTML = html;
         return;
       }
 
-      var html = '<div class="next-up-label">Next Up</div><div class="next-up-items">';
+      html += '<div class="next-up-label">Next Up</div><div class="next-up-items">';
       for (var u = 0; u < upcoming.length; u++) {
         html += '<div class="next-up-item">';
         html += '<span class="next-up-title">' + escapeHtml(upcoming[u].title) + '</span>';
@@ -1595,6 +1718,21 @@
             cdEl.textContent = isOvertime ? '-' + fmtDuration(cueElapsed - currentItem.lengthSeconds) : fmtDuration(cueRemaining);
             var labelEl = cdEl.nextElementSibling;
             if (labelEl) labelEl.textContent = isOvertime ? 'overtime' : 'remaining';
+          }
+        }
+
+        // 3.5: Update landscape panel timer
+        var panelCd = document.getElementById('panel-cue-cd');
+        if (panelCd) {
+          var pIdx = liveState.currentCueIndex || 0;
+          var pItem = items[pIdx];
+          if (pItem && pItem.lengthSeconds > 0) {
+            var pStart = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+            var pElapsed = Math.max(0, (Date.now() - pStart) / 1000);
+            var pRemaining = Math.max(0, pItem.lengthSeconds - pElapsed);
+            var pOvertime = pElapsed > pItem.lengthSeconds;
+            panelCd.style.color = pOvertime ? 'var(--red)' : pRemaining <= 30 ? 'var(--amber)' : 'var(--green)';
+            panelCd.textContent = pOvertime ? '-' + fmtDuration(pElapsed - pItem.lengthSeconds) : fmtDuration(pRemaining);
           }
         }
 

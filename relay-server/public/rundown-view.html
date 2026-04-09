@@ -1288,17 +1288,33 @@
       50% { opacity: 0.85; }
     }
 
-    /* ── Responsive ── */
+    /* ── 3.3 Tablet breakpoint (768px) ── */
+    @media (max-width: 768px) {
+      /* Hide start/end time columns in Full mode */
+      td.start-cell, th.start-hdr,
+      td.end-cell, th.end-hdr { display: none; }
+      .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      /* Increase touch targets to 44px minimum */
+      tbody td { padding: 12px 14px; min-height: 44px; }
+      thead th { padding: 10px 14px; }
+      .mode-link { padding: 8px 14px; font-size: 12px; min-height: 44px; display: inline-flex; align-items: center; }
+      .display-toolbar button { padding: 8px 12px; min-height: 44px; }
+      .col-toggle-item { padding: 10px 8px; min-height: 44px; }
+      .header { flex-direction: column; gap: 12px; }
+      .meta-right { text-align: left; align-items: flex-start; }
+      .prompter-grid { grid-template-columns: 1fr; }
+      .prompter-hero { position: static; }
+      .compact-mode .summary-shell { grid-template-columns: 1fr; }
+      .summary-panel { position: static; }
+    }
+
+    /* ── Responsive (small phones) ── */
     @media (max-width: 600px) {
       .plan-title { font-size: calc(20px * var(--display-scale)); }
       .header { gap: 12px; }
       .meta-right { text-align: left; }
-    .compact-mode .summary-shell { grid-template-columns: 1fr; }
-      .prompter-grid { grid-template-columns: 1fr; }
-      .prompter-hero { position: static; }
       .prompter-field-grid,
       .prompter-card-columns { grid-template-columns: 1fr; }
-      .summary-panel { position: static; }
       .state-box { padding: 54px 18px; }
       tbody td { padding: 10px 12px; }
       thead th { padding: 9px 12px; }
@@ -1407,6 +1423,23 @@
         scale: 1,
         help: false,
       };
+      // 3.4: Default to Prompter mode on small screens (<768px) unless user explicitly chose a mode
+      var mobilePrompterKey = 'tally.rundown-mobile-mode-chosen:' + token;
+      if (window.innerWidth < 768 && !viewMode) {
+        try {
+          var chosenMode = window.localStorage.getItem(mobilePrompterKey);
+          if (!chosenMode) {
+            var mobileParams = new URLSearchParams(location.search);
+            mobileParams.set('mode', 'prompter');
+            window.location.href = location.pathname + '?' + mobileParams.toString();
+            return;
+          }
+        } catch (e) {}
+      }
+      if (viewMode) {
+        try { window.localStorage.setItem(mobilePrompterKey, viewMode); } catch (e) {}
+      }
+
       if (isCompactMode) document.body.classList.add('compact-mode');
       if (isPrompterMode) document.body.classList.add('prompter-mode');
 
@@ -2571,8 +2604,8 @@
         if (showTitle) html += '<th>Title</th>';
         if (showType) html += '<th>Type</th>';
         if (showDuration) html += '<th>Duration</th>';
-        if (showStart) html += '<th>Start</th>';
-        if (showEnd) html += '<th>End</th>';
+        if (showStart) html += '<th class="start-hdr">Start</th>';
+        if (showEnd) html += '<th class="end-hdr">End</th>';
         if (showNotes) html += '<th>Notes</th>';
         for (var c = 0; c < columns.length; c++) {
           html += '<th>' + renderColumnHeader(columns[c]) + '</th>';

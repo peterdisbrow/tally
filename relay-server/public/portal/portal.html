@@ -2318,7 +2318,11 @@
                 <button class="btn-primary" id="btn-rundown-show-mode" style="font-size:13px;padding:6px 16px;font-weight:700;letter-spacing:0.3px" title="Open the live operator view in a new tab">Show Mode</button>
               </div>
               <div class="rundown-toolbar-divider"></div>
-              <div class="rundown-toolbar-group">
+              <div class="rundown-toolbar-group toolbar-primary-mobile">
+                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:5px 12px">Share</button>
+                <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:5px 12px">Edit</button>
+              </div>
+              <div class="rundown-toolbar-group toolbar-secondary">
                 <select id="rundown-editor-status-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
                   <option value="draft">Draft</option>
                   <option value="rehearsal">Rehearsal</option>
@@ -2332,15 +2336,35 @@
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:5px 12px">Edit</button>
               </div>
               <div class="rundown-toolbar-divider"></div>
-              <div class="rundown-toolbar-group">
+              <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:5px 12px">Save as Template</button>
                 <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:5px 12px" title="Open the public rundown in a new tab">Public View</button>
                 <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:5px 12px" title="Open the default countdown timer display">Timer View</button>
                 <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>
               </div>
               <div style="flex:1"></div>
-              <div class="rundown-toolbar-group">
+              <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
+              </div>
+              <!-- Overflow menu for mobile -->
+              <div class="rundown-toolbar-overflow">
+                <div class="rundown-toolbar-overflow-backdrop" id="toolbar-overflow-backdrop"></div>
+                <button class="rundown-toolbar-overflow-btn" id="toolbar-overflow-btn" title="More actions">...</button>
+                <div class="rundown-toolbar-overflow-menu" id="toolbar-overflow-menu">
+                  <select id="rundown-editor-status-select-mobile" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;color-scheme:dark" data-action="rundownChangeStatus">
+                    <option value="draft">Draft</option>
+                    <option value="rehearsal">Rehearsal</option>
+                    <option value="show_ready">Show Ready</option>
+                    <option value="live">Live</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                  <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:12px;padding:5px 12px">Team</button>
+                  <button class="btn-secondary" data-action="rundownSaveTemplate" style="font-size:12px;padding:5px 12px">Save as Template</button>
+                  <button class="btn-secondary" id="btn-rundown-share-mobile" style="font-size:12px;padding:5px 12px">Public View</button>
+                  <button class="btn-secondary" id="btn-rundown-timer-mobile" style="font-size:12px;padding:5px 12px">Timer View</button>
+                  <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>
+                  <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
+                </div>
               </div>
             </div>
           </div>

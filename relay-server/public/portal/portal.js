@@ -9732,6 +9732,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Status select
       var statusSel = document.getElementById('rundown-editor-status-select');
       if (statusSel) statusSel.value = plan.status || 'draft';
+      var statusSelMobile = document.getElementById('rundown-editor-status-select-mobile');
+      if (statusSelMobile) statusSelMobile.value = plan.status || 'draft';
       // Room name
       var roomEl = document.getElementById('rundown-editor-room');
       if (roomEl) {
@@ -10148,7 +10150,96 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '</tr>';
 
       html += '</tbody></table>';
-      container.innerHTML = html;
+
+      // 3.1: Build mobile card layout (shown via CSS below 768px)
+      var mobileHtml = '<div class="rundown-mobile-card">';
+      var mRowNum = 0;
+      for (var mi = 0; mi < items.length; mi++) {
+        var mItem = items[mi];
+        var mColor = RUNDOWN_TYPE_COLORS[mItem.itemType] || RUNDOWN_TYPE_COLORS.other;
+        var mIsCurrent = (mi === activeCueIdx);
+        var mIsPast = isLive && mi < activeCueIdx;
+
+        if (mItem.itemType === 'section') {
+          mobileHtml += '<div class="rundown-mobile-card-item is-section" data-item-id="' + mItem.id + '" style="border-left-color:' + mColor + '">';
+          mobileHtml += '<div class="mobile-card-title rundown-inline-edit" data-field="title" data-item-id="' + mItem.id + '">' + escapeHtml(mItem.title) + '</div>';
+          mobileHtml += '</div>';
+          continue;
+        }
+        mRowNum++;
+        var mCls = 'rundown-mobile-card-item';
+        if (mIsCurrent) mCls += ' is-current';
+        if (mIsPast) mCls += ' is-past';
+
+        mobileHtml += '<div class="' + mCls + '" data-item-id="' + mItem.id + '" data-cue-index="' + mi + '" style="border-left-color:' + mColor + '">';
+        // Top row: number + title + duration
+        mobileHtml += '<div class="mobile-card-top">';
+        mobileHtml += '<span style="color:#556270;font-size:11px;font-weight:600;margin-right:4px">' + mRowNum + '</span>';
+        mobileHtml += '<span class="mobile-card-title rundown-inline-edit" data-field="title" data-item-id="' + mItem.id + '">' + escapeHtml(mItem.title) + '</span>';
+        mobileHtml += '<span class="mobile-card-duration rundown-inline-edit" data-field="duration" data-item-id="' + mItem.id + '">' + _rundownFormatMMSS(mItem.lengthSeconds) + '</span>';
+        mobileHtml += '</div>';
+        // Meta row: type badge + assignee
+        mobileHtml += '<div class="mobile-card-meta">';
+        if (mItem.itemType && mItem.itemType !== 'other') {
+          mobileHtml += '<span class="mobile-card-type-badge" style="color:' + mColor + '">' + escapeHtml(RUNDOWN_TYPE_LABELS[mItem.itemType] || mItem.itemType) + '</span>';
+        }
+        if (mItem.assignee) {
+          mobileHtml += '<span class="mobile-card-assignee">' + escapeHtml(mItem.assignee) + '</span>';
+        }
+        // Expand toggle (only if notes or custom columns)
+        var mNotes = (mItem.notes || '').replace(/<[^>]*>/g, '');
+        var mHasDetails = !!(mNotes || (_rundownColumns.length > 0));
+        if (mHasDetails) {
+          mobileHtml += '<button class="mobile-card-expand" data-expand-id="' + mItem.id + '">Details</button>';
+        }
+        mobileHtml += '</div>';
+        // Expandable details
+        if (mHasDetails) {
+          mobileHtml += '<div class="mobile-card-details" id="mobile-details-' + mItem.id + '">';
+          if (mNotes) mobileHtml += '<div style="margin-bottom:6px">' + escapeHtml(mNotes) + '</div>';
+          for (var mci = 0; mci < _rundownColumns.length; mci++) {
+            var mCol = _rundownColumns[mci];
+            var mVal = _rundownColumnValues[mItem.id + '_' + mCol.id] || '';
+            mobileHtml += '<div><span style="font-weight:700;color:#556270">' + escapeHtml(mCol.name) + ':</span> ' + (mVal ? escapeHtml(mVal) : '--') + '</div>';
+          }
+          mobileHtml += '</div>';
+        }
+        mobileHtml += '</div>';
+      }
+      // Add item row
+      mobileHtml += '<div style="display:flex;gap:16px;padding:10px 4px">';
+      mobileHtml += '<span data-action="rundownAddItemInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px">';
+      mobileHtml += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z"/></svg>';
+      mobileHtml += 'Add item</span>';
+      mobileHtml += '<span data-action="rundownAddSectionInline" style="cursor:pointer;color:#556270;font-size:12px;display:flex;align-items:center;gap:6px">';
+      mobileHtml += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75Zm0 4A.75.75 0 0 1 2.75 7h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 7.75Zm0 4a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"/></svg>';
+      mobileHtml += 'Add section</span>';
+      mobileHtml += '</div>';
+      mobileHtml += '</div>';
+
+      container.innerHTML = html + mobileHtml;
+
+      // Attach expand toggles for mobile cards
+      container.querySelectorAll('.mobile-card-expand').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var detailsId = 'mobile-details-' + btn.getAttribute('data-expand-id');
+          var details = document.getElementById(detailsId);
+          if (details) {
+            var expanded = details.classList.toggle('expanded');
+            btn.textContent = expanded ? 'Hide' : 'Details';
+          }
+        });
+      });
+      // Attach tap-to-goto on mobile cards during live mode
+      if (isLive) {
+        container.querySelectorAll('.rundown-mobile-card-item[data-cue-index]').forEach(function(card) {
+          card.addEventListener('click', function() {
+            var idx = parseInt(card.getAttribute('data-cue-index'), 10);
+            if (typeof liveShowGoto === 'function') liveShowGoto(idx);
+          });
+        });
+      }
 
       // Attach inline editing listeners
       _attachRundownInlineEditing(container);
@@ -11999,6 +12090,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     if (btnShowMode) btnShowMode.addEventListener('click', rundownOpenShowMode);
     var btnPublicView = document.getElementById('btn-rundown-share');
     if (btnPublicView) btnPublicView.addEventListener('click', rundownOpenPublicView);
+    // Mobile overflow menu duplicates
+    var btnPublicViewMobile = document.getElementById('btn-rundown-share-mobile');
+    if (btnPublicViewMobile) btnPublicViewMobile.addEventListener('click', rundownOpenPublicView);
+    var btnTimerMobile = document.getElementById('btn-rundown-timer-mobile');
+    if (btnTimerMobile) btnTimerMobile.addEventListener('click', openTimerDisplay);
+    // Mobile status select sync
+    var statusSelMobile = document.getElementById('rundown-editor-status-select-mobile');
+    var statusSelDesktop = document.getElementById('rundown-editor-status-select');
+    if (statusSelMobile) {
+      statusSelMobile.addEventListener('change', function() {
+        if (statusSelDesktop) statusSelDesktop.value = statusSelMobile.value;
+        statusSelMobile.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    // 3.2: Overflow menu toggle
+    (function() {
+      var overflowBtn = document.getElementById('toolbar-overflow-btn');
+      var overflowMenu = document.getElementById('toolbar-overflow-menu');
+      var overflowBackdrop = document.getElementById('toolbar-overflow-backdrop');
+      if (!overflowBtn || !overflowMenu) return;
+      function toggleOverflow(force) {
+        var isOpen = typeof force === 'boolean' ? force : !overflowMenu.classList.contains('open');
+        overflowMenu.classList.toggle('open', isOpen);
+        if (overflowBackdrop) overflowBackdrop.classList.toggle('open', isOpen);
+      }
+      overflowBtn.addEventListener('click', function() { toggleOverflow(); });
+      if (overflowBackdrop) overflowBackdrop.addEventListener('click', function() { toggleOverflow(false); });
+      // Close on action
+      overflowMenu.addEventListener('click', function(e) {
+        if (e.target.tagName === 'BUTTON') setTimeout(function() { toggleOverflow(false); }, 100);
+      });
+    })();
     var btnLiveTimer = document.getElementById('btn-rundown-live-timer');
     if (btnLiveTimer) btnLiveTimer.addEventListener('click', function() {
       // Use the active session's plan or the selected plan
