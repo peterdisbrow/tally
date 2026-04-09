@@ -463,7 +463,12 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (plan.source === 'manual') {
           try {
             await manualRundown.updateStatus(planId, 'live');
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live' } });
+            // 9.3: Auto-lock plan when going live
+            const actor = getRundownActor(req);
+            const lockedBy = actor.sessionId || actor.displayName || callerName || 'TD';
+            await manualRundown.lockPlan(planId, lockedBy);
+            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live', lockedBy, lockedAt: Date.now() } });
+            broadcastRundownEvent(churchId, 'rundown_plan_locked', { planId, lockedBy, lockedAt: Date.now() });
           } catch { /* non-critical */ }
         }
 
@@ -562,6 +567,51 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           if (plan && plan.status === 'live') {
             await manualRundown.updateStatus(summary.planId, 'show_ready');
             broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
+          }
+          // 9.3: Auto-unlock plan when show ends
+          if (plan && plan.lockedBy) {
+            await manualRundown.unlockPlan(summary.planId);
+            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, lockedBy: null, lockedAt: null } });
+            broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId: summary.planId });
+          }
+          // 9.5: Auto-generate post-show timing report
+          if (plan && summary.itemTimings && summary.itemTimings.length > 0) {
+            const totalPlannedMs = (summary.totalPlannedDuration || 0);
+            const totalActualMs = summary.totalDuration || 0;
+            const itemTimingsForReport = (summary.itemTimings || []).map((t, idx) => {
+              const planItem = plan.items[t.index] || {};
+              return {
+                index: t.index,
+                itemId: planItem.id || '',
+                title: planItem.title || `Item ${t.index + 1}`,
+                plannedDuration: (t.plannedDuration || 0) * 1000,
+                actualDuration: t.actualDuration || 0,
+                variance: (t.actualDuration || 0) - ((t.plannedDuration || 0) * 1000),
+              };
+            });
+            const overtimeItems = itemTimingsForReport.filter(t => t.variance > 0);
+            const report = {
+              planTitle: plan.title,
+              serviceDate: plan.serviceDate,
+              totalPlannedMs,
+              totalActualMs,
+              totalVarianceMs: totalActualMs - totalPlannedMs,
+              overtimeItemCount: overtimeItems.length,
+              items: itemTimingsForReport,
+            };
+            try {
+              const savedReport = await manualRundown.createShowReport(summary.planId, churchId, {
+                sessionStartedAt: summary.startedAt || (Date.now() - totalActualMs),
+                sessionEndedAt: Date.now(),
+                totalPlannedMs,
+                totalActualMs,
+                itemTimings: itemTimingsForReport,
+                report,
+              });
+              summary.showReport = savedReport;
+            } catch (reportErr) {
+              console.error('[rundown] post-show report generation warning:', reportErr.message);
+            }
           }
         } catch { /* non-critical */ }
       }
@@ -1198,7 +1248,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance } = req.body;
+      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
@@ -1207,7 +1257,18 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           return res.status(404).json({ error: 'Plan not found' });
         }
         if (await ensurePlanWriteAccess(req, res, existing)) return;
+        // 9.3: Enforce plan lock
+        if (existing.lockedBy) {
+          const actor = getRundownActor(req);
+          if (existing.lockedBy !== actor.sessionId && existing.lockedBy !== actor.displayName) {
+            const collab = await manualRundown.getCollaborator(existing.id, actor.sessionId);
+            if (!collab || collab.role !== 'owner') {
+              return res.status(403).json({ error: 'Plan is locked for show. Only the owner/TD can make changes.' });
+            }
+          }
+        }
         const sanitizedNotes = sanitizeHtml(notes || '');
+        const sanitizedDirectorNotes = directorNotes ? sanitizeHtml(directorNotes) : '';
         const item = await manualRundown.addItem(req.params.planId, {
           title: title.trim(),
           itemType: itemType || 'other',
@@ -1217,6 +1278,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           startType,
           hardStartTime,
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : false,
+          directorNotes: sanitizedDirectorNotes,
         });
         broadcastRundownEvent(churchId, 'rundown_item_added', { planId: req.params.planId, item });
         res.json(item);
@@ -1244,12 +1306,44 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           return res.status(404).json({ error: 'Plan not found' });
         }
         if (await ensurePlanWriteAccess(req, res, plan)) return;
+        // 9.3: Enforce plan lock — only locker/owner can edit locked plans
+        if (plan.lockedBy) {
+          const actor = getRundownActor(req);
+          if (plan.lockedBy !== actor.sessionId && plan.lockedBy !== actor.displayName) {
+            const collab = await manualRundown.getCollaborator(plan.id, actor.sessionId);
+            if (!collab || collab.role !== 'owner') {
+              return res.status(403).json({ error: 'Plan is locked for show. Only the owner/TD can make changes.' });
+            }
+          }
+        }
         const targetItem = (plan.items || []).find((item) => item.id === req.params.itemId);
         if (!targetItem) {
           return res.status(404).json({ error: 'Item not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance } = req.body;
+        // 9.2: Save revision snapshot before updating
+        try {
+          const actor = getRundownActor(req);
+          await manualRundown.addItemRevision(req.params.itemId, req.params.planId, churchId, {
+            changedBy: actor.displayName || actor.sessionId || '',
+            snapshot: {
+              title: targetItem.title,
+              itemType: targetItem.itemType,
+              lengthSeconds: targetItem.lengthSeconds,
+              notes: targetItem.notes,
+              assignee: targetItem.assignee,
+              startType: targetItem.startType,
+              hardStartTime: targetItem.hardStartTime,
+              autoAdvance: targetItem.autoAdvance,
+              directorNotes: targetItem.directorNotes || '',
+            },
+            diff: req.body,
+          });
+        } catch (revErr) {
+          console.error('[rundown] revision save warning:', revErr.message);
+        }
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes } = req.body;
         const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
+        const sanitizedDirectorNotes = directorNotes !== undefined ? sanitizeHtml(directorNotes) : undefined;
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
           lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
@@ -1257,12 +1351,15 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           assignee,
           startType, hardStartTime,
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
+          directorNotes: sanitizedDirectorNotes,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
+        const actor = getRundownActor(req);
         broadcastRundownEvent(churchId, 'rundown_item_updated', {
           planId: req.params.planId,
           itemId: req.params.itemId,
+          changedBy: actor.displayName || actor.sessionId || '',
           item: {
             id: req.params.itemId,
             title,
@@ -1273,6 +1370,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             startType,
             hardStartTime,
             autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
+            directorNotes: sanitizedDirectorNotes,
           },
         });
         res.json(updated);
@@ -2058,12 +2156,14 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const plan = access.plan;
       const targetItem = (plan.items || []).find((item) => item.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: 'Item not found' });
-      const { title, lengthSeconds, notes } = req.body;
+      const { title, lengthSeconds, notes, directorNotes } = req.body;
       const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
+      const sanitizedDirNotes = directorNotes !== undefined ? sanitizeHtml(directorNotes) : undefined;
       await manualRundown.updateItem(req.params.itemId, {
         title,
         lengthSeconds: lengthSeconds !== undefined ? parseInt(lengthSeconds, 10) || 0 : undefined,
         notes: sanitizedNotes,
+        directorNotes: sanitizedDirNotes,
       });
       const updated = await manualRundown.getPlan(plan.id);
       res.json({ plan: updated });
@@ -2214,6 +2314,340 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  // ─── PHASE 9: CELL-LEVEL EDIT LOCKS (9.1) ─────────────────────────────────
+
+  // In-memory edit locks: Map<planId, Map<itemId, { sessionId, displayName, lockedAt }>>
+  const _editLocks = new Map();
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/items/:itemId/lock
+   * Acquire an edit lock on an item (broadcast to other editors).
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/lock',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, itemId } = req.params;
+      const actor = getRundownActor(req);
+      const sessionId = actor.sessionId || req.body?.sessionId || '';
+      const displayName = actor.displayName || req.body?.displayName || 'Someone';
+      if (!_editLocks.has(planId)) _editLocks.set(planId, new Map());
+      const planLocks = _editLocks.get(planId);
+      const existing = planLocks.get(itemId);
+      if (existing && existing.sessionId !== sessionId) {
+        // Someone else holds the lock
+        const age = Date.now() - existing.lockedAt;
+        if (age < 60000) { // locks expire after 60s
+          return res.json({ locked: true, heldBy: existing.displayName, heldBySessionId: existing.sessionId });
+        }
+      }
+      // Grant or refresh the lock
+      const lock = { sessionId, displayName, lockedAt: Date.now() };
+      planLocks.set(itemId, lock);
+      broadcastRundownEvent(churchId, 'rundown_item_locked', { planId, itemId, sessionId, displayName });
+      res.json({ locked: false, granted: true });
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/items/:itemId/unlock
+   * Release an edit lock on an item.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/unlock',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const { churchId, planId, itemId } = req.params;
+      const actor = getRundownActor(req);
+      const sessionId = actor.sessionId || req.body?.sessionId || '';
+      const planLocks = _editLocks.get(planId);
+      if (planLocks) {
+        const existing = planLocks.get(itemId);
+        if (existing && existing.sessionId === sessionId) {
+          planLocks.delete(itemId);
+        }
+      }
+      broadcastRundownEvent(churchId, 'rundown_item_unlocked', { planId, itemId, sessionId });
+      res.json({ ok: true });
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/locks
+   * Get all current edit locks for a plan.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/locks',
+    requireChurchOrAdmin,
+    (req, res) => {
+      const { planId } = req.params;
+      const planLocks = _editLocks.get(planId);
+      const locks = {};
+      if (planLocks) {
+        const now = Date.now();
+        for (const [itemId, lock] of planLocks) {
+          if (now - lock.lockedAt < 60000) {
+            locks[itemId] = { sessionId: lock.sessionId, displayName: lock.displayName, lockedAt: lock.lockedAt };
+          } else {
+            planLocks.delete(itemId);
+          }
+        }
+      }
+      res.json({ locks });
+    }
+  );
+
+  // ─── PHASE 9: ITEM REVISION HISTORY (9.2) ────────────────────────────────
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/items/:itemId/revisions
+   * Get revision history for a single item.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/revisions',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, itemId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const revisions = await manualRundown.getItemRevisions(itemId, { limit: 20 });
+        res.json({ revisions });
+      } catch (e) {
+        console.error('[rundown] revision history error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/revisions
+   * Get all revisions for a plan (plan-level history).
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/revisions',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const revisions = await manualRundown.getPlanRevisions(planId, { limit: 50 });
+        res.json({ revisions });
+      } catch (e) {
+        console.error('[rundown] plan revision history error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/revisions/:revisionId/revert
+   * Revert an item to a specific revision.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/revisions/:revisionId/revert',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, revisionId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        if (plan.lockedBy) {
+          const actor = getRundownActor(req);
+          if (plan.lockedBy !== actor.sessionId && plan.lockedBy !== actor.displayName) {
+            return res.status(403).json({ error: 'Plan is locked for show. Only the owner/TD can make changes.' });
+          }
+        }
+        const item = await manualRundown.revertItemToRevision(revisionId);
+        if (!item) return res.status(404).json({ error: 'Revision not found' });
+        const updated = await manualRundown.getPlan(planId);
+        broadcastRundownEvent(churchId, 'rundown_item_updated', { planId, itemId: item.id, item });
+        res.json(updated);
+      } catch (e) {
+        console.error('[rundown] revert error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── PHASE 9: PLAN LOCKING (9.3) ─────────────────────────────────────────
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/lock
+   * Lock a plan for show (editors become read-only).
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/lock',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const actor = getRundownActor(req);
+        const lockedBy = actor.sessionId || actor.displayName || 'TD';
+        const updated = await manualRundown.lockPlan(planId, lockedBy);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', {
+          planId, plan: { id: planId, lockedBy: updated.lockedBy, lockedAt: updated.lockedAt, status: updated.status, updatedAt: updated.updatedAt },
+        });
+        broadcastRundownEvent(churchId, 'rundown_plan_locked', { planId, lockedBy, lockedAt: updated.lockedAt });
+        res.json(updated);
+      } catch (e) {
+        console.error('[rundown] lock error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/unlock
+   * Unlock a plan.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/unlock',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        // Only the locker or owner can unlock
+        const actor = getRundownActor(req);
+        if (plan.lockedBy && plan.lockedBy !== actor.sessionId && plan.lockedBy !== actor.displayName) {
+          const collab = await manualRundown.getCollaborator(planId, actor.sessionId);
+          if (!collab || collab.role !== 'owner') {
+            return res.status(403).json({ error: 'Only the person who locked the plan or an owner can unlock it.' });
+          }
+        }
+        const updated = await manualRundown.unlockPlan(planId);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', {
+          planId, plan: { id: planId, lockedBy: null, lockedAt: null, status: updated.status, updatedAt: updated.updatedAt },
+        });
+        broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId });
+        res.json(updated);
+      } catch (e) {
+        console.error('[rundown] unlock error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── PHASE 9: REHEARSAL MODE (9.4) ───────────────────────────────────────
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/rehearsal/start
+   * Start a rehearsal run.
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/rehearsal/start',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        await manualRundown.updateStatus(planId, 'rehearsal');
+        const run = await manualRundown.startRehearsalRun(planId, churchId);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'rehearsal' } });
+        broadcastRundownEvent(churchId, 'rundown_rehearsal_started', { planId, run });
+        res.json(run);
+      } catch (e) {
+        console.error('[rundown] rehearsal start error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/rehearsal/:runId/end
+   * End a rehearsal run with timing data.
+   * Body: { itemTimings: [{ itemId, title, plannedDuration, actualDuration }], notes? }
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/rehearsal/:runId/end',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, runId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const { itemTimings, notes } = req.body;
+        const run = await manualRundown.endRehearsalRun(runId, { itemTimings: itemTimings || [], notes: notes || '' });
+        if (!run) return res.status(404).json({ error: 'Rehearsal run not found' });
+        // Revert status from rehearsal to draft or show_ready
+        const plan = await manualRundown.getPlan(planId);
+        if (plan && plan.status === 'rehearsal') {
+          await manualRundown.updateStatus(planId, 'show_ready');
+          broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'show_ready' } });
+        }
+        broadcastRundownEvent(churchId, 'rundown_rehearsal_ended', { planId, run });
+        res.json(run);
+      } catch (e) {
+        console.error('[rundown] rehearsal end error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/rehearsals
+   * Get all rehearsal runs for a plan.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/rehearsals',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const runs = await manualRundown.getRehearsalRuns(planId);
+        res.json({ rehearsals: runs });
+      } catch (e) {
+        console.error('[rundown] rehearsals list error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── PHASE 9: POST-SHOW TIMING REPORTS (9.5) ─────────────────────────────
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/reports
+   * Get all show reports for a plan.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/reports',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        const reports = await manualRundown.getShowReports(planId);
+        res.json({ reports });
+      } catch (e) {
+        console.error('[rundown] reports error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/public/rundown-report/:token
+   * Public shareable report link.
+   */
+  app.get('/api/public/rundown-report/:token', async (req, res) => {
+    try {
+      const report = await manualRundown.getShowReportByToken(req.params.token);
+      if (!report) return res.status(404).json({ error: 'Report not found' });
+      const plan = await manualRundown.getPlan(report.planId);
+      res.json({ report, planTitle: plan?.title || 'Unknown Plan' });
+    } catch (e) {
+      console.error('[rundown] public report error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
 
   // ─── ROOM PERMISSIONS API ────────────────────────────────────────────────
 

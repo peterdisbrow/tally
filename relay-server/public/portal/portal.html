@@ -2341,6 +2341,10 @@
                 <button class="btn-secondary" id="btn-rundown-share" style="font-size:12px;padding:5px 12px" title="Open the public rundown in a new tab">Public View</button>
                 <button class="btn-secondary" id="btn-rundown-timer-display" style="font-size:12px;padding:5px 12px" title="Open the default countdown timer display">Timer View</button>
                 <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>
+                <button class="btn-secondary" data-action="rundownLockPlan" id="btn-rundown-lock" style="font-size:12px;padding:5px 12px" title="Lock plan for show (read-only for editors)">Lock for Show</button>
+                <button class="btn-secondary" data-action="rundownShowRevisionHistory" style="font-size:12px;padding:5px 12px" title="View edit history and revert changes">History</button>
+                <button class="btn-secondary" data-action="rundownShowReports" style="font-size:12px;padding:5px 12px" title="View post-show timing reports">Reports</button>
+                <button class="btn-secondary" data-action="rundownShowRehearsals" style="font-size:12px;padding:5px 12px" title="View rehearsal run results">Rehearsals</button>
               </div>
               <div style="flex:1"></div>
               <div class="rundown-toolbar-group toolbar-secondary">
@@ -2387,10 +2391,19 @@
             <div id="rundown-editor-items"></div>
           </div>
 
-          <!-- Start Show / Start Live buttons -->
-          <div id="rundown-start-show-area" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 0">
+          <!-- Start Show / Start Live / Rehearsal / Lock buttons -->
+          <div id="rundown-start-show-area" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 0;flex-wrap:wrap">
             <button class="btn-primary" data-action="liveShowStart" style="font-size:15px;padding:10px 32px;font-weight:700">Start Live</button>
+            <button class="btn-secondary" data-action="rundownStartRehearsal" style="font-size:13px;padding:8px 20px">Rehearsal</button>
             <button class="btn-secondary" data-action="rundownStartLive" style="font-size:13px;padding:8px 20px">Start Live Session</button>
+          </div>
+          <!-- Lock indicator bar (shown when plan is locked) -->
+          <div id="rundown-lock-bar" style="display:none;background:rgba(255,215,64,0.08);border:1px solid rgba(255,215,64,0.2);border-radius:8px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#FFD740" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
+              <span id="rundown-lock-text" style="font-size:12px;color:#FFD740;font-weight:600">Plan locked for show</span>
+            </div>
+            <button class="btn-secondary" data-action="rundownUnlockPlan" style="font-size:11px;padding:4px 10px">Unlock</button>
           </div>
         </div>
       </div>

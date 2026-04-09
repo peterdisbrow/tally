@@ -233,6 +233,83 @@ class ManualRundownStore {
 
     // ── Room permissions table ──────────────────────────────────────────────
     await this._initRoomPermissions();
+
+    // ── Phase 9: director_notes column on items ─────────────────────────────
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN director_notes TEXT DEFAULT ''`);
+    } catch { /* column already exists */ }
+
+    // ── Phase 9: locked_by / locked_at columns on plans ─────────────────────
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_by TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_at BIGINT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+
+    // ── Phase 9: item revision history ──────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_item_revisions (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        changed_by TEXT DEFAULT '',
+        changed_at BIGINT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        diff_json TEXT NOT NULL DEFAULT '{}'
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rir_item ON rundown_item_revisions(item_id, revision_number DESC)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rir_plan ON rundown_item_revisions(plan_id)
+    `);
+
+    // ── Phase 9: rehearsal runs table ───────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_rehearsal_runs (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        run_number INTEGER NOT NULL DEFAULT 1,
+        started_at BIGINT NOT NULL,
+        ended_at BIGINT,
+        total_planned_ms INTEGER NOT NULL DEFAULT 0,
+        total_actual_ms INTEGER DEFAULT NULL,
+        item_timings_json TEXT NOT NULL DEFAULT '[]',
+        notes TEXT DEFAULT '',
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rrr_plan ON rundown_rehearsal_runs(plan_id, run_number DESC)
+    `);
+
+    // ── Phase 9: post-show timing reports ───────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_show_reports (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        session_started_at BIGINT NOT NULL,
+        session_ended_at BIGINT NOT NULL,
+        total_planned_ms INTEGER NOT NULL DEFAULT 0,
+        total_actual_ms INTEGER NOT NULL DEFAULT 0,
+        item_timings_json TEXT NOT NULL DEFAULT '[]',
+        report_json TEXT NOT NULL DEFAULT '{}',
+        share_token TEXT UNIQUE,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rsr_plan ON rundown_show_reports(plan_id, created_at DESC)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rsr_token ON rundown_show_reports(share_token)
+    `);
   }
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
@@ -317,7 +394,7 @@ class ManualRundownStore {
     return templates;
   }
 
-  async updatePlan(planId, { title, serviceDate, templateName, status, roomId }) {
+  async updatePlan(planId, { title, serviceDate, templateName, status, roomId, lockedBy, lockedAt }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -325,6 +402,8 @@ class ManualRundownStore {
     if (templateName !== undefined) { sets.push('template_name = ?'); params.push(templateName); }
     if (status !== undefined) { sets.push('status = ?'); params.push(status); }
     if (roomId !== undefined) { sets.push('room_id = ?'); params.push(roomId); }
+    if (lockedBy !== undefined) { sets.push('locked_by = ?'); params.push(lockedBy || null); }
+    if (lockedAt !== undefined) { sets.push('locked_at = ?'); params.push(lockedAt || null); }
     if (sets.length === 0) return this.getPlan(planId);
     sets.push('updated_at = ?');
     params.push(Date.now());
@@ -368,6 +447,7 @@ class ManualRundownStore {
         startType: item.startType,
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
+        directorNotes: item.directorNotes,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -399,7 +479,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, directorNotes = '' }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -408,15 +488,15 @@ class ManualRundownStore {
     );
     const sortOrder = (max?.mx ?? -1) + 1;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, directorNotes || '', now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, director_notes: directorNotes || '', created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, directorNotes }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -427,6 +507,7 @@ class ManualRundownStore {
     if (startType !== undefined) { sets.push('start_type = ?'); params.push(startType); }
     if (hardStartTime !== undefined) { sets.push('hard_start_time = ?'); params.push(hardStartTime || null); }
     if (autoAdvance !== undefined) { sets.push('auto_advance = ?'); params.push(autoAdvance ? 1 : 0); }
+    if (directorNotes !== undefined) { sets.push('director_notes = ?'); params.push(directorNotes); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -484,6 +565,7 @@ class ManualRundownStore {
         startType: item.startType,
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
+        directorNotes: item.directorNotes,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -518,6 +600,7 @@ class ManualRundownStore {
         startType: item.startType,
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
+        directorNotes: item.directorNotes,
       });
       itemIdMap[item.id] = newItem.id;
     }
@@ -950,6 +1033,8 @@ class ManualRundownStore {
       status: row.status || 'draft',
       roomId: row.room_id || '',
       shareToken: row.share_token || null,
+      lockedBy: row.locked_by || null,
+      lockedAt: row.locked_at || null,
       source: 'manual',
       items,
       collaborators,
@@ -971,6 +1056,7 @@ class ManualRundownStore {
       startType: row.start_type || 'soft',
       hardStartTime: row.hard_start_time || null,
       autoAdvance: !!row.auto_advance,
+      directorNotes: row.director_notes || '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1090,6 +1176,210 @@ class ManualRundownStore {
     } catch {
       return fallback;
     }
+  }
+
+  // ─── PLAN LOCKING (9.3) ────────────────────────────────────────────────────
+
+  async lockPlan(planId, lockedBy) {
+    const now = Date.now();
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET locked_by = ?, locked_at = ?, updated_at = ? WHERE id = ?`,
+      [lockedBy, now, now, planId]
+    );
+    return this.getPlan(planId);
+  }
+
+  async unlockPlan(planId) {
+    const now = Date.now();
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?`,
+      [now, planId]
+    );
+    return this.getPlan(planId);
+  }
+
+  // ─── ITEM REVISIONS (9.2) ────────────────────────────────────────────────
+
+  async addItemRevision(itemId, planId, churchId, { changedBy = '', snapshot, diff = {} }) {
+    const id = uuidv4();
+    const now = Date.now();
+    // Get next revision number
+    const maxRow = await this._db.queryOne(
+      `SELECT COALESCE(MAX(revision_number), 0) as mx FROM rundown_item_revisions WHERE item_id = ?`, [itemId]
+    );
+    const revisionNumber = (maxRow?.mx ?? 0) + 1;
+    await this._db.run(`
+      INSERT INTO rundown_item_revisions (id, item_id, plan_id, church_id, revision_number, changed_by, changed_at, snapshot_json, diff_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, itemId, planId, churchId, revisionNumber, changedBy, now, JSON.stringify(snapshot), JSON.stringify(diff)]);
+    // Keep only last 50 revisions per item
+    await this._db.run(`
+      DELETE FROM rundown_item_revisions WHERE item_id = ? AND revision_number <= (
+        SELECT COALESCE(MAX(revision_number), 0) - 50 FROM rundown_item_revisions WHERE item_id = ?
+      )
+    `, [itemId, itemId]);
+    return { id, itemId, planId, churchId, revisionNumber, changedBy, changedAt: now, snapshot, diff };
+  }
+
+  async getItemRevisions(itemId, { limit = 20 } = {}) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_item_revisions WHERE item_id = ? ORDER BY revision_number DESC LIMIT ?`,
+      [itemId, limit]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      itemId: r.item_id,
+      planId: r.plan_id,
+      churchId: r.church_id,
+      revisionNumber: r.revision_number,
+      changedBy: r.changed_by || '',
+      changedAt: r.changed_at,
+      snapshot: this._parseJson(r.snapshot_json, {}),
+      diff: this._parseJson(r.diff_json, {}),
+    }));
+  }
+
+  async getPlanRevisions(planId, { limit = 50 } = {}) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_item_revisions WHERE plan_id = ? ORDER BY changed_at DESC LIMIT ?`,
+      [planId, limit]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      itemId: r.item_id,
+      planId: r.plan_id,
+      churchId: r.church_id,
+      revisionNumber: r.revision_number,
+      changedBy: r.changed_by || '',
+      changedAt: r.changed_at,
+      snapshot: this._parseJson(r.snapshot_json, {}),
+      diff: this._parseJson(r.diff_json, {}),
+    }));
+  }
+
+  async revertItemToRevision(revisionId) {
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_item_revisions WHERE id = ?`, [revisionId]
+    );
+    if (!row) return null;
+    const snapshot = this._parseJson(row.snapshot_json, null);
+    if (!snapshot) return null;
+    await this.updateItem(row.item_id, {
+      title: snapshot.title,
+      itemType: snapshot.itemType,
+      lengthSeconds: snapshot.lengthSeconds,
+      notes: snapshot.notes,
+      assignee: snapshot.assignee,
+      startType: snapshot.startType,
+      hardStartTime: snapshot.hardStartTime,
+      autoAdvance: snapshot.autoAdvance,
+      directorNotes: snapshot.directorNotes,
+    });
+    return this._db.queryOne(`SELECT * FROM manual_rundown_items WHERE id = ?`, [row.item_id])
+      .then(r => r ? this._toItem(r) : null);
+  }
+
+  // ─── REHEARSAL RUNS (9.4) ─────────────────────────────────────────────────
+
+  async startRehearsalRun(planId, churchId) {
+    const id = uuidv4();
+    const now = Date.now();
+    const maxRow = await this._db.queryOne(
+      `SELECT COALESCE(MAX(run_number), 0) as mx FROM rundown_rehearsal_runs WHERE plan_id = ?`, [planId]
+    );
+    const runNumber = (maxRow?.mx ?? 0) + 1;
+    const plan = await this.getPlan(planId);
+    const totalPlannedMs = plan ? plan.items.reduce((s, it) => s + (it.lengthSeconds || 0) * 1000, 0) : 0;
+    await this._db.run(`
+      INSERT INTO rundown_rehearsal_runs (id, plan_id, church_id, run_number, started_at, total_planned_ms, item_timings_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, '[]', ?)
+    `, [id, planId, churchId, runNumber, now, totalPlannedMs, now]);
+    return { id, planId, churchId, runNumber, startedAt: now, endedAt: null, totalPlannedMs, totalActualMs: null, itemTimings: [], notes: '' };
+  }
+
+  async endRehearsalRun(runId, { itemTimings = [], notes = '' } = {}) {
+    const now = Date.now();
+    const totalActualMs = itemTimings.reduce((s, t) => s + (t.actualDuration || 0), 0);
+    await this._db.run(`
+      UPDATE rundown_rehearsal_runs SET ended_at = ?, total_actual_ms = ?, item_timings_json = ?, notes = ? WHERE id = ?
+    `, [now, totalActualMs, JSON.stringify(itemTimings), notes, runId]);
+    return this.getRehearsalRun(runId);
+  }
+
+  async getRehearsalRun(runId) {
+    const r = await this._db.queryOne(`SELECT * FROM rundown_rehearsal_runs WHERE id = ?`, [runId]);
+    if (!r) return null;
+    return this._toRehearsalRun(r);
+  }
+
+  async getRehearsalRuns(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_rehearsal_runs WHERE plan_id = ? ORDER BY run_number DESC`, [planId]
+    );
+    return rows.map(r => this._toRehearsalRun(r));
+  }
+
+  _toRehearsalRun(r) {
+    return {
+      id: r.id,
+      planId: r.plan_id,
+      churchId: r.church_id,
+      runNumber: r.run_number,
+      startedAt: r.started_at,
+      endedAt: r.ended_at || null,
+      totalPlannedMs: r.total_planned_ms,
+      totalActualMs: r.total_actual_ms != null ? r.total_actual_ms : null,
+      itemTimings: this._parseJson(r.item_timings_json, []),
+      notes: r.notes || '',
+      createdAt: r.created_at,
+    };
+  }
+
+  // ─── POST-SHOW REPORTS (9.5) ──────────────────────────────────────────────
+
+  async createShowReport(planId, churchId, { sessionStartedAt, sessionEndedAt, totalPlannedMs, totalActualMs, itemTimings = [], report = {} }) {
+    const id = uuidv4();
+    const now = Date.now();
+    const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
+    await this._db.run(`
+      INSERT INTO rundown_show_reports (id, plan_id, church_id, session_started_at, session_ended_at, total_planned_ms, total_actual_ms, item_timings_json, report_json, share_token, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, churchId, sessionStartedAt, sessionEndedAt, totalPlannedMs, totalActualMs, JSON.stringify(itemTimings), JSON.stringify(report), shareToken, now]);
+    return { id, planId, churchId, sessionStartedAt, sessionEndedAt, totalPlannedMs, totalActualMs, itemTimings, report, shareToken, createdAt: now };
+  }
+
+  async getShowReports(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_show_reports WHERE plan_id = ? ORDER BY created_at DESC`, [planId]
+    );
+    return rows.map(r => this._toShowReport(r));
+  }
+
+  async getShowReportByToken(token) {
+    if (!token) return null;
+    const r = await this._db.queryOne(`SELECT * FROM rundown_show_reports WHERE share_token = ?`, [token]);
+    return r ? this._toShowReport(r) : null;
+  }
+
+  async getShowReport(reportId) {
+    const r = await this._db.queryOne(`SELECT * FROM rundown_show_reports WHERE id = ?`, [reportId]);
+    return r ? this._toShowReport(r) : null;
+  }
+
+  _toShowReport(r) {
+    return {
+      id: r.id,
+      planId: r.plan_id,
+      churchId: r.church_id,
+      sessionStartedAt: r.session_started_at,
+      sessionEndedAt: r.session_ended_at,
+      totalPlannedMs: r.total_planned_ms,
+      totalActualMs: r.total_actual_ms,
+      itemTimings: this._parseJson(r.item_timings_json, []),
+      report: this._parseJson(r.report_json, {}),
+      shareToken: r.share_token || null,
+      createdAt: r.created_at,
+    };
   }
 
   // ─── ROOM PERMISSIONS ──────────────────────────────────────────────────────

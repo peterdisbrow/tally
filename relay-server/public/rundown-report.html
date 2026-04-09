@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Show Timing Report - TallyConnect</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#060D08;color:#F0F2F4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding:20px}
+  .container{max-width:800px;margin:0 auto}
+  .header{text-align:center;padding:32px 0;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:24px}
+  .header h1{font-size:22px;font-weight:800;margin-bottom:4px}
+  .header .subtitle{font-size:13px;color:#8B9DAF}
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+  .summary-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px;text-align:center}
+  .summary-card .label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8B9DAF;margin-bottom:6px}
+  .summary-card .value{font-size:20px;font-weight:800;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace}
+  .over{color:#FF5252} .under{color:#00E676} .neutral{color:#F0F2F4}
+  table{width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden}
+  th{background:rgba(255,255,255,0.06);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8B9DAF;padding:10px 12px;text-align:left}
+  td{padding:10px 12px;border-top:1px solid rgba(255,255,255,0.06);font-size:13px}
+  tr.overtime td{background:rgba(255,82,82,0.06)}
+  .mono{font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;font-weight:600}
+  .loading{text-align:center;padding:60px;color:#8B9DAF}
+  .error{text-align:center;padding:60px;color:#FF5252}
+  .btn-print{display:inline-block;margin-top:24px;padding:10px 24px;background:#00E676;color:#060D08;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;text-align:center}
+  .footer{text-align:center;padding:24px 0;border-top:1px solid rgba(255,255,255,0.08);margin-top:24px;font-size:11px;color:#556270}
+  @media print{body{background:#fff;color:#000}.summary-card{border:1px solid #ddd}.over{color:#c00}.under{color:#060}.btn-print{display:none}th{background:#f0f0f0;color:#333}td{color:#000}tr.overtime td{background:#fff0f0}.footer{display:none}}
+</style>
+</head>
+<body>
+<div class="container" id="report-container">
+  <div class="loading" id="loading">Loading report...</div>
+</div>
+<script>
+(function() {
+  var token = window.location.pathname.split('/').pop();
+  if (!token) { document.getElementById('loading').innerHTML = '<div class="error">No report token provided.</div>'; return; }
+
+  function fmtMs(ms) {
+    if (ms == null) return '--:--';
+    var neg = ms < 0; ms = Math.abs(ms);
+    var s = Math.floor(ms / 1000); var m = Math.floor(s / 60); var h = Math.floor(m / 60);
+    s = s % 60; m = m % 60;
+    var str = h > 0 ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') : m + ':' + String(s).padStart(2, '0');
+    return neg ? '-' + str : str;
+  }
+
+  function fmtVariance(ms) {
+    if (ms === 0) return '<span class="neutral mono">on time</span>';
+    if (ms > 0) return '<span class="over mono">+' + fmtMs(ms) + '</span>';
+    return '<span class="under mono">' + fmtMs(ms) + '</span>';
+  }
+
+  fetch('/api/public/rundown-report/' + encodeURIComponent(token))
+    .then(function(r) { if (!r.ok) throw new Error('Not found'); return r.json(); })
+    .then(function(data) {
+      var report = data.report;
+      var r = report.report || {};
+      var items = r.items || report.itemTimings || [];
+      var html = '<div class="header">'
+        + '<h1>' + (r.planTitle || data.planTitle || 'Show Report') + '</h1>'
+        + '<div class="subtitle">' + (r.serviceDate || new Date(report.sessionStartedAt).toLocaleDateString()) + '</div>'
+        + '</div>';
+
+      var totalVariance = (report.totalActualMs || 0) - (report.totalPlannedMs || 0);
+      html += '<div class="summary">'
+        + '<div class="summary-card"><div class="label">Planned Duration</div><div class="value neutral mono">' + fmtMs(report.totalPlannedMs) + '</div></div>'
+        + '<div class="summary-card"><div class="label">Actual Duration</div><div class="value neutral mono">' + fmtMs(report.totalActualMs) + '</div></div>'
+        + '<div class="summary-card"><div class="label">Total Variance</div><div class="value">' + fmtVariance(totalVariance) + '</div></div>'
+        + '<div class="summary-card"><div class="label">Items Over Time</div><div class="value ' + ((r.overtimeItemCount || 0) > 0 ? 'over' : 'neutral') + '">' + (r.overtimeItemCount || 0) + '</div></div>'
+        + '</div>';
+
+      html += '<table><thead><tr><th>#</th><th>Item</th><th>Planned</th><th>Actual</th><th>Variance</th></tr></thead><tbody>';
+      items.forEach(function(t, i) {
+        var isOver = (t.variance || 0) > 0;
+        html += '<tr' + (isOver ? ' class="overtime"' : '') + '>'
+          + '<td class="mono">' + (i + 1) + '</td>'
+          + '<td>' + (t.title || 'Item ' + (i + 1)) + '</td>'
+          + '<td class="mono">' + fmtMs(t.plannedDuration) + '</td>'
+          + '<td class="mono">' + fmtMs(t.actualDuration) + '</td>'
+          + '<td>' + fmtVariance(t.variance || 0) + '</td>'
+          + '</tr>';
+      });
+      html += '</tbody></table>';
+      html += '<div style="text-align:center"><button class="btn-print" onclick="window.print()">Print Report</button></div>';
+      html += '<div class="footer">Generated by TallyConnect</div>';
+      document.getElementById('report-container').innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('report-container').innerHTML = '<div class="error">Report not found or link has expired.</div>';
+    });
+})();
+</script>
+</body>
+</html>

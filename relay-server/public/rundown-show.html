@@ -913,6 +913,10 @@
         <label for="edit-notes">Notes</label>
         <textarea id="edit-notes" rows="3"></textarea>
       </div>
+      <div class="edit-field">
+        <label for="edit-director-notes" style="color:#FFD740">Director Note</label>
+        <input type="text" id="edit-director-notes" placeholder="Private note for directors/operators">
+      </div>
       <div class="edit-actions">
         <button class="btn btn-cancel" id="edit-cancel">Cancel</button>
         <button class="btn btn-save" id="edit-save">Save</button>
@@ -1364,6 +1368,7 @@
       document.getElementById('edit-title').value = item.title || '';
       document.getElementById('edit-duration').value = item.lengthSeconds ? (item.lengthSeconds / 60) : '';
       document.getElementById('edit-notes').value = item.notesText || stripHtml(item.notes || '');
+      document.getElementById('edit-director-notes').value = item.directorNotes || '';
       document.getElementById('edit-overlay').classList.add('open');
       document.getElementById('edit-title').focus();
     }
@@ -1378,10 +1383,12 @@
       var title = document.getElementById('edit-title').value.trim();
       var durMin = parseFloat(document.getElementById('edit-duration').value) || 0;
       var notes = document.getElementById('edit-notes').value.trim();
+      var directorNotes = document.getElementById('edit-director-notes').value.trim();
       var body = {};
       if (title) body.title = title;
       body.lengthSeconds = Math.round(durMin * 60);
       body.notes = notes;
+      body.directorNotes = directorNotes;
 
       showApi('PUT', '/api/public/rundown/' + encodeURIComponent(token) + '/items/' + encodeURIComponent(editingItemId), body)
         .then(function(data) {
@@ -1395,6 +1402,7 @@
               item.lengthSeconds = body.lengthSeconds;
               item.notes = notes;
               item.notesText = notes;
+              item.directorNotes = directorNotes;
             }
           }
           closeEdit();
@@ -1660,6 +1668,11 @@
           html += '<div class="cue-notes">' + escapeHtml(notesText) + '</div>';
         }
 
+        // Director notes (visible to operators, not public)
+        if (item.directorNotes) {
+          html += '<div style="margin-top:4px;padding:3px 8px;background:rgba(255,215,64,0.08);border-radius:4px;border-left:2px solid #FFD740;font-size:11px"><span style="color:#FFD740;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:10px">Dir Note</span> <span style="color:var(--text-muted)">' + escapeHtml(item.directorNotes) + '</span></div>';
+        }
+
         // Custom columns
         if (columns.length && item.customCells && item.customCells.length) {
           var colHtml = '';
@@ -1745,6 +1758,9 @@
         var notesText = currentItem.notesText || stripHtml(currentItem.notes || '');
         if (notesText) {
           html += '<div style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-top:8px">' + escapeHtml(notesText) + '</div>';
+        }
+        if (currentItem.directorNotes) {
+          html += '<div style="margin-top:6px;padding:4px 8px;background:rgba(255,215,64,0.08);border-radius:4px;border-left:2px solid #FFD740;font-size:12px"><span style="color:#FFD740;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:10px">Dir Note</span> <span style="color:var(--text-muted)">' + escapeHtml(currentItem.directorNotes) + '</span></div>';
         }
         html += '</div>';
       }
