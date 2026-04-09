@@ -124,6 +124,7 @@ class ScheduleEngine {
     return {
       churchId: row.churchId || row.church_id || null,
       serviceTimesRaw: row.service_times || '[]',
+      scheduleRaw: row.schedule || '',
       timezone: row.timezone || '',
       churchType: row.church_type || '',
       eventExpiresAt: row.event_expires_at || null,
@@ -132,7 +133,57 @@ class ScheduleEngine {
 
   _parseSchedule(serviceTimesRaw) {
     if (!serviceTimesRaw) return [];
-    try { return JSON.parse(serviceTimesRaw); } catch { return []; }
+    let parsed;
+    try { parsed = JSON.parse(serviceTimesRaw); } catch { return []; }
+    return this._normalizeToLegacy(parsed);
+  }
+
+  /**
+   * Normalize schedule data to legacy array format [{day, startHour, startMin, durationHours}].
+   * Handles both:
+   *   - Legacy array: [{day:0, startHour:9, startMin:0, durationHours:2}]
+   *   - Modern object: {"sunday": [{start:"09:00", end:"11:00", label:"..."}]}
+   */
+  _normalizeToLegacy(parsed) {
+    if (!parsed) return [];
+
+    // Already legacy array format — check first element for expected fields
+    if (Array.isArray(parsed)) {
+      if (!parsed.length) return [];
+      if (typeof parsed[0].day === 'number' && parsed[0].startHour !== undefined) return parsed;
+      // Array of modern-format entries without day key — can't map, return empty
+      return [];
+    }
+
+    // Modern object format: { sunday: [{start, end, label}], ... }
+    if (typeof parsed === 'object') {
+      const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+      const result = [];
+      for (const [dayName, entries] of Object.entries(parsed)) {
+        const dayNum = dayMap[dayName.toLowerCase()];
+        if (dayNum === undefined || !Array.isArray(entries)) continue;
+        for (const entry of entries) {
+          const start = entry.start || entry.startTime || '';
+          const end = entry.end || entry.endTime || '';
+          const startParts = String(start).split(':').map(Number);
+          const endParts = String(end).split(':').map(Number);
+          if (startParts.length < 2 || endParts.length < 2) continue;
+          const startMin = (startParts[0] || 0) * 60 + (startParts[1] || 0);
+          const endMin = (endParts[0] || 0) * 60 + (endParts[1] || 0);
+          const durationMin = endMin > startMin ? endMin - startMin : 120;
+          result.push({
+            day: dayNum,
+            startHour: startParts[0] || 0,
+            startMin: startParts[1] || 0,
+            durationHours: Math.round((durationMin / 60) * 100) / 100,
+            label: entry.label || '',
+          });
+        }
+      }
+      return result;
+    }
+
+    return [];
   }
 
   _updateChurchCache(churchId, updates = {}) {
@@ -140,6 +191,7 @@ class ScheduleEngine {
     const existing = this._churchConfigCache.get(churchId) || {
       churchId,
       serviceTimesRaw: '[]',
+      scheduleRaw: '',
       timezone: '',
       churchType: '',
       eventExpiresAt: null,
@@ -151,7 +203,7 @@ class ScheduleEngine {
 
   async _loadCache() {
     const rows = await this._requireClient().query(`
-      SELECT churchId AS "churchId", service_times, timezone, church_type, event_expires_at
+      SELECT churchId AS "churchId", service_times, schedule, timezone, church_type, event_expires_at
       FROM churches
     `);
     this._churchConfigCache.clear();
@@ -166,6 +218,7 @@ class ScheduleEngine {
     return this._churchConfigCache.get(churchId) || {
       churchId,
       serviceTimesRaw: '[]',
+      scheduleRaw: '',
       timezone: '',
       churchType: '',
       eventExpiresAt: null,
@@ -192,11 +245,16 @@ class ScheduleEngine {
   getSchedule(churchId) {
     if (!this.db) {
       const config = this._getChurchConfig(churchId);
-      return this._parseSchedule(config.serviceTimesRaw);
+      const fromServiceTimes = this._parseSchedule(config.serviceTimesRaw);
+      if (fromServiceTimes.length) return fromServiceTimes;
+      // Fall back to the schedule column (modern format used by the portal schedule page)
+      return this._parseSchedule(config.scheduleRaw);
     }
-    const row = this.db.prepare("SELECT service_times FROM churches WHERE churchId = ?").get(churchId);
-    if (!row || !row.service_times) return [];
-    return this._parseSchedule(row.service_times);
+    const row = this.db.prepare("SELECT service_times, schedule FROM churches WHERE churchId = ?").get(churchId);
+    if (!row) return [];
+    const fromServiceTimes = this._parseSchedule(row.service_times);
+    if (fromServiceTimes.length) return fromServiceTimes;
+    return this._parseSchedule(row.schedule);
   }
 
   /** Fetch the church's IANA timezone (empty string if unknown). */

@@ -4712,13 +4712,36 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
     });
 
     // PUT /api/church/ai-triage/settings — update AI settings (admin only)
-    app.put('/api/church/ai-triage/settings', adminMiddleware, (req, res) => {
+    app.put('/api/church/ai-triage/settings', adminMiddleware, async (req, res) => {
       try {
         const settings = aiTriageEngine.updateChurchSettings(
           req.church.churchId,
           req.body,
           req.church.portal_email || 'church_admin',
         );
+        // Ensure DB persistence (updateChurchSettings queues writes asynchronously;
+        // do a direct DB write here to guarantee the save is durable)
+        const now = new Date().toISOString();
+        const updatedBy = req.church.portal_email || 'church_admin';
+        try {
+          await qRun(`
+            INSERT INTO church_ai_settings (church_id, ai_mode, sensitivity_threshold, pre_service_window_minutes,
+              post_service_buffer_minutes, custom_settings, updated_at, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(church_id) DO UPDATE SET
+              ai_mode = excluded.ai_mode,
+              sensitivity_threshold = excluded.sensitivity_threshold,
+              pre_service_window_minutes = excluded.pre_service_window_minutes,
+              post_service_buffer_minutes = excluded.post_service_buffer_minutes,
+              custom_settings = excluded.custom_settings,
+              updated_at = excluded.updated_at,
+              updated_by = excluded.updated_by
+          `, [req.church.churchId, settings.ai_mode, settings.sensitivity_threshold,
+            settings.pre_service_window_minutes, settings.post_service_buffer_minutes,
+            JSON.stringify(settings.custom_settings || {}), now, updatedBy]);
+        } catch (dbErr) {
+          log.error('AI settings DB write failed:', dbErr);
+        }
         res.json(settings);
       } catch (err) {
         if (err.message.includes('Invalid AI mode')) {
@@ -4896,11 +4919,39 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const triageRoomFilter = roomId ? ' AND room_id = ?' : '';
         const triageParams = roomId ? [churchId, since, roomId] : [churchId, since];
 
-        // Get church schedule
+        // Get church schedule (use aiTriageEngine's scheduleEngine for consistent format normalization)
         let serviceTimes = [];
         try {
-          const church = await qOne('SELECT service_times, timezone FROM churches WHERE churchId = ?', [churchId]);
-          if (church?.service_times) serviceTimes = JSON.parse(church.service_times);
+          if (aiTriageEngine && aiTriageEngine.scheduleEngine) {
+            serviceTimes = aiTriageEngine.scheduleEngine.getSchedule(churchId);
+          } else {
+            const church = await qOne('SELECT service_times, schedule, timezone FROM churches WHERE churchId = ?', [churchId]);
+            if (church?.service_times) {
+              try { serviceTimes = JSON.parse(church.service_times); } catch {}
+            }
+            // Fall back to schedule column (modern format from portal schedule page)
+            if ((!serviceTimes || !serviceTimes.length) && church?.schedule) {
+              try { serviceTimes = JSON.parse(church.schedule); } catch {}
+            }
+            // Normalize modern object format to legacy array
+            if (serviceTimes && !Array.isArray(serviceTimes) && typeof serviceTimes === 'object') {
+              const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+              const normalized = [];
+              for (const [dayName, entries] of Object.entries(serviceTimes)) {
+                const dayNum = dayMap[dayName.toLowerCase()];
+                if (dayNum === undefined || !Array.isArray(entries)) continue;
+                for (const entry of entries) {
+                  const start = String(entry.start || entry.startTime || '').split(':').map(Number);
+                  const end = String(entry.end || entry.endTime || '').split(':').map(Number);
+                  if (start.length < 2 || end.length < 2) continue;
+                  const startMin = (start[0] || 0) * 60 + (start[1] || 0);
+                  const endMin = (end[0] || 0) * 60 + (end[1] || 0);
+                  normalized.push({ day: dayNum, startHour: start[0] || 0, startMin: start[1] || 0, durationHours: Math.round(((endMin > startMin ? endMin - startMin : 120) / 60) * 100) / 100 });
+                }
+              }
+              serviceTimes = normalized;
+            }
+          }
         } catch {}
 
         // Get sessions in range
@@ -5128,9 +5179,10 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           `, triageParams);
         } catch {}
 
+        const effectiveAiMode = aiSettings.ai_mode || 'recommend_only';
         res.json({
-          aiEnabled: !!(aiSettings.ai_mode && aiSettings.ai_mode !== 'disabled'),
-          aiMode: aiSettings.ai_mode || 'disabled',
+          aiEnabled: effectiveAiMode !== 'disabled',
+          aiMode: effectiveAiMode,
           summary: {
             totalActions: summary.total_actions || 0,
             successful: summary.successful || 0,

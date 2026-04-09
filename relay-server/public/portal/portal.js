@@ -13723,7 +13723,18 @@ document.addEventListener('DOMContentLoaded', function() {
       if (s.triage_severity === 'critical') critCount = s.count;
     });
     el('ai-triage-stat-critical').textContent = hasData ? critCount : '0';
-    el('ai-triage-stat-resolution').textContent = hasData ? (stats.resolution_rate || 0) + '%' : '0%';
+    var aiMode = (_aiTriageSettings && _aiTriageSettings.ai_mode) || 'recommend_only';
+    var resEl = el('ai-triage-stat-resolution');
+    if (aiMode !== 'full_auto') {
+      resEl.textContent = 'N/A';
+      resEl.style.color = '#556270';
+      resEl.title = 'Resolution rate only applies in Full Auto mode';
+    } else {
+      var rate = hasData ? (stats.resolution_rate || 0) : 0;
+      resEl.textContent = rate + '%';
+      resEl.style.color = rate >= 80 ? '#00E676' : rate >= 50 ? '#FFB74D' : '#FF5252';
+      resEl.title = '';
+    }
 
     var onboarding = document.getElementById('ai-triage-onboarding');
     if (onboarding) {
