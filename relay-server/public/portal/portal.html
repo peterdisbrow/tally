@@ -96,6 +96,12 @@
         <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
         <button id="btn-td-change-pw" class="btn-secondary" data-action="tdChangePassword" style="width:100%;margin-bottom:6px;font-size:11px;display:none">Change Password</button>
       </div>
+      <button class="view-mode-toggle sidebar-view-mode-toggle" data-action="toggleViewMode" title="Switch between simple and advanced view">
+        <span class="view-mode-label">Simple</span>
+        <div class="view-mode-switch">
+          <div class="view-mode-knob"></div>
+        </div>
+      </button>
       <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
@@ -135,13 +141,6 @@
           <div id="overview-room-selector-wrap" style="display:none">
             <select id="overview-room-selector" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:6px 10px;font-size:13px;min-width:140px"></select>
           </div>
-          <!-- Simple / Advanced toggle -->
-          <button class="view-mode-toggle" data-action="toggleViewMode" title="Switch between simple and advanced view">
-            <span class="view-mode-label">Simple</span>
-            <div class="view-mode-switch">
-              <div class="view-mode-knob"></div>
-            </div>
-          </button>
           <button class="help-icon-btn" data-action="openHelp" data-help-page="overview" title="What am I looking at?">?</button>
         </div>
       </div>
@@ -715,12 +714,6 @@
           <div class="page-sub" data-i18n="rooms.page_sub">Manage rooms, equipment configuration, and service schedule</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <button class="view-mode-toggle" data-action="toggleViewMode" title="Switch between simple and advanced view">
-            <span class="view-mode-label">Simple</span>
-            <div class="view-mode-switch">
-              <div class="view-mode-knob"></div>
-            </div>
-          </button>
           <button class="help-icon-btn" data-action="openHelp" data-help-page="rooms" title="Help with Rooms">?</button>
         </div>
       </div>

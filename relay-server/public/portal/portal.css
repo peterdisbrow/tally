@@ -934,6 +934,13 @@ body.light-theme .conn-badge-warn { background: #fffbeb; color: #d97706; border-
   white-space: nowrap;
 }
 .view-mode-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.sidebar-view-mode-toggle {
+  width: 100%;
+  border-radius: 7px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  justify-content: space-between;
+}
 .view-mode-switch {
   width: 32px;
   height: 18px;
