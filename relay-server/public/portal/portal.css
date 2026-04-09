@@ -1516,6 +1516,11 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
 .rundown-status-badge.status-live { background: rgba(239,68,68,0.15); color: #EF4444; animation: rundown-pulse 1.5s ease-in-out infinite; }
 .rundown-status-badge.status-archived { background: rgba(85,98,112,0.1); color: #556270; }
 
+/* 12.2: Save status indicator */
+#rundown-save-status[data-state="saving"] { color: #8B9DAF; }
+#rundown-save-status[data-state="saved"] { color: #00E676; }
+#rundown-save-status[data-state="queued"] { color: #FFB74D; }
+
 @keyframes rundown-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }

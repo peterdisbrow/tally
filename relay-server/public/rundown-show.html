@@ -453,6 +453,13 @@
       letter-spacing: 0.3px;
     }
 
+    .cue-est-start {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* ── Next Up Preview ── */
     .next-up {
       padding: 10px 16px;
@@ -962,6 +969,7 @@
     var hiddenColumns = {};
     var lightTheme = false;
     var showStorageKey = 'tally.rundown-show-display:' + token;
+    var planCacheKey = 'tally.rundown.plan-cache:' + token;
     var connBanner = document.getElementById('connection-lost-banner');
     var consecutivePollFailures = 0;
 
@@ -1138,6 +1146,32 @@
       return d.textContent || '';
     }
 
+    function fmtClockTime(ms) {
+      var d = new Date(ms);
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+    }
+
+    // 12.3: Compute estimated start timestamps for all future items
+    function computeEstimatedStarts() {
+      if (!liveState || !liveState.isLive) return {};
+      var idx = liveState.currentCueIndex || 0;
+      var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+      var currentItem = items[idx];
+      var elapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+      var remaining = currentItem ? Math.max(0, (currentItem.lengthSeconds || 0) - elapsed) : 0;
+      var estStarts = {};
+      var cursor = Date.now() + remaining * 1000;
+      for (var i = idx + 1; i < items.length; i++) {
+        estStarts[i] = cursor;
+        cursor += (items[i].lengthSeconds || 0) * 1000;
+      }
+      return estStarts;
+    }
+
     // ── Styled Confirm ──
     var _confirmResolve = null;
     function showConfirm(title, message, okLabel) {
@@ -1190,6 +1224,8 @@
           columns = data.columns || [];
           liveState = data.liveState || { isLive: false, currentCueIndex: -1 };
           roomName = data.roomName || '';
+          // 12.1: Cache for offline use
+          try { window.localStorage.setItem(planCacheKey, JSON.stringify(data)); } catch(e) {}
           return data;
         });
     }
@@ -1732,6 +1768,10 @@
           html += '<div class="cue-elapsed-label">' + (isOvertime ? 'overtime' : 'remaining') + '</div>';
         } else {
           html += '<div class="cue-duration">' + fmtDuration(item.lengthSeconds || 0) + '</div>';
+          // 12.3: Est. start for future cues during live show
+          if (isLive && i > activeIdx) {
+            html += '<div class="cue-est-start" id="cue-est-' + i + '"></div>';
+          }
         }
         html += '</div>';
 
@@ -1870,6 +1910,13 @@
           if (rem !== null && rem <= 0) cls += ' is-overtime';
           remEl.className = cls;
           remEl.textContent = 'Remaining ' + (rem !== null ? fmtDuration(rem) : '--:--');
+        }
+
+        // 12.3: Update estimated start times for future cues
+        var estStarts = computeEstimatedStarts();
+        for (var estIdx in estStarts) {
+          var estEl = document.getElementById('cue-est-' + estIdx);
+          if (estEl) estEl.textContent = 'Est. ' + fmtClockTime(estStarts[estIdx]);
         }
       }, 250);
     }
@@ -2017,9 +2064,30 @@
         connectWebSocket(); // WS stops polling on success; restarts on failure
       })
       .catch(function(err) {
+        // 12.1: Fall back to localStorage cache
+        try {
+          var cached = window.localStorage.getItem(planCacheKey);
+          if (cached) {
+            var cachedData = JSON.parse(cached);
+            plan = cachedData;
+            items = cachedData.items || [];
+            columns = cachedData.columns || [];
+            liveState = cachedData.liveState || { isLive: false, currentCueIndex: -1 };
+            roomName = cachedData.roomName || '';
+            render();
+            startPolling();
+            connectWebSocket();
+            if (connBanner) {
+              connBanner.textContent = 'Offline \u2014 running from cached data';
+              connBanner.classList.add('visible');
+            }
+            return;
+          }
+        } catch (e) {}
         document.getElementById('loading-msg').textContent = 'Failed to load: ' + (err.message || 'Unknown error');
       });
   })();
   </script>
+  <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/rundown-sw.js').catch(function(){}); }</script>
 </body>
 </html>

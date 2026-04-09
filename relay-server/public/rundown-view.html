@@ -1563,6 +1563,7 @@
       var viewConnBanner = document.getElementById('connection-lost-banner');
       var consecutiveLoadFailures = 0;
       var storageKey = 'tally.rundown-public-display:' + token;
+      var planCacheKey = 'tally.rundown.plan-cache:' + token;
       var STANDARD_COLUMNS = [
         { key: 'title', label: 'Title' },
         { key: 'type', label: 'Type' },
@@ -2718,6 +2719,26 @@
           totalSeconds += dur;
         }
 
+        // 12.3: When live, anchor future item start times to the current cue's actual elapsed time
+        if (liveState && liveState.isLive && liveState.currentCueIndex != null) {
+          var liveIdx = Number(liveState.currentCueIndex);
+          var liveStart = liveState.currentCueStartedAt ? Number(liveState.currentCueStartedAt) : null;
+          var currentLiveItem = items[liveIdx];
+          if (liveStart !== null && currentLiveItem) {
+            var liveElapsedSec = Math.max(0, (Date.now() - liveStart) / 1000);
+            var liveRemainSec = Math.max(0, (currentLiveItem.lengthSeconds || 0) - liveElapsedSec);
+            // Current cue: anchor to its actual start
+            itemTimes[liveIdx] = { start: liveStart, end: liveStart + (currentLiveItem.lengthSeconds || 0) * 1000 };
+            // Future cues: cascade from current remaining time
+            var liveCursor = Date.now() + liveRemainSec * 1000;
+            for (var li = liveIdx + 1; li < items.length; li++) {
+              var liDur = (items[li].lengthSeconds || 0) * 1000;
+              itemTimes[li] = { start: liveCursor, end: liveCursor + liDur };
+              liveCursor += liDur;
+            }
+          }
+        }
+
         var lastUpdatedStr = plan.updatedAt ? timeAgo(plan.updatedAt) : '';
         var hasFilter = columnFilter && columnFilter.length;
 
@@ -3011,9 +3032,14 @@
           })
           .then(function (plan) {
             consecutiveLoadFailures = 0;
-            if (viewConnBanner) viewConnBanner.classList.remove('visible');
+            if (viewConnBanner) {
+              viewConnBanner.textContent = 'Connection lost \u2014 retrying...';
+              viewConnBanner.classList.remove('visible');
+            }
             render(plan);
             document.title = plan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
+            // 12.1: Cache plan in localStorage for offline use
+            try { window.localStorage.setItem(planCacheKey, JSON.stringify(plan)); } catch (e) {}
           })
           .catch(function (err) {
             if (err.status === 410) {
@@ -3022,8 +3048,23 @@
               showError('Link not found', 'This link may be invalid or has been revoked.');
             } else {
               consecutiveLoadFailures++;
-              if (consecutiveLoadFailures >= 2 && viewConnBanner) viewConnBanner.classList.add('visible');
-              if (!lastPlan) showError('Could not load rundown', err.message || '');
+              if (!lastPlan) {
+                // 12.1: Try localStorage cache before showing error
+                try {
+                  var cachedRaw = window.localStorage.getItem(planCacheKey);
+                  if (cachedRaw) {
+                    var cachedPlan = JSON.parse(cachedRaw);
+                    render(cachedPlan);
+                    document.title = cachedPlan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
+                  } else {
+                    showError('Could not load rundown', err.message || '');
+                  }
+                } catch (e) { showError('Could not load rundown', err.message || ''); }
+              }
+              if (consecutiveLoadFailures >= 2 && viewConnBanner) {
+                viewConnBanner.textContent = 'Offline \u2014 running from cached data';
+                viewConnBanner.classList.add('visible');
+              }
             }
           });
       }
@@ -3148,5 +3189,6 @@
   <div class="footer">
     Powered by <a href="https://tallyconnect.app" target="_blank" rel="noopener">Tally</a>
   </div>
+  <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/rundown-sw.js').catch(function(){}); }</script>
 </body>
 </html>
