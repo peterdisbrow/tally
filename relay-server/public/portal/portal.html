@@ -2278,11 +2278,12 @@
             <option value="updated">Sort: Last Edited</option>
           </select>
           <button class="btn-secondary" data-action="rundownShowTemplates" style="font-size:12px;padding:5px 10px">Templates</button>
-          <div style="display:flex;gap:4px;margin-left:auto">
-            <button class="btn-secondary rundown-view-btn active" data-action="rundownViewList" style="font-size:11px;padding:4px 8px" title="List view" aria-label="List view">List</button>
-            <button class="btn-secondary rundown-view-btn" data-action="rundownViewCalendar" style="font-size:11px;padding:4px 8px" title="Calendar view" aria-label="Calendar view">Calendar</button>
-            <button class="btn-secondary rundown-view-btn" data-action="rundownViewAnalytics" style="font-size:11px;padding:4px 8px" title="Analytics" aria-label="Analytics">Analytics</button>
-            <button class="btn-secondary rundown-view-btn" data-action="rundownViewWebhooks" style="font-size:11px;padding:4px 8px" title="Webhooks" aria-label="Webhooks">Webhooks</button>
+          <button class="btn-secondary" data-action="rundownShowBuiltinTemplates" style="font-size:12px;padding:5px 10px">Starter Templates</button>
+          <div style="margin-left:auto;display:flex;gap:4px" id="rundown-view-toggle">
+            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="list" style="font-size:11px;padding:4px 8px;font-weight:600" title="List view">List</button>
+            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="calendar" style="font-size:11px;padding:4px 8px" title="Calendar view">Calendar</button>
+            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="analytics" style="font-size:11px;padding:4px 8px" title="Analytics">Analytics</button>
+            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="webhooks" style="font-size:11px;padding:4px 8px" title="Webhooks">Webhooks</button>
           </div>
         </div>
 
@@ -2356,6 +2357,8 @@
               <div class="rundown-toolbar-divider"></div>
               <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary rundown-adv" data-action="rundownSaveTemplate" style="font-size:12px;padding:5px 12px">Save as Template</button>
+                <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px" title="Compare this plan side-by-side with another">Compare</button>
+                <button class="btn-secondary" data-action="rundownImportFromDocument" style="font-size:12px;padding:5px 12px;display:inline-flex;align-items:center;gap:4px" title="Import items from a document using AI">Import</button>
                 <button class="btn-secondary" id="btn-rundown-share" data-action="rundownOpenPublicView" style="font-size:12px;padding:5px 12px" title="Open the public rundown in a new tab">Public View</button>
                 <button class="btn-secondary" id="btn-rundown-timer-display" data-action="rundownOpenTimerDisplay" style="font-size:12px;padding:5px 12px" title="Open the default countdown timer display">Timer View</button>
                 <button class="btn-secondary" data-action="rundownPrintPlan" style="font-size:12px;padding:5px 12px">Print</button>

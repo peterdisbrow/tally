@@ -311,6 +311,11 @@ class ManualRundownStore {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN director_notes TEXT DEFAULT ''`);
     } catch { /* column already exists */ }
 
+    // ── Color column on items ──────────────────────────────────────────────
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN color TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+
     // ── Phase 9: locked_by / locked_at columns on plans ─────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_by TEXT DEFAULT NULL`);

@@ -2246,3 +2246,18 @@ body.light-theme .rundown-cal-cell.today { background: rgba(22,163,74,0.04); }
 body.light-theme .rundown-cal-header { background: #f8f9fa; color: #6b7280; }
 body.light-theme .analytics-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
 body.light-theme .webhook-row { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
+/* Focus-visible accessibility indicators */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* AI import spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

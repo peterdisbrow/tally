@@ -41,6 +41,8 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const Anthropic = require('@anthropic-ai/sdk');
+const pdfParse = require('pdf-parse');
 const { buildManualPlanTimerState } = require('../rundownPublic');
 
 const VALID_RUNDOWN_COLUMN_TYPES = new Set(['text', 'dropdown']);

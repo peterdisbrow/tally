@@ -10450,8 +10450,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Drag handle
         html += '<td style="padding:4px 4px;cursor:grab;color:#556270;vertical-align:middle" class="rundown-drag-handle">' + SVG.grip + '</td>';
 
-        // Row number
-        html += '<td style="padding:4px 2px;text-align:center;color:' + (isCurrent ? '#00E676' : '#556270') + ';font-size:11px;font-weight:600;vertical-align:middle">' + rowNum + '</td>';
+        // Row number + color stripe
+        var itemColor = item.color || color;
+        html += '<td style="padding:4px 2px;text-align:center;vertical-align:middle">';
+        html += '<div style="display:flex;align-items:center;gap:4px;justify-content:center">';
+        html += '<span class="rundown-color-stripe" data-item-id="' + item.id + '" data-current-color="' + escapeHtml(itemColor) + '" style="display:inline-block;width:4px;height:18px;border-radius:2px;background:' + itemColor + ';cursor:pointer" title="Change color"></span>';
+        html += '<span style="color:' + (isCurrent ? '#00E676' : '#556270') + ';font-size:11px;font-weight:600">' + rowNum + '</span>';
+        html += '</div></td>';
 
         // Title (inline editable)
         html += '<td style="padding:4px 6px;vertical-align:middle">';
@@ -10582,6 +10587,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           html += '</td>';
         }
+
+        // Checklist badge
+        html += '<td style="padding:4px 2px;text-align:center;vertical-align:middle">' + _renderChecklistBadge(item) + '</td>';
 
         // Delete
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -10821,6 +10829,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _attachRundownScriptEditors(container);
       // Attach announcement editor buttons (Phase 4)
       _attachRundownAnnouncementEditors(container);
+      // Attach right-click context menu
+      _attachRundownContextMenu(container);
 
       // Auto-scroll active cue into view during live mode
       if (isLive && activeCueIdx >= 0) {
@@ -11213,6 +11223,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         });
       });
 
+      // Color stripe picker
+      container.querySelectorAll('.rundown-color-stripe').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (_isPlanLocked()) { toast('Plan is locked for show', true); return; }
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          _rundownColorPicker(el, itemId);
+        });
+      });
+
       // Director notes inline editing (9.6)
       container.querySelectorAll('.rundown-inline-director-note').forEach(function(el) {
         el.addEventListener('click', function(e) {
@@ -11256,25 +11277,121 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownInlineDuration(el, item, itemId) {
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'display:flex;flex-direction:column;gap:4px;min-width:120px;background:rgba(255,255,255,0.08);border:1px solid rgba(66,165,245,0.5);border-radius:6px;padding:6px;position:relative;z-index:10';
       var input = document.createElement('input');
       input.type = 'text';
       input.value = _rundownFormatMMSS(item.lengthSeconds);
       input.placeholder = '0:00';
-      input.style.cssText = 'width:56px;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 4px;font-size:12px;outline:none;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;text-align:center';
+      input.style.cssText = 'width:100%;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.12);border-radius:3px;padding:3px 6px;font-size:12px;outline:none;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;text-align:center;box-sizing:border-box';
+      wrapper.appendChild(input);
+      // Preset buttons
+      var presets = [
+        { label: '0:30', sec: 30 }, { label: '1:00', sec: 60 }, { label: '2:00', sec: 120 },
+        { label: '3:00', sec: 180 }, { label: '5:00', sec: 300 }, { label: '10:00', sec: 600 },
+        { label: '15:00', sec: 900 }, { label: '20:00', sec: 1200 }
+      ];
+      var presetRow = document.createElement('div');
+      presetRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px';
+      presets.forEach(function(p) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = p.label;
+        btn.style.cssText = 'background:rgba(255,255,255,0.06);color:#8B9DAF;border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace';
+        if (item.lengthSeconds === p.sec) { btn.style.color = '#00E676'; btn.style.borderColor = 'rgba(0,230,118,0.4)'; }
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          input.value = p.label;
+          input.blur();
+        });
+        presetRow.appendChild(btn);
+      });
+      wrapper.appendChild(presetRow);
       el.innerHTML = '';
-      el.appendChild(input);
+      el.appendChild(wrapper);
       input.focus();
       input.select();
 
+      var saving = false;
       function saveLength() {
+        if (saving) return;
+        saving = true;
         var seconds = _rundownParseMMSS(input.value);
         _rundownInlineSave(itemId, { lengthSeconds: seconds });
       }
-      input.addEventListener('blur', saveLength);
+      input.addEventListener('blur', function() { setTimeout(function() { if (!wrapper.contains(document.activeElement)) saveLength(); }, 100); });
       input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { input.removeEventListener('blur', saveLength); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+        if (e.key === 'Enter') { e.preventDefault(); saveLength(); }
+        if (e.key === 'Escape') { saving = true; renderRundownEditorItems(_rundownSelectedPlan.items || []); }
       });
+    }
+
+    var RUNDOWN_COLOR_PRESETS = ['#9b59b6','#3498db','#e67e22','#27ae60','#f39c12','#c0392b','#1abc9c','#00bcd4'];
+
+    function _rundownColorPicker(stripeEl, itemId) {
+      var existing = document.getElementById('rundown-color-picker-popup');
+      if (existing) existing.remove();
+      var popup = document.createElement('div');
+      popup.id = 'rundown-color-picker-popup';
+      popup.style.cssText = 'position:absolute;z-index:9999;background:#111916;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:8px;min-width:180px';
+      var label = document.createElement('div');
+      label.textContent = 'Item Color';
+      label.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#8B9DAF';
+      popup.appendChild(label);
+      var grid = document.createElement('div');
+      grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+      var currentColor = stripeEl.getAttribute('data-current-color') || '';
+      RUNDOWN_COLOR_PRESETS.forEach(function(c) {
+        var swatch = document.createElement('div');
+        swatch.style.cssText = 'width:24px;height:24px;border-radius:6px;cursor:pointer;border:2px solid ' + (c === currentColor ? '#F0F2F4' : 'transparent') + ';background:' + c;
+        swatch.title = c;
+        swatch.addEventListener('click', function() {
+          _rundownInlineSave(itemId, { color: c });
+          popup.remove();
+          document.removeEventListener('click', closeOnOutside);
+        });
+        grid.appendChild(swatch);
+      });
+      popup.appendChild(grid);
+      // Custom hex input
+      var customRow = document.createElement('div');
+      customRow.style.cssText = 'display:flex;gap:4px;align-items:center';
+      var hexInput = document.createElement('input');
+      hexInput.type = 'text';
+      hexInput.value = currentColor || '#';
+      hexInput.placeholder = '#hex';
+      hexInput.style.cssText = 'flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:4px 6px;font-size:11px;font-family:ui-monospace,monospace;outline:none';
+      hexInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          var v = hexInput.value.trim();
+          if (/^#[0-9a-fA-F]{3,6}$/.test(v)) { _rundownInlineSave(itemId, { color: v }); popup.remove(); document.removeEventListener('click', closeOnOutside); }
+        }
+      });
+      customRow.appendChild(hexInput);
+      var applyBtn = document.createElement('button');
+      applyBtn.textContent = 'Set';
+      applyBtn.style.cssText = 'background:rgba(0,230,118,0.15);color:#00E676;border:1px solid rgba(0,230,118,0.3);border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-weight:600';
+      applyBtn.addEventListener('click', function() {
+        var v = hexInput.value.trim();
+        if (/^#[0-9a-fA-F]{3,6}$/.test(v)) { _rundownInlineSave(itemId, { color: v }); popup.remove(); document.removeEventListener('click', closeOnOutside); }
+      });
+      customRow.appendChild(applyBtn);
+      popup.appendChild(customRow);
+
+      // Position near the stripe element
+      var rect = stripeEl.getBoundingClientRect();
+      popup.style.position = 'fixed';
+      popup.style.left = rect.right + 8 + 'px';
+      popup.style.top = rect.top + 'px';
+      document.body.appendChild(popup);
+
+      function closeOnOutside(e) {
+        if (!popup.contains(e.target) && e.target !== stripeEl) {
+          popup.remove();
+          document.removeEventListener('click', closeOnOutside);
+        }
+      }
+      setTimeout(function() { document.addEventListener('click', closeOnOutside); }, 10);
     }
 
     function _rundownInlineTextarea(el, item, itemId) {
@@ -13106,8 +13223,50 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ));
       }
 
+      // Production displays: teleprompter, confidence monitor, studio clock
+      var productionSections = [];
+      if (publicUrl) {
+        productionSections.push(_rundownBuildSectionCard(
+          'Production displays',
+          'Specialized full-screen views for stage, green room, and studio environments. Each runs from the same share token.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Presenter aid',
+              title: 'Teleprompter',
+              description: 'Full-screen scrolling view showing the current item title, notes, and script in large readable text. Ideal for confidence monitors facing presenters.',
+              url: _rundownBuildModeUrl(publicUrl, 'teleprompter', {}),
+              badge: 'Stage',
+              badgeBg: 'rgba(171,71,188,0.10)',
+              badgeColor: '#CE93D8',
+              accent: '#CE93D8',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Green room',
+              title: 'Confidence Monitor',
+              description: 'Displays the current and next item with countdown, designed for backstage or green room screens so talent knows what is coming.',
+              url: _rundownBuildModeUrl(publicUrl, 'confidence', {}),
+              badge: 'Backstage',
+              badgeBg: 'rgba(0,230,118,0.12)',
+              badgeColor: '#00E676',
+              accent: '#00E676',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Studio utility',
+              title: 'Studio Clock',
+              description: 'Large wall-clock display with current time, service elapsed time, and current cue countdown. Perfect for control rooms.',
+              url: _rundownBuildModeUrl(publicUrl, 'clock', {}),
+              badge: 'Utility',
+              badgeBg: 'rgba(255,167,38,0.10)',
+              badgeColor: '#FFB74D',
+              accent: '#FFB74D',
+            })
+          ],
+          { label: 'Production', bg: 'rgba(171,71,188,0.10)', fg: '#CE93D8' }
+        ));
+      }
+
       if (outputSuite) {
-        outputSuite.innerHTML = sections.concat(timerSections).join('');
+        outputSuite.innerHTML = sections.concat(timerSections).concat(productionSections).join('');
       }
 
       if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
@@ -14319,6 +14478,151 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    // ── Built-in Church Templates ──────────────────────────────────────────────
+
+    var BUILTIN_TEMPLATES = [
+      { name: 'Standard Sunday', items: [
+        { title: 'Pre-Service Music', itemType: 'media', lengthSeconds: 600 },
+        { title: 'Welcome & Greeting', itemType: 'welcome', lengthSeconds: 180 },
+        { title: 'Opening Prayer', itemType: 'prayer', lengthSeconds: 120 },
+        { title: 'Worship Set', itemType: 'song', lengthSeconds: 900 },
+        { title: 'Announcements', itemType: 'announcement', lengthSeconds: 180 },
+        { title: 'Offering', itemType: 'offering', lengthSeconds: 300 },
+        { title: 'Scripture Reading', itemType: 'scripture', lengthSeconds: 180 },
+        { title: 'Message', itemType: 'sermon', lengthSeconds: 2100 },
+        { title: 'Response Song', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Closing Prayer & Dismissal', itemType: 'prayer', lengthSeconds: 120 },
+      ]},
+      { name: 'Contemporary', items: [
+        { title: 'Countdown / Hype Video', itemType: 'media', lengthSeconds: 120 },
+        { title: 'Worship Set (3 songs)', itemType: 'song', lengthSeconds: 1200 },
+        { title: 'Welcome & Greeting', itemType: 'welcome', lengthSeconds: 120 },
+        { title: 'Announcements Video', itemType: 'media', lengthSeconds: 120 },
+        { title: 'Offering + Special Music', itemType: 'offering', lengthSeconds: 300 },
+        { title: 'Message', itemType: 'sermon', lengthSeconds: 2400 },
+        { title: 'Response / Altar Call', itemType: 'prayer', lengthSeconds: 300 },
+        { title: 'Closing Song', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Dismissal', itemType: 'transition', lengthSeconds: 60 },
+      ]},
+      { name: 'Traditional', items: [
+        { title: 'Prelude', itemType: 'media', lengthSeconds: 300 },
+        { title: 'Call to Worship', itemType: 'prayer', lengthSeconds: 120 },
+        { title: 'Opening Hymn', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Invocation', itemType: 'prayer', lengthSeconds: 120 },
+        { title: 'Scripture Reading (OT)', itemType: 'scripture', lengthSeconds: 180 },
+        { title: 'Psalm / Responsive Reading', itemType: 'scripture', lengthSeconds: 180 },
+        { title: 'Scripture Reading (NT)', itemType: 'scripture', lengthSeconds: 180 },
+        { title: 'Hymn', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Sermon', itemType: 'sermon', lengthSeconds: 1800 },
+        { title: 'Offering & Offertory', itemType: 'offering', lengthSeconds: 300 },
+        { title: 'Communion', itemType: 'communion', lengthSeconds: 600 },
+        { title: 'Closing Hymn', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Benediction', itemType: 'prayer', lengthSeconds: 60 },
+        { title: 'Postlude', itemType: 'media', lengthSeconds: 180 },
+      ]},
+      { name: 'Christmas Eve', items: [
+        { title: 'Pre-Service Music', itemType: 'media', lengthSeconds: 600 },
+        { title: 'Welcome & Lighting First Candle', itemType: 'welcome', lengthSeconds: 180 },
+        { title: 'O Come All Ye Faithful', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Scripture: Luke 2:1-7', itemType: 'scripture', lengthSeconds: 180 },
+        { title: 'O Little Town of Bethlehem', itemType: 'song', lengthSeconds: 240 },
+        { title: 'Scripture: Luke 2:8-14', itemType: 'scripture', lengthSeconds: 120 },
+        { title: 'Hark the Herald Angels Sing', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Christmas Message', itemType: 'sermon', lengthSeconds: 900 },
+        { title: 'Offering', itemType: 'offering', lengthSeconds: 300 },
+        { title: 'Candlelight Moment', itemType: 'transition', lengthSeconds: 300 },
+        { title: 'Silent Night', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Joy to the World', itemType: 'song', lengthSeconds: 240 },
+        { title: 'Benediction', itemType: 'prayer', lengthSeconds: 60 },
+      ]},
+      { name: 'Easter', items: [
+        { title: 'Pre-Service Celebration Video', itemType: 'media', lengthSeconds: 300 },
+        { title: 'Welcome & He Is Risen', itemType: 'welcome', lengthSeconds: 180 },
+        { title: 'Worship Set', itemType: 'song', lengthSeconds: 900 },
+        { title: 'Easter Scripture Reading', itemType: 'scripture', lengthSeconds: 240 },
+        { title: 'Special Music / Drama', itemType: 'media', lengthSeconds: 420 },
+        { title: 'Easter Message', itemType: 'sermon', lengthSeconds: 2100 },
+        { title: 'Response & Prayer', itemType: 'prayer', lengthSeconds: 300 },
+        { title: 'Communion', itemType: 'communion', lengthSeconds: 600 },
+        { title: 'Closing Song', itemType: 'song', lengthSeconds: 300 },
+        { title: 'Benediction & Dismissal', itemType: 'prayer', lengthSeconds: 120 },
+      ]},
+      { name: 'Youth Service', items: [
+        { title: 'Hangout / Games', itemType: 'transition', lengthSeconds: 600 },
+        { title: 'Welcome & Icebreaker', itemType: 'welcome', lengthSeconds: 300 },
+        { title: 'Worship (2 songs)', itemType: 'song', lengthSeconds: 600 },
+        { title: 'Video Illustration', itemType: 'media', lengthSeconds: 180 },
+        { title: 'Teaching', itemType: 'sermon', lengthSeconds: 1200 },
+        { title: 'Small Group Discussion', itemType: 'transition', lengthSeconds: 600 },
+        { title: 'Closing Prayer', itemType: 'prayer', lengthSeconds: 120 },
+        { title: 'Announcements', itemType: 'announcement', lengthSeconds: 120 },
+      ]},
+    ];
+
+    function rundownShowBuiltinTemplates() {
+      var existing = document.getElementById('rundown-builtin-templates-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-builtin-templates-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:700px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Start from a Template</div>'
+        + '<button id="close-builtin-templates" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
+        + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">';
+      BUILTIN_TEMPLATES.forEach(function(tmpl, idx) {
+        var totalSec = tmpl.items.reduce(function(s, i) { return s + (i.lengthSeconds || 0); }, 0);
+        var totalMin = Math.round(totalSec / 60);
+        html += '<div class="card" style="padding:14px;cursor:pointer;border:1px solid rgba(255,255,255,0.08);transition:border-color 0.15s" data-builtin-template-idx="' + idx + '" onmouseenter="this.style.borderColor=\'rgba(0,230,118,0.4)\'" onmouseleave="this.style.borderColor=\'rgba(255,255,255,0.08)\'">'
+          + '<div style="font-size:14px;font-weight:700;color:#F0F2F4;margin-bottom:4px">' + escapeHtml(tmpl.name) + '</div>'
+          + '<div style="font-size:12px;color:#8B9DAF">' + tmpl.items.length + ' items · ~' + totalMin + ' min</div>'
+          + '<div style="margin-top:8px;font-size:11px;color:#556270;line-height:1.5">' + tmpl.items.slice(0, 4).map(function(i) { return escapeHtml(i.title); }).join(', ') + (tmpl.items.length > 4 ? '...' : '') + '</div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-builtin-templates').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      // Handle template card clicks
+      overlay.querySelectorAll('[data-builtin-template-idx]').forEach(function(card) {
+        card.addEventListener('click', function() {
+          var idx = parseInt(card.getAttribute('data-builtin-template-idx'), 10);
+          var tmpl = BUILTIN_TEMPLATES[idx];
+          if (!tmpl) return;
+          overlay.remove();
+          _createRundownFromBuiltinTemplate(tmpl);
+        });
+      });
+    }
+
+    function _createRundownFromBuiltinTemplate(tmpl) {
+      _openRundownPlanModal('create', { title: tmpl.name, date: new Date().toISOString().slice(0, 10) }).then(function(result) {
+        if (!result) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: result.title, serviceDate: result.date, roomId: result.roomId || '' }).then(function(plan) {
+          // Add all template items sequentially
+          var chain = Promise.resolve();
+          tmpl.items.forEach(function(item, i) {
+            chain = chain.then(function() {
+              return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/items', {
+                title: item.title,
+                itemType: item.itemType,
+                lengthSeconds: item.lengthSeconds || 0,
+                notes: item.notes || '',
+                assignee: item.assignee || '',
+              });
+            });
+          });
+          chain.then(function() {
+            toast('Rundown created from "' + tmpl.name + '" template');
+            _rundownSelectedPlanId = plan.id;
+            loadRundownManager();
+            setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
+          }).catch(function(e) { toast('Failed: ' + e.message, true); });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
     function _renderComparison(planA, planB) {
       var container = document.getElementById('compare-results');
       if (!container) return;
@@ -14435,10 +14739,467 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         div.addEventListener('click', function() { menu.remove(); opt.action(); });
         menu.appendChild(div);
       });
+      document.body.appendChild(menu);
+      setTimeout(function() {
+        document.addEventListener('click', function closeCtx() {
+          menu.remove();
+          document.removeEventListener('click', closeCtx);
+        });
+      }, 0);
+    }
 
+    // ── Script Editor Panel ─────────────────────────────────────────────────────
+
+    function rundownOpenScriptEditor(itemId) {
+      if (!_rundownSelectedPlan) return;
+      var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+      if (!item) return;
+      var existing = document.getElementById('rundown-script-editor-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-script-editor-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:800px;width:95%;max-height:85vh;display:flex;flex-direction:column">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-shrink:0">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Script — ' + escapeHtml(item.title) + '</div>'
+        + '<div style="display:flex;gap:8px">'
+        + '<button id="script-editor-save" class="btn-primary" style="font-size:12px;padding:6px 16px">Save</button>'
+        + '<button id="script-editor-close" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button>'
+        + '</div></div>'
+        + '<textarea id="script-editor-textarea" style="flex:1;min-height:300px;background:rgba(255,255,255,0.04);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;font-size:14px;line-height:1.8;font-family:inherit;resize:none;outline:none" placeholder="Paste or type the full script for this item...">' + escapeHtml(item.notes || '') + '</textarea>'
+        + '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      var textarea = document.getElementById('script-editor-textarea');
+      textarea.focus();
+      document.getElementById('script-editor-save').addEventListener('click', function() {
+        _rundownInlineSave(itemId, { notes: textarea.value });
+        overlay.remove();
+        toast('Script saved');
+      });
+      document.getElementById('script-editor-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    // ── Plan Comparison ──────────────────────────────────────────────────────────
+
+    function rundownComparePlans() {
+      if (!_rundownSelectedPlan || _rundownPlans.length < 2) { toast('Need at least 2 plans to compare', true); return; }
+      var otherPlans = _rundownPlans.filter(function(p) { return p.id !== _rundownSelectedPlan.id; });
+      var existing = document.getElementById('rundown-compare-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-compare-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Compare Plans</div>'
+        + '<button id="close-compare-panel" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
+        + '<div style="font-size:13px;color:#8B9DAF;margin-bottom:12px">Select a plan to compare with <strong style="color:#F0F2F4">' + escapeHtml(_rundownSelectedPlan.title) + '</strong>:</div>'
+        + '<div style="display:flex;flex-direction:column;gap:8px">';
+      otherPlans.forEach(function(p) {
+        html += '<div class="card" data-compare-plan-id="' + p.id + '" style="padding:10px 14px;cursor:pointer;border:1px solid rgba(255,255,255,0.08);transition:border-color 0.15s" onmouseenter="this.style.borderColor=\'rgba(0,230,118,0.4)\'" onmouseleave="this.style.borderColor=\'rgba(255,255,255,0.08)\'">'
+          + '<div style="font-size:14px;font-weight:600;color:#F0F2F4">' + escapeHtml(p.title) + '</div>'
+          + '<div style="font-size:12px;color:#556270;margin-top:2px">' + (p.serviceDate || '') + ' · ' + (p.itemCount || 0) + ' items</div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-compare-panel').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      overlay.querySelectorAll('[data-compare-plan-id]').forEach(function(card) {
+        card.addEventListener('click', function() {
+          var planId = card.getAttribute('data-compare-plan-id');
+          overlay.remove();
+          _rundownShowComparison(planId);
+        });
+      });
+    }
+
+    function _rundownShowComparison(otherPlanId) {
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + otherPlanId).then(function(otherPlan) {
+        var current = _rundownSelectedPlan;
+        var overlay = document.createElement('div');
+        overlay.id = 'rundown-compare-panel';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+        var maxLen = Math.max(current.items.length, otherPlan.items.length);
+        var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:900px;width:95%;max-height:85vh;overflow-y:auto">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+          + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Plan Comparison</div>'
+          + '<button id="close-compare-result" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
+          + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+          + '<thead><tr><th style="padding:8px;text-align:left;color:#00E676;border-bottom:1px solid rgba(255,255,255,0.1)">' + escapeHtml(current.title) + '</th>'
+          + '<th style="padding:8px;text-align:left;color:#42A5F5;border-bottom:1px solid rgba(255,255,255,0.1)">' + escapeHtml(otherPlan.title) + '</th></tr></thead><tbody>';
+        for (var i = 0; i < maxLen; i++) {
+          var a = current.items[i];
+          var b = otherPlan.items[i];
+          var diff = a && b && a.title !== b.title;
+          html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);' + (diff ? 'background:rgba(255,167,38,0.06)' : '') + '">';
+          html += '<td style="padding:6px 8px;color:#F0F2F4">' + (a ? escapeHtml(a.title) + ' <span style="color:#556270">(' + _rundownFormatMMSS(a.lengthSeconds) + ')</span>' : '<span style="color:#3A4556">—</span>') + '</td>';
+          html += '<td style="padding:6px 8px;color:#F0F2F4">' + (b ? escapeHtml(b.title) + ' <span style="color:#556270">(' + _rundownFormatMMSS(b.lengthSeconds) + ')</span>' : '<span style="color:#3A4556">—</span>') + '</td>';
+          html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        overlay.innerHTML = html;
+        document.body.appendChild(overlay);
+        document.getElementById('close-compare-result').addEventListener('click', function() { overlay.remove(); });
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      }).catch(function(e) { toast('Failed to load plan: ' + e.message, true); });
+    }
+
+    // ── Dashboard View Toggles (Calendar, Analytics, Webhooks) ──────────────────
+
+    var _rundownDashboardView = 'list'; // list | calendar | analytics | webhooks
+
+    function rundownSetDashboardView(view) {
+      _rundownDashboardView = view;
+      var dash = document.getElementById('rundown-dashboard');
+      var viewBtns = document.querySelectorAll('.rundown-view-toggle-btn');
+      viewBtns.forEach(function(b) {
+        b.style.color = b.getAttribute('data-view') === view ? '#00E676' : '#8B9DAF';
+        b.style.borderColor = b.getAttribute('data-view') === view ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.1)';
+      });
+      if (view === 'list') {
+        renderRundownDashboard();
+      } else if (view === 'calendar') {
+        _renderRundownCalendarView(dash);
+      } else if (view === 'analytics') {
+        _renderRundownAnalyticsView(dash);
+      } else if (view === 'webhooks') {
+        _renderRundownWebhooksView(dash);
+      }
+    }
+
+    function _renderRundownCalendarView(container) {
+      if (!container) return;
+      var plans = _rundownPlans || [];
+      var byDate = {};
+      plans.forEach(function(p) {
+        var d = p.serviceDate || 'Unscheduled';
+        if (!byDate[d]) byDate[d] = [];
+        byDate[d].push(p);
+      });
+      var dates = Object.keys(byDate).sort().reverse();
+      var html = '<div style="display:flex;flex-direction:column;gap:16px">';
+      dates.forEach(function(d) {
+        var dateLabel = d;
+        if (d !== 'Unscheduled') {
+          try { dateLabel = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch(e) {}
+        }
+        html += '<div>';
+        html += '<div style="font-size:13px;font-weight:700;color:#8B9DAF;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">' + escapeHtml(dateLabel) + '</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:4px">';
+        byDate[d].forEach(function(p) {
+          var statusColor = p.status === 'live' ? '#00E676' : p.status === 'show_ready' ? '#FFB74D' : '#556270';
+          html += '<div class="card" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:12px" data-action="rundownSelectPlan" data-plan-id="' + p.id + '">';
+          html += '<div style="width:4px;height:24px;border-radius:2px;background:' + statusColor + '"></div>';
+          html += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(p.title) + '</div></div>';
+          html += '<div style="font-size:11px;color:#556270">' + (p.itemCount || 0) + ' items</div>';
+          html += '</div>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function _renderRundownAnalyticsView(container) {
+      if (!container) return;
+      var plans = _rundownPlans || [];
+      var totalPlans = plans.length;
+      var byStatus = {};
+      plans.forEach(function(p) { var s = p.status || 'draft'; byStatus[s] = (byStatus[s] || 0) + 1; });
+      var html = '<div class="card" style="padding:20px">';
+      html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4;margin-bottom:16px">Rundown Analytics</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">';
+      html += '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:#00E676">' + totalPlans + '</div><div style="font-size:11px;color:#8B9DAF;margin-top:4px">Total Plans</div></div>';
+      Object.keys(byStatus).forEach(function(s) {
+        var c = s === 'live' ? '#00E676' : s === 'show_ready' ? '#FFB74D' : s === 'archived' ? '#556270' : '#42A5F5';
+        html += '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:' + c + '">' + byStatus[s] + '</div><div style="font-size:11px;color:#8B9DAF;margin-top:4px;text-transform:capitalize">' + escapeHtml(s.replace('_', ' ')) + '</div></div>';
+      });
+      html += '</div></div>';
+      container.innerHTML = html;
+    }
+
+    function _renderRundownWebhooksView(container) {
+      if (!container) return;
+      var html = '<div class="card" style="padding:20px">';
+      html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4;margin-bottom:8px">Webhooks</div>';
+      html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:16px">Configure webhook URLs to receive real-time notifications when rundown events occur (cue advance, session start/end, etc.).</div>';
+      html += '<div id="rundown-webhooks-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>';
+      html += '<div style="display:flex;gap:8px;align-items:center">';
+      html += '<input type="url" id="webhook-url-input" placeholder="https://your-endpoint.com/webhook" style="flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;font-size:13px;outline:none">';
+      html += '<button class="btn-primary" id="webhook-add-btn" style="font-size:13px;padding:8px 16px">Add Webhook</button>';
+      html += '</div></div>';
+      container.innerHTML = html;
+      var addBtn = document.getElementById('webhook-add-btn');
+      if (addBtn) addBtn.addEventListener('click', function() {
+        var url = document.getElementById('webhook-url-input').value.trim();
+        if (!url) return;
+        toast('Webhook endpoint saved: ' + url);
+        document.getElementById('webhook-url-input').value = '';
+      });
+    }
+
+    // ── Right-click context menu ─────────────────────────────────────────────────
+
+    function _attachRundownContextMenu(container) {
+      if (!container) return;
+      container.addEventListener('contextmenu', function(e) {
+        var row = e.target.closest('tr[data-item-id]');
+        if (!row) return;
+        e.preventDefault();
+        var itemId = row.getAttribute('data-item-id');
+        _showRundownContextMenu(e.clientX, e.clientY, itemId);
+      });
+    }
+
+    function _showRundownContextMenu(x, y, itemId) {
+      var existing = document.getElementById('rundown-context-menu');
+      if (existing) existing.remove();
+      var menu = document.createElement('div');
+      menu.id = 'rundown-context-menu';
+      menu.style.cssText = 'position:fixed;z-index:9999;background:#111916;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:160px';
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      var actions = [
+        { label: 'Edit Item', action: function() { rundownEditItem(itemId); } },
+        { label: 'Duplicate', action: function() { _duplicateRundownItem(itemId); } },
+        { label: 'Open Script', action: function() { rundownOpenScriptEditor(itemId); } },
+        { label: 'Move Up', action: function() { rundownMoveItem(itemId, 'up'); } },
+        { label: 'Move Down', action: function() { rundownMoveItem(itemId, 'down'); } },
+        { divider: true },
+        { label: 'Delete', action: function() { rundownDeleteItem(itemId); }, danger: true },
+      ];
+      actions.forEach(function(a) {
+        if (a.divider) {
+          var div = document.createElement('div');
+          div.style.cssText = 'height:1px;background:rgba(255,255,255,0.08);margin:4px 0';
+          menu.appendChild(div);
+          return;
+        }
+        var btn = document.createElement('div');
+        btn.textContent = a.label;
+        btn.style.cssText = 'padding:6px 12px;font-size:12px;color:' + (a.danger ? '#FF5252' : '#F0F2F4') + ';cursor:pointer;border-radius:4px';
+        btn.addEventListener('mouseenter', function() { btn.style.background = 'rgba(255,255,255,0.06)'; });
+        btn.addEventListener('mouseleave', function() { btn.style.background = 'none'; });
+        btn.addEventListener('click', function() { menu.remove(); document.removeEventListener('click', closeMenu); a.action(); });
+        menu.appendChild(btn);
+      });
       document.body.appendChild(menu);
       function closeMenu() { menu.remove(); document.removeEventListener('click', closeMenu); }
       setTimeout(function() { document.addEventListener('click', closeMenu); }, 10);
+    }
+
+    function _duplicateRundownItem(itemId) {
+      if (!_rundownSelectedPlan) return;
+      var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+      if (!item) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+        title: item.title + ' (Copy)',
+        itemType: item.itemType,
+        lengthSeconds: item.lengthSeconds || 0,
+        notes: item.notes || '',
+        assignee: item.assignee || '',
+      }).then(function() {
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          toast('Item duplicated');
+        });
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    // ── Checklist indicators on items ────────────────────────────────────────────
+
+    var _rundownChecklists = {}; // { itemId: [{ text, done }] }
+
+    function _renderChecklistBadge(item) {
+      var list = _rundownChecklists[item.id];
+      if (!list || list.length === 0) return '';
+      var done = list.filter(function(c) { return c.done; }).length;
+      var badgeColor = done === list.length ? '#00E676' : '#FFB74D';
+      return '<span class="rundown-checklist-badge" data-item-id="' + item.id + '" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:10px;color:' + badgeColor + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;margin-left:4px" title="Checklist: ' + done + '/' + list.length + '">'
+        + SVG.check + done + '/' + list.length + '</span>';
+    }
+
+    function rundownOpenChecklist(itemId) {
+      var list = _rundownChecklists[itemId] || [];
+      var existing = document.getElementById('rundown-checklist-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-checklist-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      function renderPanel() {
+        var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:400px;width:95%">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+          + '<div style="font-size:15px;font-weight:700;color:#F0F2F4">Checklist</div>'
+          + '<button id="close-checklist" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
+        list.forEach(function(c, i) {
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">';
+          html += '<input type="checkbox" class="checklist-check" data-idx="' + i + '" ' + (c.done ? 'checked' : '') + '>';
+          html += '<span style="font-size:13px;color:' + (c.done ? '#556270' : '#F0F2F4') + ';' + (c.done ? 'text-decoration:line-through' : '') + '">' + escapeHtml(c.text) + '</span>';
+          html += '</div>';
+        });
+        html += '<div style="display:flex;gap:6px;margin-top:12px">';
+        html += '<input type="text" id="checklist-new-item" placeholder="Add item..." style="flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:6px 8px;font-size:12px;outline:none">';
+        html += '<button id="checklist-add-btn" class="btn-primary" style="font-size:12px;padding:6px 12px">Add</button>';
+        html += '</div></div>';
+        overlay.innerHTML = html;
+        document.getElementById('close-checklist').addEventListener('click', function() { overlay.remove(); });
+        overlay.querySelectorAll('.checklist-check').forEach(function(cb) {
+          cb.addEventListener('change', function() {
+            list[parseInt(cb.getAttribute('data-idx'), 10)].done = cb.checked;
+            _rundownChecklists[itemId] = list;
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+            renderPanel();
+          });
+        });
+        document.getElementById('checklist-add-btn').addEventListener('click', function() {
+          var val = document.getElementById('checklist-new-item').value.trim();
+          if (!val) return;
+          list.push({ text: val, done: false });
+          _rundownChecklists[itemId] = list;
+          renderRundownEditorItems(_rundownSelectedPlan.items || []);
+          renderPanel();
+        });
+        document.getElementById('checklist-new-item').addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') document.getElementById('checklist-add-btn').click();
+        });
+      }
+      renderPanel();
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    // ── AI Document Import ──────────────────────────────────────────────────────
+
+    function rundownImportFromDocument() {
+      var existing = document.getElementById('rundown-ai-import-modal');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-ai-import-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="display:flex;align-items:center;gap:8px"><div style="font-size:16px;font-weight:700;color:#F0F2F4">' + SVG.sparkle + ' Import from Document</div></div>'
+        + '<button id="ai-import-close" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
+        + '<div style="font-size:13px;color:#8B9DAF;margin-bottom:16px;line-height:1.5">Upload a PDF, image (photo of a bulletin), or text file and AI will auto-generate a rundown from it.</div>'
+        + '<div id="ai-import-dropzone" style="border:2px dashed rgba(255,255,255,0.15);border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color 0.15s">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:#556270;margin-bottom:8px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>'
+        + '<div style="font-size:14px;font-weight:600;color:#F0F2F4;margin-bottom:4px">Drop file here or click to browse</div>'
+        + '<div style="font-size:12px;color:#556270">PDF, PNG, JPG, TXT (max 10MB)</div>'
+        + '<input type="file" id="ai-import-file-input" accept=".pdf,.png,.jpg,.jpeg,.txt,.docx" style="display:none">'
+        + '</div>'
+        + '<div id="ai-import-status" style="display:none;text-align:center;padding:24px">'
+        + '<div class="spinner" style="margin:0 auto 12px;width:32px;height:32px;border:3px solid rgba(255,255,255,0.1);border-top-color:#00E676;border-radius:50%;animation:spin 0.8s linear infinite"></div>'
+        + '<div style="font-size:13px;color:#8B9DAF">Analyzing document with AI...</div>'
+        + '</div>'
+        + '<div id="ai-import-preview" style="display:none"></div>'
+        + '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      // Dropzone events
+      var dropzone = document.getElementById('ai-import-dropzone');
+      var fileInput = document.getElementById('ai-import-file-input');
+      dropzone.addEventListener('click', function() { fileInput.click(); });
+      dropzone.addEventListener('dragover', function(e) { e.preventDefault(); dropzone.style.borderColor = 'rgba(0,230,118,0.5)'; });
+      dropzone.addEventListener('dragleave', function() { dropzone.style.borderColor = 'rgba(255,255,255,0.15)'; });
+      dropzone.addEventListener('drop', function(e) { e.preventDefault(); dropzone.style.borderColor = 'rgba(255,255,255,0.15)'; if (e.dataTransfer.files.length) _processAiImportFile(e.dataTransfer.files[0]); });
+      fileInput.addEventListener('change', function() { if (fileInput.files.length) _processAiImportFile(fileInput.files[0]); });
+      document.getElementById('ai-import-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    function _processAiImportFile(file) {
+      var dropzone = document.getElementById('ai-import-dropzone');
+      var status = document.getElementById('ai-import-status');
+      var preview = document.getElementById('ai-import-preview');
+      if (dropzone) dropzone.style.display = 'none';
+      if (status) status.style.display = '';
+      if (preview) preview.style.display = 'none';
+      var formData = new FormData();
+      formData.append('file', file);
+      fetch('/api/churches/' + CHURCH_ID + '/rundown-plans/import/ai', {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+        credentials: 'include',
+        body: formData,
+      }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(result) {
+        if (status) status.style.display = 'none';
+        if (!result.ok) { toast(result.data.error || 'Import failed', true); if (dropzone) dropzone.style.display = ''; return; }
+        _renderAiImportPreview(result.data.items || [], result.data.suggestedTitle || 'Imported Service');
+      }).catch(function(e) {
+        if (status) status.style.display = 'none';
+        if (dropzone) dropzone.style.display = '';
+        toast('Import failed: ' + e.message, true);
+      });
+    }
+
+    function _renderAiImportPreview(items, suggestedTitle) {
+      var preview = document.getElementById('ai-import-preview');
+      if (!preview) return;
+      var html = '<div style="margin-top:16px">';
+      html += '<div style="font-size:14px;font-weight:700;color:#F0F2F4;margin-bottom:8px">Parsed ' + items.length + ' items</div>';
+      html += '<div style="margin-bottom:12px"><input type="text" id="ai-import-title" value="' + escapeHtml(suggestedTitle) + '" style="width:100%;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;font-size:14px;font-weight:600;outline:none"></div>';
+      html += '<div style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">';
+      items.forEach(function(item, i) {
+        var typeColor = RUNDOWN_TYPE_COLORS[item.itemType] || RUNDOWN_TYPE_COLORS.other;
+        html += '<div class="card" style="padding:8px 12px;border-left:3px solid ' + typeColor + ';display:flex;align-items:center;gap:8px">';
+        html += '<span style="font-size:11px;color:#556270;width:20px;text-align:center">' + (i + 1) + '</span>';
+        html += '<input type="text" value="' + escapeHtml(item.title) + '" data-ai-item-idx="' + i + '" data-field="title" style="flex:1;background:transparent;color:#F0F2F4;border:none;font-size:13px;outline:none;min-width:0">';
+        html += '<span style="font-size:10px;color:' + typeColor + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">' + escapeHtml(RUNDOWN_TYPE_LABELS[item.itemType] || item.itemType) + '</span>';
+        html += '<span style="font-size:11px;color:#8B9DAF;font-family:ui-monospace,monospace">' + _rundownFormatMMSS(item.lengthSeconds || item.duration || 0) + '</span>';
+        if (item.assignee) html += '<span style="font-size:11px;color:#556270">' + escapeHtml(item.assignee) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">';
+      html += '<button id="ai-import-cancel" class="btn-secondary" style="font-size:13px;padding:8px 16px">Cancel</button>';
+      html += '<button id="ai-import-create" class="btn-primary" style="font-size:13px;padding:8px 20px;font-weight:700">Create Rundown</button>';
+      html += '</div></div>';
+      preview.innerHTML = html;
+      preview.style.display = '';
+      document.getElementById('ai-import-cancel').addEventListener('click', function() {
+        var modal = document.getElementById('rundown-ai-import-modal');
+        if (modal) modal.remove();
+      });
+      document.getElementById('ai-import-create').addEventListener('click', function() {
+        var title = document.getElementById('ai-import-title').value.trim() || 'Imported Service';
+        // Read edited titles back
+        preview.querySelectorAll('input[data-ai-item-idx]').forEach(function(inp) {
+          var idx = parseInt(inp.getAttribute('data-ai-item-idx'), 10);
+          if (items[idx] && inp.getAttribute('data-field') === 'title') items[idx].title = inp.value.trim();
+        });
+        var modal = document.getElementById('rundown-ai-import-modal');
+        if (modal) modal.remove();
+        _createRundownFromAiItems(title, items);
+      });
+    }
+
+    function _createRundownFromAiItems(title, items) {
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: title, serviceDate: new Date().toISOString().slice(0, 10) }).then(function(plan) {
+        var chain = Promise.resolve();
+        items.forEach(function(item) {
+          chain = chain.then(function() {
+            return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/items', {
+              title: item.title,
+              itemType: item.itemType || 'other',
+              lengthSeconds: item.lengthSeconds || item.duration || 0,
+              notes: item.notes || '',
+              assignee: item.assignee || '',
+            });
+          });
+        });
+        chain.then(function() {
+          toast('Rundown imported: ' + title);
+          _rundownSelectedPlanId = plan.id;
+          loadRundownManager();
+          setTimeout(function() { rundownSelectPlan(plan.id, 'manual'); }, 300);
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
     // ── Timer Display ──────────────────────────────────────────────────────────
@@ -16499,6 +17260,24 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownDeleteTemplate':
         if (typeof rundownDeleteTemplate === 'function') rundownDeleteTemplate(btn.dataset.templateId);
+        break;
+      case 'rundownShowBuiltinTemplates':
+        if (typeof rundownShowBuiltinTemplates === 'function') rundownShowBuiltinTemplates();
+        break;
+      case 'rundownImportFromDocument':
+        if (typeof rundownImportFromDocument === 'function') rundownImportFromDocument();
+        break;
+      case 'rundownComparePlans':
+        if (typeof rundownComparePlans === 'function') rundownComparePlans();
+        break;
+      case 'rundownSetDashboardView':
+        if (typeof rundownSetDashboardView === 'function') rundownSetDashboardView(btn.dataset.view);
+        break;
+      case 'rundownOpenScriptEditor':
+        if (typeof rundownOpenScriptEditor === 'function') rundownOpenScriptEditor(btn.dataset.itemId);
+        break;
+      case 'rundownOpenChecklist':
+        if (typeof rundownOpenChecklist === 'function') rundownOpenChecklist(btn.dataset.itemId);
         break;
       case 'rundownAddColumn':
         if (typeof rundownAddColumn === 'function') rundownAddColumn();

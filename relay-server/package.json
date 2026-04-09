@@ -17,7 +17,9 @@
     "test:all": "npm test && npm run test:integration"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.87.0",
     "@sentry/node": "^10.43.0",
+    "adm-zip": "^0.5.17",
     "better-sqlite3": "^11.0.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.18.2",
@@ -28,6 +30,7 @@
     "marked": "^14.1.4",
     "multer": "^2.1.1",
     "node-media-server": "^4.2.4",
+    "pdf-parse": "^1.1.1",
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "stripe": "^20.3.1",
