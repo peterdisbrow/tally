@@ -41,7 +41,9 @@
     .app {
       display: flex;
       flex-direction: column;
-      min-height: 100vh;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
     }
 
     .topbar {
@@ -651,10 +653,18 @@
     var editingItemId = null;
 
     // ── API helper ──
+    function getCsrfToken() {
+      var m = document.cookie.match(/(?:^|;\s*)tally_csrf=([^;]+)/);
+      return m ? m[1] : '';
+    }
+
     function showApi(method, path, body) {
+      var headers = { 'Content-Type': 'application/json' };
+      var csrf = getCsrfToken();
+      if (csrf) headers['x-csrf-token'] = csrf;
       var opts = {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         credentials: 'same-origin'
       };
       if (body && method !== 'GET') opts.body = JSON.stringify(body);
