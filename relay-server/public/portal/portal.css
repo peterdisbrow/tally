@@ -2177,3 +2177,73 @@ body.light-theme .rundown-export-menu > div { color: #1a1a1a !important; }
 body.light-theme .rundown-export-menu > div:hover { background: rgba(0,0,0,0.04) !important; }
 body.light-theme #rundown-compare-modal > div { background: #fff; border-color: rgba(0,0,0,0.12); }
 body.light-theme .checklist-panel input[type="text"] { background: rgba(0,0,0,0.04); color: #1a1a1a; border-color: rgba(0,0,0,0.12); }
+
+/* ─── Phase 5: Calendar View ───────────────────────────────────────────── */
+.rundown-calendar { margin-top: 16px; }
+.rundown-calendar-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.rundown-calendar-nav button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #F0F2F4; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.rundown-calendar-nav button:hover { background: rgba(255,255,255,0.1); }
+.rundown-calendar-nav .cal-title { font-size: 15px; font-weight: 700; color: #F0F2F4; min-width: 180px; text-align: center; }
+.rundown-calendar-mode { display: flex; gap: 4px; margin-left: auto; }
+.rundown-calendar-mode button { padding: 4px 10px; font-size: 11px; }
+.rundown-calendar-mode button.active { background: var(--primary-dim); border-color: var(--primary); color: var(--primary); }
+.rundown-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); overflow: hidden; }
+.rundown-cal-header { padding: 8px 4px; text-align: center; font-size: 11px; font-weight: 700; color: #8B9DAF; text-transform: uppercase; background: var(--bg-surface-solid); }
+.rundown-cal-cell { min-height: 90px; padding: 6px; background: var(--bg-base); border: 1px solid rgba(255,255,255,0.04); position: relative; cursor: pointer; transition: background 0.15s; }
+.rundown-cal-cell:hover { background: rgba(255,255,255,0.03); }
+.rundown-cal-cell.today { background: rgba(0,230,118,0.04); border-color: rgba(0,230,118,0.15); }
+.rundown-cal-cell.other-month { opacity: 0.35; }
+.rundown-cal-date { font-size: 11px; color: #8B9DAF; margin-bottom: 4px; font-weight: 600; }
+.rundown-cal-cell.today .rundown-cal-date { color: var(--primary); }
+.rundown-cal-plan { font-size: 10px; padding: 2px 5px; border-radius: 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.rundown-cal-plan:hover { filter: brightness(1.2); }
+.rundown-cal-plan.status-draft { background: rgba(85,98,112,0.2); color: #8B9DAF; }
+.rundown-cal-plan.status-rehearsal { background: rgba(255,167,38,0.15); color: #FFA726; }
+.rundown-cal-plan.status-show_ready { background: rgba(0,230,118,0.12); color: #00E676; }
+.rundown-cal-plan.status-live { background: rgba(239,68,68,0.15); color: #EF4444; }
+.rundown-cal-plan.status-archived { background: rgba(85,98,112,0.1); color: #556270; }
+.rundown-cal-add { position: absolute; bottom: 4px; right: 4px; font-size: 14px; color: #3A4556; cursor: pointer; opacity: 0; transition: opacity 0.15s; line-height: 1; }
+.rundown-cal-cell:hover .rundown-cal-add { opacity: 1; }
+.rundown-cal-month .rundown-cal-cell { min-height: 60px; }
+.rundown-cal-month .rundown-cal-plan { font-size: 0; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin: 1px; padding: 0; }
+
+/* ─── Phase 5: Analytics Dashboard ─────────────────────────────────────── */
+.rundown-analytics { padding: 0; }
+.analytics-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.analytics-header h3 { font-size: 16px; font-weight: 700; color: #F0F2F4; margin: 0; }
+.analytics-range { display: flex; gap: 4px; margin-left: auto; }
+.analytics-range button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #8B9DAF; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+.analytics-range button.active { background: var(--primary-dim); border-color: var(--primary); color: var(--primary); }
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.analytics-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; }
+.analytics-card h4 { font-size: 12px; font-weight: 700; color: #8B9DAF; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px; }
+.analytics-stat { font-size: 28px; font-weight: 700; color: #F0F2F4; }
+.analytics-stat-label { font-size: 11px; color: #556270; margin-top: 2px; }
+.analytics-kpi-row { display: flex; gap: 16px; margin-bottom: 16px; }
+.analytics-kpi { flex: 1; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; text-align: center; }
+
+/* ─── Phase 5: Webhooks UI ─────────────────────────────────────────────── */
+.webhook-list { display: flex; flex-direction: column; gap: 8px; }
+.webhook-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.webhook-row .webhook-url { flex: 1; font-size: 13px; color: #F0F2F4; font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.webhook-row .webhook-events { font-size: 11px; color: #8B9DAF; }
+.webhook-row .webhook-actions { display: flex; gap: 6px; }
+.webhook-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.webhook-status-dot.active { background: var(--primary); }
+.webhook-status-dot.inactive { background: #556270; }
+
+/* ─── Phase 5: Accessibility ───────────────────────────────────────────── */
+.skip-link { position: absolute; top: -40px; left: 0; background: var(--primary); color: #060D08; padding: 8px 16px; z-index: 9999; font-weight: 700; text-decoration: none; border-radius: 0 0 8px 0; }
+.skip-link:focus { top: 0; }
+*:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+[role="timer"] { font-variant-numeric: tabular-nums; }
+
+/* Light theme overrides for Phase 5 */
+body.light-theme .rundown-cal-cell { background: #fff; border-color: rgba(0,0,0,0.06); }
+body.light-theme .rundown-cal-cell:hover { background: rgba(0,0,0,0.02); }
+body.light-theme .rundown-cal-cell.today { background: rgba(22,163,74,0.04); }
+body.light-theme .rundown-cal-header { background: #f8f9fa; color: #6b7280; }
+body.light-theme .analytics-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
+body.light-theme .webhook-row { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); }
+>>>>>>> claude/amazing-carson

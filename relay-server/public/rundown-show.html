@@ -1178,10 +1178,11 @@
   </style>
 </head>
 <body>
-  <div class="connection-lost-banner" id="connection-lost-banner">Connection lost — reconnecting...</div>
-  <div class="app" id="app">
+  <div class="connection-lost-banner" id="connection-lost-banner" role="alert" aria-live="assertive">Connection lost — reconnecting...</div>
+  <div class="app" id="app" role="main" aria-label="Rundown show mode">
     <div class="state-msg" id="loading-msg">Loading show&hellip;</div>
   </div>
+  <div id="sr-announcer" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0"></div>
 
   <!-- v3: Keyboard shortcuts help button -->
   <button class="shortcuts-help-btn" id="shortcuts-help-btn" title="Keyboard shortcuts (?)">?</button>
@@ -1569,15 +1570,62 @@
     }
 
     // ── Poll live state ──
+    var offlineTimerInterval = null;
+
     function pollLiveState() {
       showApi('GET', '/api/public/rundown/' + encodeURIComponent(token) + '/timer')
         .then(function(timer) {
           handleTimerMessage(timer);
+          exitOfflineMode();
         })
         .catch(function() {
           consecutivePollFailures++;
-          if (consecutivePollFailures >= 2 && connBanner) connBanner.classList.add('visible');
+          if (consecutivePollFailures >= 3) enterOfflineMode();
+          else if (consecutivePollFailures >= 2 && connBanner) connBanner.classList.add('visible');
         });
+    }
+
+    function enterOfflineMode() {
+      if (offlineTimerInterval) return;
+      if (connBanner) {
+        connBanner.textContent = 'Offline Mode — Timer running locally';
+        connBanner.style.background = '#FFB74D';
+        connBanner.style.color = '#1a1a2e';
+        connBanner.classList.add('visible');
+      }
+      // Run timer locally using cached live state
+      offlineTimerInterval = setInterval(function() {
+        if (!liveState || !liveState.isLive) return;
+        var now = Date.now();
+        var elapsed = (now - (liveState.currentCueStartedAt || now)) / 1000;
+        var curItem = items[liveState.currentCueIndex];
+        var dur = curItem ? (curItem.lengthSeconds || curItem.length_seconds || 0) : 0;
+        var remaining = dur > 0 ? Math.max(0, dur - elapsed) : null;
+        handleTimerMessage({
+          is_live: true,
+          cue_index: liveState.currentCueIndex,
+          cue_title: curItem ? (curItem.title || '') : '',
+          total_cues: items.length,
+          cue_duration_seconds: dur,
+          elapsed_seconds: Math.round(elapsed),
+          remaining_seconds: remaining !== null ? Math.round(remaining) : null,
+          is_overtime: dur > 0 && elapsed > dur,
+          overtime_seconds: dur > 0 ? Math.round(Math.max(0, elapsed - dur)) : 0,
+          timestamp: now,
+        });
+      }, 1000);
+    }
+
+    function exitOfflineMode() {
+      if (offlineTimerInterval) {
+        clearInterval(offlineTimerInterval);
+        offlineTimerInterval = null;
+      }
+      if (connBanner) {
+        connBanner.textContent = 'Connection lost — reconnecting...';
+        connBanner.style.background = '';
+        connBanner.style.color = '';
+      }
     }
 
     function startPolling() {

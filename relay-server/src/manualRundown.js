@@ -399,6 +399,156 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mrc_item ON manual_rundown_checklists(item_id, sort_order ASC)
     `);
+
+    // ── Phase 5: webhooks ───────────────────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS church_webhooks (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        url TEXT NOT NULL,
+        events TEXT NOT NULL DEFAULT '[]',
+        secret TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_cw_church ON church_webhooks(church_id)
+    `);
+  }
+
+  // ─── WEBHOOKS ─────────────────────────────────────────────────────────────
+
+  async listWebhooks(churchId) {
+    await this.ready;
+    return this._db.query('SELECT * FROM church_webhooks WHERE church_id = ? ORDER BY created_at DESC', [churchId]);
+  }
+
+  async getWebhook(webhookId) {
+    await this.ready;
+    return this._db.queryOne('SELECT * FROM church_webhooks WHERE id = ?', [webhookId]);
+  }
+
+  async createWebhook(churchId, { url, events, secret }) {
+    await this.ready;
+    const id = uuidv4();
+    await this._db.run(
+      'INSERT INTO church_webhooks (id, church_id, url, events, secret, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
+      [id, churchId, url, JSON.stringify(events || []), secret || '', Date.now()]
+    );
+    return this.getWebhook(id);
+  }
+
+  async updateWebhook(webhookId, { url, events, secret, active }) {
+    await this.ready;
+    const existing = await this.getWebhook(webhookId);
+    if (!existing) return null;
+    await this._db.run(
+      'UPDATE church_webhooks SET url = ?, events = ?, secret = ?, active = ? WHERE id = ?',
+      [
+        url !== undefined ? url : existing.url,
+        events !== undefined ? JSON.stringify(events) : existing.events,
+        secret !== undefined ? secret : existing.secret,
+        active !== undefined ? (active ? 1 : 0) : existing.active,
+        webhookId,
+      ]
+    );
+    return this.getWebhook(webhookId);
+  }
+
+  async deleteWebhook(webhookId) {
+    await this.ready;
+    await this._db.run('DELETE FROM church_webhooks WHERE id = ?', [webhookId]);
+  }
+
+  async getActiveWebhooksForEvent(churchId, eventType) {
+    await this.ready;
+    const rows = await this._db.query(
+      'SELECT * FROM church_webhooks WHERE church_id = ? AND active = 1',
+      [churchId]
+    );
+    return rows.filter(function(w) {
+      try { var evts = JSON.parse(w.events || '[]'); return evts.includes(eventType); }
+      catch { return false; }
+    });
+  }
+
+  // ─── ANALYTICS ────────────────────────────────────────────────────────────
+
+  async getRundownAnalytics(churchId, range) {
+    await this.ready;
+    let sinceMs = 0;
+    if (range === '30d') sinceMs = Date.now() - 30 * 86400000;
+    else if (range === '90d') sinceMs = Date.now() - 90 * 86400000;
+
+    const reports = await this._db.query(
+      'SELECT * FROM rundown_show_reports WHERE church_id = ? AND created_at >= ? ORDER BY created_at ASC',
+      [churchId, sinceMs]
+    );
+
+    const plans = await this._db.query(
+      'SELECT id, title, service_date, status FROM manual_rundown_plans WHERE church_id = ? AND is_template = 0 AND created_at >= ? ORDER BY service_date ASC',
+      [churchId, sinceMs]
+    );
+
+    // Average service duration vs planned
+    let totalPlanned = 0, totalActual = 0;
+    const durationTrend = [];
+    const varianceTrend = [];
+    const overtimeMap = {};
+    const weekCounts = {};
+    const itemTypeTime = {};
+
+    for (const r of reports) {
+      totalPlanned += r.total_planned_ms || 0;
+      totalActual += r.total_actual_ms || 0;
+      const date = new Date(r.session_started_at || r.created_at).toISOString().slice(0, 10);
+      durationTrend.push({ date, planned: r.total_planned_ms, actual: r.total_actual_ms });
+      varianceTrend.push({ date, variance: (r.total_actual_ms || 0) - (r.total_planned_ms || 0) });
+
+      // Week bucket
+      const d = new Date(r.session_started_at || r.created_at);
+      const weekStart = new Date(d); weekStart.setDate(d.getDate() - d.getDay());
+      const weekKey = weekStart.toISOString().slice(0, 10);
+      weekCounts[weekKey] = (weekCounts[weekKey] || 0) + 1;
+
+      // Item timings analysis
+      try {
+        const items = JSON.parse(r.item_timings_json || '[]');
+        for (const it of items) {
+          const over = (it.actualMs || 0) - (it.plannedMs || 0);
+          if (over > 0) {
+            const key = it.title || 'Unknown';
+            if (!overtimeMap[key]) overtimeMap[key] = { title: key, totalOverMs: 0, count: 0 };
+            overtimeMap[key].totalOverMs += over;
+            overtimeMap[key].count++;
+          }
+          const itype = it.itemType || 'other';
+          itemTypeTime[itype] = (itemTypeTime[itype] || 0) + (it.actualMs || it.plannedMs || 0);
+        }
+      } catch { /* skip */ }
+    }
+
+    const serviceCount = reports.length;
+    const avgPlanned = serviceCount > 0 ? Math.round(totalPlanned / serviceCount) : 0;
+    const avgActual = serviceCount > 0 ? Math.round(totalActual / serviceCount) : 0;
+    const avgVariance = serviceCount > 0 ? Math.round((totalActual - totalPlanned) / serviceCount) : 0;
+
+    const overtimeLeaderboard = Object.values(overtimeMap)
+      .sort((a, b) => b.totalOverMs - a.totalOverMs)
+      .slice(0, 10);
+
+    return {
+      serviceCount,
+      avgPlannedMs: avgPlanned,
+      avgActualMs: avgActual,
+      avgVarianceMs: avgVariance,
+      durationTrend,
+      varianceTrend,
+      overtimeLeaderboard,
+      weeklyServiceCounts: Object.entries(weekCounts).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week)),
+      itemTypeBreakdown: Object.entries(itemTypeTime).map(([type, ms]) => ({ type, ms })).sort((a, b) => b.ms - a.ms),
+    };
   }
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────

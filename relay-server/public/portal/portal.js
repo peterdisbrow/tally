@@ -10303,7 +10303,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // Build table — compute total column count
-      var colCount = 15 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + script/ann + attachments + live timer
+      var colCount = 16 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + checklist + script/ann + attachments + live timer
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
@@ -10545,6 +10545,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="height:2px;background:rgba(255,255,255,0.08);border-radius:1px;margin-top:1px"><div style="height:100%;background:' + (clSummary.done === clSummary.total ? '#00E676' : '#42A5F5') + ';border-radius:1px;width:' + clSummary.pct + '%"></div></div>';
         }
         html += '</span>';
+        html += '</td>';
+
         // Script button (teleprompter content)
         var hasScript = !!(item.script && item.script.replace(/<[^>]*>/g, '').trim());
         html += '<td style="padding:4px 2px;text-align:center;vertical-align:middle">';
@@ -15703,6 +15705,536 @@ var loadCommandsPage; // assigned inside DOMContentLoaded; callable from showPag
 var loadAiTriagePage; // assigned inside DOMContentLoaded; callable from showPage
 var loadReports, loadReportsSummary, loadReportsEvents, loadReportsWindows, loadReportsHealth, loadReportsAi;
 
+// ── PHASE 5: Calendar View ──────────────────────────────────────────────────
+var _calendarMode = 'week'; // 'week' | 'month'
+var _calendarDate = new Date(); // anchor date for navigation
+
+function _calWeekStart(d) {
+  var r = new Date(d); r.setDate(r.getDate() - r.getDay() + 1); // Monday
+  r.setHours(0,0,0,0); return r;
+}
+
+function _calFmt(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function _calMonthName(d) {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function rundownViewList() {
+  _setDashboardView('list');
+}
+function rundownViewCalendar() {
+  _setDashboardView('calendar');
+}
+function rundownViewAnalytics() {
+  _setDashboardView('analytics');
+  renderRundownAnalytics();
+}
+function rundownViewWebhooks() {
+  _setDashboardView('webhooks');
+  renderRundownWebhooks();
+}
+
+function _setDashboardView(view) {
+  var dash = document.getElementById('rundown-dashboard');
+  var cal = document.getElementById('rundown-calendar-view');
+  var ana = document.getElementById('rundown-analytics-view');
+  var wh = document.getElementById('rundown-webhooks-view');
+  if (dash) dash.style.display = view === 'list' ? '' : 'none';
+  if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
+  if (ana) ana.style.display = view === 'analytics' ? '' : 'none';
+  if (wh) wh.style.display = view === 'webhooks' ? '' : 'none';
+  document.querySelectorAll('.rundown-view-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.action === 'rundownView' + view.charAt(0).toUpperCase() + view.slice(1));
+  });
+  if (view === 'calendar') renderRundownCalendar();
+}
+
+function renderRundownCalendar() {
+  var container = document.getElementById('rundown-calendar-view');
+  if (!container) return;
+  var plans = _rundownPlans || [];
+  var today = _calFmt(new Date());
+
+  // Build plan index by date
+  var plansByDate = {};
+  for (var i = 0; i < plans.length; i++) {
+    var sd = plans[i].serviceDate;
+    if (!sd) continue;
+    if (!plansByDate[sd]) plansByDate[sd] = [];
+    plansByDate[sd].push(plans[i]);
+  }
+
+  var html = '<div class="rundown-calendar-nav">';
+  html += '<button data-action="rundownCalPrev" aria-label="Previous">&lsaquo;</button>';
+  html += '<button data-action="rundownCalToday">Today</button>';
+  html += '<button data-action="rundownCalNext" aria-label="Next">&rsaquo;</button>';
+
+  if (_calendarMode === 'week') {
+    var ws = _calWeekStart(_calendarDate);
+    var we = new Date(ws); we.setDate(we.getDate() + 6);
+    html += '<span class="cal-title">' + _calFmt(ws) + ' &mdash; ' + _calFmt(we) + '</span>';
+  } else {
+    html += '<span class="cal-title">' + _calMonthName(_calendarDate) + '</span>';
+  }
+
+  html += '<div class="rundown-calendar-mode">';
+  html += '<button data-action="rundownCalModeWeek"' + (_calendarMode === 'week' ? ' class="active"' : '') + '>Week</button>';
+  html += '<button data-action="rundownCalModeMonth"' + (_calendarMode === 'month' ? ' class="active"' : '') + '>Month</button>';
+  html += '</div></div>';
+
+  // Day headers
+  var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  html += '<div class="rundown-cal-grid' + (_calendarMode === 'month' ? ' rundown-cal-month' : '') + '">';
+  for (var d = 0; d < 7; d++) {
+    html += '<div class="rundown-cal-header">' + dayNames[d] + '</div>';
+  }
+
+  // Generate cells
+  var cells = [];
+  if (_calendarMode === 'week') {
+    var start = _calWeekStart(_calendarDate);
+    for (var c = 0; c < 7; c++) {
+      var cd = new Date(start); cd.setDate(cd.getDate() + c);
+      cells.push({ date: cd, inMonth: true });
+    }
+  } else {
+    var first = new Date(_calendarDate.getFullYear(), _calendarDate.getMonth(), 1);
+    var startDay = (first.getDay() + 6) % 7; // Monday=0
+    var gridStart = new Date(first); gridStart.setDate(gridStart.getDate() - startDay);
+    for (var c = 0; c < 42; c++) {
+      var cd = new Date(gridStart); cd.setDate(cd.getDate() + c);
+      cells.push({ date: cd, inMonth: cd.getMonth() === _calendarDate.getMonth() });
+    }
+  }
+
+  for (var c = 0; c < cells.length; c++) {
+    var cell = cells[c];
+    var dateStr = _calFmt(cell.date);
+    var isToday = dateStr === today;
+    var cls = 'rundown-cal-cell';
+    if (isToday) cls += ' today';
+    if (!cell.inMonth) cls += ' other-month';
+    html += '<div class="' + cls + '" data-action="rundownCalDateClick" data-date="' + dateStr + '">';
+    html += '<div class="rundown-cal-date">' + cell.date.getDate() + '</div>';
+    var dp = plansByDate[dateStr] || [];
+    for (var p = 0; p < dp.length && p < 4; p++) {
+      html += '<div class="rundown-cal-plan status-' + (dp[p].status || 'draft') + '" data-action="rundownSelectPlan" data-plan-id="' + dp[p].id + '" data-plan-source="' + (dp[p].source || 'manual') + '" title="' + escapeHtml(dp[p].title) + '">' + escapeHtml(dp[p].title) + '</div>';
+    }
+    if (dp.length > 4) html += '<div style="font-size:10px;color:#556270">+' + (dp.length - 4) + ' more</div>';
+    html += '<span class="rundown-cal-add" data-action="rundownCalNewOnDate" data-date="' + dateStr + '" title="New plan on ' + dateStr + '">+</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function rundownCalPrev() {
+  if (_calendarMode === 'week') {
+    _calendarDate.setDate(_calendarDate.getDate() - 7);
+  } else {
+    _calendarDate.setMonth(_calendarDate.getMonth() - 1);
+  }
+  renderRundownCalendar();
+}
+function rundownCalNext() {
+  if (_calendarMode === 'week') {
+    _calendarDate.setDate(_calendarDate.getDate() + 7);
+  } else {
+    _calendarDate.setMonth(_calendarDate.getMonth() + 1);
+  }
+  renderRundownCalendar();
+}
+function rundownCalToday() {
+  _calendarDate = new Date();
+  renderRundownCalendar();
+}
+function rundownCalModeWeek() {
+  _calendarMode = 'week';
+  renderRundownCalendar();
+}
+function rundownCalModeMonth() {
+  _calendarMode = 'month';
+  renderRundownCalendar();
+}
+function rundownCalDateClick(dateStr) {
+  // Show plans for this date in a simple list or switch to list view filtered
+  _rundownSearchQuery = '';
+  var search = document.getElementById('rundown-search');
+  if (search) search.value = dateStr;
+  _rundownSearchQuery = dateStr;
+  _setDashboardView('list');
+  renderRundownDashboard();
+}
+function rundownCalNewOnDate(dateStr) {
+  // Create a new plan pre-filled with this date
+  var title = prompt('Plan title for ' + dateStr + ':');
+  if (!title || !title.trim()) return;
+  api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: title.trim(), serviceDate: dateStr, roomId: _selectedRoomId || '' }).then(function(plan) {
+    toast('Plan created');
+    loadRundownManager();
+  }).catch(function(e) { toast(e.message, true); });
+}
+function rundownCalCopyToDate(planId) {
+  var targetDate = prompt('Copy plan to date (YYYY-MM-DD):');
+  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+  // Find the plan, duplicate it
+  var plan = _rundownPlans.find(function(p) { return p.id === planId; });
+  if (!plan) return;
+  api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: plan.title + ' (copy)', serviceDate: targetDate, roomId: plan.roomId || '' }).then(function(newPlan) {
+    toast('Plan copied to ' + targetDate);
+    loadRundownManager();
+  }).catch(function(e) { toast(e.message, true); });
+}
+
+// ── PHASE 5: Analytics Dashboard ────────────────────────────────────────────
+var _analyticsRange = '30d';
+
+function renderRundownAnalytics() {
+  var container = document.getElementById('rundown-analytics-view');
+  if (!container) return;
+  container.innerHTML = '<div style="color:#556270;text-align:center;padding:40px;font-size:13px">Loading analytics...</div>';
+
+  api('GET', '/api/churches/' + CHURCH_ID + '/rundown-analytics?range=' + _analyticsRange).then(function(data) {
+    var html = '<div class="analytics-header">';
+    html += '<h3>Service Analytics</h3>';
+    html += '<div class="analytics-range">';
+    html += '<button data-action="rundownAnalyticsRange" data-range="30d"' + (_analyticsRange === '30d' ? ' class="active"' : '') + '>30 Days</button>';
+    html += '<button data-action="rundownAnalyticsRange" data-range="90d"' + (_analyticsRange === '90d' ? ' class="active"' : '') + '>90 Days</button>';
+    html += '<button data-action="rundownAnalyticsRange" data-range="all"' + (_analyticsRange === 'all' ? ' class="active"' : '') + '>All Time</button>';
+    html += '</div></div>';
+
+    // KPI row
+    html += '<div class="analytics-kpi-row">';
+    html += '<div class="analytics-kpi"><div class="analytics-stat">' + (data.serviceCount || 0) + '</div><div class="analytics-stat-label">Services</div></div>';
+    html += '<div class="analytics-kpi"><div class="analytics-stat">' + _fmtMs(data.avgPlannedMs) + '</div><div class="analytics-stat-label">Avg Planned</div></div>';
+    html += '<div class="analytics-kpi"><div class="analytics-stat">' + _fmtMs(data.avgActualMs) + '</div><div class="analytics-stat-label">Avg Actual</div></div>';
+    var varColor = (data.avgVarianceMs || 0) > 0 ? '#FF5252' : '#00E676';
+    html += '<div class="analytics-kpi"><div class="analytics-stat" style="color:' + varColor + '">' + _fmtMsSigned(data.avgVarianceMs) + '</div><div class="analytics-stat-label">Avg Variance</div></div>';
+    html += '</div>';
+
+    html += '<div class="analytics-grid">';
+
+    // Duration trend chart
+    html += '<div class="analytics-card"><h4>Service Duration Trend</h4>';
+    html += _buildLineChart(data.durationTrend || [], ['planned', 'actual'], { planned: '#64B5F6', actual: '#00E676' });
+    html += '</div>';
+
+    // Variance trend
+    html += '<div class="analytics-card"><h4>Variance Trend</h4>';
+    html += _buildVarianceChart(data.varianceTrend || []);
+    html += '</div>';
+
+    // Weekly service count
+    html += '<div class="analytics-card"><h4>Services Per Week</h4>';
+    html += _buildBarChart(data.weeklyServiceCounts || [], 'count', 'week');
+    html += '</div>';
+
+    // Overtime leaderboard
+    html += '<div class="analytics-card"><h4>Overtime Leaderboard</h4>';
+    if (data.overtimeLeaderboard && data.overtimeLeaderboard.length > 0) {
+      var maxOver = data.overtimeLeaderboard[0].totalOverMs || 1;
+      for (var i = 0; i < data.overtimeLeaderboard.length; i++) {
+        var item = data.overtimeLeaderboard[i];
+        var pct = Math.round((item.totalOverMs / maxOver) * 100);
+        html += '<div style="margin-bottom:6px">';
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:#F0F2F4;margin-bottom:2px"><span>' + escapeHtml(item.title) + '</span><span style="color:#FF5252">+' + _fmtMs(item.totalOverMs) + ' (' + item.count + 'x)</span></div>';
+        html += '<div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:#FF5252;border-radius:3px"></div></div>';
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No overtime data yet</div>';
+    }
+    html += '</div>';
+
+    // Item type breakdown
+    html += '<div class="analytics-card"><h4>Time by Item Type</h4>';
+    if (data.itemTypeBreakdown && data.itemTypeBreakdown.length > 0) {
+      var totalTypeMs = data.itemTypeBreakdown.reduce(function(s, t) { return s + t.ms; }, 0) || 1;
+      var typeColors = { worship: '#64B5F6', message: '#FFB74D', transition: '#CE93D8', media: '#81C784', prayer: '#F48FB1', other: '#8B9DAF' };
+      for (var i = 0; i < data.itemTypeBreakdown.length; i++) {
+        var t = data.itemTypeBreakdown[i];
+        var pct = Math.round((t.ms / totalTypeMs) * 100);
+        var col = typeColors[t.type] || '#8B9DAF';
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+        html += '<div style="width:10px;height:10px;border-radius:2px;background:' + col + ';flex-shrink:0"></div>';
+        html += '<span style="font-size:12px;color:#F0F2F4;flex:1">' + escapeHtml(t.type) + '</span>';
+        html += '<span style="font-size:12px;color:#8B9DAF">' + pct + '% (' + _fmtMs(t.ms) + ')</span>';
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No data yet</div>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    container.innerHTML = html;
+  }).catch(function(e) {
+    container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px;font-size:13px">Failed to load analytics: ' + escapeHtml(e.message) + '</div>';
+  });
+}
+
+function _fmtMs(ms) {
+  if (!ms) return '0m';
+  var s = Math.round(ms / 1000);
+  var m = Math.floor(s / 60);
+  var sec = s % 60;
+  if (m >= 60) return Math.floor(m/60) + 'h ' + (m%60) + 'm';
+  return m + 'm ' + sec + 's';
+}
+function _fmtMsSigned(ms) {
+  if (!ms) return '0m';
+  var sign = ms > 0 ? '+' : '-';
+  return sign + _fmtMs(Math.abs(ms));
+}
+
+function _buildLineChart(data, keys, colors) {
+  if (!data || data.length < 2) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">Not enough data</div>';
+  var w = 280, h = 120, pad = 20;
+  var allVals = [];
+  for (var i = 0; i < data.length; i++) { for (var k = 0; k < keys.length; k++) { allVals.push(data[i][keys[k]] || 0); } }
+  var minV = Math.min.apply(null, allVals), maxV = Math.max.apply(null, allVals);
+  if (maxV === minV) maxV = minV + 1;
+
+  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Line chart">';
+  for (var k = 0; k < keys.length; k++) {
+    var points = [];
+    for (var i = 0; i < data.length; i++) {
+      var x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+      var y = h - pad - ((data[i][keys[k]] || 0) - minV) / (maxV - minV) * (h - 2 * pad);
+      points.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + colors[keys[k]] + '" stroke-width="2" stroke-linejoin="round"/>';
+  }
+  svg += '</svg>';
+  // Legend
+  svg += '<div style="display:flex;gap:12px;margin-top:4px">';
+  for (var k = 0; k < keys.length; k++) {
+    svg += '<span style="font-size:10px;color:' + colors[keys[k]] + ';display:flex;align-items:center;gap:4px"><span style="width:8px;height:2px;background:' + colors[keys[k]] + ';display:inline-block"></span>' + keys[k] + '</span>';
+  }
+  svg += '</div>';
+  return svg;
+}
+
+function _buildVarianceChart(data) {
+  if (!data || data.length < 2) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">Not enough data</div>';
+  var w = 280, h = 120, pad = 20;
+  var vals = data.map(function(d) { return d.variance || 0; });
+  var maxAbs = Math.max.apply(null, vals.map(function(v) { return Math.abs(v); })) || 1;
+
+  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Variance chart">';
+  // Zero line
+  var zeroY = h / 2;
+  svg += '<line x1="' + pad + '" y1="' + zeroY + '" x2="' + (w - pad) + '" y2="' + zeroY + '" stroke="#3A4556" stroke-width="1" stroke-dasharray="4"/>';
+  var points = [];
+  for (var i = 0; i < data.length; i++) {
+    var x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+    var y = zeroY - (vals[i] / maxAbs) * (h / 2 - pad);
+    points.push(x.toFixed(1) + ',' + y.toFixed(1));
+  }
+  svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="#FFB74D" stroke-width="2" stroke-linejoin="round"/>';
+  svg += '<text x="' + pad + '" y="' + (pad - 4) + '" fill="#556270" font-size="8">Over</text>';
+  svg += '<text x="' + pad + '" y="' + (h - 4) + '" fill="#556270" font-size="8">Under</text>';
+  svg += '</svg>';
+  return svg;
+}
+
+function _buildBarChart(data, valueKey, labelKey) {
+  if (!data || data.length === 0) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No data</div>';
+  var w = 280, h = 100, pad = 20;
+  var maxVal = Math.max.apply(null, data.map(function(d) { return d[valueKey] || 0; })) || 1;
+  var barW = Math.max(4, Math.min(20, (w - 2 * pad) / data.length - 2));
+
+  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Bar chart">';
+  for (var i = 0; i < data.length; i++) {
+    var val = data[i][valueKey] || 0;
+    var barH = (val / maxVal) * (h - 2 * pad);
+    var x = pad + (i / data.length) * (w - 2 * pad);
+    svg += '<rect x="' + x.toFixed(1) + '" y="' + (h - pad - barH).toFixed(1) + '" width="' + barW + '" height="' + barH.toFixed(1) + '" fill="var(--primary)" rx="2" opacity="0.8"/>';
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+function rundownAnalyticsRange(range) {
+  _analyticsRange = range;
+  renderRundownAnalytics();
+}
+
+// ── PHASE 5: Webhooks Management UI ─────────────────────────────────────────
+var _webhooksCache = [];
+
+function renderRundownWebhooks() {
+  var container = document.getElementById('rundown-webhooks-view');
+  if (!container) return;
+  container.innerHTML = '<div style="color:#556270;text-align:center;padding:40px;font-size:13px">Loading webhooks...</div>';
+
+  api('GET', '/api/churches/' + CHURCH_ID + '/webhooks').then(function(data) {
+    _webhooksCache = data.webhooks || [];
+    _renderWebhooksList(container);
+  }).catch(function(e) {
+    container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px">Failed: ' + escapeHtml(e.message) + '</div>';
+  });
+}
+
+function _renderWebhooksList(container) {
+  var html = '<div class="card" style="padding:16px;margin-bottom:16px">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
+  html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4">Webhooks</div>';
+  html += '<button class="btn-primary" data-action="rundownWebhookAdd" style="font-size:12px;padding:5px 14px">Add Webhook</button>';
+  html += '</div>';
+
+  if (_webhooksCache.length === 0) {
+    html += '<div style="color:#556270;text-align:center;padding:30px;font-size:13px">No webhooks configured. Add one to receive notifications on rundown events.</div>';
+  } else {
+    html += '<div class="webhook-list">';
+    var eventLabels = { 'show.started': 'Show Started', 'show.ended': 'Show Ended', 'cue.advanced': 'Cue Advanced', 'plan.created': 'Plan Created', 'plan.updated': 'Plan Updated' };
+    for (var i = 0; i < _webhooksCache.length; i++) {
+      var wh = _webhooksCache[i];
+      html += '<div class="webhook-row">';
+      html += '<div class="webhook-status-dot ' + (wh.active ? 'active' : 'inactive') + '" title="' + (wh.active ? 'Active' : 'Inactive') + '"></div>';
+      html += '<div class="webhook-url">' + escapeHtml(wh.url) + '</div>';
+      html += '<div class="webhook-events">' + (wh.events || []).map(function(e) { return eventLabels[e] || e; }).join(', ') + '</div>';
+      html += '<div class="webhook-actions">';
+      html += '<button class="btn-secondary" data-action="rundownWebhookTest" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px">Test</button>';
+      html += '<button class="btn-secondary" data-action="rundownWebhookEdit" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px">Edit</button>';
+      html += '<button class="btn-secondary" data-action="rundownWebhookDelete" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px;color:#FF5252">Delete</button>';
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function rundownWebhookAdd() {
+  _showWebhookForm(null);
+}
+function rundownWebhookEdit(webhookId) {
+  var wh = _webhooksCache.find(function(w) { return w.id === webhookId; });
+  if (wh) _showWebhookForm(wh);
+}
+
+function _showWebhookForm(existing) {
+  var allEvents = ['show.started', 'show.ended', 'cue.advanced', 'plan.created', 'plan.updated'];
+  var eventLabels = { 'show.started': 'Show Started', 'show.ended': 'Show Ended', 'cue.advanced': 'Cue Advanced', 'plan.created': 'Plan Created', 'plan.updated': 'Plan Updated' };
+  var selectedEvents = existing ? (existing.events || []) : [];
+
+  var html = '<div style="margin-bottom:12px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:4px">Webhook URL</label>';
+  html += '<input type="url" id="webhook-form-url" value="' + escapeHtml(existing ? existing.url : '') + '" placeholder="https://example.com/webhook" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;font-size:13px;font-family:\'SF Mono\',monospace"></div>';
+  html += '<div style="margin-bottom:12px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:4px">Secret (for HMAC signing, optional)</label>';
+  html += '<input type="text" id="webhook-form-secret" value="' + escapeHtml(existing ? existing.secret : '') + '" placeholder="optional-secret" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;font-size:13px;font-family:\'SF Mono\',monospace"></div>';
+  html += '<div style="margin-bottom:8px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:6px">Events</label>';
+  for (var i = 0; i < allEvents.length; i++) {
+    var checked = selectedEvents.indexOf(allEvents[i]) >= 0 ? ' checked' : '';
+    html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#F0F2F4;margin-bottom:4px;cursor:pointer"><input type="checkbox" class="webhook-event-cb" value="' + allEvents[i] + '"' + checked + '> ' + eventLabels[allEvents[i]] + '</label>';
+  }
+  html += '</div>';
+
+  showDialog(existing ? 'Edit Webhook' : 'Add Webhook', html, function() {
+    var url = (document.getElementById('webhook-form-url') || {}).value || '';
+    var secret = (document.getElementById('webhook-form-secret') || {}).value || '';
+    var events = [];
+    document.querySelectorAll('.webhook-event-cb:checked').forEach(function(cb) { events.push(cb.value); });
+    if (!url.trim()) { toast('URL is required', true); return; }
+    var method = existing ? 'PUT' : 'POST';
+    var path = '/api/churches/' + CHURCH_ID + '/webhooks' + (existing ? '/' + existing.id : '');
+    api(method, path, { url: url.trim(), events: events, secret: secret, active: true }).then(function() {
+      toast(existing ? 'Webhook updated' : 'Webhook added');
+      renderRundownWebhooks();
+    }).catch(function(e) { toast(e.message, true); });
+  });
+}
+
+function rundownWebhookTest(webhookId) {
+  api('POST', '/api/churches/' + CHURCH_ID + '/webhooks/' + webhookId + '/test').then(function(r) {
+    toast(r.ok ? 'Test delivered (HTTP ' + r.status + ')' : 'Delivery failed (HTTP ' + r.status + ')', !r.ok);
+  }).catch(function(e) { toast('Test failed: ' + e.message, true); });
+}
+
+function rundownWebhookDelete(webhookId) {
+  if (!confirm('Delete this webhook?')) return;
+  api('DELETE', '/api/churches/' + CHURCH_ID + '/webhooks/' + webhookId).then(function() {
+    toast('Webhook deleted');
+    renderRundownWebhooks();
+  }).catch(function(e) { toast(e.message, true); });
+}
+
+// ── PHASE 5: Offline Mode enhancements ──────────────────────────────────────
+// (Offline mode is primarily handled by the service worker. Here we add
+//  connection monitoring and offline banner to the portal.)
+var _offlineMode = false;
+var _offlineBannerEl = null;
+
+function _initOfflineMonitor() {
+  // Create offline banner (hidden by default)
+  _offlineBannerEl = document.createElement('div');
+  _offlineBannerEl.id = 'offline-banner';
+  _offlineBannerEl.setAttribute('role', 'alert');
+  _offlineBannerEl.setAttribute('aria-live', 'assertive');
+  _offlineBannerEl.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;z-index:9998;background:#FFB74D;color:#1a1a2e;text-align:center;padding:8px 16px;font-size:13px;font-weight:700;';
+  _offlineBannerEl.textContent = 'Offline Mode — Running on cached data';
+  document.body.appendChild(_offlineBannerEl);
+
+  window.addEventListener('online', function() {
+    _offlineMode = false;
+    if (_offlineBannerEl) _offlineBannerEl.style.display = 'none';
+  });
+  window.addEventListener('offline', function() {
+    _offlineMode = true;
+    if (_offlineBannerEl) _offlineBannerEl.style.display = '';
+  });
+
+  // Register service worker if available
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/rundown-sw.js').catch(function() {});
+  }
+}
+
+// ── PHASE 5: Accessibility helpers ──────────────────────────────────────────
+function _initAccessibility() {
+  // Add aria-live region for timer announcements
+  var liveRegion = document.createElement('div');
+  liveRegion.id = 'rundown-sr-announcer';
+  liveRegion.setAttribute('aria-live', 'polite');
+  liveRegion.setAttribute('aria-atomic', 'true');
+  liveRegion.className = 'sr-only';
+  liveRegion.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0';
+  document.body.appendChild(liveRegion);
+
+  // Add ARIA roles to key containers
+  var toolbar = document.querySelector('.rundown-toolbar');
+  if (toolbar) toolbar.setAttribute('role', 'toolbar');
+  var dashboard = document.getElementById('rundown-dashboard');
+  if (dashboard) dashboard.setAttribute('role', 'list');
+
+  // Ensure all buttons in toolbars have accessible names
+  document.querySelectorAll('.rundown-toolbar button:not([aria-label]):not([title])').forEach(function(btn) {
+    if (btn.textContent.trim()) btn.setAttribute('aria-label', btn.textContent.trim());
+  });
+
+  // Add aria-hidden to decorative SVGs that don't already have it
+  document.querySelectorAll('svg:not([aria-label]):not([role])').forEach(function(svg) {
+    if (!svg.getAttribute('aria-hidden')) svg.setAttribute('aria-hidden', 'true');
+  });
+}
+
+// Initialize Phase 5 features on DOMContentLoaded
+(function() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      _initOfflineMonitor();
+      _initAccessibility();
+    });
+  } else {
+    _initOfflineMonitor();
+    _initAccessibility();
+  }
+})();
+
 // ── CSP-safe event delegation ─────────────────────────────────────────────────
 // Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
 // removed from portal.html so that 'unsafe-inline' can be dropped from CSP.
@@ -16036,6 +16568,63 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownChangeStatus':
         if (typeof rundownChangeStatus === 'function') rundownChangeStatus();
+        break;
+
+      // Phase 5: Dashboard view toggles
+      case 'rundownViewList':
+        if (typeof rundownViewList === 'function') rundownViewList();
+        break;
+      case 'rundownViewCalendar':
+        if (typeof rundownViewCalendar === 'function') rundownViewCalendar();
+        break;
+      case 'rundownViewAnalytics':
+        if (typeof rundownViewAnalytics === 'function') rundownViewAnalytics();
+        break;
+      case 'rundownViewWebhooks':
+        if (typeof rundownViewWebhooks === 'function') rundownViewWebhooks();
+        break;
+
+      // Phase 5: Calendar actions
+      case 'rundownCalPrev':
+        if (typeof rundownCalPrev === 'function') rundownCalPrev();
+        break;
+      case 'rundownCalNext':
+        if (typeof rundownCalNext === 'function') rundownCalNext();
+        break;
+      case 'rundownCalToday':
+        if (typeof rundownCalToday === 'function') rundownCalToday();
+        break;
+      case 'rundownCalModeWeek':
+        if (typeof rundownCalModeWeek === 'function') rundownCalModeWeek();
+        break;
+      case 'rundownCalModeMonth':
+        if (typeof rundownCalModeMonth === 'function') rundownCalModeMonth();
+        break;
+      case 'rundownCalDateClick':
+        if (typeof rundownCalDateClick === 'function') rundownCalDateClick(btn.dataset.date);
+        break;
+      case 'rundownCalNewOnDate':
+        e.stopPropagation();
+        if (typeof rundownCalNewOnDate === 'function') rundownCalNewOnDate(btn.dataset.date);
+        break;
+
+      // Phase 5: Analytics
+      case 'rundownAnalyticsRange':
+        if (typeof rundownAnalyticsRange === 'function') rundownAnalyticsRange(btn.dataset.range);
+        break;
+
+      // Phase 5: Webhooks
+      case 'rundownWebhookAdd':
+        if (typeof rundownWebhookAdd === 'function') rundownWebhookAdd();
+        break;
+      case 'rundownWebhookEdit':
+        if (typeof rundownWebhookEdit === 'function') rundownWebhookEdit(btn.dataset.webhookId);
+        break;
+      case 'rundownWebhookTest':
+        if (typeof rundownWebhookTest === 'function') rundownWebhookTest(btn.dataset.webhookId);
+        break;
+      case 'rundownWebhookDelete':
+        if (typeof rundownWebhookDelete === 'function') rundownWebhookDelete(btn.dataset.webhookId);
         break;
 
       // Dashboard filter/sort (handled via input/change events, but also catch click)
