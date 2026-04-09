@@ -285,6 +285,13 @@ function requirePortalAuth(db, jwtSecret, queryClient = null) {
  */
 function requireAdminAuth(db, jwtSecret, queryClient = null) {
   const client = queryClient || db;
+  const normalizeChurchRow = (row) => {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  };
   return async (req, res, next) => {
     const token = req.cookies?.tally_church_session;
     if (!token) {
@@ -298,7 +305,7 @@ function requireAdminAuth(db, jwtSecret, queryClient = null) {
         ? await client.queryOne('SELECT * FROM churches WHERE churchId = ?', [payload.churchId])
         : client.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
       if (!church) throw new Error('church not found');
-      req.church = church;
+      req.church = normalizeChurchRow(church);
       next();
     } catch {
       res.clearCookie('tally_church_session');
@@ -311,6 +318,13 @@ function requireAdminAuth(db, jwtSecret, queryClient = null) {
 function requireChurchPortalOrAppAuth(db, jwtSecret, queryClient = null) {
   const client = queryClient || db;
   const portalAuth = requirePortalAuth(db, jwtSecret, client);
+  const normalizeChurchRow = (row) => {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  };
   return async (req, res, next) => {
     const auth = req.headers?.authorization || '';
     if (auth.startsWith('Bearer ')) {
@@ -323,7 +337,7 @@ function requireChurchPortalOrAppAuth(db, jwtSecret, queryClient = null) {
           ? await client.queryOne('SELECT * FROM churches WHERE churchId = ?', [payload.churchId])
           : client.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
         if (!church) return res.status(404).json({ error: 'Church not found' });
-        req.church = church;
+        req.church = normalizeChurchRow(church);
         return next();
       } catch {
         return res.status(401).json({ error: 'Invalid or expired token' });
