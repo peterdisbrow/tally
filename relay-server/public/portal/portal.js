@@ -8258,6 +8258,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownAttachments = {}; // { itemId: [{ id, filename, mimetype, size }] }
     var _rundownBatchSelection = {}; // { itemId: true }
     var _rundownBatchAnchorId = null;
+    // Phase 9: edit locks, rehearsal, revision history
+    var _rundownEditLocks = {}; // { itemId: { sessionId, displayName, lockedAt } }
+    var _rundownActiveRehearsalRun = null; // { id, planId, runNumber, startedAt, itemTimings }
+    var _rundownRehearsalItemStart = null; // timestamp when current rehearsal item started
+    var _rundownRehearsalCurrentIndex = 0;
+    var _rundownRehearsalTimings = []; // [{ itemId, title, plannedDuration, actualDuration }]
+    var _rundownUndoStack = []; // array of revision IDs for undo
+    var _rundownRedoStack = [];
 
     // ── Status display config ────────────────────────────────────────────────
     var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Ready', live: 'Live', archived: 'Archived' };
@@ -9199,9 +9207,34 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         return;
       }
 
+      // 9.1: Handle edit lock/unlock events
+      if (_rundownSelectedPlan && data.planId === _rundownSelectedPlan.id) {
+        if (data.type === 'rundown_item_locked') {
+          _rundownEditLocks[data.itemId] = { sessionId: data.sessionId, displayName: data.displayName, lockedAt: Date.now() };
+          _renderRundownEditLockIndicators();
+        } else if (data.type === 'rundown_item_unlocked') {
+          delete _rundownEditLocks[data.itemId];
+          _renderRundownEditLockIndicators();
+        } else if (data.type === 'rundown_plan_locked') {
+          _rundownSelectedPlan.lockedBy = data.lockedBy;
+          _rundownSelectedPlan.lockedAt = data.lockedAt;
+          renderRundownEditor(_rundownSelectedPlan);
+          toast('Plan locked for show by ' + (data.lockedBy || 'TD'));
+        } else if (data.type === 'rundown_plan_unlocked') {
+          _rundownSelectedPlan.lockedBy = null;
+          _rundownSelectedPlan.lockedAt = null;
+          renderRundownEditor(_rundownSelectedPlan);
+          toast('Plan unlocked');
+        }
+      }
+
       // If we're editing this plan, apply the live update
       if (_rundownSelectedPlan && data.planId === _rundownSelectedPlan.id) {
         if (data.type === 'rundown_item_updated' && data.itemId && data.item) {
+          // 9.1: Show toast if someone else edited an item we might be looking at
+          if (data.changedBy && data.changedBy !== _rundownPresenceDisplayName) {
+            toast('Item updated by ' + data.changedBy);
+          }
           // Update item in local state
           var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === data.itemId; });
           if (item) {
@@ -9210,6 +9243,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             if (data.item.lengthSeconds !== undefined) item.lengthSeconds = data.item.lengthSeconds;
             if (data.item.notes !== undefined) item.notes = data.item.notes;
             if (data.item.assignee !== undefined) item.assignee = data.item.assignee;
+            if (data.item.directorNotes !== undefined) item.directorNotes = data.item.directorNotes;
             renderRundownEditorItems(_rundownSelectedPlan.items || []);
             // Flash the edited cell
             setTimeout(function() {
@@ -9229,6 +9263,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (data.plan.status) _rundownSelectedPlan.status = data.plan.status;
           if (data.plan.serviceDate !== undefined) _rundownSelectedPlan.serviceDate = data.plan.serviceDate;
           if (data.plan.roomId !== undefined) _rundownSelectedPlan.roomId = data.plan.roomId;
+          if (data.plan.lockedBy !== undefined) _rundownSelectedPlan.lockedBy = data.plan.lockedBy;
+          if (data.plan.lockedAt !== undefined) _rundownSelectedPlan.lockedAt = data.plan.lockedAt;
           renderRundownEditor(_rundownSelectedPlan);
         }
       }
@@ -9928,6 +9964,39 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }).catch(function() {});
       }
 
+      // 9.3: Show/hide lock bar and lock button
+      var lockBar = document.getElementById('rundown-lock-bar');
+      var lockBtn = document.getElementById('btn-rundown-lock');
+      if (plan.lockedBy) {
+        if (lockBar) {
+          lockBar.style.display = 'flex';
+          var lockText = document.getElementById('rundown-lock-text');
+          if (lockText) lockText.textContent = 'Locked for show by ' + (plan.lockedBy || 'TD');
+          // Only show unlock button to locker or owner
+          var unlockBtn = lockBar.querySelector('[data-action="rundownUnlockPlan"]');
+          if (unlockBtn) {
+            var isLocker = plan.lockedBy === _rundownSessionId;
+            unlockBtn.style.display = isLocker ? '' : 'none';
+          }
+        }
+        if (lockBtn) lockBtn.style.display = 'none';
+      } else {
+        if (lockBar) lockBar.style.display = 'none';
+        if (lockBtn) lockBtn.style.display = '';
+      }
+
+      // 9.4: Re-render rehearsal bar if active
+      if (_rundownActiveRehearsalRun && _rundownActiveRehearsalRun.planId === plan.id) {
+        _renderRehearsalBar();
+        _startRehearsalTick();
+      }
+
+      // Load edit locks
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/locks').then(function(data) {
+        _rundownEditLocks = data.locks || {};
+        _renderRundownEditLockIndicators();
+      }).catch(function() {});
+
       renderRundownEditorItems(items);
 
       // Subscribe to collaborative editing presence
@@ -10237,6 +10306,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="position:absolute;top:-6px;right:-8px;background:#42A5F5;color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center">' + itemAtts.length + '</span>';
         }
         html += '</span>';
+        // Director note toggle
+        html += ' <span class="rundown-toggle-dir-note" data-item-id="' + item.id + '" style="cursor:pointer;color:' + (dnVal ? '#FFD740' : '#3A4556') + ';display:inline-flex;margin-left:2px" title="Director note">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11Z"/><path d="M15 6.954 8.978 9.86a2.25 2.25 0 0 1-1.956 0L1 6.954V11.5A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5V6.954Z"/></svg>';
+        html += '</span>';
         html += '</td>';
 
         // Live timer column
@@ -10256,6 +10329,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Delete
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
 
+        html += '</tr>';
+
+        // Director notes sub-row (9.6) — only for owner/editor roles
+        var dnVal = item.directorNotes || '';
+        html += '<tr class="rundown-director-notes-row" data-item-id="' + item.id + '" style="border-bottom:1px solid rgba(255,255,255,0.04);background:rgba(139,157,175,0.04);display:' + (dnVal ? 'table-row' : 'none') + '">';
+        html += '<td></td><td></td><td></td>';
+        html += '<td colspan="' + (colCount - 4) + '" style="padding:3px 6px 5px">';
+        html += '<div style="display:flex;align-items:flex-start;gap:6px">';
+        html += '<span style="color:#FFD740;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;margin-top:1px">Dir Note</span>';
+        html += '<span class="rundown-inline-director-note" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#8B9DAF;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(dnVal || 'Click to add director note') + '">' + (dnVal ? escapeHtml(dnVal) : '<span style="color:#3A4556">click to add</span>') + '</span>';
+        html += '</div>';
+        html += '</td>';
+        html += '<td></td>';
         html += '</tr>';
       }
 
@@ -10312,19 +10398,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         // Expand toggle (only if notes or custom columns)
         var mNotes = (mItem.notes || '').replace(/<[^>]*>/g, '');
-        var mHasDetails = !!(mNotes || (_rundownColumns.length > 0));
+        var mHasDetails = !!(mNotes || (_rundownColumns.length > 0) || mItem.directorNotes);
         if (mHasDetails) {
           mobileHtml += '<button class="mobile-card-expand" data-expand-id="' + mItem.id + '">Details</button>';
         }
         mobileHtml += '</div>';
         // Expandable details
-        if (mHasDetails) {
+        var mDirNote = mItem.directorNotes || '';
+        if (mHasDetails || mDirNote) {
           mobileHtml += '<div class="mobile-card-details" id="mobile-details-' + mItem.id + '">';
           if (mNotes) mobileHtml += '<div style="margin-bottom:6px">' + escapeHtml(mNotes) + '</div>';
           for (var mci = 0; mci < _rundownColumns.length; mci++) {
             var mCol = _rundownColumns[mci];
             var mVal = _rundownColumnValues[mItem.id + '_' + mCol.id] || '';
             mobileHtml += '<div><span style="font-weight:700;color:#556270">' + escapeHtml(mCol.name) + ':</span> ' + (mVal ? escapeHtml(mVal) : '--') + '</div>';
+          }
+          if (mDirNote) {
+            mobileHtml += '<div style="margin-top:4px;padding:4px 6px;background:rgba(255,215,64,0.08);border-radius:4px"><span style="color:#FFD740;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Dir Note</span> <span style="font-size:11px;color:#8B9DAF">' + escapeHtml(mDirNote) + '</span></div>';
           }
           mobileHtml += '</div>';
         }
@@ -10380,6 +10470,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _attachRundownDragDrop();
       // Attach hard/soft start and auto-advance toggles
       _attachRundownCueToggles(container);
+      // Attach director note toggle buttons
+      container.querySelectorAll('.rundown-toggle-dir-note').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          var noteRow = container.querySelector('.rundown-director-notes-row[data-item-id="' + itemId + '"]');
+          if (noteRow) {
+            var isHidden = noteRow.style.display === 'none';
+            noteRow.style.display = isHidden ? 'table-row' : 'none';
+            if (isHidden) {
+              var noteEl = noteRow.querySelector('.rundown-inline-director-note');
+              if (noteEl) noteEl.click();
+            }
+          }
+        });
+      });
 
       // Auto-scroll active cue into view during live mode
       if (isLive && activeCueIdx >= 0) {
@@ -10461,12 +10567,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.querySelectorAll('.rundown-inline-edit').forEach(function(el) {
         el.addEventListener('click', function(e) {
           e.stopPropagation();
+          if (_isPlanLocked()) { toast('Plan is locked for show', true); return; }
           var field = el.getAttribute('data-field');
           var itemId = el.getAttribute('data-item-id');
           if (!itemId || !_rundownSelectedPlan) return;
           var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
           if (!item) return;
 
+          _rundownAcquireEditLock(itemId);
           if (field === 'notes') {
             _rundownInlineTextarea(el, item, itemId);
           } else if (field === 'duration') {
@@ -10481,11 +10589,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.querySelectorAll('.rundown-inline-type').forEach(function(el) {
         el.addEventListener('click', function(e) {
           e.stopPropagation();
+          if (_isPlanLocked()) { toast('Plan is locked for show', true); return; }
           var itemId = el.getAttribute('data-item-id');
           if (!itemId || !_rundownSelectedPlan) return;
           var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
           if (!item) return;
+          _rundownAcquireEditLock(itemId);
           _rundownInlineType(el, item, itemId);
+        });
+      });
+
+      // Director notes inline editing (9.6)
+      container.querySelectorAll('.rundown-inline-director-note').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (_isPlanLocked()) { toast('Plan is locked for show', true); return; }
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item) return;
+          _rundownAcquireEditLock(itemId);
+          _rundownInlineDirectorNote(el, item, itemId);
         });
       });
     }
@@ -10659,6 +10783,32 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
+    function _rundownInlineDirectorNote(el, item, itemId) {
+      var currentVal = item.directorNotes || '';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentVal;
+      input.placeholder = 'Director note...';
+      input.style.cssText = 'width:100%;background:rgba(255,215,64,0.08);color:#F0F2F4;border:1px solid rgba(255,215,64,0.4);border-radius:3px;padding:2px 6px;font-size:11px;outline:none;font-family:inherit';
+      el.innerHTML = '';
+      el.appendChild(input);
+      input.focus();
+      input.select();
+
+      function save() {
+        var val = input.value.trim();
+        _rundownInlineSave(itemId, { directorNotes: val });
+        // Show/hide the sub-row based on whether there's content
+        var row = el.closest('tr');
+        if (row) row.style.display = val ? 'table-row' : 'none';
+      }
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
+      });
+    }
+
     function _rundownInlineType(el, item, itemId) {
       var select = document.createElement('select');
       select.style.cssText = 'background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 4px;font-size:11px;outline:none;font-family:inherit';
@@ -10793,6 +10943,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           _rundownSelectedPlan = plan;
           renderRundownEditorItems(plan.items || []);
           _showRundownSaveStatus('saved');
+          _rundownReleaseEditLock(itemId);
         })
         .catch(function(e) {
           // Revert the optimistic change and queue for retry
@@ -10800,6 +10951,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           renderRundownEditorItems(originalItems);
           _queueRundownSave(itemId, body);
           toast('Save queued — will retry when connected', true);
+          _rundownReleaseEditLock(itemId);
         });
     }
 
@@ -10808,9 +10960,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.querySelectorAll('.rundown-inline-col').forEach(function(el) {
         el.addEventListener('click', function(e) {
           e.stopPropagation();
+          if (_isPlanLocked()) { toast('Plan is locked for show', true); return; }
           var itemId = el.getAttribute('data-item-id');
           var colId = el.getAttribute('data-col-id');
           if (!itemId || !_rundownSelectedPlan) return;
+          _rundownAcquireEditLock(itemId);
           var column = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
           var colType = _normalizeRundownColumnType(column.type);
           var currentVal = _rundownColumnValues[itemId + '_' + colId] || '';
@@ -12345,6 +12499,447 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
+    // ── Phase 9: Edit lock indicators (9.1) ──────────────────────────────────
+
+    function _renderRundownEditLockIndicators() {
+      var rows = document.querySelectorAll('#rundown-editor-items tr[data-item-id]');
+      rows.forEach(function(row) {
+        var itemId = row.getAttribute('data-item-id');
+        var lockEl = row.querySelector('.rundown-edit-lock');
+        var lock = _rundownEditLocks[itemId];
+        if (lock && lock.sessionId !== _rundownSessionId && (Date.now() - lock.lockedAt) < 60000) {
+          if (!lockEl) {
+            lockEl = document.createElement('span');
+            lockEl.className = 'rundown-edit-lock';
+            lockEl.style.cssText = 'display:inline-block;font-size:10px;color:#FFD740;background:rgba(255,215,64,0.12);padding:2px 6px;border-radius:4px;margin-left:6px;white-space:nowrap';
+            var titleCell = row.querySelector('td:nth-child(2)');
+            if (titleCell) titleCell.appendChild(lockEl);
+          }
+          lockEl.textContent = 'Editing: ' + (lock.displayName || 'Someone');
+          lockEl.style.display = '';
+        } else if (lockEl) {
+          lockEl.style.display = 'none';
+        }
+      });
+    }
+
+    function _rundownAcquireEditLock(itemId) {
+      if (!_rundownSelectedPlan) return Promise.resolve({ locked: false });
+      return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/lock', {
+        sessionId: _rundownSessionId, displayName: _rundownPresenceDisplayName || 'TD'
+      });
+    }
+
+    function _rundownReleaseEditLock(itemId) {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/unlock', {
+        sessionId: _rundownSessionId
+      }).catch(function() {});
+    }
+
+    // ── Phase 9: Plan locking (9.3) ────────────────────────────────────────
+
+    function rundownLockPlan() {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/lock', {
+        sessionId: _rundownSessionId, displayName: _rundownPresenceDisplayName || 'TD'
+      }).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        toast('Plan locked for show');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownUnlockPlan() {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/unlock', {
+        sessionId: _rundownSessionId, displayName: _rundownPresenceDisplayName || 'TD'
+      }).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        toast('Plan unlocked');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function _isPlanLocked() {
+      return _rundownSelectedPlan && _rundownSelectedPlan.lockedBy &&
+        _rundownSelectedPlan.lockedBy !== _rundownSessionId;
+    }
+
+    // ── Phase 9: Revision history (9.2) ────────────────────────────────────
+
+    function rundownShowRevisionHistory() {
+      if (!_rundownSelectedPlan) return;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/revisions').then(function(data) {
+        var revisions = data.revisions || [];
+        _showRevisionPanel(revisions);
+      }).catch(function(e) { toast('Failed to load history: ' + e.message, true); });
+    }
+
+    function _showRevisionPanel(revisions) {
+      var existing = document.getElementById('rundown-revision-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-revision-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:700px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Revision History</div>'
+        + '<button id="close-revision-panel" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
+      if (!revisions.length) {
+        html += '<div style="text-align:center;padding:40px;color:#8B9DAF;font-size:13px">No revisions yet. Edits are automatically tracked.</div>';
+      } else {
+        html += '<div style="display:flex;flex-direction:column;gap:8px">';
+        revisions.forEach(function(rev) {
+          var snap = rev.snapshot || {};
+          var diff = rev.diff || {};
+          var changedFields = Object.keys(diff).filter(function(k) { return k !== 'sessionId' && k !== 'displayName' && k !== 'userName'; });
+          var time = new Date(rev.changedAt);
+          var timeStr = time.toLocaleString();
+          html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+            + '<div>'
+            + '<span style="font-size:13px;font-weight:700;color:#F0F2F4">' + escapeHtml(snap.title || 'Item') + '</span>'
+            + '<span style="font-size:11px;color:#8B9DAF;margin-left:8px">Rev #' + rev.revisionNumber + '</span>'
+            + '</div>'
+            + '<div style="font-size:11px;color:#8B9DAF">' + escapeHtml(rev.changedBy || 'Unknown') + ' · ' + escapeHtml(timeStr) + '</div>'
+            + '</div>';
+          if (changedFields.length > 0) {
+            html += '<div style="margin-top:8px;font-size:12px;color:#556270">Changed: ' + changedFields.map(function(f) { return '<span style="color:#81D4FA">' + escapeHtml(f) + '</span>'; }).join(', ') + '</div>';
+          }
+          html += '<button class="btn-secondary" data-action="rundownRevertRevision" data-revision-id="' + rev.id + '" style="margin-top:8px;font-size:11px;padding:4px 10px">Revert to this</button>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-revision-panel').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    function rundownRevertRevision(revisionId) {
+      if (!_rundownSelectedPlan) return;
+      styledConfirm('Revert Item', 'Revert this item to the selected revision? This will overwrite the current state.').then(function(ok) {
+        if (!ok) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/revisions/' + revisionId + '/revert', {
+          sessionId: _rundownSessionId
+        }).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          toast('Item reverted');
+          var panel = document.getElementById('rundown-revision-panel');
+          if (panel) panel.remove();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    // Ctrl+Z / Cmd+Z for plan-level undo
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (_rundownSelectedPlan && document.getElementById('rundown-editor') && document.getElementById('rundown-editor').style.display !== 'none') {
+          e.preventDefault();
+          rundownShowRevisionHistory();
+        }
+      }
+    });
+
+    // ── Phase 9: Rehearsal mode (9.4) ──────────────────────────────────────
+
+    function rundownStartRehearsal() {
+      if (!_rundownSelectedPlan) return;
+      styledConfirm('Start Rehearsal', 'Start a timed rehearsal run? This will track actual time per item for comparison.').then(function(ok) {
+        if (!ok) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/rehearsal/start', {
+          sessionId: _rundownSessionId
+        }).then(function(run) {
+          _rundownActiveRehearsalRun = run;
+          _rundownRehearsalCurrentIndex = 0;
+          _rundownRehearsalTimings = [];
+          var items = (_rundownSelectedPlan.items || []).filter(function(it) { return it.itemType !== 'section'; });
+          _rundownRehearsalItemStart = Date.now();
+          toast('Rehearsal #' + run.runNumber + ' started');
+          _renderRehearsalBar();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    function _renderRehearsalBar() {
+      var bar = document.getElementById('rundown-rehearsal-bar');
+      if (!_rundownActiveRehearsalRun) {
+        if (bar) bar.style.display = 'none';
+        return;
+      }
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'rundown-rehearsal-bar';
+        var startArea = document.getElementById('rundown-start-show-area');
+        if (startArea) startArea.parentNode.insertBefore(bar, startArea);
+        else return;
+      }
+      bar.style.display = '';
+      var items = (_rundownSelectedPlan.items || []).filter(function(it) { return it.itemType !== 'section'; });
+      var currentItem = items[_rundownRehearsalCurrentIndex];
+      var elapsed = _rundownRehearsalItemStart ? Math.round((Date.now() - _rundownRehearsalItemStart) / 1000) : 0;
+      var planned = currentItem ? (currentItem.lengthSeconds || 0) : 0;
+      var isOver = planned > 0 && elapsed > planned;
+      bar.innerHTML = '<div style="background:rgba(66,165,245,0.08);border:1px solid rgba(66,165,245,0.2);border-radius:10px;padding:12px 16px;margin-bottom:12px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+        + '<div style="display:flex;align-items:center;gap:10px">'
+        + '<span style="background:#42A5F5;color:#060D08;font-size:10px;font-weight:800;padding:3px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:1px">Rehearsal</span>'
+        + '<span style="font-size:13px;font-weight:700;color:#F0F2F4">Run #' + _rundownActiveRehearsalRun.runNumber + '</span>'
+        + '<span style="font-size:12px;color:#8B9DAF">Item ' + (_rundownRehearsalCurrentIndex + 1) + '/' + items.length + '</span>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:10px">'
+        + '<span style="font-family:ui-monospace,monospace;font-size:14px;font-weight:700;color:' + (isOver ? '#FF5252' : '#F0F2F4') + '">' + _fmtDuration(elapsed) + (planned > 0 ? ' / ' + _fmtDuration(planned) : '') + '</span>'
+        + '<button class="btn-secondary" data-action="rundownRehearsalAdvance" style="font-size:12px;padding:5px 14px;font-weight:700">Next</button>'
+        + '<button class="btn-secondary" data-action="rundownRehearsalEnd" style="font-size:12px;padding:5px 14px;color:#FF5252">End</button>'
+        + '</div></div></div>';
+      // Highlight current item
+      var allRows = document.querySelectorAll('#rundown-editor-items tr[data-item-id]');
+      var playableIdx = 0;
+      allRows.forEach(function(row) {
+        var itemId = row.getAttribute('data-item-id');
+        var it = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+        if (it && it.itemType !== 'section') {
+          if (playableIdx === _rundownRehearsalCurrentIndex) {
+            row.style.background = 'rgba(66,165,245,0.08)';
+          } else {
+            row.style.background = '';
+          }
+          playableIdx++;
+        }
+      });
+    }
+
+    var _rehearsalTickTimer = null;
+    function _startRehearsalTick() {
+      _stopRehearsalTick();
+      _rehearsalTickTimer = setInterval(function() { _renderRehearsalBar(); }, 1000);
+    }
+    function _stopRehearsalTick() {
+      if (_rehearsalTickTimer) { clearInterval(_rehearsalTickTimer); _rehearsalTickTimer = null; }
+    }
+
+    function rundownRehearsalAdvance() {
+      if (!_rundownActiveRehearsalRun || !_rundownSelectedPlan) return;
+      var items = (_rundownSelectedPlan.items || []).filter(function(it) { return it.itemType !== 'section'; });
+      var currentItem = items[_rundownRehearsalCurrentIndex];
+      var elapsed = _rundownRehearsalItemStart ? (Date.now() - _rundownRehearsalItemStart) : 0;
+      _rundownRehearsalTimings.push({
+        itemId: currentItem ? currentItem.id : '',
+        title: currentItem ? currentItem.title : '',
+        plannedDuration: currentItem ? (currentItem.lengthSeconds || 0) * 1000 : 0,
+        actualDuration: elapsed,
+      });
+      _rundownRehearsalCurrentIndex++;
+      if (_rundownRehearsalCurrentIndex >= items.length) {
+        rundownEndRehearsal();
+        return;
+      }
+      _rundownRehearsalItemStart = Date.now();
+      _renderRehearsalBar();
+    }
+
+    function rundownEndRehearsal() {
+      if (!_rundownActiveRehearsalRun || !_rundownSelectedPlan) return;
+      // Record timing for current item if not already recorded
+      var items = (_rundownSelectedPlan.items || []).filter(function(it) { return it.itemType !== 'section'; });
+      if (_rundownRehearsalCurrentIndex < items.length) {
+        var currentItem = items[_rundownRehearsalCurrentIndex];
+        var elapsed = _rundownRehearsalItemStart ? (Date.now() - _rundownRehearsalItemStart) : 0;
+        _rundownRehearsalTimings.push({
+          itemId: currentItem ? currentItem.id : '',
+          title: currentItem ? currentItem.title : '',
+          plannedDuration: currentItem ? (currentItem.lengthSeconds || 0) * 1000 : 0,
+          actualDuration: elapsed,
+        });
+      }
+      _stopRehearsalTick();
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/rehearsal/' + _rundownActiveRehearsalRun.id + '/end', {
+        sessionId: _rundownSessionId, itemTimings: _rundownRehearsalTimings
+      }).then(function(run) {
+        _rundownActiveRehearsalRun = null;
+        _rundownRehearsalTimings = [];
+        _rundownRehearsalCurrentIndex = 0;
+        _rundownRehearsalItemStart = null;
+        _renderRehearsalBar();
+        // Re-render items (remove highlighting)
+        if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        _showRehearsalSummary(run);
+        // Reload plan to get updated status
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+        }).catch(function() {});
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function _showRehearsalSummary(run) {
+      var existing = document.getElementById('rundown-rehearsal-summary');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-rehearsal-summary';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var timings = run.itemTimings || [];
+      var totalPlanned = run.totalPlannedMs || 0;
+      var totalActual = run.totalActualMs || timings.reduce(function(s, t) { return s + (t.actualDuration || 0); }, 0);
+      var variance = totalActual - totalPlanned;
+      var overItems = timings.filter(function(t) { return t.actualDuration > t.plannedDuration && t.plannedDuration > 0; });
+      var underItems = timings.filter(function(t) { return t.actualDuration < t.plannedDuration && t.plannedDuration > 0; });
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4;margin-bottom:16px">Rehearsal #' + (run.runNumber || '?') + ' Summary</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">'
+        + '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Planned</div><div style="font-size:16px;font-weight:800;font-family:ui-monospace,monospace">' + _fmtDurationMs(totalPlanned) + '</div></div>'
+        + '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Actual</div><div style="font-size:16px;font-weight:800;font-family:ui-monospace,monospace">' + _fmtDurationMs(totalActual) + '</div></div>'
+        + '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Variance</div><div style="font-size:16px;font-weight:800;font-family:ui-monospace,monospace;color:' + (variance > 0 ? '#FF5252' : variance < 0 ? '#00E676' : '#F0F2F4') + '">' + (variance > 0 ? '+' : '') + _fmtDurationMs(variance) + '</div></div>'
+        + '</div>';
+      if (timings.length > 0) {
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+          + '<thead><tr><th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;color:#8B9DAF;border-bottom:1px solid rgba(255,255,255,0.08)">Item</th>'
+          + '<th style="padding:6px 8px;font-size:10px;text-transform:uppercase;color:#8B9DAF;border-bottom:1px solid rgba(255,255,255,0.08)">Planned</th>'
+          + '<th style="padding:6px 8px;font-size:10px;text-transform:uppercase;color:#8B9DAF;border-bottom:1px solid rgba(255,255,255,0.08)">Actual</th>'
+          + '<th style="padding:6px 8px;font-size:10px;text-transform:uppercase;color:#8B9DAF;border-bottom:1px solid rgba(255,255,255,0.08)">Variance</th></tr></thead><tbody>';
+        timings.forEach(function(t) {
+          var v = (t.actualDuration || 0) - (t.plannedDuration || 0);
+          var isOver = v > 0 && (t.plannedDuration || 0) > 0;
+          html += '<tr style="' + (isOver ? 'background:rgba(255,82,82,0.06)' : '') + '">'
+            + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.04)">' + escapeHtml(t.title || 'Item') + '</td>'
+            + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:ui-monospace,monospace;text-align:center">' + _fmtDurationMs(t.plannedDuration) + '</td>'
+            + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:ui-monospace,monospace;text-align:center">' + _fmtDurationMs(t.actualDuration) + '</td>'
+            + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:ui-monospace,monospace;text-align:center;color:' + (v > 0 ? '#FF5252' : v < 0 ? '#00E676' : '#F0F2F4') + '">' + (v > 0 ? '+' : '') + _fmtDurationMs(v) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      if (overItems.length > 0) {
+        html += '<div style="margin-top:12px;font-size:12px;color:#FF8A80">' + overItems.length + ' item' + (overItems.length !== 1 ? 's' : '') + ' ran over time.</div>';
+      }
+      html += '<div style="text-align:center;margin-top:16px"><button id="close-rehearsal-summary" class="btn-primary" style="font-size:13px;padding:8px 20px">Done</button></div></div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-rehearsal-summary').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    function _fmtDuration(seconds) {
+      var s = Math.abs(Math.round(seconds));
+      var m = Math.floor(s / 60);
+      s = s % 60;
+      return m + ':' + String(s).padStart(2, '0');
+    }
+
+    function _fmtDurationMs(ms) {
+      if (ms == null) return '--:--';
+      var neg = ms < 0;
+      var s = Math.floor(Math.abs(ms) / 1000);
+      var m = Math.floor(s / 60);
+      s = s % 60;
+      return (neg ? '-' : '') + m + ':' + String(s).padStart(2, '0');
+    }
+
+    // ── Phase 9: Post-show reports (9.5) ───────────────────────────────────
+
+    function rundownShowReports() {
+      if (!_rundownSelectedPlan) return;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/reports').then(function(data) {
+        var reports = data.reports || [];
+        _showReportsPanel(reports);
+      }).catch(function(e) { toast('Failed to load reports: ' + e.message, true); });
+    }
+
+    function _showReportsPanel(reports) {
+      var existing = document.getElementById('rundown-reports-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-reports-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Show Reports</div>'
+        + '<button id="close-reports-panel" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
+      if (!reports.length) {
+        html += '<div style="text-align:center;padding:40px;color:#8B9DAF;font-size:13px">No show reports yet. Reports are generated automatically when a live session ends.</div>';
+      } else {
+        html += '<div style="display:flex;flex-direction:column;gap:8px">';
+        reports.forEach(function(report) {
+          var totalVariance = (report.totalActualMs || 0) - (report.totalPlannedMs || 0);
+          var d = new Date(report.sessionStartedAt);
+          html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+            + '<div>'
+            + '<div style="font-size:13px;font-weight:700;color:#F0F2F4">' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</div>'
+            + '<div style="font-size:12px;color:#8B9DAF;margin-top:4px">'
+            + 'Planned: ' + _fmtDurationMs(report.totalPlannedMs)
+            + ' · Actual: ' + _fmtDurationMs(report.totalActualMs)
+            + ' · Variance: <span style="color:' + (totalVariance > 0 ? '#FF5252' : totalVariance < 0 ? '#00E676' : '#F0F2F4') + '">' + (totalVariance > 0 ? '+' : '') + _fmtDurationMs(totalVariance) + '</span>'
+            + '</div></div>'
+            + '<div style="display:flex;gap:6px">';
+          if (report.shareToken) {
+            html += '<button class="btn-secondary" data-action="rundownCopyReportLink" data-report-token="' + escapeHtml(report.shareToken) + '" style="font-size:11px;padding:4px 10px">Copy Link</button>';
+          }
+          html += '</div></div></div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-reports-panel').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    function rundownCopyReportLink(token) {
+      var url = window.location.origin + '/rundown/report/' + token;
+      navigator.clipboard.writeText(url).then(function() { toast('Report link copied'); }).catch(function() { toast('Failed to copy', true); });
+    }
+
+    // ── Phase 9: Rehearsal comparison ──────────────────────────────────────
+
+    function rundownShowRehearsals() {
+      if (!_rundownSelectedPlan) return;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/rehearsals').then(function(data) {
+        var runs = data.rehearsals || [];
+        _showRehearsalsPanel(runs);
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function _showRehearsalsPanel(runs) {
+      var existing = document.getElementById('rundown-rehearsals-panel');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-rehearsals-panel';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;overflow-y:auto">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Rehearsal Runs</div>'
+        + '<button id="close-rehearsals-panel" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
+      if (!runs.length) {
+        html += '<div style="text-align:center;padding:40px;color:#8B9DAF;font-size:13px">No rehearsal runs yet. Click "Rehearsal" to start one.</div>';
+      } else {
+        html += '<div style="display:flex;flex-direction:column;gap:8px">';
+        runs.forEach(function(run) {
+          var totalVariance = (run.totalActualMs || 0) - (run.totalPlannedMs || 0);
+          var d = new Date(run.startedAt);
+          html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px;cursor:pointer" onclick="(function(){})();">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+            + '<div>'
+            + '<div style="font-size:13px;font-weight:700;color:#F0F2F4">Run #' + run.runNumber + ' · ' + d.toLocaleDateString() + '</div>'
+            + '<div style="font-size:12px;color:#8B9DAF;margin-top:4px">'
+            + 'Planned: ' + _fmtDurationMs(run.totalPlannedMs)
+            + ' · Actual: ' + _fmtDurationMs(run.totalActualMs)
+            + ' · <span style="color:' + (totalVariance > 0 ? '#FF5252' : totalVariance < 0 ? '#00E676' : '#F0F2F4') + '">' + (totalVariance > 0 ? '+' : '') + _fmtDurationMs(totalVariance) + '</span>'
+            + '</div></div></div></div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-rehearsals-panel').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
     // ── Timer Display ──────────────────────────────────────────────────────────
 
     function openTimerDisplay() {
@@ -13783,6 +14378,36 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownPrintPlan':
         if (typeof rundownPrintPlan === 'function') rundownPrintPlan();
+        break;
+      case 'rundownLockPlan':
+        if (typeof rundownLockPlan === 'function') rundownLockPlan();
+        break;
+      case 'rundownUnlockPlan':
+        if (typeof rundownUnlockPlan === 'function') rundownUnlockPlan();
+        break;
+      case 'rundownShowRevisionHistory':
+        if (typeof rundownShowRevisionHistory === 'function') rundownShowRevisionHistory();
+        break;
+      case 'rundownRevertRevision':
+        if (typeof rundownRevertRevision === 'function') rundownRevertRevision(btn.dataset.revisionId);
+        break;
+      case 'rundownStartRehearsal':
+        if (typeof rundownStartRehearsal === 'function') rundownStartRehearsal();
+        break;
+      case 'rundownRehearsalAdvance':
+        if (typeof rundownRehearsalAdvance === 'function') rundownRehearsalAdvance();
+        break;
+      case 'rundownRehearsalEnd':
+        if (typeof rundownEndRehearsal === 'function') rundownEndRehearsal();
+        break;
+      case 'rundownShowReports':
+        if (typeof rundownShowReports === 'function') rundownShowReports();
+        break;
+      case 'rundownShowRehearsals':
+        if (typeof rundownShowRehearsals === 'function') rundownShowRehearsals();
+        break;
+      case 'rundownCopyReportLink':
+        if (typeof rundownCopyReportLink === 'function') rundownCopyReportLink(btn.dataset.reportToken);
         break;
       case 'rundownCollaboratorSave':
         if (typeof rundownSaveCollaboratorRole === 'function') rundownSaveCollaboratorRole(btn.dataset.collaboratorKey);

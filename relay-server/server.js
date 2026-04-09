@@ -103,6 +103,11 @@ app.get('/rundown/equipment/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-equipment.html'));
 });
 
+// Serve the shareable post-show timing report page at /rundown/report/:token
+app.get('/rundown/report/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-report.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
