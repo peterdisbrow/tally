@@ -13,11 +13,57 @@
       color: #F0F2F4;
       min-height: 100vh;
       padding: 24px 16px 48px;
+      --display-scale: 1;
+    }
+
+    body.prompter-mode {
+      background:
+        radial-gradient(circle at top left, rgba(0,230,118,0.12), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(66,165,245,0.10), transparent 30%),
+        #07100D;
+    }
+
+    body.mirror-mode .container {
+      transform: scaleX(-1);
+      transform-origin: center top;
+    }
+
+    body.dense-mode {
+      padding-top: 18px;
+      padding-bottom: 36px;
+    }
+
+    body.dense-mode .header,
+    body.dense-mode .live-banner,
+    body.dense-mode .prompter-shell,
+    body.dense-mode .summary-shell {
+      margin-bottom: 14px;
+    }
+
+    body.dense-mode .prompter-hero {
+      padding: 18px;
+    }
+
+    body.dense-mode .prompter-panel,
+    body.dense-mode .prompter-card {
+      padding: 14px;
+    }
+
+    body.dense-mode .summary-panel {
+      padding: 14px;
+    }
+
+    body.display-help-open {
+      overflow: hidden;
     }
 
     .container {
       max-width: 860px;
       margin: 0 auto;
+    }
+
+    .prompter-mode .container {
+      max-width: 1360px;
     }
 
     /* ── Header ── */
@@ -55,7 +101,7 @@
     }
 
     .plan-title {
-      font-size: 26px;
+      font-size: calc(26px * var(--display-scale));
       font-weight: 800;
       color: #F0F2F4;
       line-height: 1.2;
@@ -128,6 +174,151 @@
       background: rgba(0,230,118,0.10);
     }
 
+    .display-toolbar {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 11;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10,15,13,0.72);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.22);
+    }
+
+    .display-toolbar-label {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #8B9DAF;
+      padding: 0 4px 0 2px;
+    }
+
+    .display-toolbar button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: #D0D8E0;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+
+    .display-toolbar button:hover {
+      transform: translateY(-1px);
+      color: #F0F2F4;
+      background: rgba(255,255,255,0.08);
+    }
+
+    .display-toolbar button.active {
+      color: #00E676;
+      border-color: rgba(0,230,118,0.18);
+      background: rgba(0,230,118,0.10);
+    }
+
+    .display-toolbar button.secondary {
+      color: #8B9DAF;
+    }
+
+    .display-toolbar button.secondary:hover {
+      color: #F0F2F4;
+    }
+
+    .display-help-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: rgba(5,8,7,0.62);
+      backdrop-filter: blur(8px);
+      display: none;
+    }
+
+    .display-help {
+      position: fixed;
+      top: 72px;
+      right: 12px;
+      z-index: 21;
+      width: min(420px, calc(100vw - 24px));
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(14,20,17,0.96);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.38);
+    }
+
+    .display-help-title {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: #8B9DAF;
+    }
+
+    .display-help-copy {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #D0D8E0;
+    }
+
+    .display-help-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .display-help-item {
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .display-help-key {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.08);
+      color: #F0F2F4;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      margin-bottom: 8px;
+    }
+
+    .display-help-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #F0F2F4;
+      margin-bottom: 4px;
+    }
+
+    .display-help-text {
+      font-size: 12px;
+      line-height: 1.45;
+      color: #8B9DAF;
+    }
+
+    body.display-help-open .display-help-backdrop,
+    body.display-help-open .display-help {
+      display: flex;
+    }
+
     .refresh-dot {
       width: 6px;
       height: 6px;
@@ -154,7 +345,7 @@
       width: 100%;
       border-collapse: collapse;
       min-width: 100%;
-      font-size: 13px;
+      font-size: calc(13px * var(--display-scale));
     }
 
     thead th {
@@ -247,7 +438,7 @@
       border: 1px solid rgba(255,255,255,0.08);
       background: rgba(255,255,255,0.04);
       color: #8B9DAF;
-      font-size: 10px;
+      font-size: calc(10px * var(--display-scale));
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.6px;
@@ -324,13 +515,13 @@
 
     td.dur-cell, td.start-cell, td.end-cell {
       font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
-      font-size: 12px;
+      font-size: calc(12px * var(--display-scale));
       color: #8B9DAF;
       white-space: nowrap;
     }
 
     td.notes-cell {
-      font-size: 12px;
+      font-size: calc(12px * var(--display-scale));
       color: #556270;
       max-width: 200px;
     }
@@ -368,6 +559,249 @@
       gap: 16px;
     }
 
+    .prompter-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .prompter-hero {
+      padding: 22px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.20);
+      position: sticky;
+      top: 16px;
+      z-index: 2;
+      backdrop-filter: blur(14px);
+    }
+
+    .prompter-hero-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .prompter-kicker {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #8B9DAF;
+    }
+
+    .prompter-title {
+      font-size: clamp(28px, calc(4.2vw * var(--display-scale)), 60px);
+      font-weight: 900;
+      line-height: 1.04;
+      color: #F0F2F4;
+      margin-top: 6px;
+      letter-spacing: -0.02em;
+      word-break: break-word;
+    }
+
+    .prompter-subtitle {
+      margin-top: 10px;
+      font-size: 15px;
+      line-height: 1.6;
+      color: #8B9DAF;
+      max-width: 70ch;
+    }
+
+    .prompter-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .prompter-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .prompter-side {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .prompter-panel {
+      padding: 18px;
+      border-radius: 16px;
+      background: #111816;
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+    }
+
+    .prompter-panel-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #8B9DAF;
+      margin-bottom: 10px;
+    }
+
+    .prompter-panel-number {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #00E676;
+      margin-bottom: 6px;
+    }
+
+    .prompter-panel-title-main {
+      font-size: clamp(24px, calc(3vw * var(--display-scale)), 38px);
+      font-weight: 900;
+      line-height: 1.1;
+      color: #F0F2F4;
+      word-break: break-word;
+    }
+
+    .prompter-panel-title-main--compact {
+      font-size: clamp(20px, calc(2.4vw * var(--display-scale)), 30px);
+    }
+
+    .prompter-panel-copy {
+      margin-top: 8px;
+      font-size: calc(14px * var(--display-scale));
+      line-height: 1.6;
+      color: #8B9DAF;
+    }
+
+    .prompter-field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .prompter-field {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      min-width: 0;
+    }
+
+    .prompter-field-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #556270;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .prompter-field-value {
+      font-size: 13px;
+      line-height: 1.45;
+      color: #F0F2F4;
+      word-break: break-word;
+    }
+
+    .prompter-attachments {
+      margin-top: 14px;
+    }
+
+    .prompter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .prompter-list-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #8B9DAF;
+      margin-bottom: 2px;
+    }
+
+    .prompter-card {
+      padding: 18px;
+      border-radius: 16px;
+      background: #111816;
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+      scroll-margin-top: 120px;
+    }
+
+    .prompter-card.current {
+      border-color: rgba(0,230,118,0.20);
+      background: linear-gradient(180deg, rgba(0,230,118,0.08), rgba(255,255,255,0.03));
+      box-shadow: 0 18px 40px rgba(0,0,0,0.20);
+    }
+
+    .prompter-card.section {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .prompter-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .prompter-card-number {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #8B9DAF;
+      margin-bottom: 6px;
+    }
+
+    .prompter-card-title {
+      font-size: clamp(20px, calc(2.8vw * var(--display-scale)), 34px);
+      font-weight: 900;
+      line-height: 1.1;
+      color: #F0F2F4;
+      word-break: break-word;
+    }
+
+    .prompter-card-title--section {
+      font-size: clamp(16px, calc(2vw * var(--display-scale)), 24px);
+    }
+
+    .prompter-card-sub {
+      margin-top: 8px;
+      font-size: calc(13px * var(--display-scale));
+      line-height: 1.6;
+      color: #8B9DAF;
+    }
+
+    .prompter-card-notes {
+      margin-top: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #D0D8E0;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .prompter-card-columns {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .prompter-card .attachment-list {
+      margin-top: 12px;
+    }
+
     .compact-mode .summary-shell {
       display: grid;
       grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
@@ -401,7 +835,7 @@
     }
 
     .summary-title {
-      font-size: 20px;
+      font-size: calc(20px * var(--display-scale));
       font-weight: 800;
       color: #F0F2F4;
       line-height: 1.2;
@@ -438,7 +872,7 @@
     }
 
     .summary-stat-value {
-      font-size: 15px;
+      font-size: calc(15px * var(--display-scale));
       font-weight: 700;
       color: #F0F2F4;
       line-height: 1.3;
@@ -477,14 +911,18 @@
     }
 
     .cue-card-title {
-      font-size: 14px;
+      font-size: calc(14px * var(--display-scale));
       font-weight: 700;
       color: #F0F2F4;
       line-height: 1.35;
     }
 
+    .cue-card-title--featured {
+      font-size: calc(16px * var(--display-scale));
+    }
+
     .cue-card-sub {
-      font-size: 11px;
+      font-size: calc(11px * var(--display-scale));
       color: #556270;
       line-height: 1.45;
     }
@@ -531,7 +969,7 @@
 
     .live-banner-title {
       margin-top: 8px;
-      font-size: 18px;
+      font-size: calc(18px * var(--display-scale));
       font-weight: 800;
       color: #F0F2F4;
       line-height: 1.25;
@@ -648,14 +1086,14 @@
     }
 
     .state-title {
-      font-size: 20px;
+      font-size: calc(20px * var(--display-scale));
       font-weight: 700;
       color: #F0F2F4;
       margin-bottom: 8px;
     }
 
     .state-sub {
-      font-size: 14px;
+      font-size: calc(14px * var(--display-scale));
       color: #556270;
       line-height: 1.6;
       max-width: 340px;
@@ -666,7 +1104,7 @@
     .footer {
       text-align: center;
       margin-top: 32px;
-      font-size: 12px;
+      font-size: calc(12px * var(--display-scale));
       color: #3A4550;
     }
 
@@ -677,10 +1115,14 @@
 
     /* ── Responsive ── */
     @media (max-width: 600px) {
-      .plan-title { font-size: 20px; }
+      .plan-title { font-size: calc(20px * var(--display-scale)); }
       .header { gap: 12px; }
       .meta-right { text-align: left; }
-      .compact-mode .summary-shell { grid-template-columns: 1fr; }
+    .compact-mode .summary-shell { grid-template-columns: 1fr; }
+      .prompter-grid { grid-template-columns: 1fr; }
+      .prompter-hero { position: static; }
+      .prompter-field-grid,
+      .prompter-card-columns { grid-template-columns: 1fr; }
       .summary-panel { position: static; }
       .state-box { padding: 54px 18px; }
       tbody td { padding: 10px 12px; }
@@ -689,6 +1131,28 @@
   </style>
 </head>
 <body>
+  <div class="display-toolbar" role="toolbar" aria-label="Public display controls">
+    <span class="display-toolbar-label">Display</span>
+    <button type="button" id="btn-help" title="Show keyboard shortcuts (?)">Help</button>
+    <button type="button" id="btn-mirror" title="Mirror the display (M)">Mirror</button>
+    <button type="button" id="btn-density" title="Toggle density (D)">Dense</button>
+    <button type="button" id="btn-text-down" title="Smaller text (-)">A-</button>
+    <button type="button" id="btn-text-up" title="Larger text (+)">A+</button>
+    <button type="button" id="btn-refresh" title="Refresh now (R)">Refresh</button>
+  </div>
+  <div class="display-help-backdrop" id="display-help-backdrop"></div>
+  <section class="display-help" id="display-help" aria-label="Keyboard shortcuts" aria-hidden="true">
+    <div class="display-help-title">Keyboard shortcuts</div>
+    <div class="display-help-copy">These controls are designed for hands-off demo operation. Preferences stay local to this browser and are reflected in the public links.</div>
+    <div class="display-help-grid">
+      <div class="display-help-item"><div class="display-help-key">?</div><div class="display-help-label">Help</div><div class="display-help-text">Open or close this shortcut sheet.</div></div>
+      <div class="display-help-item"><div class="display-help-key">M</div><div class="display-help-label">Mirror</div><div class="display-help-text">Flip the display for mirrored monitors or teleprompter glass.</div></div>
+      <div class="display-help-item"><div class="display-help-key">D</div><div class="display-help-label">Density</div><div class="display-help-text">Switch between roomier and tighter spacing.</div></div>
+      <div class="display-help-item"><div class="display-help-key">- / +</div><div class="display-help-label">Text size</div><div class="display-help-text">Make the public surface smaller or larger.</div></div>
+      <div class="display-help-item"><div class="display-help-key">R</div><div class="display-help-label">Refresh</div><div class="display-help-text">Force an immediate reload from the public rundown.</div></div>
+      <div class="display-help-item"><div class="display-help-key">1-4</div><div class="display-help-label">Modes</div><div class="display-help-text">Jump between full, compact, prompter, and stage timer views.</div></div>
+    </div>
+  </section>
   <div class="container">
     <div class="brand">
       <div class="brand-logo">
@@ -717,12 +1181,157 @@
       var query = new URLSearchParams(location.search);
       var viewMode = (query.get('mode') || query.get('view') || '').toLowerCase();
       var isCompactMode = viewMode === 'compact' || viewMode === 'operator';
+      var isPrompterMode = viewMode === 'prompter';
       var apiBase = location.origin;
       var lastUpdated = null;
       var refreshTimer = null;
       var updatedClockTimer = null;
+      var refreshIntervalMs = isPrompterMode ? 5000 : 30000;
       var columnFilter = parseColumnFilter(query.get('columns'));
+      var toolbarHelp = document.getElementById('btn-help');
+      var toolbarMirror = document.getElementById('btn-mirror');
+      var toolbarDensity = document.getElementById('btn-density');
+      var toolbarTextDown = document.getElementById('btn-text-down');
+      var toolbarTextUp = document.getElementById('btn-text-up');
+      var toolbarRefresh = document.getElementById('btn-refresh');
+      var helpBackdrop = document.getElementById('display-help-backdrop');
+      var helpPanel = document.getElementById('display-help');
+      var storageKey = 'tally.rundown-public-display:' + token;
+      var displayPrefs = {
+        mirror: false,
+        density: 'roomy',
+        scale: 1,
+        help: false,
+      };
       if (isCompactMode) document.body.classList.add('compact-mode');
+      if (isPrompterMode) document.body.classList.add('prompter-mode');
+
+      function readStoredPrefs() {
+        try {
+          var raw = window.localStorage.getItem(storageKey);
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function writeStoredPrefs() {
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify({
+            mirror: !!displayPrefs.mirror,
+            density: displayPrefs.density || 'roomy',
+            scale: displayPrefs.scale || 1,
+          }));
+        } catch (err) {}
+      }
+
+      function clampScale(value) {
+        var num = Number(value);
+        if (!isFinite(num) || num <= 0) return 1;
+        return Math.max(0.9, Math.min(1.16, Math.round(num * 100) / 100));
+      }
+
+      function getScaleStep() {
+        return displayPrefs.scale >= 1.08 ? 0.08 : 0.06;
+      }
+
+      function syncDisplayPrefsUrl() {
+        var next = new URLSearchParams(location.search);
+        if (displayPrefs.mirror) next.set('mirror', '1'); else next.delete('mirror');
+        if (displayPrefs.density && displayPrefs.density !== 'roomy') next.set('density', displayPrefs.density); else next.delete('density');
+        if (Math.abs((displayPrefs.scale || 1) - 1) > 0.001) next.set('scale', String(displayPrefs.scale)); else next.delete('scale');
+        var search = next.toString();
+        var nextUrl = location.pathname + (search ? '?' + search : '') + location.hash;
+        history.replaceState(null, '', nextUrl);
+      }
+
+      function syncDisplayPrefs() {
+        document.body.classList.toggle('mirror-mode', !!displayPrefs.mirror);
+        document.body.classList.toggle('dense-mode', displayPrefs.density === 'dense');
+        document.body.classList.toggle('display-help-open', !!displayPrefs.help);
+        document.body.style.setProperty('--display-scale', String(displayPrefs.scale || 1));
+        if (toolbarMirror) {
+          toolbarMirror.classList.toggle('active', !!displayPrefs.mirror);
+          toolbarMirror.textContent = displayPrefs.mirror ? 'Mirror on' : 'Mirror';
+        }
+        if (toolbarDensity) {
+          toolbarDensity.classList.toggle('active', displayPrefs.density === 'dense');
+          toolbarDensity.textContent = displayPrefs.density === 'dense' ? 'Dense' : 'Roomy';
+        }
+      }
+
+      function setDisplayPrefs(next) {
+        displayPrefs.mirror = !!next.mirror;
+        displayPrefs.density = next.density === 'dense' ? 'dense' : 'roomy';
+        displayPrefs.scale = clampScale(next.scale);
+        displayPrefs.help = !!next.help;
+        syncDisplayPrefs();
+        syncDisplayPrefsUrl();
+        writeStoredPrefs();
+      }
+
+      function updateDisplayScale(delta) {
+        setDisplayPrefs({
+          mirror: displayPrefs.mirror,
+          density: displayPrefs.density,
+          scale: clampScale(displayPrefs.scale + delta),
+          help: displayPrefs.help,
+        });
+      }
+
+      function toggleHelp(force) {
+        setDisplayPrefs({
+          mirror: displayPrefs.mirror,
+          density: displayPrefs.density,
+          scale: displayPrefs.scale,
+          help: typeof force === 'boolean' ? force : !displayPrefs.help,
+        });
+      }
+
+      function toggleMirror() {
+        setDisplayPrefs({
+          mirror: !displayPrefs.mirror,
+          density: displayPrefs.density,
+          scale: displayPrefs.scale,
+          help: displayPrefs.help,
+        });
+      }
+
+      function toggleDensity() {
+        setDisplayPrefs({
+          mirror: displayPrefs.mirror,
+          density: displayPrefs.density === 'dense' ? 'roomy' : 'dense',
+          scale: displayPrefs.scale,
+          help: displayPrefs.help,
+        });
+      }
+
+      function goToMode(mode, extraParams) {
+        window.location.href = location.pathname + buildQuery(Object.assign({ mode: mode }, extraParams || {}));
+      }
+
+      var storedPrefs = readStoredPrefs();
+      if (!query.has('mirror') && storedPrefs && typeof storedPrefs.mirror === 'boolean') {
+        displayPrefs.mirror = storedPrefs.mirror;
+      } else {
+        displayPrefs.mirror = query.get('mirror') === '1';
+      }
+      if (!query.has('density') && storedPrefs && storedPrefs.density) {
+        displayPrefs.density = storedPrefs.density === 'dense' ? 'dense' : 'roomy';
+      } else {
+        displayPrefs.density = query.get('density') === 'dense' ? 'dense' : 'roomy';
+      }
+      if (!query.has('scale') && storedPrefs && storedPrefs.scale !== undefined) {
+        displayPrefs.scale = clampScale(storedPrefs.scale);
+      } else {
+        displayPrefs.scale = clampScale(query.get('scale') || 1);
+      }
+      displayPrefs.help = query.get('help') === '1';
+      syncDisplayPrefs();
+      syncDisplayPrefsUrl();
+      writeStoredPrefs();
 
       function esc(str) {
         if (!str) return '';
@@ -821,6 +1430,10 @@
 
       function buildModeHref(mode, extraParams) {
         return location.pathname + buildQuery(Object.assign({ mode: mode }, extraParams || {}));
+      }
+
+      function buildPrompterHref(extraParams) {
+        return location.pathname + buildQuery(Object.assign({ mode: 'prompter' }, extraParams || {}));
       }
 
       function buildTimerHref(mode, extraParams) {
@@ -991,6 +1604,26 @@
         return -1;
       }
 
+      function findFirstCueIndex(items) {
+        for (var i = 0; i < items.length; i++) {
+          if (!isSectionItem(items[i])) return i;
+        }
+        return -1;
+      }
+
+      function getPrompterFocusIndex(liveState, items, currentIndex) {
+        var focusIndex = typeof currentIndex === 'number' ? currentIndex : findFirstCueIndex(items);
+        if (focusIndex === null || focusIndex === undefined || focusIndex < 0) return findFirstCueIndex(items);
+        if (items[focusIndex] && isSectionItem(items[focusIndex])) {
+          var nextIndex = findNextCueIndex(items, focusIndex);
+          if (nextIndex >= 0) return nextIndex;
+          var previousIndex = findPreviousCueIndex(items, focusIndex);
+          if (previousIndex >= 0) return previousIndex;
+          return findFirstCueIndex(items);
+        }
+        return focusIndex;
+      }
+
       function normalizeAttachments(plan, item) {
         var attachments = [];
         var seen = {};
@@ -1150,7 +1783,7 @@
           parts.push('<div>' + esc(item.notes).replace(/\n/g, '<br>') + '</div>');
         }
         if (item && item.assignee) {
-          parts.push('<div style="margin-top:4px;color:#8B9DAF;font-size:11px;">Assignee: ' + esc(item.assignee) + '</div>');
+          parts.push('<div style="margin-top:4px;color:#8B9DAF;font-size:calc(11px * var(--display-scale));">Assignee: ' + esc(item.assignee) + '</div>');
         }
         return parts.join('');
       }
@@ -1170,7 +1803,7 @@
         html += '<div class="cue-card-title">' + esc(label) + '</div>';
         html += typeBadge(item.itemType);
         html += '</div>';
-        html += '<div class="cue-card-title" style="font-size:16px;">' + esc(item.title || 'Untitled cue') + '</div>';
+        html += '<div class="cue-card-title cue-card-title--featured">' + esc(item.title || 'Untitled cue') + '</div>';
         if (meta.length) html += '<div class="cue-card-sub">' + esc(meta.join(' · ')) + '</div>';
         if (item.notes) html += '<div class="cue-card-sub" style="margin-top:8px;">' + esc(item.notes) + '</div>';
         if (item.assignee) html += '<div class="cue-card-sub" style="margin-top:8px;color:#8B9DAF;">Assignee: ' + esc(item.assignee) + '</div>';
@@ -1191,6 +1824,224 @@
         return html;
       }
 
+      function renderPrompterField(label, value) {
+        var text = normalizeValue(value);
+        if (!text) return '';
+        return '<div class="prompter-field">' +
+          '<div class="prompter-field-label">' + esc(label) + '</div>' +
+          '<div class="prompter-field-value">' + esc(text) + '</div>' +
+          '</div>';
+      }
+
+      function renderPrompterCard(plan, item, label, index, columns, valueMap, liveState, isCurrent) {
+        if (!item) return '';
+        var itemId = item.id || item.itemId || item.item_id;
+        var itemNumber = item.number || item.cueNumber || item.sortOrder || (index + 1);
+        var html = '<article class="prompter-card' + (isCurrent ? ' current' : '') + (isSectionItem(item) ? ' section' : '') + '" id="prompter-card-' + index + '" data-prompter-card="true" data-current="' + (isCurrent ? 'true' : 'false') + '">';
+        html += '<div class="prompter-card-head">';
+        html += '<div style="min-width:0">';
+        html += '<div class="prompter-card-number">' + esc(label || ('Cue ' + itemNumber)) + '</div>';
+        html += '<div class="prompter-card-title">' + esc(item.title || 'Untitled cue') + '</div>';
+        var metaBits = [];
+        if (item.itemType) metaBits.push(String(item.itemType));
+        if (item.lengthSeconds) metaBits.push(formatDuration(item.lengthSeconds));
+        if (item.startType) metaBits.push(item.startType);
+        if (item.hardStartTime) metaBits.push(formatClockLabel(item.hardStartTime));
+        if (metaBits.length) {
+          html += '<div class="prompter-card-sub">' + esc(metaBits.join(' · ')) + '</div>';
+        }
+        html += '</div>';
+        html += typeBadge(item.itemType);
+        html += '</div>';
+
+        var tags = getItemTags(item, liveState, index, isCurrent);
+        if (tags.length) {
+          html += '<div class="prompter-meta">' + renderPills(tags) + '</div>';
+        }
+
+        if (item.notes) {
+          html += '<div class="prompter-card-notes">' + esc(item.notes).replace(/\n/g, '<br>') + '</div>';
+        }
+        if (item.assignee) {
+          html += '<div class="prompter-card-sub" style="margin-top:10px;color:#8B9DAF;">Assignee: ' + esc(item.assignee) + '</div>';
+        }
+
+        var fieldHtml = [];
+        if (columns && columns.length) {
+          for (var i = 0; i < columns.length; i++) {
+            var column = columns[i];
+            var cellValue = (valueMap[String(itemId)] && valueMap[String(itemId)][String(column.id)] !== undefined)
+              ? valueMap[String(itemId)][String(column.id)]
+              : '';
+            fieldHtml.push(renderPrompterField(column.name, cellValue));
+          }
+        }
+        if (fieldHtml.length) {
+          html += '<div class="prompter-card-columns">' + fieldHtml.filter(Boolean).join('') + '</div>';
+        }
+
+        var attachments = normalizeAttachments(plan, item);
+        if (attachments.length) {
+          html += '<div class="prompter-attachments">' + renderAttachmentList(attachments) + '</div>';
+        }
+
+        html += '</article>';
+        return html;
+      }
+
+      function renderPrompterMode(plan, liveState, items, columns, valueMap, currentIndex, totalSeconds, serviceDateText) {
+        var focusIndex = getPrompterFocusIndex(liveState, items, currentIndex);
+        var currentItem = focusIndex >= 0 ? items[focusIndex] : null;
+        var nextIndex = focusIndex >= 0 ? findNextCueIndex(items, focusIndex) : findFirstCueIndex(items);
+        var nextItem = nextIndex >= 0 ? items[nextIndex] : null;
+        var previousIndex = focusIndex >= 0 ? findPreviousCueIndex(items, focusIndex) : -1;
+        var previousItem = previousIndex >= 0 ? items[previousIndex] : null;
+        var currentTitle = currentItem ? (currentItem.title || 'Untitled cue') : (plan.title || 'Rundown');
+        var currentSubtitle = [];
+        if (currentItem && currentItem.itemType) currentSubtitle.push(String(currentItem.itemType));
+        if (currentItem && currentItem.lengthSeconds) currentSubtitle.push(formatDuration(currentItem.lengthSeconds));
+        if (currentItem && currentItem.startType) currentSubtitle.push(currentItem.startType);
+        if (currentItem && currentItem.hardStartTime) currentSubtitle.push(formatClockLabel(currentItem.hardStartTime));
+        if (currentItem && currentItem.notes) currentSubtitle.push(currentItem.notes);
+
+        var html = '<div class="prompter-shell">';
+        html += '<div class="header">';
+        html += '<div>';
+        html += '<div class="plan-title">' + esc(plan.title || 'Rundown Prompter') + '</div>';
+        if (serviceDateText) html += '<div class="plan-date">' + esc(serviceDateText) + '</div>';
+        html += '</div>';
+        html += '<div class="meta-right">';
+        if (plan.updatedAt) html += '<div class="last-updated" id="last-updated-label">Updated ' + timeAgo(plan.updatedAt) + '</div>';
+        html += '<div class="refresh-badge"><span class="refresh-dot"></span> Auto-following live cue</div>';
+        html += '<div class="mode-switch">';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+        html += '<a class="mode-link active" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        html += renderLiveBanner(plan, liveState, items);
+
+        if (items.length === 0) {
+          html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no cues to follow yet.</div></div>';
+          return html + '</div>';
+        }
+
+        html += '<div class="prompter-grid">';
+        html += '<div class="prompter-hero">';
+        html += '<div class="prompter-hero-head">';
+        html += '<div style="min-width:0">';
+        html += '<div class="prompter-kicker">Current cue</div>';
+        html += '<div class="prompter-title">' + esc(currentTitle) + '</div>';
+        html += '<div class="prompter-subtitle">' + esc(currentSubtitle.join(' · ') || 'Ready to follow the active cue.') + '</div>';
+        html += '<div class="prompter-meta">';
+        if (liveState && liveState.isLive !== false) html += renderPills([{ label: 'Live', className: 'pill-live' }]);
+        else html += renderPills([{ label: 'Standby', className: 'pill-section' }]);
+        if (currentItem) html += renderPills(getItemTags(currentItem, liveState, focusIndex, true));
+        if (liveState && liveState.nextCueTitle) html += renderPills([{ label: 'Next cue ready', className: 'pill-auto' }]);
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        if (currentItem) {
+          html += '<div class="prompter-panel" style="margin-top:18px">';
+          html += '<div class="prompter-panel-title">Current cue detail</div>';
+          html += '<div class="prompter-panel-number">Cue ' + esc(String(currentItem.number || currentItem.cueNumber || currentItem.sortOrder || (focusIndex + 1))) + '</div>';
+          html += '<div class="prompter-panel-title-main">' + esc(currentItem.title || 'Untitled cue') + '</div>';
+          if (currentSubtitle.length) html += '<div class="prompter-panel-copy">' + esc(currentSubtitle.join(' · ')) + '</div>';
+
+          var detailFields = [];
+          if (currentItem.notes) detailFields.push(renderPrompterField('Notes', currentItem.notes));
+          if (currentItem.assignee) detailFields.push(renderPrompterField('Assignee', currentItem.assignee));
+          if (currentItem.lengthSeconds) detailFields.push(renderPrompterField('Duration', formatDuration(currentItem.lengthSeconds)));
+          if (currentItem.startType) detailFields.push(renderPrompterField('Start type', currentItem.startType));
+          if (currentItem.hardStartTime) detailFields.push(renderPrompterField('Hard start', formatClockLabel(currentItem.hardStartTime)));
+          if (detailFields.length) {
+            html += '<div class="prompter-field-grid">' + detailFields.filter(Boolean).join('') + '</div>';
+          }
+
+          var currentAttachments = normalizeAttachments(plan, currentItem);
+          if (currentAttachments.length) {
+            html += '<div class="prompter-attachments">' + renderAttachmentList(currentAttachments) + '</div>';
+          }
+          html += '</div>';
+        }
+
+        html += '<div class="prompter-panel" style="margin-top:14px">';
+        html += '<div class="prompter-panel-title">Next cue</div>';
+        if (nextItem) {
+          html += '<div class="prompter-panel-number">Cue ' + esc(String(nextItem.number || nextItem.cueNumber || nextItem.sortOrder || (nextIndex + 1))) + '</div>';
+          html += '<div class="prompter-panel-title-main prompter-panel-title-main--compact">' + esc(nextItem.title || 'Untitled cue') + '</div>';
+          var nextMeta = [];
+          if (nextItem.itemType) nextMeta.push(String(nextItem.itemType));
+          if (nextItem.lengthSeconds) nextMeta.push(formatDuration(nextItem.lengthSeconds));
+          if (nextItem.startType) nextMeta.push(nextItem.startType);
+          if (nextItem.hardStartTime) nextMeta.push(formatClockLabel(nextItem.hardStartTime));
+          if (nextMeta.length) html += '<div class="prompter-panel-copy">' + esc(nextMeta.join(' · ')) + '</div>';
+          var nextFields = [];
+          if (nextItem.notes) nextFields.push(renderPrompterField('Notes', nextItem.notes));
+          if (nextItem.assignee) nextFields.push(renderPrompterField('Assignee', nextItem.assignee));
+          if (nextFields.length) html += '<div class="prompter-field-grid">' + nextFields.filter(Boolean).join('') + '</div>';
+        } else {
+          html += '<div class="prompter-panel-copy">This is the last cue on the rundown.</div>';
+        }
+        html += '</div>';
+
+        if (previousItem) {
+          html += '<div class="prompter-panel" style="margin-top:14px">';
+          html += '<div class="prompter-panel-title">Previous cue</div>';
+          html += '<div class="prompter-panel-number">Cue ' + esc(String(previousItem.number || previousItem.cueNumber || previousItem.sortOrder || (previousIndex + 1))) + '</div>';
+          html += '<div class="prompter-panel-title-main prompter-panel-title-main--compact">' + esc(previousItem.title || 'Untitled cue') + '</div>';
+          if (previousItem.lengthSeconds) html += '<div class="prompter-panel-copy">Planned ' + esc(formatDuration(previousItem.lengthSeconds)) + '</div>';
+          if (previousItem.notes) html += '<div class="prompter-panel-copy">' + esc(previousItem.notes) + '</div>';
+          html += '</div>';
+        }
+
+        html += '</div>';
+
+        html += '<div class="prompter-side">';
+        html += '<div class="prompter-panel">';
+        html += '<div class="prompter-panel-title">Cue stack</div>';
+        html += '<div class="prompter-panel-copy">Auto-follows the active cue and keeps the current item centered for a stage-display style prompter.</div>';
+        html += '<div class="prompter-field-grid" style="margin-top:12px">';
+        html += renderPrompterField('Total cues', String(items.filter(function (item) { return !isSectionItem(item); }).length));
+        html += renderPrompterField('Total runtime', formatDuration(totalSeconds));
+        html += renderPrompterField('Current cue', currentItem ? (currentItem.title || 'Untitled cue') : 'Waiting');
+        html += renderPrompterField('Selected columns', String(columns.length || 0));
+        html += '</div>';
+        html += '</div>';
+
+        html += '<div class="prompter-list">';
+        html += '<div class="prompter-list-title">All cues</div>';
+        for (var j = 0; j < items.length; j++) {
+          var item = items[j];
+          if (isSectionItem(item)) {
+            html += '<div class="prompter-card section" id="prompter-card-' + j + '" data-prompter-card="true">';
+            html += '<div class="prompter-card-number">Section</div>';
+            html += '<div class="prompter-card-title prompter-card-title--section">' + esc(item.title || 'Section') + '</div>';
+            if (item.notes) html += '<div class="prompter-card-sub">' + esc(item.notes) + '</div>';
+            html += '</div>';
+          } else {
+            html += renderPrompterCard(plan, item, 'Cue ' + (item.number || item.cueNumber || item.sortOrder || (j + 1)), j, columns, valueMap, liveState, focusIndex === j);
+          }
+        }
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        return html;
+      }
+
+      function scrollPrompterCue() {
+        if (!isPrompterMode) return;
+        var el = document.querySelector('.prompter-card[data-current="true"]') || document.querySelector('.prompter-card[data-prompter-card="true"]');
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+        }
+      }
+
       function renderCompactRail(plan, liveState, items, columns, valueMap, currentIndex, totalSeconds, serviceDateText) {
         var currentItem = currentIndex !== null && currentIndex >= 0 ? items[currentIndex] : null;
         var nextIndex = currentIndex !== null && currentIndex >= 0 ? findNextCueIndex(items, currentIndex) : (items.length ? 0 : -1);
@@ -1207,6 +2058,7 @@
         html += '<div class="mode-switch">';
         html += '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>';
         html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+        html += '<a class="mode-link" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
         html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
         html += '</div>';
         html += '</div>';
@@ -1326,6 +2178,21 @@
 
         var html = '';
 
+        if (isPrompterMode) {
+          html += renderPrompterMode(plan, liveState, items, columns, valueMap, currentIndex, totalSeconds, serviceDate);
+          document.getElementById('app').innerHTML = html;
+          lastUpdated = plan.updatedAt;
+
+          if (updatedClockTimer) clearInterval(updatedClockTimer);
+          updatedClockTimer = setInterval(function () {
+            var el = document.getElementById('last-updated-label');
+            if (el && lastUpdated) el.textContent = 'Updated ' + timeAgo(lastUpdated);
+          }, 15000);
+
+          window.setTimeout(scrollPrompterCue, 0);
+          return;
+        }
+
         // Header
         html += '<div class="header">';
         html += '<div>';
@@ -1341,6 +2208,7 @@
             '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>'
           : '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
             '<a class="mode-link active" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+        html += '<a class="mode-link' + (isPrompterMode ? ' active' : '') + '" href="' + esc(buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Prompter</a>';
         html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
         html += '</div>';
         html += '</div>';
@@ -1437,7 +2305,7 @@
           html += '</div></div>';
         }
         if (hasFilter && columns.length === 0) {
-          html += '<div class="state-box" style="padding:24px 0 0"><div class="state-title" style="font-size:16px">No matching columns</div><div class="state-sub">The `columns` filter did not match any custom columns on this rundown.</div></div>';
+          html += '<div class="state-box" style="padding:24px 0 0"><div class="state-title" style="font-size:calc(16px * var(--display-scale))">No matching columns</div><div class="state-sub">The `columns` filter did not match any custom columns on this rundown.</div></div>';
         }
 
         document.getElementById('app').innerHTML = html;
@@ -1471,7 +2339,7 @@
           })
           .then(function (plan) {
             render(plan);
-            document.title = plan.title + ' — Tally';
+            document.title = plan.title + (isPrompterMode ? ' — Prompter — Tally' : ' — Tally');
           })
           .catch(function (err) {
             if (err.status === 410) {
@@ -1486,8 +2354,84 @@
 
       load();
 
-      // Auto-refresh every 30 seconds
-      refreshTimer = setInterval(load, 30000);
+      if (toolbarHelp) toolbarHelp.addEventListener('click', function () { toggleHelp(); });
+      if (toolbarMirror) toolbarMirror.addEventListener('click', function () { toggleMirror(); });
+      if (toolbarDensity) toolbarDensity.addEventListener('click', function () { toggleDensity(); });
+      if (toolbarTextDown) toolbarTextDown.addEventListener('click', function () { updateDisplayScale(-getScaleStep()); });
+      if (toolbarTextUp) toolbarTextUp.addEventListener('click', function () { updateDisplayScale(getScaleStep()); });
+      if (toolbarRefresh) toolbarRefresh.addEventListener('click', function () { load(); });
+      if (helpBackdrop) helpBackdrop.addEventListener('click', function () { toggleHelp(false); });
+
+      document.addEventListener('keydown', function (evt) {
+        var key = evt.key || '';
+        var target = evt.target;
+        if (target && target.tagName && /input|textarea|select/i.test(target.tagName)) return;
+        if (evt.metaKey || evt.ctrlKey || evt.altKey) return;
+
+        if (key === '?') {
+          evt.preventDefault();
+          toggleHelp();
+          return;
+        }
+        if (key === 'Escape' && displayPrefs.help) {
+          evt.preventDefault();
+          toggleHelp(false);
+          return;
+        }
+        if (key === 'm' || key === 'M') {
+          evt.preventDefault();
+          toggleMirror();
+          return;
+        }
+        if (key === 'd' || key === 'D') {
+          evt.preventDefault();
+          toggleDensity();
+          return;
+        }
+        if (key === '-' || key === '_' || key === '[') {
+          evt.preventDefault();
+          updateDisplayScale(-getScaleStep());
+          return;
+        }
+        if (key === '=' || key === '+' || key === ']') {
+          evt.preventDefault();
+          updateDisplayScale(getScaleStep());
+          return;
+        }
+        if (key === '0') {
+          evt.preventDefault();
+          setDisplayPrefs({ mirror: false, density: 'roomy', scale: 1, help: displayPrefs.help });
+          return;
+        }
+        if (key === 'r' || key === 'R') {
+          evt.preventDefault();
+          load();
+          return;
+        }
+        if (key === '1') {
+          evt.preventDefault();
+          goToMode('', columnFilter ? { columns: columnFilter.join(',') } : {});
+          return;
+        }
+        if (key === '2') {
+          evt.preventDefault();
+          goToMode('compact', columnFilter ? { columns: columnFilter.join(',') } : {});
+          return;
+        }
+        if (key === '3') {
+          evt.preventDefault();
+          window.location.href = buildPrompterHref(columnFilter ? { columns: columnFilter.join(',') } : {});
+          return;
+        }
+        if (key === '4') {
+          evt.preventDefault();
+          window.location.href = buildTimerHref('stage', {});
+          return;
+        }
+      });
+
+      // Auto-refresh faster in prompter mode so the active cue follows more closely.
+      refreshTimer = setInterval(load, refreshIntervalMs);
     })();
   </script>
 

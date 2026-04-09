@@ -1344,6 +1344,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!d || !d.isTd) return;
       window._tdSession = { name: d.tdName, accessLevel: d.tdAccessLevel };
       applyTdAccessRestrictions(d.tdAccessLevel, d.tdName);
+      if (!_rundownStorageGet(_rundownStationNameStorageKey)) {
+        _rundownPresenceDisplayName = d.tdName || _rundownDefaultStationName();
+        _rundownStorageSet(_rundownStationNameStorageKey, _rundownPresenceDisplayName);
+      }
     }
 
     function invalidateChurchProfileCache() {
@@ -8231,12 +8235,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownPlans = [];
     var _rundownSelectedPlanId = null;
     var _rundownSelectedPlan = null;
-    var _rundownSessionId = 'rd-' + Math.random().toString(36).slice(2, 10);
     var _rundownFilterRoom = '';
     var _rundownFilterStatus = '';
     var _rundownSortBy = 'date';
     var _rundownSearchQuery = '';
+    var _rundownSessionStorageKey = 'tally.rundown.stationKey.' + CHURCH_ID;
+    var _rundownStationNameStorageKey = 'tally.rundown.stationName.' + CHURCH_ID;
+    var _rundownSessionId = null;
+    var _rundownPresenceDisplayName = '';
     var _rundownPresenceEditors = [];
+    var _rundownCollaboratorRoster = [];
+    var _rundownPresenceHeartbeatTimer = null;
+    var _rundownPresenceHeartbeatMs = 30000;
+    var _rundownPresenceStaleAfterMs = 5 * 60 * 1000;
     var _rundownRoomMap = {}; // roomId → roomName
     // Custom columns state
     var _rundownColumns = [];    // [{ id, name, department, sortOrder, type, options, equipmentBinding }]
@@ -8259,6 +8270,51 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       'encoder.status': 'Encoder Status',
       'stream.live': 'Stream Live',
     };
+
+    function _rundownStorageGet(key) {
+      try {
+        return window.localStorage ? window.localStorage.getItem(key) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function _rundownStorageSet(key, value) {
+      try {
+        if (!window.localStorage) return;
+        if (value) window.localStorage.setItem(key, value);
+        else window.localStorage.removeItem(key);
+      } catch (e) {}
+    }
+
+    function _rundownDefaultStationName() {
+      var tdName = window._tdSession && window._tdSession.name ? String(window._tdSession.name).trim() : '';
+      return tdName || 'TD Station';
+    }
+
+    function _rundownNormalizeStationKey(value) {
+      var normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+      return normalized;
+    }
+
+    function _rundownEnsureStationIdentity() {
+      if (_rundownSessionId && _rundownPresenceDisplayName) return;
+      var storedKey = _rundownNormalizeStationKey(_rundownStorageGet(_rundownSessionStorageKey));
+      var storedName = String(_rundownStorageGet(_rundownStationNameStorageKey) || '').trim();
+      if (!storedKey) storedKey = 'rd-' + Math.random().toString(36).slice(2, 10);
+      if (!storedName) storedName = _rundownDefaultStationName();
+      _rundownSessionId = storedKey;
+      _rundownPresenceDisplayName = storedName;
+      _rundownStorageSet(_rundownSessionStorageKey, storedKey);
+      _rundownStorageSet(_rundownStationNameStorageKey, storedName);
+    }
+
+    _rundownEnsureStationIdentity();
 
     function _normalizeRundownColumnType(type) {
       return type === 'dropdown' ? 'dropdown' : 'text';
@@ -8423,6 +8479,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (_rundownSubscribedPlanId) {
         _rundownUnsubscribePlan(_rundownSubscribedPlanId);
       }
+      _rundownCloseCollaborators();
       // Load rooms for filter dropdown and room name display
       fetchRoomList().then(function(rooms) {
         _rundownRoomMap = {};
@@ -8655,26 +8712,231 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Presence tracking (collaborative editing) ───────────────────────────
     var _rundownSubscribedPlanId = null;
 
+    function _rundownRoleLabel(role) {
+      if (role === 'owner') return 'Owner';
+      if (role === 'viewer') return 'Viewer';
+      return 'Editor';
+    }
+
+    function _rundownStatusLabel(status) {
+      if (status === 'revoked') return 'Revoked';
+      if (status === 'offline') return 'Offline';
+      return 'Active';
+    }
+
+    function _rundownActivePresenceList() {
+      return (_rundownPresenceEditors || []).filter(function(entry) {
+        return entry && entry.status === 'active' && !entry.isStale;
+      });
+    }
+
+    function _rundownMergedCollaborators() {
+      var byKey = {};
+      (_rundownCollaboratorRoster || []).forEach(function(entry) {
+        if (!entry || !entry.collaboratorKey) return;
+        byKey[entry.collaboratorKey] = Object.assign({}, entry);
+      });
+      (_rundownPresenceEditors || []).forEach(function(entry) {
+        if (!entry || !entry.sessionId) return;
+        var key = entry.sessionId;
+        var existing = byKey[key] || {};
+        byKey[key] = Object.assign({}, existing, {
+          collaboratorKey: key,
+          displayName: entry.displayName || entry.userName || existing.displayName || '',
+          role: entry.role || existing.role || 'editor',
+          status: entry.status || existing.status || 'active',
+          joinedAt: entry.joinedAt || existing.joinedAt || null,
+          lastSeenAt: entry.lastSeenAt || existing.lastSeenAt || null,
+          leftAt: entry.leftAt || existing.leftAt || null,
+          isStale: !!entry.isStale,
+          isLiveSession: true,
+        });
+      });
+      return Object.keys(byKey).map(function(key) {
+        return byKey[key];
+      }).sort(function(a, b) {
+        var roleRank = { owner: 0, editor: 1, viewer: 2 };
+        var statusRank = { active: 0, offline: 1, revoked: 2 };
+        var aRole = roleRank[a.role] != null ? roleRank[a.role] : 3;
+        var bRole = roleRank[b.role] != null ? roleRank[b.role] : 3;
+        if (aRole !== bRole) return aRole - bRole;
+        var aStatus = statusRank[a.status] != null ? statusRank[a.status] : 3;
+        var bStatus = statusRank[b.status] != null ? statusRank[b.status] : 3;
+        if (aStatus !== bStatus) return aStatus - bStatus;
+        return String(a.displayName || a.collaboratorKey || '').localeCompare(String(b.displayName || b.collaboratorKey || ''));
+      });
+    }
+
+    function _rundownFindCollaborator(key) {
+      var merged = _rundownMergedCollaborators();
+      for (var i = 0; i < merged.length; i++) {
+        if (merged[i].collaboratorKey === key) return merged[i];
+      }
+      return null;
+    }
+
+    function _rundownUpdateCollaboratorButtons() {
+      var activeCount = _rundownActivePresenceList().length;
+      document.querySelectorAll('[data-action="rundownCollaborators"]').forEach(function(btn) {
+        if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = (btn.textContent || 'Team').trim();
+        btn.textContent = activeCount > 1 ? btn.dataset.defaultLabel + ' (' + activeCount + ')' : btn.dataset.defaultLabel;
+      });
+    }
+
+    function _rundownFillStationIdentityForm() {
+      _rundownEnsureStationIdentity();
+      var nameInput = document.getElementById('rundown-station-name');
+      var keyInput = document.getElementById('rundown-station-key');
+      var roleEl = document.getElementById('rundown-collaborators-self-role');
+      var selfEntry = _rundownFindCollaborator(_rundownSessionId);
+      if (nameInput) nameInput.value = _rundownPresenceDisplayName || _rundownDefaultStationName();
+      if (keyInput) keyInput.value = _rundownSessionId || '';
+      if (roleEl) {
+        if (selfEntry) {
+          roleEl.textContent = _rundownRoleLabel(selfEntry.role) + ' · ' + _rundownStatusLabel(selfEntry.status);
+        } else {
+          roleEl.textContent = 'Editor · Ready to join';
+        }
+      }
+    }
+
+    function _rundownRenderCollaboratorList() {
+      var listEl = document.getElementById('rundown-collaborators-list');
+      var summaryEl = document.getElementById('rundown-collaborators-summary');
+      if (!listEl) return;
+      var merged = _rundownMergedCollaborators();
+      var activeCount = _rundownActivePresenceList().length;
+      var owners = merged.filter(function(entry) { return entry.role === 'owner' && entry.status !== 'revoked'; }).length;
+      var editors = merged.filter(function(entry) { return entry.role === 'editor' && entry.status !== 'revoked'; }).length;
+      var viewers = merged.filter(function(entry) { return entry.role === 'viewer' && entry.status !== 'revoked'; }).length;
+      if (summaryEl) {
+        summaryEl.textContent = activeCount + ' active · ' + owners + ' owner · ' + editors + ' editor · ' + viewers + ' viewer';
+      }
+      _rundownFillStationIdentityForm();
+      _rundownUpdateCollaboratorButtons();
+      if (!merged.length) {
+        listEl.innerHTML = '<div style="padding:20px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);font-size:13px;color:#8B9DAF;text-align:center">No team stations yet. Save this station or add an operator device to get started.</div>';
+        return;
+      }
+      var html = '';
+      merged.forEach(function(entry, index) {
+        var key = entry.collaboratorKey || '';
+        var name = entry.displayName || key || 'Unnamed station';
+        var isSelf = key === _rundownSessionId;
+        var role = entry.role || 'editor';
+        var status = entry.status || 'active';
+        var statusTone = status === 'active' ? '#00E676' : (status === 'revoked' ? '#FF8A80' : '#8B9DAF');
+        var statusBg = status === 'active' ? 'rgba(0,230,118,0.12)' : (status === 'revoked' ? 'rgba(255,138,128,0.10)' : 'rgba(139,157,175,0.12)');
+        var lastSeen = entry.lastSeenAt ? _rundownRelativeTime(entry.lastSeenAt) : 'never';
+        html += ''
+          + '<div style="padding:14px 16px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07)">'
+            + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'
+              + '<div style="min-width:0;flex:1">'
+                + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+                  + '<div class="presence-avatar" style="background:' + RUNDOWN_PRESENCE_COLORS[index % RUNDOWN_PRESENCE_COLORS.length] + ';flex:0 0 auto" title="' + escapeHtml(name) + '">' + escapeHtml(name.split(' ').map(function(part) { return part[0] || ''; }).join('').slice(0, 2).toUpperCase() || 'TD') + '</div>'
+                  + '<div style="font-size:14px;font-weight:700;color:#F0F2F4;min-width:0">' + escapeHtml(name) + (isSelf ? ' <span style="font-size:11px;color:#8B9DAF;font-weight:600">(This station)</span>' : '') + '</div>'
+                + '</div>'
+                + '<div style="margin-top:8px;font-family:ui-monospace,monospace;font-size:12px;color:#556270;word-break:break-all">' + escapeHtml(key) + '</div>'
+                + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+                  + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:rgba(66,165,245,0.10);color:#81D4FA">' + escapeHtml(_rundownRoleLabel(role)) + '</span>'
+                  + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:' + statusBg + ';color:' + statusTone + '">' + escapeHtml(_rundownStatusLabel(status)) + '</span>'
+                  + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.05);color:#8B9DAF">' + (status === 'active' ? 'Seen now' : 'Last seen ' + escapeHtml(lastSeen)) + '</span>'
+                + '</div>'
+              + '</div>'
+              + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+                + '<select data-rundown-collaborator-role="' + escapeHtml(key) + '" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 10px;font-size:12px;color-scheme:dark">'
+                  + '<option value="owner"' + (role === 'owner' ? ' selected' : '') + '>Owner</option>'
+                  + '<option value="editor"' + (role === 'editor' ? ' selected' : '') + '>Editor</option>'
+                  + '<option value="viewer"' + (role === 'viewer' ? ' selected' : '') + '>Viewer</option>'
+                + '</select>'
+                + '<button class="btn-secondary" data-action="rundownCollaboratorSave" data-collaborator-key="' + escapeHtml(key) + '" style="font-size:12px;padding:6px 12px">Save Role</button>'
+                + '<button class="btn-secondary" data-action="rundownCollaboratorCopyKey" data-collaborator-key="' + escapeHtml(key) + '" style="font-size:12px;padding:6px 12px">Copy Key</button>'
+                + (
+                  isSelf
+                    ? ''
+                    : status === 'revoked'
+                      ? '<button class="btn-secondary" data-action="rundownCollaboratorRestore" data-collaborator-key="' + escapeHtml(key) + '" style="font-size:12px;padding:6px 12px">Restore</button>'
+                      : '<button class="btn-secondary" data-action="rundownCollaboratorRevoke" data-collaborator-key="' + escapeHtml(key) + '" style="font-size:12px;padding:6px 12px;color:#FF8A80">Revoke</button>'
+                )
+              + '</div>'
+            + '</div>'
+          + '</div>';
+      });
+      listEl.innerHTML = html;
+    }
+
+    function _rundownLoadCollaborators(planId) {
+      if (!planId) return Promise.resolve([]);
+      return api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/collaborators').then(function(data) {
+        _rundownCollaboratorRoster = (data && data.collaborators) || [];
+        if (data && data.staleAfterMs) _rundownPresenceStaleAfterMs = data.staleAfterMs;
+        _rundownRenderCollaboratorList();
+        return _rundownCollaboratorRoster;
+      }).catch(function() {
+        _rundownCollaboratorRoster = [];
+        _rundownRenderCollaboratorList();
+        return [];
+      });
+    }
+
+    function _rundownStopPresenceHeartbeat() {
+      if (_rundownPresenceHeartbeatTimer) {
+        clearInterval(_rundownPresenceHeartbeatTimer);
+        _rundownPresenceHeartbeatTimer = null;
+      }
+    }
+
+    function _rundownStartPresenceHeartbeat(intervalMs) {
+      _rundownStopPresenceHeartbeat();
+      if (intervalMs) _rundownPresenceHeartbeatMs = intervalMs;
+      if (!_rundownSubscribedPlanId) return;
+      _rundownPresenceHeartbeatTimer = setInterval(function() {
+        if (!_rundownSubscribedPlanId) return;
+        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSubscribedPlanId + '/heartbeat', {
+          sessionId: _rundownSessionId,
+          userName: _rundownPresenceDisplayName,
+        }).then(function(data) {
+          if (data && data.collaborators) _rundownPresenceEditors = data.collaborators;
+          if (data && data.heartbeatIntervalMs) _rundownPresenceHeartbeatMs = data.heartbeatIntervalMs;
+          if (data && data.staleAfterMs) _rundownPresenceStaleAfterMs = data.staleAfterMs;
+          _renderPresenceBar();
+          _rundownRenderCollaboratorList();
+        }).catch(function() {});
+      }, Math.max(15000, (_rundownPresenceHeartbeatMs || 30000) - 5000));
+    }
+
     function _rundownSubscribePlan(planId) {
-      // Unsubscribe from previous
       if (_rundownSubscribedPlanId && _rundownSubscribedPlanId !== planId) {
         _rundownUnsubscribePlan(_rundownSubscribedPlanId);
       }
+      _rundownEnsureStationIdentity();
       _rundownSubscribedPlanId = planId;
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/subscribe', { userName: 'TD', sessionId: _rundownSessionId }).then(function(data) {
-        if (data && data.editors) {
-          _rundownPresenceEditors = data.editors;
-          _renderPresenceBar();
-        }
+      _rundownLoadCollaborators(planId);
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/subscribe', {
+        userName: _rundownPresenceDisplayName,
+        sessionId: _rundownSessionId,
+      }).then(function(data) {
+        if (data && data.collaborators) _rundownPresenceEditors = data.collaborators;
+        else if (data && data.editors) _rundownPresenceEditors = data.editors;
+        if (data && data.heartbeatIntervalMs) _rundownPresenceHeartbeatMs = data.heartbeatIntervalMs;
+        if (data && data.staleAfterMs) _rundownPresenceStaleAfterMs = data.staleAfterMs;
+        _renderPresenceBar();
+        _rundownRenderCollaboratorList();
+        _rundownStartPresenceHeartbeat(_rundownPresenceHeartbeatMs);
       }).catch(function() {});
     }
 
-    function _rundownUnsubscribePlan(planId) {
+    function _rundownUnsubscribePlan(planId, sessionIdOverride) {
       if (!planId) return;
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/unsubscribe', { sessionId: _rundownSessionId }).catch(function() {});
+      _rundownStopPresenceHeartbeat();
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/unsubscribe', {
+        sessionId: sessionIdOverride || _rundownSessionId,
+      }).catch(function() {});
       _rundownSubscribedPlanId = null;
       _rundownPresenceEditors = [];
+      _rundownCollaboratorRoster = [];
       _renderPresenceBar();
+      _rundownRenderCollaboratorList();
     }
 
     function _renderPresenceBar() {
@@ -8682,24 +8944,155 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var avatarsEl = document.getElementById('rundown-presence-avatars');
       var textEl = document.getElementById('rundown-presence-text');
       if (!bar || !avatarsEl || !textEl) return;
-
-      // Filter out self
-      var others = _rundownPresenceEditors.filter(function(e) { return e.sessionId !== _rundownSessionId; });
-      if (others.length === 0) {
-        bar.classList.remove('has-editors');
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') {
+        bar.style.display = 'none';
+        avatarsEl.innerHTML = '';
+        textEl.textContent = '';
         return;
       }
-
-      bar.classList.add('has-editors');
+      var activeEntries = _rundownActivePresenceList();
+      var editors = activeEntries.filter(function(entry) { return entry.role !== 'viewer'; }).length;
+      var viewers = activeEntries.filter(function(entry) { return entry.role === 'viewer'; }).length;
       var avatarHtml = '';
-      for (var i = 0; i < Math.min(others.length, 5); i++) {
-        var name = others[i].userName || 'TD';
-        var initials = name.split(' ').map(function(w) { return w[0]; }).join('').toUpperCase().slice(0, 2);
-        var color = RUNDOWN_PRESENCE_COLORS[i % RUNDOWN_PRESENCE_COLORS.length];
-        avatarHtml += '<div class="presence-avatar" style="background:' + color + '" title="' + escapeHtml(name) + '">' + initials + '</div>';
-      }
+      activeEntries.slice(0, 5).forEach(function(entry, index) {
+        var name = entry.displayName || entry.userName || 'TD';
+        var initials = name.split(' ').map(function(part) { return part[0] || ''; }).join('').slice(0, 2).toUpperCase() || 'TD';
+        avatarHtml += '<div class="presence-avatar" style="background:' + RUNDOWN_PRESENCE_COLORS[index % RUNDOWN_PRESENCE_COLORS.length] + '" title="' + escapeHtml(name) + '">' + escapeHtml(initials) + '</div>';
+      });
       avatarsEl.innerHTML = avatarHtml;
-      textEl.textContent = others.length + ' other' + (others.length !== 1 ? 's' : '') + ' editing';
+      if (!activeEntries.length) {
+        textEl.textContent = 'No active stations yet. Open this rundown on another device to build your team board.';
+      } else if (activeEntries.length === 1) {
+        textEl.textContent = 'Only this station is active right now. Add operator devices or view-only stations for a fuller demo.';
+      } else {
+        textEl.textContent = activeEntries.length + ' stations active · ' + editors + ' editing · ' + viewers + ' viewing';
+      }
+      bar.style.display = 'flex';
+      bar.classList.toggle('has-editors', activeEntries.length > 1);
+      _rundownUpdateCollaboratorButtons();
+    }
+
+    function rundownCollaborators() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var backdrop = document.getElementById('modal-rundown-collaborators');
+      if (!backdrop) return;
+      _rundownFillStationIdentityForm();
+      _rundownLoadCollaborators(_rundownSelectedPlan.id);
+      _rundownRenderCollaboratorList();
+      backdrop.classList.add('open');
+    }
+
+    function _rundownCloseCollaborators() {
+      var backdrop = document.getElementById('modal-rundown-collaborators');
+      if (backdrop) backdrop.classList.remove('open');
+    }
+
+    function rundownSaveStationIdentity() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var nameInput = document.getElementById('rundown-station-name');
+      var keyInput = document.getElementById('rundown-station-key');
+      var nextName = String(nameInput && nameInput.value || '').trim() || _rundownDefaultStationName();
+      var nextKey = _rundownNormalizeStationKey(keyInput && keyInput.value);
+      if (!nextKey) {
+        toast('Station key is required', true);
+        return;
+      }
+      var previousKey = _rundownSessionId;
+      _rundownPresenceDisplayName = nextName;
+      _rundownSessionId = nextKey;
+      _rundownStorageSet(_rundownSessionStorageKey, nextKey);
+      _rundownStorageSet(_rundownStationNameStorageKey, nextName);
+      _rundownFillStationIdentityForm();
+      _rundownRenderCollaboratorList();
+      if (_rundownSubscribedPlanId) {
+        if (previousKey && previousKey !== nextKey) _rundownUnsubscribePlan(_rundownSubscribedPlanId, previousKey);
+        _rundownSubscribePlan(_rundownSelectedPlan.id);
+      }
+      toast('Station saved');
+    }
+
+    function rundownCopyStationKey(buttonEl, key) {
+      var targetKey = key || _rundownSessionId;
+      if (!targetKey) return;
+      _rundownCopyTextToClipboard(targetKey, buttonEl, 'Copy Key');
+    }
+
+    function rundownAddCollaborator() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var keyInput = document.getElementById('rundown-collaborator-key');
+      var nameInput = document.getElementById('rundown-collaborator-name');
+      var roleSelect = document.getElementById('rundown-collaborator-role');
+      var collaboratorKey = _rundownNormalizeStationKey(keyInput && keyInput.value);
+      var displayName = String(nameInput && nameInput.value || '').trim();
+      var role = String(roleSelect && roleSelect.value || 'editor');
+      if (!collaboratorKey) {
+        toast('Team station key is required', true);
+        return;
+      }
+      var liveEntry = _rundownFindCollaborator(collaboratorKey);
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/collaborators', {
+        collaboratorKey: collaboratorKey,
+        displayName: displayName || (liveEntry && liveEntry.displayName) || collaboratorKey,
+        role: role,
+        status: liveEntry && liveEntry.status === 'active' ? 'active' : 'offline',
+      }).then(function(data) {
+        _rundownCollaboratorRoster = (data && data.collaborators) || _rundownCollaboratorRoster;
+        if (keyInput) keyInput.value = '';
+        if (nameInput) nameInput.value = '';
+        if (roleSelect) roleSelect.value = 'editor';
+        _rundownRenderCollaboratorList();
+        toast('Team access saved');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownSaveCollaboratorRole(collaboratorKey) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.id || !collaboratorKey) return;
+      var roleSelect = null;
+      document.querySelectorAll('[data-rundown-collaborator-role]').forEach(function(selectEl) {
+        if (!roleSelect && selectEl.dataset.rundownCollaboratorRole === collaboratorKey) roleSelect = selectEl;
+      });
+      var entry = _rundownFindCollaborator(collaboratorKey) || {};
+      var role = roleSelect ? roleSelect.value : (entry.role || 'editor');
+      var method = (_rundownCollaboratorRoster || []).some(function(item) { return item.collaboratorKey === collaboratorKey; }) ? 'PUT' : 'POST';
+      var path = method === 'PUT'
+        ? '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/collaborators/' + encodeURIComponent(collaboratorKey)
+        : '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/collaborators';
+      api(method, path, {
+        collaboratorKey: collaboratorKey,
+        displayName: entry.displayName || collaboratorKey,
+        role: role,
+        status: entry.status === 'revoked' ? 'active' : (entry.status || 'active'),
+      }).then(function(data) {
+        _rundownCollaboratorRoster = (data && data.collaborators) || _rundownCollaboratorRoster;
+        _rundownRenderCollaboratorList();
+        toast('Role updated');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownRestoreCollaborator(collaboratorKey) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.id || !collaboratorKey) return;
+      var entry = _rundownFindCollaborator(collaboratorKey) || {};
+      api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/collaborators/' + encodeURIComponent(collaboratorKey), {
+        displayName: entry.displayName || collaboratorKey,
+        role: entry.role || 'editor',
+        status: 'offline',
+      }).then(function(data) {
+        _rundownCollaboratorRoster = (data && data.collaborators) || _rundownCollaboratorRoster;
+        _rundownRenderCollaboratorList();
+        toast('Access restored');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownRevokeCollaborator(collaboratorKey) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.id || !collaboratorKey || collaboratorKey === _rundownSessionId) return;
+      styledConfirm('Revoke Access', 'This station will become view blocked until you restore it.').then(function(ok) {
+        if (!ok) return;
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/collaborators/' + encodeURIComponent(collaboratorKey)).then(function(data) {
+          _rundownCollaboratorRoster = (data && data.collaborators) || _rundownCollaboratorRoster;
+          _rundownRenderCollaboratorList();
+          toast('Access revoked');
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
     }
 
     // Unsubscribe when navigating away
@@ -8716,13 +9109,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       if (data.type === 'rundown_presence') {
         if (data.planId === _rundownSubscribedPlanId) {
-          _rundownPresenceEditors = data.editors || [];
+          _rundownPresenceEditors = data.collaborators || data.editors || [];
+          if (data.staleAfterMs) _rundownPresenceStaleAfterMs = data.staleAfterMs;
           _renderPresenceBar();
+          _rundownRenderCollaboratorList();
         }
         // Update dashboard card editor counts
         var plan = _rundownPlans.find(function(p) { return p.id === data.planId; });
         if (plan) {
-          plan.activeEditors = (data.editors || []).length;
+          plan.activeEditors = (_rundownPresenceEditors || []).filter(function(entry) { return entry.status === 'active' && !entry.isStale; }).length;
           // Re-render dashboard if visible
           if (document.getElementById('rundown-manager') && document.getElementById('rundown-manager').style.display !== 'none') {
             renderRundownDashboard();
@@ -8788,6 +9183,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _rundownBatchAnchorId = null;
       _updateRundownBatchBar();
       if (source === 'pco') {
+        if (_rundownSubscribedPlanId) _rundownUnsubscribePlan(_rundownSubscribedPlanId);
         // PCO plans can be started directly but not edited
         _rundownSelectedPlan = { id: planId, source: 'pco' };
         var editor = document.getElementById('rundown-editor');
@@ -8798,8 +9194,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (titleEl) titleEl.textContent = p ? p.title : 'PCO Plan';
         if (dateEl) dateEl.textContent = p && p.serviceDate ? p.serviceDate : '';
         // Hide edit/share controls for PCO plans
-        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = 'none'; });
+        document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = 'none'; });
         _updateSharedBadge(false);
+        _renderPresenceBar();
         var itemsEl = document.getElementById('rundown-editor-items');
         if (itemsEl) itemsEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">PCO plan items are imported automatically.</div>';
       } else {
@@ -9316,7 +9713,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var editor = document.getElementById('rundown-editor');
       if (editor) editor.style.display = '';
       // Show edit controls for manual plans
-      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"]').forEach(function(b) { b.style.display = ''; });
+      document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = ''; });
       var titleEl = document.getElementById('rundown-editor-title');
       var dateEl = document.getElementById('rundown-editor-date');
       if (titleEl) titleEl.textContent = plan.title;
@@ -10840,7 +11237,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
-    // ── Share / Guest Pass ────────────────────────────────────────────────────
+    // ── Share / Output Suite ──────────────────────────────────────────────────
 
     var _rundownShareData = null; // { share: { id, token, url, expiresAt } | null }
 
@@ -10853,16 +11250,54 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    function _rundownBuildOperatorOutputUrl(baseUrl, columnId) {
-      if (!baseUrl || !columnId) return '';
+    function _rundownBuildModeUrl(baseUrl, mode, extraParams) {
+      if (!baseUrl) return '';
       try {
         var url = new URL(baseUrl, window.location.origin);
-        url.searchParams.set('columns', columnId);
+        if (mode) url.searchParams.set('mode', mode);
+        else url.searchParams.delete('mode');
+        if (extraParams) {
+          Object.keys(extraParams).forEach(function(key) {
+            var value = extraParams[key];
+            if (value == null || value === '') {
+              url.searchParams.delete(key);
+              return;
+            }
+            url.searchParams.set(key, String(value));
+          });
+        }
         return url.href;
       } catch (e) {
-        var separator = baseUrl.indexOf('?') >= 0 ? '&' : '?';
-        return baseUrl + separator + 'columns=' + encodeURIComponent(columnId);
+        var raw = String(baseUrl);
+        var joiner = raw.indexOf('?') >= 0 ? '&' : '?';
+        var params = [];
+        if (mode) params.push('mode=' + encodeURIComponent(mode));
+        if (extraParams) {
+          Object.keys(extraParams).forEach(function(key) {
+            var value = extraParams[key];
+            if (value == null || value === '') return;
+            params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+          });
+        }
+        return params.length ? raw + joiner + params.join('&') : raw;
       }
+    }
+
+    function _rundownBuildOperatorOutputUrl(baseUrl, columnId) {
+      return _rundownBuildModeUrl(baseUrl, '', { columns: columnId });
+    }
+
+    function _rundownResolveShareUrls(share) {
+      var token = share && share.share_token ? String(share.share_token) : '';
+      var publicUrl = _rundownNormalizeShareUrl(share && share.url);
+      var timerUrl = _rundownNormalizeShareUrl(share && share.timer_url);
+      if (!publicUrl && token) {
+        publicUrl = _rundownNormalizeShareUrl(new URL('/rundown/view/' + token, window.location.origin).href);
+      }
+      if (!timerUrl && token) {
+        timerUrl = _rundownNormalizeShareUrl(new URL('/rundown/timer/' + token, window.location.origin).href);
+      }
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -10883,54 +11318,273 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
-    function _rundownRenderShareLinks(share) {
-      var publicUrl = _rundownNormalizeShareUrl(share && share.url);
-      var timerBase = publicUrl || _rundownNormalizeShareUrl(window.location.origin);
-      var timerUrl = _rundownNormalizeShareUrl(share && share.timer_url ? new URL(share.timer_url, timerBase).href : '');
-      if (!timerUrl && share && share.share_token) {
-        timerUrl = _rundownNormalizeShareUrl(new URL('/rundown/timer/' + share.share_token, timerBase).href);
-      }
+    function _rundownOpenUrl(url) {
+      if (!url) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
 
-      var urlEl = document.getElementById('rundown-share-url');
-      var timerEl = document.getElementById('rundown-share-timer-url');
+    function _rundownBuildOutputCard(opts) {
+      if (!opts || !opts.url) return '';
+      var title = escapeHtml(opts.title || '');
+      var kicker = escapeHtml(opts.kicker || 'Output');
+      var desc = opts.description ? '<div style="font-size:12px;color:#8B9DAF;line-height:1.5;margin-top:4px">' + escapeHtml(opts.description) + '</div>' : '';
+      var badge = opts.badge ? '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:999px;background:' + (opts.badgeBg || 'rgba(0,230,118,0.12)') + ';color:' + (opts.badgeColor || '#00E676') + '">' + escapeHtml(opts.badge) + '</span>' : '';
+      var accent = opts.accent || '#00E676';
+      return ''
+        + '<div style="padding:14px 15px;border-radius:14px;background:linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));border:1px solid rgba(255,255,255,0.08);box-shadow:0 10px 24px rgba(0,0,0,0.12)">'
+          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">'
+            + '<div style="min-width:0;flex:1">'
+              + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;font-weight:800;color:' + accent + '">' + kicker + '</div>'
+              + '<div style="font-size:15px;font-weight:800;color:#F0F2F4;margin-top:4px">' + title + '</div>'
+              + desc
+            + '</div>'
+            + badge
+          + '</div>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+            + '<button class="btn-primary" style="font-size:12px;padding:6px 14px" data-rundown-output-open="' + escapeHtml(opts.url) + '">Open</button>'
+            + '<button class="btn-secondary" style="font-size:12px;padding:6px 14px" data-share-copy-url="' + escapeHtml(opts.url) + '" data-copy-default-label="Copy Link">Copy</button>'
+          + '</div>'
+          + '<div style="margin-top:10px;font-family:ui-monospace,monospace;font-size:11px;color:#556270;word-break:break-all;line-height:1.4">' + escapeHtml(opts.url) + '</div>'
+        + '</div>';
+    }
+
+    function _rundownBuildSectionCard(title, copy, cards, accent) {
+      var cardHtml = Array.isArray(cards) ? cards.filter(Boolean).join('') : '';
+      if (!cardHtml) return '';
+      return ''
+        + '<div style="padding:14px;border-radius:16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07)">'
+          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">'
+            + '<div>'
+              + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:#556270;font-weight:800;margin-bottom:5px">' + escapeHtml(title) + '</div>'
+              + '<div style="font-size:12px;color:#8B9DAF;line-height:1.45">' + escapeHtml(copy) + '</div>'
+            + '</div>'
+            + (accent ? '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:' + accent.bg + ';color:' + accent.fg + '">' + escapeHtml(accent.label) + '</span>' : '')
+          + '</div>'
+          + '<div style="display:flex;flex-direction:column;gap:10px">' + cardHtml + '</div>'
+        + '</div>';
+    }
+
+    function _rundownBuildDemoSetup(share) {
+      var urls = _rundownResolveShareUrls(share || _rundownShareData || {});
+      var planTitle = (_rundownSelectedPlan && _rundownSelectedPlan.title) || 'This rundown';
+      var publicUrl = _rundownBuildModeUrl(urls.publicUrl, '', {});
+      var compactUrl = _rundownBuildModeUrl(urls.publicUrl, 'compact', {});
+      var prompterUrl = _rundownBuildModeUrl(urls.publicUrl, 'prompter', {});
+      var timerUrl = _rundownBuildModeUrl(urls.timerUrl, '', {});
+      var stageUrl = _rundownBuildModeUrl(urls.timerUrl, 'stage', {});
+      var confidenceUrl = _rundownBuildModeUrl(urls.timerUrl, 'confidence', {});
+      var note = [
+        planTitle + ' demo setup',
+        '',
+        'Caller / producer laptop:',
+        publicUrl || compactUrl || 'No public rundown link yet',
+        '',
+        'Stage or teleprompter screen:',
+        prompterUrl || publicUrl || 'No prompter link yet',
+        '',
+        'Confidence / timer display:',
+        stageUrl || confidenceUrl || timerUrl || 'No timer link yet',
+      ];
+      if (_rundownColumns && _rundownColumns.length && publicUrl) {
+        var column = _rundownColumns[0];
+        note.push('', 'Optional department feed (' + (column.name || column.id) + '):', _rundownBuildOperatorOutputUrl(publicUrl, column.id));
+      }
+      return {
+        publicUrl: publicUrl,
+        compactUrl: compactUrl,
+        prompterUrl: prompterUrl,
+        timerUrl: timerUrl,
+        stageUrl: stageUrl,
+        confidenceUrl: confidenceUrl,
+        note: note.join('\n'),
+      };
+    }
+
+    function _rundownRenderShareLinks(share) {
+      var urls = _rundownResolveShareUrls(share || {});
+      var demoSetup = _rundownBuildDemoSetup(share);
+      var publicUrl = urls.publicUrl;
+      var timerUrl = urls.timerUrl;
       var expiryEl = document.getElementById('rundown-share-expiry');
+      var introEl = document.getElementById('rundown-share-intro');
+      var outputSuite = document.getElementById('rundown-share-output-suite');
       var operatorWrap = document.getElementById('rundown-share-operator-wrap');
       var operatorLinks = document.getElementById('rundown-share-operator-links');
+      var sections = [];
+      var timerSections = [];
+      var operatorItems = [];
+      var hasOperatorLinks = false;
 
-      if (urlEl) urlEl.textContent = publicUrl || '';
-      if (timerEl) timerEl.textContent = timerUrl || '';
+      if (introEl) {
+        introEl.textContent = 'Choose the output your team needs. One share token powers read-only public views, countdown timers, and department-specific feeds.';
+      }
+
+      if (demoSetup.publicUrl || demoSetup.prompterUrl || demoSetup.stageUrl || demoSetup.timerUrl) {
+        sections.push(_rundownBuildSectionCard(
+          'Suggested launch order',
+          'Use this when you want a polished three-screen demo quickly: one desk view, one stage/prompt view, and one timer display.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Desk screen',
+              title: 'Caller / producer',
+              description: 'Best default desk view for the person running cues.',
+              url: demoSetup.publicUrl || demoSetup.compactUrl,
+              badge: 'Step 1',
+              badgeBg: 'rgba(0,230,118,0.12)',
+              badgeColor: '#00E676',
+              accent: '#00E676',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Stage display',
+              title: 'Prompter screen',
+              description: 'Large, stage-friendly cue following for presenters or backstage confidence.',
+              url: demoSetup.prompterUrl || demoSetup.publicUrl,
+              badge: 'Step 2',
+              badgeBg: 'rgba(171,71,188,0.10)',
+              badgeColor: '#CE93D8',
+              accent: '#CE93D8',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Confidence display',
+              title: 'Stage timer',
+              description: 'Countdown-focused display for speakers and production timing.',
+              url: demoSetup.stageUrl || demoSetup.timerUrl,
+              badge: 'Step 3',
+              badgeBg: 'rgba(255,167,38,0.10)',
+              badgeColor: '#FFB74D',
+              accent: '#FFB74D',
+            })
+          ],
+          { label: 'Demo set', bg: 'rgba(255,255,255,0.05)', fg: '#F0F2F4' }
+        ));
+      }
+
+      if (publicUrl) {
+        sections.push(_rundownBuildSectionCard(
+          'Public view modes',
+          'Read-only public views built from the same token. Full view is best for desk-side review; compact and prompter are better on larger screens.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Primary view',
+              title: 'Full rundown',
+              description: 'All cues, columns, attachments, and timing details in one read-only view.',
+              url: _rundownBuildModeUrl(publicUrl, '', {}),
+              badge: 'Recommended',
+              badgeBg: 'rgba(0,230,118,0.12)',
+              badgeColor: '#00E676',
+              accent: '#00E676',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Compact view',
+              title: 'Compact rundown',
+              description: 'A tighter layout for quick references and smaller operator displays.',
+              url: _rundownBuildModeUrl(publicUrl, 'compact', {}),
+              badge: 'Fast glance',
+              badgeBg: 'rgba(66,165,245,0.10)',
+              badgeColor: '#81D4FA',
+              accent: '#81D4FA',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Prompter view',
+              title: 'Prompter',
+              description: 'Full-screen, stage-friendly layout that keeps the active cue centered.',
+              url: _rundownBuildModeUrl(publicUrl, 'prompter', {}),
+              badge: 'Stage ready',
+              badgeBg: 'rgba(171,71,188,0.10)',
+              badgeColor: '#CE93D8',
+              accent: '#CE93D8',
+            })
+          ],
+          { label: 'Read only', bg: 'rgba(0,230,118,0.12)', fg: '#00E676' }
+        ));
+      }
+
+      if (timerUrl) {
+        timerSections.push(_rundownBuildSectionCard(
+          'Timer modes',
+          'The same token powers every countdown view. Use the default timer for speakers, stage mode for production screens, and confidence mode for high-visibility countdowns.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Default timer',
+              title: 'Countdown timer',
+              description: 'The lightweight speaker countdown display.',
+              url: _rundownBuildModeUrl(timerUrl, '', {}),
+              badge: 'Default',
+              badgeBg: 'rgba(0,230,118,0.12)',
+              badgeColor: '#00E676',
+              accent: '#00E676',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'Production mode',
+              title: 'Stage timer',
+              description: 'A larger stage layout with more context for production teams.',
+              url: _rundownBuildModeUrl(timerUrl, 'stage', {}),
+              badge: 'Big display',
+              badgeBg: 'rgba(255,167,38,0.10)',
+              badgeColor: '#FFB74D',
+              accent: '#FFB74D',
+            }),
+            _rundownBuildOutputCard({
+              kicker: 'High visibility',
+              title: 'Confidence timer',
+              description: 'A confident, highly readable timer for fast-moving show environments.',
+              url: _rundownBuildModeUrl(timerUrl, 'confidence', {}),
+              badge: 'Confidence',
+              badgeBg: 'rgba(66,165,245,0.10)',
+              badgeColor: '#81D4FA',
+              accent: '#81D4FA',
+            })
+          ],
+          { label: 'Timers', bg: 'rgba(66,165,245,0.10)', fg: '#81D4FA' }
+        ));
+      }
+
+      if (outputSuite) {
+        outputSuite.innerHTML = sections.concat(timerSections).join('');
+      }
+
+      if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
+        for (var i = 0; i < _rundownColumns.length; i++) {
+          var column = _rundownColumns[i];
+          if (!column || !column.id) continue;
+          var operatorUrl = _rundownBuildOperatorOutputUrl(publicUrl || '', column.id);
+          if (!operatorUrl) continue;
+          hasOperatorLinks = true;
+          operatorItems.push(
+            '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07)">'
+              + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">'
+                + '<div style="min-width:0;flex:1">'
+                  + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:#00E676;font-weight:800;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(column.name || column.id) + '</div>'
+                  + '<div style="font-size:12px;color:#8B9DAF;line-height:1.45">Filtered feed for this custom column.</div>'
+                + '</div>'
+                + '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Column</span>'
+              + '</div>'
+              + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+                + '<button class="btn-primary" style="font-size:12px;padding:6px 14px" data-rundown-output-open="' + escapeHtml(operatorUrl) + '">Open</button>'
+                + '<button class="btn-secondary" style="font-size:12px;padding:6px 14px" data-share-copy-url="' + escapeHtml(operatorUrl) + '" data-copy-default-label="Copy Link">Copy</button>'
+              + '</div>'
+              + '<div style="margin-top:8px;font-family:ui-monospace,monospace;font-size:11px;color:#556270;word-break:break-all;line-height:1.4">' + escapeHtml(operatorUrl) + '</div>'
+            + '</div>'
+          );
+        }
+      }
+
+      if (operatorLinks) operatorLinks.innerHTML = operatorItems.join('');
+      if (operatorWrap) {
+        operatorWrap.style.display = hasOperatorLinks ? '' : 'none';
+      }
 
       if (expiryEl && share && share.expiresAt) {
         var exp = new Date(share.expiresAt);
-        expiryEl.textContent = 'Expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        expiryEl.textContent = 'Shared link expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       }
+    }
 
-      var hasOperatorLinks = false;
-      if (operatorLinks) {
-        var baseUrl = publicUrl || '';
-        var columnItems = [];
-        if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
-          for (var i = 0; i < _rundownColumns.length; i++) {
-            var column = _rundownColumns[i];
-            if (!column || !column.id) continue;
-            var operatorUrl = _rundownBuildOperatorOutputUrl(baseUrl, column.id);
-            if (!operatorUrl) continue;
-            hasOperatorLinks = true;
-            columnItems.push(
-              '<div style="display:flex;gap:8px;align-items:stretch">'
-                + '<div style="min-width:0;flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px">'
-                  + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#00E676;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(column.name || column.id) + '</div>'
-                  + '<div style="font-family:ui-monospace,monospace;font-size:12px;color:#8B9DAF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(operatorUrl) + '</div>'
-                + '</div>'
-                + '<button class="btn-secondary" style="font-size:12px;padding:6px 14px;white-space:nowrap" data-share-copy-url="' + escapeHtml(operatorUrl) + '" data-copy-default-label="Copy">Copy</button>'
-              + '</div>'
-            );
-          }
-        }
-        operatorLinks.innerHTML = columnItems.join('');
-      }
-
-      if (operatorWrap) operatorWrap.style.display = hasOperatorLinks ? '' : 'none';
+    function _rundownEnsureShare(planId) {
+      return api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
+        if (data && data.share) return data.share;
+        return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share');
+      });
     }
 
     function _updateSharedBadge(hasShare) {
@@ -10946,49 +11600,96 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var contentEl = document.getElementById('rundown-share-content');
       var errorEl = document.getElementById('rundown-share-error');
       if (!backdrop) return;
-      // Reset state
       if (loadingEl) loadingEl.style.display = '';
       if (contentEl) contentEl.style.display = 'none';
       if (errorEl) errorEl.style.display = 'none';
       backdrop.classList.add('open');
 
-      // Check for existing share first
-      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
-        if (data.share) {
-          _rundownShareData = data.share;
-          _showShareContent(data.share);
-        } else {
-          // No active share — generate one
-          return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(share) {
-            _rundownShareData = share;
-            _showShareContent(share);
-          });
-        }
-      }).catch(function(e) {
-        if (loadingEl) loadingEl.style.display = 'none';
-        if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
-      });
-
-      function _showShareContent(share) {
+      _rundownEnsureShare(planId).then(function(share) {
+        _rundownShareData = share;
         if (loadingEl) loadingEl.style.display = 'none';
         _rundownRenderShareLinks(share);
         if (contentEl) contentEl.style.display = '';
         _updateSharedBadge(true);
+      }).catch(function(e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
+      });
+    }
+
+    function rundownOpenPublicView() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var openView = function(share) {
+        _rundownShareData = share;
+        var urls = _rundownResolveShareUrls(share || {});
+        if (urls.publicUrl) _rundownOpenUrl(urls.publicUrl);
+        _updateSharedBadge(true);
+      };
+      if (_rundownShareData && _rundownShareData.share_token) {
+        openView(_rundownShareData);
+        return;
       }
+      var planId = _rundownSelectedPlan.id;
+      _rundownEnsureShare(planId).then(openView).catch(function(e) { toast('Failed to open public view: ' + e.message, true); });
+    }
+
+    function rundownLaunchDemoSet() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var openWindows = function(share) {
+        _rundownShareData = share;
+        var setup = _rundownBuildDemoSetup(share);
+        [setup.publicUrl || setup.compactUrl, setup.prompterUrl || setup.publicUrl, setup.stageUrl || setup.timerUrl].filter(Boolean).forEach(function(url) {
+          _rundownOpenUrl(url);
+        });
+        _updateSharedBadge(true);
+        toast('Opened demo set');
+      };
+      if (_rundownShareData && _rundownShareData.share_token) {
+        openWindows(_rundownShareData);
+        return;
+      }
+      _rundownEnsureShare(_rundownSelectedPlan.id).then(openWindows).catch(function(e) { toast('Failed to launch demo set: ' + e.message, true); });
+    }
+
+    function rundownCopyDemoSetup(buttonEl) {
+      var setup = _rundownBuildDemoSetup(_rundownShareData || {});
+      if (!setup.note) return;
+      _rundownCopyTextToClipboard(setup.note, buttonEl, 'Copy Setup Notes');
+    }
+
+    function rundownCopyCollaboratorSetup(buttonEl) {
+      var selfKey = _rundownSessionId || '';
+      var selfName = _rundownPresenceDisplayName || _rundownDefaultStationName();
+      var note = [
+        'Tally station setup',
+        '',
+        '1. Open the rundown on the operator device.',
+        '2. Open Team Access.',
+        '3. Set the station name and station key.',
+        '4. Save the station, then give it the right role:',
+        '   Owner manages access',
+        '   Editor can run and update the show',
+        '   Viewer stays read only',
+        '',
+        'This station:',
+        'Name: ' + selfName,
+        'Key: ' + (selfKey || 'not set'),
+      ].join('\n');
+      _rundownCopyTextToClipboard(note, buttonEl, 'Copy Setup Notes');
     }
 
     function rundownCopyShareLink() {
-      var urlEl = document.getElementById('rundown-share-url');
-      var url = urlEl ? urlEl.textContent.trim() : '';
+      var urls = _rundownResolveShareUrls(_rundownShareData || {});
+      var url = _rundownBuildModeUrl(urls.publicUrl, '', {});
       if (!url) return;
-      _rundownCopyTextToClipboard(url, document.getElementById('rundown-share-copy-btn'), 'Copy Link');
+      _rundownCopyTextToClipboard(url, null, 'Copy Link');
     }
 
     function rundownCopyTimerLink() {
-      var urlEl = document.getElementById('rundown-share-timer-url');
-      var url = urlEl ? urlEl.textContent.trim() : '';
+      var urls = _rundownResolveShareUrls(_rundownShareData || {});
+      var url = _rundownBuildModeUrl(urls.timerUrl, '', {});
       if (!url) return;
-      _rundownCopyTextToClipboard(url, document.getElementById('rundown-share-timer-copy-btn'), 'Copy Link');
+      _rundownCopyTextToClipboard(url, null, 'Copy Link');
     }
 
     function rundownRevokeShare() {
@@ -11009,18 +11710,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     (function() {
       var closeBtn = document.getElementById('rundown-share-modal-close');
       var backdrop = document.getElementById('modal-rundown-share');
-      var copyBtn = document.getElementById('rundown-share-copy-btn');
-      var timerCopyBtn = document.getElementById('rundown-share-timer-copy-btn');
+      var launchDemoBtn = document.getElementById('rundown-share-launch-demo-btn');
+      var copyDemoBtn = document.getElementById('rundown-share-copy-demo-btn');
       var revokeBtn = document.getElementById('rundown-share-revoke-btn');
       var contentEl = document.getElementById('rundown-share-content');
       if (closeBtn) closeBtn.addEventListener('click', function() { if (backdrop) backdrop.classList.remove('open'); });
       if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) backdrop.classList.remove('open'); });
-      if (copyBtn) copyBtn.addEventListener('click', function() { if (typeof rundownCopyShareLink === 'function') rundownCopyShareLink(); });
-      if (timerCopyBtn) timerCopyBtn.addEventListener('click', function() { if (typeof rundownCopyTimerLink === 'function') rundownCopyTimerLink(); });
+      if (launchDemoBtn) launchDemoBtn.addEventListener('click', rundownLaunchDemoSet);
+      if (copyDemoBtn) copyDemoBtn.addEventListener('click', function() { rundownCopyDemoSetup(copyDemoBtn); });
       if (revokeBtn) revokeBtn.addEventListener('click', function() { if (typeof rundownRevokeShare === 'function') rundownRevokeShare(); });
       if (contentEl && !contentEl._rundownShareCopyDelegateBound) {
         contentEl._rundownShareCopyDelegateBound = true;
         contentEl.addEventListener('click', function(e) {
+          var openBtn = e.target && e.target.closest ? e.target.closest('[data-rundown-output-open]') : null;
+          if (openBtn) {
+            var openUrl = openBtn.dataset.rundownOutputOpen || '';
+            if (openUrl) _rundownOpenUrl(openUrl);
+            return;
+          }
           var btn = e.target && e.target.closest ? e.target.closest('[data-share-copy-url]') : null;
           if (!btn) return;
           var url = btn.dataset.shareCopyUrl || '';
@@ -11028,6 +11735,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           _rundownCopyTextToClipboard(url, btn, btn.dataset.copyDefaultLabel || 'Copy');
         });
       }
+    })();
+
+    (function() {
+      var closeBtn = document.getElementById('rundown-collaborators-modal-close');
+      var backdrop = document.getElementById('modal-rundown-collaborators');
+      var saveStationBtn = document.getElementById('rundown-station-save');
+      var copyStationBtn = document.getElementById('rundown-station-copy-key');
+      var copySetupBtn = document.getElementById('rundown-collaborators-copy-note');
+      var addCollaboratorBtn = document.getElementById('rundown-collaborator-add');
+      if (closeBtn) closeBtn.addEventListener('click', _rundownCloseCollaborators);
+      if (backdrop) backdrop.addEventListener('click', function(e) {
+        if (e.target === backdrop) _rundownCloseCollaborators();
+      });
+      if (saveStationBtn) saveStationBtn.addEventListener('click', rundownSaveStationIdentity);
+      if (copyStationBtn) copyStationBtn.addEventListener('click', function() {
+        rundownCopyStationKey(copyStationBtn);
+      });
+      if (copySetupBtn) copySetupBtn.addEventListener('click', function() {
+        rundownCopyCollaboratorSetup(copySetupBtn);
+      });
+      if (addCollaboratorBtn) addCollaboratorBtn.addEventListener('click', rundownAddCollaborator);
     })();
 
     // ── Start Live ────────────────────────────────────────────────────────────
@@ -11062,23 +11790,34 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function openTimerDisplay() {
       if (!_rundownSelectedPlan) return;
+      var openTimer = function(share) {
+        _rundownShareData = share;
+        var urls = _rundownResolveShareUrls(share || {});
+        if (urls.timerUrl) _rundownOpenUrl(urls.timerUrl);
+        _updateSharedBadge(true);
+      };
+      if (_rundownShareData && _rundownShareData.share_token) {
+        openTimer(_rundownShareData);
+        return;
+      }
       var planId = _rundownSelectedPlan.id;
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/share').then(function(data) {
-        if (data && data.timer_url) {
-          window.open(data.timer_url, '_blank');
-        }
-      }).catch(function(e) { toast('Failed to open timer: ' + e.message, true); });
+      _rundownEnsureShare(planId).then(openTimer).catch(function(e) { toast('Failed to open timer: ' + e.message, true); });
     }
 
     var btnTimerDisplay = document.getElementById('btn-rundown-timer-display');
     if (btnTimerDisplay) btnTimerDisplay.addEventListener('click', openTimerDisplay);
+    var btnPublicView = document.getElementById('btn-rundown-share');
+    if (btnPublicView) btnPublicView.addEventListener('click', rundownOpenPublicView);
     var btnLiveTimer = document.getElementById('btn-rundown-live-timer');
     if (btnLiveTimer) btnLiveTimer.addEventListener('click', function() {
       // Use the active session's plan or the selected plan
       var plan = _rundownState ? { id: _rundownState.planId } : _rundownSelectedPlan;
       if (!plan) return;
-      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/share').then(function(data) {
-        if (data && data.timer_url) window.open(data.timer_url, '_blank');
+      _rundownEnsureShare(plan.id).then(function(share) {
+        _rundownShareData = share;
+        var urls = _rundownResolveShareUrls(share || {});
+        if (urls.timerUrl) _rundownOpenUrl(urls.timerUrl);
+        _updateSharedBadge(true);
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     });
 
@@ -12203,6 +12942,9 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownSelectPlan':
         if (typeof rundownSelectPlan === 'function') rundownSelectPlan(btn.dataset.planId, btn.dataset.planSource);
         break;
+      case 'rundownCollaborators':
+        if (typeof rundownCollaborators === 'function') rundownCollaborators();
+        break;
       case 'rundownShare':
         if (typeof rundownShare === 'function') rundownShare();
         break;
@@ -12253,6 +12995,18 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownSaveTemplate':
         if (typeof rundownSaveTemplate === 'function') rundownSaveTemplate();
+        break;
+      case 'rundownCollaboratorSave':
+        if (typeof rundownSaveCollaboratorRole === 'function') rundownSaveCollaboratorRole(btn.dataset.collaboratorKey);
+        break;
+      case 'rundownCollaboratorRevoke':
+        if (typeof rundownRevokeCollaborator === 'function') rundownRevokeCollaborator(btn.dataset.collaboratorKey);
+        break;
+      case 'rundownCollaboratorRestore':
+        if (typeof rundownRestoreCollaborator === 'function') rundownRestoreCollaborator(btn.dataset.collaboratorKey);
+        break;
+      case 'rundownCollaboratorCopyKey':
+        if (typeof rundownCopyStationKey === 'function') rundownCopyStationKey(btn, btn.dataset.collaboratorKey);
         break;
       case 'rundownCreateFromTemplate':
         if (typeof rundownCreateFromTemplate === 'function') rundownCreateFromTemplate(btn.dataset.templateId);
