@@ -109,6 +109,10 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN auto_advance INTEGER NOT NULL DEFAULT 0`);
     } catch { /* column already exists */ }
+    // Phase 10.1: parent_id for cue stacks / nested items
+    try {
+      await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN parent_id TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
     // Add share_token column for public timer/share links
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN share_token TEXT`);
@@ -190,6 +194,14 @@ class ManualRundownStore {
     } catch { /* column already exists */ }
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN equipment_binding TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+    // Phase 10.3: column-level edit permissions (JSON array of allowed roles, null = all editors)
+    try {
+      await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN editable_roles TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+    // Phase 10.4: conditional formatting / validation rules (JSON array of rule objects)
+    try {
+      await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN validation_json TEXT NOT NULL DEFAULT '[]'`);
     } catch { /* column already exists */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_rc_plan ON rundown_columns(plan_id, sort_order)
@@ -368,8 +380,15 @@ class ManualRundownStore {
         startType: item.startType,
         hardStartTime: item.hardStartTime,
         autoAdvance: item.autoAdvance,
+        // parentId mapped after all items are created (second pass below)
       });
       itemIdMap[item.id] = newItem.id;
+    }
+    // Second pass: update parentId references using the id map
+    for (const item of plan.items) {
+      if (item.parentId && itemIdMap[item.parentId] && itemIdMap[item.id]) {
+        await this.updateItem(itemIdMap[item.id], { parentId: itemIdMap[item.parentId] });
+      }
     }
     await this.copyCollaborators(planId, newPlan.id, plan.churchId, { skipOwner: true });
     await this._copyColumns(planId, newPlan.id, plan.churchId, itemIdMap);
@@ -399,7 +418,7 @@ class ManualRundownStore {
     return rows.map(r => this._toItem(r));
   }
 
-  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false }) {
+  async addItem(planId, { title, itemType = 'other', lengthSeconds = 0, notes = '', assignee = '', startType = 'soft', hardStartTime = null, autoAdvance = false, parentId = null }) {
     const id = uuidv4();
     const now = Date.now();
     // Get max sort_order
@@ -408,15 +427,15 @@ class ManualRundownStore {
     );
     const sortOrder = (max?.mx ?? -1) + 1;
     await this._db.run(`
-      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, now, now]);
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, parent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, planId, title, itemType, lengthSeconds, notes || '', assignee || '', sortOrder, startType, hardStartTime || null, autoAdvance ? 1 : 0, parentId || null, now, now]);
     // Update plan's updated_at
     await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
-    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, created_at: now, updated_at: now });
+    return this._toItem({ id, plan_id: planId, title, item_type: itemType, length_seconds: lengthSeconds, notes: notes || '', assignee: assignee || '', sort_order: sortOrder, start_type: startType, hard_start_time: hardStartTime || null, auto_advance: autoAdvance ? 1 : 0, parent_id: parentId || null, created_at: now, updated_at: now });
   }
 
-  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance }) {
+  async updateItem(itemId, { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId }) {
     const sets = [];
     const params = [];
     if (title !== undefined) { sets.push('title = ?'); params.push(title); }
@@ -427,6 +446,7 @@ class ManualRundownStore {
     if (startType !== undefined) { sets.push('start_type = ?'); params.push(startType); }
     if (hardStartTime !== undefined) { sets.push('hard_start_time = ?'); params.push(hardStartTime || null); }
     if (autoAdvance !== undefined) { sets.push('auto_advance = ?'); params.push(autoAdvance ? 1 : 0); }
+    if (parentId !== undefined) { sets.push('parent_id = ?'); params.push(parentId || null); }
     if (sets.length === 0) return;
     const now = Date.now();
     sets.push('updated_at = ?');
@@ -487,6 +507,12 @@ class ManualRundownStore {
       });
       itemIdMap[item.id] = newItem.id;
     }
+    // Map parentId references to new IDs
+    for (const item of plan.items) {
+      if (item.parentId && itemIdMap[item.parentId] && itemIdMap[item.id]) {
+        await this.updateItem(itemIdMap[item.id], { parentId: itemIdMap[item.parentId] });
+      }
+    }
     await this.copyCollaborators(planId, newPlan.id, plan.churchId, { skipOwner: true });
     // Copy custom columns and their values
     await this._copyColumns(planId, newPlan.id, plan.churchId, itemIdMap);
@@ -520,6 +546,12 @@ class ManualRundownStore {
         autoAdvance: item.autoAdvance,
       });
       itemIdMap[item.id] = newItem.id;
+    }
+    // Map parentId references to new IDs
+    for (const item of template.items) {
+      if (item.parentId && itemIdMap[item.parentId] && itemIdMap[item.id]) {
+        await this.updateItem(itemIdMap[item.id], { parentId: itemIdMap[item.parentId] });
+      }
     }
     await this.copyCollaborators(templateId, newPlan.id, template.churchId, { skipOwner: true });
     // Copy custom columns and their values
@@ -556,6 +588,8 @@ class ManualRundownStore {
         type: col.type,
         options: col.options,
         equipmentBinding: col.equipmentBinding,
+        editableRoles: col.editableRoles,
+        validationRules: col.validationRules,
       });
       colIdMap[col.id] = newCol.id;
     }
@@ -586,23 +620,32 @@ class ManualRundownStore {
       type: VALID_COLUMN_TYPES.has(r.column_type) ? r.column_type : 'text',
       options: this._parseColumnOptions(r.options_json),
       equipmentBinding: r.equipment_binding || null,
+      editableRoles: r.editable_roles ? this._parseJson(r.editable_roles, null) : null,
+      validationRules: this._parseJson(r.validation_json, []),
       createdAt: r.created_at,
     }));
   }
 
-  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [], equipmentBinding = null }) {
+  _parseJson(raw, fallback) {
+    if (!raw) return fallback;
+    try { return JSON.parse(raw); } catch { return fallback; }
+  }
+
+  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [], equipmentBinding = null, editableRoles = null, validationRules = [] }) {
     const id = uuidv4();
     const now = Date.now();
     const normalizedType = VALID_COLUMN_TYPES.has(type) ? type : 'text';
     const normalizedOptions = this._normalizeColumnOptions(options, normalizedType);
+    const normalizedEditableRoles = Array.isArray(editableRoles) && editableRoles.length ? JSON.stringify(editableRoles) : null;
+    const normalizedValidation = Array.isArray(validationRules) ? JSON.stringify(validationRules) : '[]';
     if (sortOrder === undefined || sortOrder === null) {
       const max = await this._db.queryOne(`SELECT COALESCE(MAX(sort_order), -1) as mx FROM rundown_columns WHERE plan_id = ?`, [planId]);
       sortOrder = (max?.mx ?? -1) + 1;
     }
     await this._db.run(
-      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, equipment_binding, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), equipmentBinding || null, now]
+      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, equipment_binding, editable_roles, validation_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), equipmentBinding || null, normalizedEditableRoles, normalizedValidation, now]
     );
     return {
       id,
@@ -614,11 +657,13 @@ class ManualRundownStore {
       type: normalizedType,
       options: normalizedOptions,
       equipmentBinding: equipmentBinding || null,
+      editableRoles: editableRoles || null,
+      validationRules: validationRules || [],
       createdAt: now,
     };
   }
 
-  async updateColumn(colId, { name, sortOrder, type, options, equipmentBinding }) {
+  async updateColumn(colId, { name, sortOrder, type, options, equipmentBinding, editableRoles, validationRules }) {
     const sets = [];
     const params = [];
     if (name !== undefined) { sets.push('name = ?'); params.push(name); }
@@ -635,6 +680,14 @@ class ManualRundownStore {
     if (equipmentBinding !== undefined) {
       sets.push('equipment_binding = ?');
       params.push(equipmentBinding || null);
+    }
+    if (editableRoles !== undefined) {
+      sets.push('editable_roles = ?');
+      params.push(Array.isArray(editableRoles) && editableRoles.length ? JSON.stringify(editableRoles) : null);
+    }
+    if (validationRules !== undefined) {
+      sets.push('validation_json = ?');
+      params.push(Array.isArray(validationRules) ? JSON.stringify(validationRules) : '[]');
     }
     if (sets.length === 0) return;
     params.push(colId);
@@ -968,6 +1021,7 @@ class ManualRundownStore {
       notes: row.notes || '',
       assignee: row.assignee || '',
       sortOrder: row.sort_order,
+      parentId: row.parent_id || null,
       startType: row.start_type || 'soft',
       hardStartTime: row.hard_start_time || null,
       autoAdvance: !!row.auto_advance,

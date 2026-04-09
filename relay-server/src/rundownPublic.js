@@ -146,9 +146,20 @@ function buildPublicRundownPayload({
   }
   const liveTimer = buildManualPlanTimerState(plan, live, now);
 
+  // Build parent-child lookup for stack aggregation
+  const childrenByParentId = {};
+  for (const item of items) {
+    if (item?.parentId) {
+      if (!childrenByParentId[item.parentId]) childrenByParentId[item.parentId] = [];
+      childrenByParentId[item.parentId].push(item);
+    }
+  }
+
   let displaySequence = 0;
   const publicItems = items.map((item, index) => {
     const isSection = item?.itemType === 'section';
+    const isStandby = item?.itemType === 'standby';
+    const isBlackout = item?.itemType === 'blackout';
     if (!isSection) displaySequence += 1;
     const cells = {};
     const columnEntries = (columns || []).map((column) => {
@@ -159,9 +170,13 @@ function buildPublicRundownPayload({
         name: column.name,
         type: column.type || 'text',
         equipmentBinding: column.equipmentBinding || null,
+        editableRoles: column.editableRoles || null,
+        validationRules: column.validationRules || [],
         value,
       };
     });
+    const stackChildren = childrenByParentId[item.id] || [];
+    const stackDuration = stackChildren.reduce((sum, c) => sum + (Number(c.lengthSeconds) || 0), 0);
     return {
       id: item.id,
       itemType: item.itemType,
@@ -175,6 +190,12 @@ function buildPublicRundownPayload({
       hardStartTime: item.hardStartTime || null,
       autoAdvance: !!item.autoAdvance,
       sortOrder: item.sortOrder,
+      parentId: item.parentId || null,
+      isStackParent: stackChildren.length > 0,
+      childCount: stackChildren.length,
+      stackDuration: stackChildren.length > 0 ? stackDuration : null,
+      isStandby,
+      isBlackout,
       sequence: isSection ? null : displaySequence,
       timing: timing[index] || null,
       liveStatus: {
@@ -206,6 +227,9 @@ function buildPublicRundownPayload({
       type: column.type || 'text',
       options: Array.isArray(column.options) ? column.options : [],
       equipmentBinding: column.equipmentBinding || null,
+      department: column.department || '',
+      editableRoles: column.editableRoles || null,
+      validationRules: column.validationRules || [],
     })),
     values: (values || []).map((value) => ({
       id: value.id,

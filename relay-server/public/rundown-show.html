@@ -432,6 +432,138 @@
       letter-spacing: 0.3px;
     }
 
+    /* ── 10.5 Standby / Blackout cue types ── */
+    .cue-item.is-standby {
+      background: rgba(139,157,175,0.06);
+      border-left: 3px solid #556270;
+    }
+    .cue-item.is-standby .cue-title { color: var(--text-muted); }
+    .cue-item.is-standby .cue-type-badge {
+      background: rgba(85,98,112,0.3);
+      color: #8B9DAF;
+    }
+    .cue-item.is-blackout {
+      background: rgba(0,0,0,0.45);
+      border-left: 3px solid #1a1a1a;
+    }
+    .cue-item.is-blackout .cue-title { color: #556270; }
+    .cue-item.is-blackout .cue-type-badge {
+      background: rgba(0,0,0,0.6);
+      color: #556270;
+    }
+    .cue-type-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    /* ── 10.1 Cue stacks ── */
+    .cue-item.is-child {
+      padding-left: 32px;
+      border-left: 2px solid rgba(255,255,255,0.06);
+    }
+    .cue-item.is-child.is-current {
+      border-left-color: var(--green);
+      padding-left: 29px;
+    }
+    .stack-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-dim);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      flex-shrink: 0;
+      transition: color 0.12s;
+    }
+    .stack-toggle:hover { color: var(--text-muted); background: rgba(255,255,255,0.04); }
+    .stack-toggle svg { transition: transform 0.2s; }
+    .stack-toggle.collapsed svg { transform: rotate(-90deg); }
+    .cue-item.stack-child-hidden { display: none; }
+
+    /* ── 10.6 Cue preview / arm panel ── */
+    .preview-panel {
+      padding: 10px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .preview-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .preview-panel-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+    }
+    .btn-arm {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,183,77,0.3);
+      background: rgba(255,183,77,0.08);
+      color: var(--amber);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .btn-arm:hover { background: rgba(255,183,77,0.15); }
+    .btn-arm.armed {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border-color: var(--amber);
+    }
+    .preview-cue-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .preview-equip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .preview-equip-chip {
+      font-size: 11px;
+      background: rgba(66,165,245,0.08);
+      border: 1px solid rgba(66,165,245,0.2);
+      color: var(--blue);
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+    .preview-equip-chip .chip-label { color: var(--text-dim); margin-right: 4px; }
+    .preview-panel.is-armed {
+      border-top-color: rgba(255,183,77,0.3);
+      background: rgba(255,183,77,0.04);
+    }
+
+    /* ── 10.4 Validation warning count pill ── */
+    .pill-warn {
+      background: rgba(255,183,77,0.12);
+      color: var(--amber);
+      font-family: ui-monospace, 'SF Mono', monospace;
+    }
+
     /* ── Next Up Preview ── */
     .next-up {
       padding: 10px 16px;
@@ -939,6 +1071,8 @@
     var countdownTimer = null;
     var editingItemId = null;
     var hiddenColumns = {};
+    var collapsedStacks = {};  // 10.1: { itemId: true } for collapsed stack parents
+    var armedIndex = -1;       // 10.6: index of the armed (pre-loaded) next cue
     var showStorageKey = 'tally.rundown-show-display:' + token;
     var connBanner = document.getElementById('connection-lost-banner');
     var consecutivePollFailures = 0;
@@ -1066,6 +1200,41 @@
       var s = elapsed % 60;
       if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
       return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    // ── 10.4 Validation helpers ──
+    function countValidationWarnings() {
+      if (!columns.length) return 0;
+      var count = 0;
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item.itemType === 'section') continue;
+        var cells = item.customCells || [];
+        for (var c = 0; c < cells.length; c++) {
+          var cell = cells[c];
+          var rules = cell.validationRules || [];
+          for (var r = 0; r < rules.length; r++) {
+            var rule = rules[r];
+            if (rule.type === 'required' && !cell.value) { count++; break; }
+            if (rule.type === 'match' && rule.value && cell.value === rule.value) { count++; break; }
+            if (rule.type === 'not_match' && rule.value && cell.value !== rule.value && cell.value) { count++; break; }
+          }
+        }
+      }
+      return count;
+    }
+
+    // ── 10.1 Stack helpers ──
+    function isStackParent(item) {
+      return !!(item && item.isStackParent);
+    }
+    function isStackChild(item) {
+      return !!(item && item.parentId);
+    }
+    function toggleStack(parentId) {
+      if (collapsedStacks[parentId]) delete collapsedStacks[parentId];
+      else collapsedStacks[parentId] = true;
+      renderCueList();
     }
 
     function totalRemaining() {
@@ -1210,6 +1379,7 @@
       }
       renderStatusBar();
       renderCueList();
+      renderPreviewPanel();
       renderNextUp();
       if (timer.is_live && !wasLive) scrollToActive();
     }
@@ -1498,6 +1668,13 @@
       app.appendChild(cueWrap);
       renderCueList();
 
+      // 10.6: Preview / Arm panel
+      var previewPanel = document.createElement('div');
+      previewPanel.className = 'preview-panel';
+      previewPanel.id = 'preview-panel';
+      app.appendChild(previewPanel);
+      renderPreviewPanel();
+
       // Next up
       var nextUp = document.createElement('div');
       nextUp.className = 'next-up';
@@ -1546,6 +1723,11 @@
         html += '<span class="pill pill-offline">STANDBY</span>';
         var totalDur = items.reduce(function(sum, it) { return sum + (it.itemType === 'section' ? 0 : (it.lengthSeconds || 0)); }, 0);
         html += '<span class="pill pill-remaining">Total ' + fmtDuration(totalDur) + '</span>';
+      }
+      // 10.4: Validation warning count
+      var warnCount = countValidationWarnings();
+      if (warnCount > 0) {
+        html += '<span class="pill pill-warn" title="Items needing attention">' + warnCount + ' need attention</span>';
       }
       html += '</div>';
 
@@ -1620,14 +1802,23 @@
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         var isSection = item.itemType === 'section';
+        var isStandby = item.itemType === 'standby';
+        var isBlackout = item.itemType === 'blackout';
+        var isChild = !!item.parentId;
+        var isParent = !!item.isStackParent;
         var isCurrent = isLive && i === activeIdx;
         var isCompleted = isLive && i < activeIdx;
+        var parentCollapsed = isChild && !!collapsedStacks[item.parentId];
         if (!isSection) seq++;
 
         var cls = 'cue-item';
         if (isSection) cls += ' is-section';
         if (isCurrent) cls += ' is-current';
         if (isCompleted) cls += ' is-completed';
+        if (isStandby) cls += ' is-standby';
+        if (isBlackout) cls += ' is-blackout';
+        if (isChild) cls += ' is-child';
+        if (parentCollapsed) cls += ' stack-child-hidden';
 
         if (isSection) {
           html += '<div class="' + cls + '"><div class="cue-title">' + escapeHtml(item.title) + '</div></div>';
@@ -1637,14 +1828,22 @@
         html += '<div class="' + cls + '" data-index="' + i + '" data-id="' + escapeHtml(item.id) + '">';
 
         // Number
-        html += '<div class="cue-num">' + seq + '</div>';
+        html += '<div class="cue-num">' + (isChild ? '&middot;' : seq) + '</div>';
 
         // Body
         html += '<div class="cue-body">';
         html += '<div class="cue-title-row">';
+        // Stack parent: collapse/expand toggle
+        if (isParent) {
+          var isCollapsed = !!collapsedStacks[item.id];
+          html += '<button class="stack-toggle' + (isCollapsed ? ' collapsed' : '') + '" data-stack-id="' + escapeHtml(item.id) + '" title="' + (isCollapsed ? 'Expand stack' : 'Collapse stack') + '">';
+          html += '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+          html += escapeHtml(item.childCount) + '</button>';
+        }
         html += '<span class="cue-title">' + escapeHtml(item.title) + '</span>';
-        if (item.itemType && item.itemType !== 'other') {
-          html += '<span class="cue-type">' + escapeHtml(item.itemType) + '</span>';
+        var typeLabel = isStandby ? 'Standby' : isBlackout ? 'Blackout' : (item.itemType && item.itemType !== 'other' ? item.itemType : '');
+        if (typeLabel) {
+          html += '<span class="cue-type-badge">' + escapeHtml(typeLabel) + '</span>';
         }
         html += '</div>';
 
@@ -1660,14 +1859,28 @@
           html += '<div class="cue-notes">' + escapeHtml(notesText) + '</div>';
         }
 
-        // Custom columns
+        // Custom columns with 10.4 validation indicators
         if (columns.length && item.customCells && item.customCells.length) {
           var colHtml = '';
           for (var c = 0; c < item.customCells.length; c++) {
             var cell = item.customCells[c];
             var cellKey = cell.id || cell.columnId || cell.name;
-            if (cell.value && !isColumnHidden(cellKey)) {
-              colHtml += '<span class="cue-col-chip"><span class="col-name">' + escapeHtml(cell.name) + ':</span><span class="col-val">' + escapeHtml(cell.value) + '</span></span>';
+            if (!isColumnHidden(cellKey)) {
+              var hasWarn = false;
+              var cellRules = cell.validationRules || [];
+              for (var r = 0; r < cellRules.length; r++) {
+                var rule = cellRules[r];
+                if (rule.type === 'required' && !cell.value) { hasWarn = true; break; }
+                if (rule.type === 'match' && rule.value && cell.value === rule.value) { hasWarn = true; break; }
+                if (rule.type === 'not_match' && rule.value && cell.value !== rule.value && cell.value) { hasWarn = true; break; }
+              }
+              if (cell.value || hasWarn) {
+                colHtml += '<span class="cue-col-chip' + (hasWarn ? '" style="color:var(--amber);border-left:2px solid var(--amber);padding-left:4px' : '') + '">';
+                colHtml += '<span class="col-name">' + escapeHtml(cell.name) + ':</span>';
+                colHtml += '<span class="col-val">' + (cell.value ? escapeHtml(cell.value) : '<em style="opacity:0.5">empty</em>') + '</span>';
+                if (hasWarn) colHtml += ' <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+                colHtml += '</span>';
+              }
             }
           }
           if (colHtml) html += '<div class="cue-columns">' + colHtml + '</div>';
@@ -1675,21 +1888,23 @@
 
         html += '</div>'; // end cue-body
 
-        // Timing
+        // Timing — for stack parents show aggregate if children are collapsed
         html += '<div class="cue-timing">';
-        if (isCurrent && item.lengthSeconds > 0) {
+        var displayDuration = (isParent && item.stackDuration != null && !!collapsedStacks[item.id])
+          ? item.stackDuration : (item.lengthSeconds || 0);
+        if (isCurrent && displayDuration > 0) {
           var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
           var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
-          var cueRemaining = Math.max(0, item.lengthSeconds - cueElapsed);
-          var isOvertime = cueElapsed > item.lengthSeconds;
+          var cueRemaining = Math.max(0, displayDuration - cueElapsed);
+          var isOvertime = cueElapsed > displayDuration;
           var isWarning = !isOvertime && cueRemaining <= 30;
           var cdClass = 'cue-countdown';
           if (isOvertime) cdClass += ' is-overtime';
           else if (isWarning) cdClass += ' is-warning';
-          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '-' + fmtDuration(cueElapsed - item.lengthSeconds) : fmtDuration(cueRemaining)) + '</div>';
+          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '-' + fmtDuration(cueElapsed - displayDuration) : fmtDuration(cueRemaining)) + '</div>';
           html += '<div class="cue-elapsed-label">' + (isOvertime ? 'overtime' : 'remaining') + '</div>';
         } else {
-          html += '<div class="cue-duration">' + fmtDuration(item.lengthSeconds || 0) + '</div>';
+          html += '<div class="cue-duration">' + fmtDuration(displayDuration) + '</div>';
         }
         html += '</div>';
 
@@ -1698,12 +1913,24 @@
 
       wrap.innerHTML = html;
 
+      // 10.1: Bind stack toggle buttons
+      var stackToggles = wrap.querySelectorAll('.stack-toggle');
+      for (var st = 0; st < stackToggles.length; st++) {
+        (function(btn) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            toggleStack(btn.getAttribute('data-stack-id'));
+          });
+        })(stackToggles[st]);
+      }
+
       // Bind click events (disabled in readonly mode)
       if (!isReadOnly) {
         var cueItems = wrap.querySelectorAll('.cue-item[data-index]');
         for (var j = 0; j < cueItems.length; j++) {
           (function(el) {
             el.addEventListener('click', function(e) {
+              if (e.target.closest && e.target.closest('.stack-toggle')) return;
               var index = parseInt(el.dataset.index, 10);
               if (isLive) {
                 liveGoto(index);
@@ -1715,6 +1942,68 @@
             });
           })(cueItems[j]);
         }
+      }
+    }
+
+    // ── 10.6 Preview / Arm panel ──
+    function renderPreviewPanel() {
+      var wrap = document.getElementById('preview-panel');
+      if (!wrap) return;
+      var isLive = liveState && liveState.isLive;
+      if (!isLive) { wrap.style.display = 'none'; return; }
+      wrap.style.display = '';
+
+      var idx = liveState.currentCueIndex || 0;
+      // Find next non-section item
+      var nextItem = null;
+      var nextIdx = -1;
+      for (var i = idx + 1; i < items.length; i++) {
+        if (items[i].itemType !== 'section') { nextItem = items[i]; nextIdx = i; break; }
+      }
+
+      if (!nextItem) {
+        wrap.style.display = 'none';
+        return;
+      }
+
+      // Collect equipment-bound column values for the next item
+      var equipChips = [];
+      if (nextItem.customCells) {
+        for (var c = 0; c < nextItem.customCells.length; c++) {
+          var cell = nextItem.customCells[c];
+          if (cell.equipmentBinding && cell.value) {
+            equipChips.push({ label: cell.name, binding: cell.equipmentBinding, value: cell.value });
+          }
+        }
+      }
+
+      var isArmed = armedIndex === nextIdx;
+      wrap.className = 'preview-panel' + (isArmed ? ' is-armed' : '');
+
+      var html = '<div class="preview-panel-header">';
+      html += '<div class="preview-panel-label">Next Cue Preview</div>';
+      if (!isReadOnly) {
+        html += '<button class="btn-arm' + (isArmed ? ' armed' : '') + '" id="btn-arm">' + (isArmed ? 'Armed' : 'Arm') + '</button>';
+      }
+      html += '</div>';
+      html += '<div class="preview-cue-title">' + escapeHtml(nextItem.title) + '</div>';
+      if (equipChips.length) {
+        html += '<div class="preview-equip-list">';
+        for (var e = 0; e < equipChips.length; e++) {
+          html += '<div class="preview-equip-chip"><span class="chip-label">' + escapeHtml(equipChips[e].label) + '</span>' + escapeHtml(equipChips[e].value) + '</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">No equipment bindings on next cue</div>';
+      }
+      wrap.innerHTML = html;
+
+      var armBtn = document.getElementById('btn-arm');
+      if (armBtn) {
+        armBtn.addEventListener('click', function() {
+          armedIndex = isArmed ? -1 : nextIdx;
+          renderPreviewPanel();
+        });
       }
     }
 

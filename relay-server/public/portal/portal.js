@@ -9308,13 +9308,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       song: '#9b59b6', sermon: '#3498db', message: '#3498db', media: '#e67e22',
       prayer: '#27ae60', transition: '#7f8c8d', welcome: '#1abc9c',
       offering: '#f39c12', communion: '#c0392b', scripture: '#8e44ad',
-      announcement: '#00bcd4', section: '#556270', other: '#95a5a6'
+      announcement: '#00bcd4', section: '#556270', other: '#95a5a6',
+      standby: '#556270', blackout: '#333333'
     };
     var RUNDOWN_TYPE_LABELS = {
       song: 'Song', sermon: 'Sermon', message: 'Message', media: 'Media',
       prayer: 'Prayer', transition: 'Transition', welcome: 'Welcome',
       offering: 'Offering', communion: 'Communion', scripture: 'Scripture',
-      announcement: 'Announce', section: 'Section', other: 'Other'
+      announcement: 'Announce', section: 'Section', other: 'Other',
+      standby: 'Standby', blackout: 'Blackout'
     };
     var RUNDOWN_TYPE_TOOLTIPS = {
       song: 'Song — worship music or hymn',
@@ -9329,11 +9331,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       scripture: 'Scripture — Bible reading',
       announcement: 'Announcement — church news or updates',
       section: 'Section — visual divider to group items',
-      other: 'Other — custom item type'
+      other: 'Other — custom item type',
+      standby: 'Standby — technical hold; grey bar in show mode, hidden in public view',
+      blackout: 'Blackout — lights/screens off; black bar in show mode, hidden in public view'
     };
     // Primary types shown by default (4.6 — sensible defaults first, "More..." for rest)
     var RUNDOWN_TYPE_PRIMARY = ['song','sermon','media','prayer','scripture','transition'];
-    var RUNDOWN_TYPE_EXTENDED = ['welcome','offering','communion','announcement','other'];
+    var RUNDOWN_TYPE_EXTENDED = ['welcome','offering','communion','announcement','other','standby','blackout'];
     var RUNDOWN_TYPE_OPTIONS = RUNDOWN_TYPE_PRIMARY.concat(RUNDOWN_TYPE_EXTENDED).concat(['section']);
 
     // ── 4.8 Plain text notes by default, rich text opt-in ────────────────────
@@ -10949,6 +10953,58 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
       menu.appendChild(bindingBtn);
 
+      // 10.3: Edit Permissions button
+      var permBtn = document.createElement('div');
+      permBtn.textContent = 'Edit Permissions';
+      permBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      permBtn.addEventListener('mouseenter', function() { permBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      permBtn.addEventListener('mouseleave', function() { permBtn.style.background = 'none'; });
+      permBtn.addEventListener('click', function() {
+        menu.remove();
+        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
+        var currentRoles = Array.isArray(currentColumn.editableRoles) ? currentColumn.editableRoles.join(', ') : '';
+        styledPrompt('Column Permissions', 'Roles that can edit (comma-separated: owner, editor, viewer — leave blank for all):', currentRoles || '').then(function(val) {
+          if (val === null) return;
+          var roles = val.trim() ? val.split(',').map(function(r) { return r.trim().toLowerCase(); }).filter(function(r) { return ['owner','editor','viewer'].indexOf(r) >= 0; }) : null;
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
+            editableRoles: roles && roles.length ? roles : null,
+          }).then(function(data) {
+            _rundownColumns = data.columns || _rundownColumns;
+            toast(roles && roles.length ? 'Restricted to: ' + roles.join(', ') : 'Column open to all editors');
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(permBtn);
+
+      // 10.4: Validation Rules button
+      var validationBtn = document.createElement('div');
+      validationBtn.textContent = 'Validation Rules';
+      validationBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      validationBtn.addEventListener('mouseenter', function() { validationBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      validationBtn.addEventListener('mouseleave', function() { validationBtn.style.background = 'none'; });
+      validationBtn.addEventListener('click', function() {
+        menu.remove();
+        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
+        var rules = Array.isArray(currentColumn.validationRules) ? currentColumn.validationRules : [];
+        // Simple UI: describe existing rules, offer to add "required" rule
+        var ruleDesc = rules.length ? rules.map(function(r) { return r.type + (r.value ? ':' + r.value : ''); }).join(', ') : 'None';
+        styledPrompt('Validation Rules', 'Current: ' + ruleDesc + '\n\nEnter rule (e.g. "required", "match:LIVE", "not_match:TBD") or leave blank to clear:', '').then(function(val) {
+          if (val === null) return;
+          var newRules = [];
+          if (val.trim()) {
+            var parts = val.trim().split(':');
+            newRules = [{ type: parts[0].trim(), value: parts[1] ? parts[1].trim() : undefined }];
+          }
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
+            validationRules: newRules,
+          }).then(function(data) {
+            _rundownColumns = data.columns || _rundownColumns;
+            toast(newRules.length ? 'Validation rule set: ' + newRules[0].type : 'Validation cleared');
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(validationBtn);
+
       var deleteBtn = document.createElement('div');
       deleteBtn.textContent = 'Delete';
       deleteBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#FF5252;cursor:pointer;border-radius:4px';
@@ -11387,12 +11443,31 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var typeSelect = document.getElementById('rundown-item-type-input');
       var durInput = document.getElementById('rundown-item-duration-input');
       var notesInput = document.getElementById('rundown-item-notes-input');
+      var parentSelect = document.getElementById('rundown-item-parent-input');
+      var parentField = document.getElementById('rundown-item-parent-field');
       if (titleEl) titleEl.textContent = mode === 'edit' ? 'Edit Item' : 'Add Item';
       if (saveBtn) saveBtn.textContent = mode === 'edit' ? 'Save' : 'Add Item';
       if (titleInput) titleInput.value = (defaults && defaults.title) || '';
       if (typeSelect) typeSelect.value = (defaults && defaults.itemType) || 'other';
       if (durInput) durInput.value = (defaults && defaults.durationMinutes != null) ? defaults.durationMinutes : '0';
       if (notesInput) notesInput.value = (defaults && defaults.notes) || '';
+      // Populate parent select from current plan items (exclude sections + items that are already children)
+      if (parentSelect && parentField) {
+        var planItems = (_rundownSelectedPlan && _rundownSelectedPlan.items) || [];
+        var editingId = (defaults && defaults.id) || null;
+        var eligibleParents = planItems.filter(function(it) {
+          return it.itemType !== 'section' && !it.parentId && it.id !== editingId;
+        });
+        parentSelect.innerHTML = '<option value="">— None (top-level item) —</option>';
+        eligibleParents.forEach(function(it) {
+          var opt = document.createElement('option');
+          opt.value = it.id;
+          opt.textContent = it.title || '(untitled)';
+          parentSelect.appendChild(opt);
+        });
+        parentSelect.value = (defaults && defaults.parentId) || '';
+        parentField.style.display = eligibleParents.length > 0 ? '' : 'none';
+      }
       if (backdrop) backdrop.classList.add('open');
       setTimeout(function() { if (titleInput) { titleInput.focus(); titleInput.select(); } }, 100);
       return new Promise(function(resolve) { _rundownItemModalResolve = resolve; });
@@ -11412,11 +11487,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (saveBtn) saveBtn.addEventListener('click', function() {
         var title = document.getElementById('rundown-item-title-input').value;
         if (!title || !title.trim()) { document.getElementById('rundown-item-title-input').focus(); return; }
+        var parentSelectEl = document.getElementById('rundown-item-parent-input');
         _closeRundownItemModal({
           title: title.trim(),
           itemType: document.getElementById('rundown-item-type-input').value || 'other',
           durationMinutes: parseFloat(document.getElementById('rundown-item-duration-input').value || '0') || 0,
           notes: document.getElementById('rundown-item-notes-input').value || '',
+          parentId: (parentSelectEl && parentSelectEl.value) || null,
         });
       });
       if (cancelBtn) cancelBtn.addEventListener('click', function() { _closeRundownItemModal(null); });
@@ -11480,6 +11557,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           itemType: result.itemType,
           lengthSeconds: durSec > 0 ? durSec : 0,
           notes: result.notes,
+          parentId: result.parentId || null,
         }).then(function() {
           api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
             _rundownSelectedPlan = plan;
@@ -11543,10 +11621,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
       if (!item) return;
       _openRundownItemModal('edit', {
+        id: item.id,
         title: item.title,
         itemType: item.itemType,
         durationMinutes: item.lengthSeconds > 0 ? parseFloat((item.lengthSeconds / 60).toFixed(1)) : 0,
         notes: item.notes || '',
+        parentId: item.parentId || null,
       }).then(function(result) {
         if (!result) return;
         var durSec = Math.round(result.durationMinutes * 60);
@@ -11555,6 +11635,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           itemType: result.itemType,
           lengthSeconds: durSec > 0 ? durSec : 0,
           notes: result.notes,
+          parentId: result.parentId || null,
         }).then(function(plan) {
           _rundownSelectedPlan = plan;
           renderRundownEditor(plan);

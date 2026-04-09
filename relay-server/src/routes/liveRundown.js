@@ -1198,7 +1198,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const churchId = req.params.churchId;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
 
-      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance } = req.body;
+      const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId } = req.body;
       if (!title || !title.trim()) return res.status(400).json({ error: 'title is required' });
 
       try {
@@ -1217,6 +1217,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           startType,
           hardStartTime,
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : false,
+          parentId: parentId || null,
         });
         broadcastRundownEvent(churchId, 'rundown_item_added', { planId: req.params.planId, item });
         res.json(item);
@@ -1248,7 +1249,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (!targetItem) {
           return res.status(404).json({ error: 'Item not found' });
         }
-        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance } = req.body;
+        const { title, itemType, lengthSeconds, notes, assignee, startType, hardStartTime, autoAdvance, parentId } = req.body;
         const sanitizedNotes = notes !== undefined ? sanitizeHtml(notes) : undefined;
         await manualRundown.updateItem(req.params.itemId, {
           title, itemType,
@@ -1257,6 +1258,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           assignee,
           startType, hardStartTime,
           autoAdvance: autoAdvance !== undefined ? !!autoAdvance : undefined,
+          parentId: parentId !== undefined ? (parentId || null) : undefined,
         });
         // Return updated plan
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -1601,6 +1603,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const type = VALID_RUNDOWN_COLUMN_TYPES.has(req.body?.type) ? req.body.type : 'text';
       const options = normalizeRundownColumnOptions(req.body?.options, type);
       const equipmentBinding = normalizeRundownEquipmentBinding(req.body?.equipmentBinding);
+      const editableRoles = Array.isArray(req.body?.editableRoles) ? req.body.editableRoles.filter((r) => VALID_RUNDOWN_COLLABORATOR_ROLES.has(r)) : null;
+      const validationRules = Array.isArray(req.body?.validationRules) ? req.body.validationRules : [];
       if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
       if (equipmentBinding && !VALID_RUNDOWN_EQUIPMENT_BINDINGS.has(equipmentBinding)) {
         return res.status(400).json({ error: 'Invalid equipment binding' });
@@ -1615,6 +1619,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           type,
           options,
           equipmentBinding,
+          editableRoles: editableRoles && editableRoles.length ? editableRoles : null,
+          validationRules,
         });
         res.json(col);
       } catch (e) {
@@ -1663,6 +1669,13 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             return res.status(400).json({ error: 'Invalid equipment binding' });
           }
           update.equipmentBinding = equipmentBinding;
+        }
+        if (req.body?.editableRoles !== undefined) {
+          const roles = Array.isArray(req.body.editableRoles) ? req.body.editableRoles.filter((r) => VALID_RUNDOWN_COLLABORATOR_ROLES.has(r)) : null;
+          update.editableRoles = roles && roles.length ? roles : null;
+        }
+        if (req.body?.validationRules !== undefined) {
+          update.validationRules = Array.isArray(req.body.validationRules) ? req.body.validationRules : [];
         }
         await manualRundown.updateColumn(colId, update);
         const updatedColumns = await manualRundown.getColumns(planId);
@@ -1717,8 +1730,16 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const item = (plan.items || []).find((entry) => entry.id === itemId);
         if (!item) return res.status(404).json({ error: 'Item not found' });
         const columns = await manualRundown.getColumns(planId);
-        if (!columns.some((column) => column.id === colId)) {
-          return res.status(404).json({ error: 'Column not found' });
+        const targetCol = columns.find((column) => column.id === colId);
+        if (!targetCol) return res.status(404).json({ error: 'Column not found' });
+        // Phase 10.3: column-level edit permission check
+        if (Array.isArray(targetCol.editableRoles) && targetCol.editableRoles.length) {
+          const actor = getRundownActor(req);
+          const collaborator = actor.sessionId ? await manualRundown.getCollaborator(planId, actor.sessionId) : null;
+          const actorRole = collaborator?.role || 'editor';
+          if (!targetCol.editableRoles.includes(actorRole) && actorRole !== 'owner') {
+            return res.status(403).json({ error: `Column "${targetCol.name}" can only be edited by: ${targetCol.editableRoles.join(', ')}` });
+          }
         }
         await manualRundown.setColumnValue(itemId, colId, req.body.value || '');
         res.json({ ok: true });

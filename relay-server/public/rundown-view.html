@@ -645,6 +645,45 @@
     .type-prayer  { background: rgba(102,187,106,0.12); color: #81C784; }
     .type-break   { background: rgba(255,255,255,0.07); color: #8B9DAF; }
     .type-other   { background: rgba(255,255,255,0.07); color: #8B9DAF; }
+    /* 10.5 Standby / Blackout */
+    .type-standby { background: rgba(85,98,112,0.2); color: #8B9DAF; }
+    .type-blackout { background: rgba(0,0,0,0.5); color: #556270; }
+    tr.row-standby td { background: rgba(85,98,112,0.04); color: #556270; }
+    tr.row-blackout td { background: rgba(0,0,0,0.25); color: #3a3a3a; }
+    tr.row-standby .item-title, tr.row-blackout .item-title { color: #556270; }
+
+    /* 10.1 Cue stack indentation */
+    tr.is-stack-child td:nth-child(2) { padding-left: 28px; }
+    tr.is-stack-child td:first-child { opacity: 0.4; }
+    tr.is-stack-child td { background: rgba(255,255,255,0.01); }
+    tr.is-stack-child.row-hidden { display: none; }
+    .stack-parent-toggle {
+      background: none; border: none; cursor: pointer;
+      color: #556270; padding: 0 4px; font-size: 11px;
+      vertical-align: middle; line-height: 1;
+      transition: color 0.12s;
+    }
+    .stack-parent-toggle:hover { color: #8B9DAF; }
+    .stack-parent-toggle svg { transition: transform 0.2s; vertical-align: middle; }
+    .stack-parent-toggle.collapsed svg { transform: rotate(-90deg); }
+
+    /* 10.2 Column department group headers in toggle popover */
+    .col-toggle-dept-header {
+      font-size: 10px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.8px; color: #556270; padding: 8px 0 2px 0;
+      margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .col-toggle-dept-header:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+
+    /* 10.4 Validation indicators on cells */
+    .cell-warn {
+      border-left: 2px solid rgba(255,183,77,0.6);
+      padding-left: 5px !important;
+    }
+    .cell-warn-icon {
+      display: inline-block; vertical-align: middle;
+      color: #FFB74D; margin-left: 4px; opacity: 0.8;
+    }
 
     td.dur-cell, td.start-cell, td.end-cell {
       font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
@@ -1607,6 +1646,8 @@
         { key: 'notes', label: 'Notes' },
       ];
       var hiddenColumns = {};
+      var collapsedStackIds = {};   // 10.1: { itemId: true } for collapsed stack parents
+      var collapsedDeptGroups = {}; // 10.2: { deptName: true } for collapsed dept groups in column toggle
       var displayPrefs = {
         mirror: false,
         density: 'roomy',
@@ -1758,16 +1799,53 @@
         var customCols = lastPlan ? getColumns(lastPlan) : [];
         if (customCols.length) {
           html += '<div class="col-toggle-divider"></div>';
-          html += '<div class="col-toggle-title">Custom Columns</div>';
+          // 10.2: Group custom columns by department
+          var deptGroups = {}; // { deptName: [col, ...] }
+          var noDeptCols = [];
           for (var j = 0; j < customCols.length; j++) {
             var cc = customCols[j];
-            var ccKey = 'custom:' + cc.id;
-            var ccChecked = !isColumnHidden(ccKey);
-            html += '<div class="col-toggle-item' + (ccChecked ? ' checked' : '') + '" data-col-key="' + esc(ccKey) + '">';
-            html += '<div class="col-toggle-check">' + checkSvg + '</div>';
-            html += '<span class="col-toggle-label">' + esc(cc.name) + '</span>';
-            if (cc.department) html += '<span class="col-toggle-sub">' + esc(cc.department) + '</span>';
+            var deptName = cc.department || '';
+            if (deptName) {
+              if (!deptGroups[deptName]) deptGroups[deptName] = [];
+              deptGroups[deptName].push(cc);
+            } else {
+              noDeptCols.push(cc);
+            }
+          }
+          // Render ungrouped columns first
+          if (noDeptCols.length) {
+            html += '<div class="col-toggle-title">Custom Columns</div>';
+            for (var ni = 0; ni < noDeptCols.length; ni++) {
+              var ncc = noDeptCols[ni];
+              var nccKey = 'custom:' + ncc.id;
+              var nccChecked = !isColumnHidden(nccKey);
+              html += '<div class="col-toggle-item' + (nccChecked ? ' checked' : '') + '" data-col-key="' + esc(nccKey) + '">';
+              html += '<div class="col-toggle-check">' + checkSvg + '</div>';
+              html += '<span class="col-toggle-label">' + esc(ncc.name) + '</span>';
+              html += '</div>';
+            }
+          }
+          // Render department groups with collapse/expand header
+          var deptNames = Object.keys(deptGroups).sort();
+          for (var di = 0; di < deptNames.length; di++) {
+            var dn = deptNames[di];
+            var dnCols = deptGroups[dn];
+            var dnCollapsed = !!collapsedDeptGroups[dn];
+            html += '<div class="col-toggle-dept-header" data-dept="' + esc(dn) + '" style="cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none">';
+            html += '<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;transform:' + (dnCollapsed ? 'rotate(-90deg)' : 'rotate(0)') + '"><path d="m6 9 6 6 6-6"/></svg>';
+            html += esc(dn) + ' (' + dnCols.length + ')';
             html += '</div>';
+            if (!dnCollapsed) {
+              for (var dci = 0; dci < dnCols.length; dci++) {
+                var dcc = dnCols[dci];
+                var dccKey = 'custom:' + dcc.id;
+                var dccChecked = !isColumnHidden(dccKey);
+                html += '<div class="col-toggle-item' + (dccChecked ? ' checked' : '') + '" data-col-key="' + esc(dccKey) + '" style="padding-left:20px">';
+                html += '<div class="col-toggle-check">' + checkSvg + '</div>';
+                html += '<span class="col-toggle-label">' + esc(dcc.name) + '</span>';
+                html += '</div>';
+              }
+            }
           }
         }
         colToggleList.innerHTML = html;
@@ -1779,6 +1857,16 @@
             });
           })(items[k]);
         }
+        // 10.2: Bind dept group header collapse/expand
+        var deptHeaders = colToggleList.querySelectorAll('.col-toggle-dept-header[data-dept]');
+        deptHeaders.forEach(function(hdr) {
+          hdr.addEventListener('click', function() {
+            var dn = hdr.getAttribute('data-dept');
+            if (collapsedDeptGroups[dn]) delete collapsedDeptGroups[dn];
+            else collapsedDeptGroups[dn] = true;
+            renderColumnToggleList();
+          });
+        });
       }
 
       var mirrorConfirmed = false;
@@ -1923,7 +2011,11 @@
       }
 
       function colorForType(type) {
-        var map = { song: '#42A5F5', sermon: '#CE93D8', message: '#CE93D8', media: '#FFB74D', prayer: '#81C784' };
+        var map = {
+          song: '#42A5F5', sermon: '#CE93D8', message: '#CE93D8',
+          media: '#FFB74D', prayer: '#81C784',
+          standby: '#556270', blackout: '#1a1a1a',
+        };
         return map[type] || 'rgba(255,255,255,0.15)';
       }
 
@@ -3028,19 +3120,39 @@
           // 5.4: Assignee highlighting
           var isAssigneeMatch = assigneeFilter && itemMatchesAssignee(item, assigneeFilter);
           var isAssigneeDim = assigneeFilter && !isAssigneeMatch;
+          var isStandby = item.itemType === 'standby';
+          var isBlackout = item.itemType === 'blackout';
+          var isStackChild = !!item.parentId;
+          var isStackParentRow = !!item.isStackParent;
           var rowClasses = [];
           if (isCurrent) rowClasses.push('current-row');
           if (isRowFiltered) rowClasses.push('row-filtered');
           if (isAssigneeMatch) rowClasses.push('row-assignee-match');
           if (isAssigneeDim && !isCurrent) rowClasses.push('row-assignee-dim');
-          html += '<tr' + (rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '') + '>';
-          html += '<td class="num">' + esc(String(item.sequence || (j + 1))) + '</td>';
+          // 10.5: special row classes for standby/blackout
+          if (isStandby) rowClasses.push('row-standby');
+          if (isBlackout) rowClasses.push('row-blackout');
+          // 10.1: stack child indentation; hide if parent is collapsed
+          if (isStackChild) {
+            rowClasses.push('is-stack-child');
+            if (collapsedStackIds[item.parentId]) rowClasses.push('row-hidden');
+          }
+          html += '<tr' + (rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '') +
+            (isStackChild ? ' data-parent-id="' + esc(item.parentId) + '"' : '') + '>';
+          html += '<td class="num">' + (isStackChild ? '<span style="color:#3a4a58">&middot;</span>' : esc(String(item.sequence || (j + 1)))) + '</td>';
           html += '<td class="color-cell"><div class="color-bar" style="background:' + colorForType(item.itemType) + '"></div></td>';
           if (showTitle) {
             html += '<td class="title-cell">';
             html += '<div class="title-wrap">';
             html += '<div class="title-main">';
-            html += '<span class="title-text">' + esc(item.title) + '</span>';
+            // 10.1: stack parent collapse/expand toggle
+            if (isStackParentRow) {
+              var isCollapsedRow = !!collapsedStackIds[item.id];
+              html += '<button class="stack-parent-toggle' + (isCollapsedRow ? ' collapsed' : '') + '" data-stack-id="' + esc(item.id) + '" title="' + (isCollapsedRow ? 'Expand' : 'Collapse') + '">';
+              html += '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+              html += '</button>';
+            }
+            html += '<span class="title-text item-title">' + esc(item.title) + '</span>';
             var tags = getItemTags(item, liveState, j, isCurrent);
             if (tags.length) html += renderPills(tags);
             html += '</div>';
@@ -3056,7 +3168,19 @@
           for (var k = 0; k < columns.length; k++) {
             var column = columns[k];
             var cellValue = (valueMap[String(itemId)] && valueMap[String(itemId)][String(column.id)] !== undefined) ? valueMap[String(itemId)][String(column.id)] : '';
-            html += '<td class="custom-cell">' + renderCustomCell(cellValue) + '</td>';
+            // 10.4: evaluate validation rules for this cell
+            var cellHasWarn = false;
+            var colValRules = column.validationRules || [];
+            for (var vr = 0; vr < colValRules.length; vr++) {
+              var vRule = colValRules[vr];
+              if (vRule.type === 'required' && !cellValue) { cellHasWarn = true; break; }
+              if (vRule.type === 'match' && vRule.value && cellValue === vRule.value) { cellHasWarn = true; break; }
+              if (vRule.type === 'not_match' && vRule.value && cellValue !== vRule.value && cellValue) { cellHasWarn = true; break; }
+            }
+            html += '<td class="custom-cell' + (cellHasWarn ? ' cell-warn' : '') + '">';
+            html += renderCustomCell(cellValue);
+            if (cellHasWarn) html += '<svg class="cell-warn-icon" xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+            html += '</td>';
           }
           html += '</tr>';
         }
@@ -3083,6 +3207,23 @@
 
         document.getElementById('app').innerHTML = html;
         lastUpdated = plan.updatedAt;
+
+        // 10.1: Bind stack collapse/expand toggle buttons
+        var stackBtns = document.querySelectorAll('.stack-parent-toggle');
+        stackBtns.forEach(function(btn) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var sid = btn.getAttribute('data-stack-id');
+            if (collapsedStackIds[sid]) delete collapsedStackIds[sid];
+            else collapsedStackIds[sid] = true;
+            // Toggle row-hidden on child rows
+            var childRows = document.querySelectorAll('tr[data-parent-id="' + sid + '"]');
+            childRows.forEach(function(row) {
+              row.classList.toggle('row-hidden', !!collapsedStackIds[sid]);
+            });
+            btn.classList.toggle('collapsed', !!collapsedStackIds[sid]);
+          });
+        });
 
         // 5.2: Bind filter bar interactions
         bindFilterBar(allPlanColumns);
