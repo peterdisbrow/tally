@@ -358,6 +358,23 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_rsr_token ON rundown_show_reports(share_token)
     `);
+
+    // ── Phase 11 (v3): per-item checklists ─────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS manual_rundown_checklists (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        plan_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        checked INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_mrc_item ON manual_rundown_checklists(item_id, sort_order ASC)
+    `);
   }
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
@@ -583,6 +600,7 @@ class ManualRundownStore {
     const item = await this._db.queryOne(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
     await this._db.run(`DELETE FROM rundown_column_values WHERE item_id = ?`, [itemId]);
     await this._db.run(`DELETE FROM rundown_attachments WHERE item_id = ?`, [itemId]);
+    await this._db.run(`DELETE FROM manual_rundown_checklists WHERE item_id = ?`, [itemId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE id = ?`, [itemId]);
     if (item) await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [Date.now(), item.plan_id]);
   }
@@ -1746,6 +1764,183 @@ class ManualRundownStore {
       label: r.label || '',
       updatedAt: r.updated_at,
     }));
+  }
+
+  // ─── CHECKLISTS (Phase 11 / v3) ──────────────────────────────────────────
+
+  async getChecklists(itemId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM manual_rundown_checklists WHERE item_id = ? ORDER BY sort_order ASC, created_at ASC`,
+      [itemId]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      churchId: r.church_id,
+      planId: r.plan_id,
+      itemId: r.item_id,
+      label: r.label,
+      checked: !!r.checked,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async getChecklistsForPlan(planId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM manual_rundown_checklists WHERE plan_id = ? ORDER BY item_id, sort_order ASC`,
+      [planId]
+    );
+    return rows.map(r => ({
+      id: r.id,
+      churchId: r.church_id,
+      planId: r.plan_id,
+      itemId: r.item_id,
+      label: r.label,
+      checked: !!r.checked,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async addChecklist(churchId, planId, itemId, label) {
+    await this.ready;
+    const id = uuidv4();
+    const now = Date.now();
+    const max = await this._db.queryOne(
+      `SELECT COALESCE(MAX(sort_order), -1) as mx FROM manual_rundown_checklists WHERE item_id = ?`, [itemId]
+    );
+    const sortOrder = (max?.mx ?? -1) + 1;
+    await this._db.run(`
+      INSERT INTO manual_rundown_checklists (id, church_id, plan_id, item_id, label, checked, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `, [id, churchId, planId, itemId, label, sortOrder, now]);
+    return { id, churchId, planId, itemId, label, checked: false, sortOrder, createdAt: now };
+  }
+
+  async updateChecklist(checkId, { checked, label }) {
+    await this.ready;
+    const sets = [];
+    const params = [];
+    if (checked !== undefined) { sets.push('checked = ?'); params.push(checked ? 1 : 0); }
+    if (label !== undefined) { sets.push('label = ?'); params.push(label); }
+    if (sets.length === 0) return;
+    params.push(checkId);
+    await this._db.run(`UPDATE manual_rundown_checklists SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+
+  async deleteChecklist(checkId) {
+    await this.ready;
+    await this._db.run(`DELETE FROM manual_rundown_checklists WHERE id = ?`, [checkId]);
+  }
+
+  async deleteChecklistsForItem(itemId) {
+    await this.ready;
+    await this._db.run(`DELETE FROM manual_rundown_checklists WHERE item_id = ?`, [itemId]);
+  }
+
+  // ─── DUPLICATE ITEM / SECTION (Phase 11 / v3) ────────────────────────────
+
+  async duplicateItem(planId, itemId) {
+    await this.ready;
+    const item = await this._db.queryOne(`SELECT * FROM manual_rundown_items WHERE id = ? AND plan_id = ?`, [itemId, planId]);
+    if (!item) return null;
+
+    const newId = uuidv4();
+    const now = Date.now();
+
+    // Shift sort_order of items after the original
+    await this._db.run(
+      `UPDATE manual_rundown_items SET sort_order = sort_order + 1 WHERE plan_id = ? AND sort_order > ?`,
+      [planId, item.sort_order]
+    );
+
+    await this._db.run(`
+      INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [newId, planId, item.title + ' (copy)', item.item_type, item.length_seconds, item.notes || '', item.assignee || '', item.sort_order + 1, item.start_type || 'soft', item.hard_start_time || null, item.auto_advance || 0, item.director_notes || '', item.parent_id || null, now, now]);
+
+    // Copy column values
+    const colVals = await this._db.query(`SELECT * FROM rundown_column_values WHERE item_id = ?`, [itemId]);
+    for (const cv of colVals) {
+      await this._db.run(
+        `INSERT INTO rundown_column_values (id, item_id, column_id, value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), newId, cv.column_id, cv.value, now]
+      );
+    }
+
+    // Copy checklists
+    const checks = await this._db.query(`SELECT * FROM manual_rundown_checklists WHERE item_id = ?`, [itemId]);
+    for (const ck of checks) {
+      await this._db.run(
+        `INSERT INTO manual_rundown_checklists (id, church_id, plan_id, item_id, label, checked, sort_order, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+        [uuidv4(), ck.church_id, planId, newId, ck.label, ck.sort_order, now]
+      );
+    }
+
+    await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
+    return this._toItem({ id: newId, plan_id: planId, title: item.title + ' (copy)', item_type: item.item_type, length_seconds: item.length_seconds, notes: item.notes || '', assignee: item.assignee || '', sort_order: item.sort_order + 1, start_type: item.start_type || 'soft', hard_start_time: item.hard_start_time || null, auto_advance: item.auto_advance || 0, director_notes: item.director_notes || '', parent_id: item.parent_id || null, created_at: now, updated_at: now });
+  }
+
+  async duplicateSection(planId, sectionItemId) {
+    await this.ready;
+    const section = await this._db.queryOne(`SELECT * FROM manual_rundown_items WHERE id = ? AND plan_id = ? AND item_type = 'section'`, [sectionItemId, planId]);
+    if (!section) return null;
+
+    // Find all items in this section (between this section and the next section or end)
+    const allItems = await this._db.query(
+      `SELECT * FROM manual_rundown_items WHERE plan_id = ? ORDER BY sort_order ASC`, [planId]
+    );
+    const sectionIdx = allItems.findIndex(i => i.id === sectionItemId);
+    if (sectionIdx < 0) return null;
+
+    // Collect section + its items until the next section
+    const sectionItems = [allItems[sectionIdx]];
+    for (let i = sectionIdx + 1; i < allItems.length; i++) {
+      if (allItems[i].item_type === 'section') break;
+      sectionItems.push(allItems[i]);
+    }
+
+    // Shift items after the last section item
+    const lastSortOrder = sectionItems[sectionItems.length - 1].sort_order;
+    await this._db.run(
+      `UPDATE manual_rundown_items SET sort_order = sort_order + ? WHERE plan_id = ? AND sort_order > ?`,
+      [sectionItems.length, planId, lastSortOrder]
+    );
+
+    const now = Date.now();
+    const newItems = [];
+    for (let i = 0; i < sectionItems.length; i++) {
+      const orig = sectionItems[i];
+      const newId = uuidv4();
+      const newTitle = i === 0 ? orig.title + ' (copy)' : orig.title;
+      await this._db.run(`
+        INSERT INTO manual_rundown_items (id, plan_id, title, item_type, length_seconds, notes, assignee, sort_order, start_type, hard_start_time, auto_advance, director_notes, parent_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [newId, planId, newTitle, orig.item_type, orig.length_seconds, orig.notes || '', orig.assignee || '', lastSortOrder + 1 + i, orig.start_type || 'soft', orig.hard_start_time || null, orig.auto_advance || 0, orig.director_notes || '', orig.parent_id || null, now, now]);
+
+      // Copy column values
+      const colVals = await this._db.query(`SELECT * FROM rundown_column_values WHERE item_id = ?`, [orig.id]);
+      for (const cv of colVals) {
+        await this._db.run(
+          `INSERT INTO rundown_column_values (id, item_id, column_id, value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          [uuidv4(), newId, cv.column_id, cv.value, now]
+        );
+      }
+      // Copy checklists
+      const checks = await this._db.query(`SELECT * FROM manual_rundown_checklists WHERE item_id = ?`, [orig.id]);
+      for (const ck of checks) {
+        await this._db.run(
+          `INSERT INTO manual_rundown_checklists (id, church_id, plan_id, item_id, label, checked, sort_order, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+          [uuidv4(), ck.church_id, planId, newId, ck.label, ck.sort_order, now]
+        );
+      }
+      newItems.push(this._toItem({ id: newId, plan_id: planId, title: newTitle, item_type: orig.item_type, length_seconds: orig.length_seconds, notes: orig.notes || '', assignee: orig.assignee || '', sort_order: lastSortOrder + 1 + i, start_type: orig.start_type || 'soft', hard_start_time: orig.hard_start_time || null, auto_advance: orig.auto_advance || 0, director_notes: orig.director_notes || '', parent_id: orig.parent_id || null, created_at: now, updated_at: now }));
+    }
+
+    await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [now, planId]);
+    return newItems;
   }
 }
 

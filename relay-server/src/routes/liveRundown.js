@@ -55,6 +55,35 @@ const VALID_RUNDOWN_EQUIPMENT_BINDINGS = new Set([
   'stream.live',
 ]);
 
+function csvEscapeField(val) {
+  const s = String(val == null ? '' : val);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function parseCSVLine(line) {
+  const fields = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = false; }
+      } else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { fields.push(current); current = ''; }
+      else { current += ch; }
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
 function normalizeRundownColumnOptions(options, type) {
   if (type !== 'dropdown') return [];
   const list = Array.isArray(options)
@@ -2899,6 +2928,356 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         // Broadcast dept update to portal
         broadcastRundownEvent(churchId, 'room_dept_status_update', result);
         res.json(result);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  PHASE 11 (v3): WORKFLOW POWER FEATURES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── 1. PER-ITEM CHECKLISTS ──────────────────────────────────────────────
+
+  app.get('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/checklists',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        const checklists = await manualRundown.getChecklists(req.params.itemId);
+        res.json({ checklists });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.get('/api/churches/:churchId/rundown-plans/:planId/checklists',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        const checklists = await manualRundown.getChecklistsForPlan(req.params.planId);
+        res.json({ checklists });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/checklists',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        const { label } = req.body;
+        if (!label || !label.trim()) return res.status(400).json({ error: 'label is required' });
+        const check = await manualRundown.addChecklist(req.params.churchId, req.params.planId, req.params.itemId, label.trim());
+        res.json(check);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.put('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/checklists/:checkId',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const { checked, label } = req.body;
+        await manualRundown.updateChecklist(req.params.checkId, { checked, label });
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.delete('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/checklists/:checkId',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        await manualRundown.deleteChecklist(req.params.checkId);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── 2. PDF EXPORT ───────────────────────────────────────────────────────
+
+  app.get('/api/churches/:churchId/rundown-plans/:planId/export/pdf',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        const format = req.query.format || 'tech';
+        const columns = await manualRundown.getColumns(plan.id);
+        const colValues = await manualRundown.getColumnValues(plan.id);
+        const checklists = await manualRundown.getChecklistsForPlan(plan.id);
+
+        const church = churches.get(req.params.churchId);
+        const churchName = church?.name || church?.churchName || 'Church';
+
+        const PDFDocument = require('pdfkit');
+        const doc = new PDFDocument({ size: 'LETTER', margin: 40, bufferPages: true });
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(plan.title || 'Rundown') + '.pdf"');
+        doc.pipe(res);
+
+        // Color constants
+        const COLORS = {
+          song: '#9b59b6', sermon: '#3498db', media: '#e67e22', prayer: '#27ae60',
+          transition: '#7f8c8d', welcome: '#1abc9c', offering: '#f39c12', communion: '#c0392b',
+          scripture: '#8e44ad', announcement: '#00bcd4', section: '#556270', other: '#95a5a6',
+        };
+
+        // Header
+        doc.fontSize(18).font('Helvetica-Bold').text(plan.title || 'Rundown', { align: 'center' });
+        doc.moveDown(0.3);
+        doc.fontSize(10).font('Helvetica').fillColor('#666666');
+        const headerParts = [churchName];
+        if (plan.serviceDate) headerParts.push(plan.serviceDate);
+        headerParts.push('Format: ' + format.charAt(0).toUpperCase() + format.slice(1));
+        doc.text(headerParts.join('  |  '), { align: 'center' });
+        doc.moveDown(0.5);
+        doc.moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
+        doc.moveDown(0.5);
+
+        const items = plan.items || [];
+        let totalSeconds = 0;
+        let runningTime = '09:00';
+
+        // Filter items based on format
+        const filteredItems = items.filter(item => {
+          if (format === 'band') return ['song', 'section'].includes(item.itemType);
+          if (format === 'pastor') return ['sermon', 'message', 'scripture', 'prayer', 'section'].includes(item.itemType);
+          return true;
+        });
+
+        // Build checklist map
+        const checkMap = {};
+        checklists.forEach(c => {
+          if (!checkMap[c.itemId]) checkMap[c.itemId] = [];
+          checkMap[c.itemId].push(c);
+        });
+
+        // Column value map
+        const cvMap = {};
+        colValues.forEach(v => {
+          cvMap[v.itemId + '_' + v.columnId] = v.value;
+        });
+
+        let rowNum = 0;
+        for (const item of filteredItems) {
+          if (doc.y > 680) { doc.addPage(); }
+
+          const color = COLORS[item.itemType] || COLORS.other;
+
+          if (item.itemType === 'section') {
+            doc.moveDown(0.5);
+            doc.fontSize(11).font('Helvetica-Bold').fillColor(color).text(item.title.toUpperCase(), 44, doc.y);
+            doc.moveTo(40, doc.y + 2).lineTo(572, doc.y + 2).strokeColor(color).lineWidth(1).stroke();
+            doc.moveDown(0.5);
+            continue;
+          }
+
+          rowNum++;
+          const dur = item.lengthSeconds || 0;
+          totalSeconds += dur;
+          const durStr = Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0');
+
+          // Row: number, color dot, title, type, duration
+          const y = doc.y;
+          doc.fontSize(9).font('Helvetica').fillColor('#999999').text(String(rowNum), 40, y, { width: 20 });
+          doc.circle(68, y + 5, 4).fill(color);
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(item.title, 78, y, { width: 200 });
+          doc.fontSize(9).font('Helvetica').fillColor('#666666').text(item.itemType, 285, y, { width: 60 });
+          if (item.assignee) doc.text(item.assignee, 350, y, { width: 80 });
+          doc.font('Helvetica').text(durStr, 440, y, { width: 50, align: 'right' });
+          doc.moveDown(0.3);
+
+          // Notes
+          const notes = (item.notes || '').replace(/<[^>]*>/g, '');
+          if (notes) {
+            doc.fontSize(8).fillColor('#888888').text(notes, 78, doc.y, { width: 400 });
+            doc.moveDown(0.2);
+          }
+
+          // Director notes (tech format only)
+          if (format === 'tech' && item.directorNotes) {
+            doc.fontSize(8).fillColor('#cc8800').text('DIR: ' + item.directorNotes, 78, doc.y, { width: 400 });
+            doc.moveDown(0.2);
+          }
+
+          // Custom columns (tech format only)
+          if (format === 'tech' && columns.length > 0) {
+            const colParts = [];
+            for (const col of columns) {
+              const val = cvMap[item.id + '_' + col.id];
+              if (val) colParts.push(col.name + ': ' + val);
+            }
+            if (colParts.length > 0) {
+              doc.fontSize(8).fillColor('#666666').text(colParts.join('  |  '), 78, doc.y, { width: 400 });
+              doc.moveDown(0.2);
+            }
+          }
+
+          // Checklists (tech format only)
+          if (format === 'tech' && checkMap[item.id]) {
+            for (const ck of checkMap[item.id]) {
+              const prefix = ck.checked ? '[x] ' : '[ ] ';
+              doc.fontSize(8).fillColor('#555555').text(prefix + ck.label, 88, doc.y, { width: 380 });
+            }
+            doc.moveDown(0.1);
+          }
+
+          doc.moveDown(0.3);
+          doc.moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#eeeeee').lineWidth(0.3).stroke();
+          doc.moveDown(0.2);
+        }
+
+        // Footer totals
+        doc.moveDown(1);
+        const totalH = Math.floor(totalSeconds / 3600);
+        const totalM = Math.floor((totalSeconds % 3600) / 60);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(
+          'Total Duration: ' + (totalH > 0 ? totalH + 'h ' : '') + totalM + 'm',
+          { align: 'right' }
+        );
+
+        doc.end();
+      } catch (e) {
+        console.error('[rundown] PDF export error:', e);
+        if (!res.headersSent) res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── 3. CSV EXPORT / IMPORT ──────────────────────────────────────────────
+
+  app.get('/api/churches/:churchId/rundown-plans/:planId/export/csv',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+
+        const items = plan.items || [];
+        const headers = ['Title', 'Type', 'Duration (seconds)', 'Assignee', 'Notes', 'Director Notes', 'Section'];
+        let currentSection = '';
+        const rows = items.map(item => {
+          if (item.itemType === 'section') { currentSection = item.title; return null; }
+          const notes = (item.notes || '').replace(/<[^>]*>/g, '');
+          return [item.title, item.itemType, item.lengthSeconds || 0, item.assignee || '', notes, item.directorNotes || '', currentSection].map(csvEscapeField);
+        }).filter(Boolean);
+
+        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(plan.title || 'Rundown') + '.csv"');
+        res.send(csv);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/import/csv',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+
+        const { csvData, preview } = req.body;
+        if (!csvData) return res.status(400).json({ error: 'csvData is required' });
+
+        const lines = csvData.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header + at least 1 row' });
+
+        const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+        const titleIdx = headers.findIndex(h => ['title', 'name', 'item'].includes(h));
+        const typeIdx = headers.findIndex(h => ['type', 'item type', 'itemtype'].includes(h));
+        const durIdx = headers.findIndex(h => ['duration', 'duration (seconds)', 'length', 'seconds'].includes(h));
+        const assigneeIdx = headers.findIndex(h => ['assignee', 'who', 'person', 'assigned'].includes(h));
+        const notesIdx = headers.findIndex(h => ['notes', 'description', 'details'].includes(h));
+        const sectionIdx = headers.findIndex(h => ['section', 'group', 'block'].includes(h));
+
+        if (titleIdx < 0) return res.status(400).json({ error: 'CSV must have a Title column' });
+
+        const parsedItems = [];
+        let lastSection = '';
+        for (let i = 1; i < lines.length; i++) {
+          const fields = parseCSVLine(lines[i]);
+          const title = (fields[titleIdx] || '').trim();
+          if (!title) continue;
+          const section = sectionIdx >= 0 ? (fields[sectionIdx] || '').trim() : '';
+          if (section && section !== lastSection) {
+            parsedItems.push({ title: section, itemType: 'section', lengthSeconds: 0, notes: '', assignee: '' });
+            lastSection = section;
+          }
+          const dur = durIdx >= 0 ? parseInt(fields[durIdx], 10) || 0 : 0;
+          parsedItems.push({
+            title,
+            itemType: typeIdx >= 0 ? (fields[typeIdx] || 'other').trim().toLowerCase() : 'other',
+            lengthSeconds: dur,
+            assignee: assigneeIdx >= 0 ? (fields[assigneeIdx] || '').trim() : '',
+            notes: notesIdx >= 0 ? (fields[notesIdx] || '').trim() : '',
+          });
+        }
+
+        if (preview) return res.json({ items: parsedItems, count: parsedItems.length });
+
+        // Actually import
+        for (const pi of parsedItems) {
+          await manualRundown.addItem(req.params.planId, pi);
+        }
+        const updated = await manualRundown.getPlan(req.params.planId);
+        res.json(updated);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  // ─── 5. DUPLICATE ITEM / SECTION ─────────────────────────────────────────
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/items/:itemId/duplicate',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const newItem = await manualRundown.duplicateItem(req.params.planId, req.params.itemId);
+        if (!newItem) return res.status(404).json({ error: 'Item not found' });
+        const updated = await manualRundown.getPlan(req.params.planId);
+        broadcastRundownEvent(req.params.churchId, 'rundown_item_added', { planId: req.params.planId, item: newItem });
+        res.json(updated);
+      } catch (e) {
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/sections/:sectionId/duplicate',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      try {
+        const plan = await manualRundown.getPlan(req.params.planId);
+        if (!plan || plan.churchId !== req.params.churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const newItems = await manualRundown.duplicateSection(req.params.planId, req.params.sectionId);
+        if (!newItems) return res.status(404).json({ error: 'Section not found' });
+        const updated = await manualRundown.getPlan(req.params.planId);
+        res.json(updated);
       } catch (e) {
         res.status(500).json({ error: safeErrorMessage(e) });
       }

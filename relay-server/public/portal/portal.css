@@ -2141,3 +2141,39 @@ body.light-theme .rundown-template-card { background: rgba(0,0,0,0.02); border-c
 body.light-theme .rundown-template-card:hover { background: rgba(0,0,0,0.04); border-color: rgba(22,163,74,0.2); }
 body.light-theme .rundown-template-card-title { color: #1a1a2e; }
 body.light-theme .rundown-total-duration { background: rgba(22,163,74,0.06); color: #16a34a; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 11 (v3): Workflow Power Features
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Selected row highlight */
+.rundown-selected-row { outline: 1px solid rgba(66,165,245,0.35); outline-offset: -1px; background: rgba(66,165,245,0.04) !important; }
+
+/* Context menu */
+#rundown-ctx-menu div:hover { background: rgba(255,255,255,0.06); }
+
+/* Checklist panel */
+.checklist-panel { animation: fadeSlideIn 0.15s ease-out; }
+@keyframes fadeSlideIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+.checklist-item:hover .checklist-delete { opacity: 1; }
+.checklist-delete { opacity: 0; transition: opacity 0.15s; }
+
+/* Undo/Redo disabled state */
+#btn-rundown-undo:disabled, #btn-rundown-redo:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+/* Export menu hover */
+.rundown-export-menu > div:hover { background: rgba(255,255,255,0.06) !important; }
+
+/* Compare modal table */
+#rundown-compare-modal table tr:hover { background: rgba(255,255,255,0.03) !important; }
+
+/* Light theme overrides */
+body.light-theme .rundown-selected-row { outline-color: rgba(66,165,245,0.4); background: rgba(66,165,245,0.06) !important; }
+body.light-theme #rundown-ctx-menu { background: #fff; border-color: rgba(0,0,0,0.12); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+body.light-theme #rundown-ctx-menu div { color: #1a1a1a; }
+body.light-theme #rundown-ctx-menu div:hover { background: rgba(0,0,0,0.04); }
+body.light-theme .rundown-export-menu { background: #fff !important; border-color: rgba(0,0,0,0.12) !important; box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important; }
+body.light-theme .rundown-export-menu > div { color: #1a1a1a !important; }
+body.light-theme .rundown-export-menu > div:hover { background: rgba(0,0,0,0.04) !important; }
+body.light-theme #rundown-compare-modal > div { background: #fff; border-color: rgba(0,0,0,0.12); }
+body.light-theme .checklist-panel input[type="text"] { background: rgba(0,0,0,0.04); color: #1a1a1a; border-color: rgba(0,0,0,0.12); }

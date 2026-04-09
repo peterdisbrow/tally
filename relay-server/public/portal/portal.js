@@ -8306,8 +8306,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownRehearsalItemStart = null; // timestamp when current rehearsal item started
     var _rundownRehearsalCurrentIndex = 0;
     var _rundownRehearsalTimings = []; // [{ itemId, title, plannedDuration, actualDuration }]
-    var _rundownUndoStack = []; // array of revision IDs for undo
-    var _rundownRedoStack = [];
+    var _rundownUndoStack = []; // Phase 11: undo stack (max 20 entries) — { type, desc, undo(), redo() }
+    var _rundownRedoStack = []; // Phase 11: redo stack
+    var _rundownChecklistData = {}; // { itemId: [{ id, label, checked, ... }] }
+    var _rundownSelectedItemId = null; // Highlighted row for keyboard navigation
+    var _rundownChecklistExpanded = {}; // { itemId: true } — expanded checklist panels
 
     // ── Status display config ────────────────────────────────────────────────
     var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Ready', live: 'Live', archived: 'Archived' };
@@ -10190,6 +10193,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function() {});
 
       renderRundownEditorItems(items);
+      _loadChecklistsForPlan(); // Phase 11: load checklists
+      _updateUndoRedoButtons(); // Phase 11: sync undo/redo button state
 
       // Subscribe to collaborative editing presence
       _rundownSubscribePlan(plan.id);
@@ -10294,7 +10299,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // Build table — compute total column count
-      var colCount = 14 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + attachments + live timer
+      var colCount = 15 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + checklist + attachments + live timer
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
@@ -10327,6 +10332,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;width:72px;text-align:center" title="Calculated end time">End</th>';
       html += '<th class="rundown-adv" style="padding:8px 6px;width:28px;text-align:center" title="Fixed Time: locks item to a wall-clock time. Auto-advance: automatically moves to next item when timer expires.">' + SVG.clock + '</th>';
       html += '<th style="padding:8px 6px;text-align:left" title="Optional notes — click to edit, use Format toggle for rich text">Notes</th>';
+      html += '<th style="padding:8px 6px;width:44px;text-align:center" title="Pre-show checklists">' + SVG.check + '</th>'; // checklists
       html += '<th style="padding:8px 6px;width:32px"></th>'; // attachments
       if (isLive) html += '<th style="padding:8px 6px;width:72px;text-align:center">Timer</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
@@ -10525,6 +10531,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(notesPlain || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
 
+        // Checklist badge
+        var clSummary = _getChecklistSummary(item.id);
+        html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle;min-width:44px">';
+        html += '<span class="checklist-badge" data-item-id="' + item.id + '" style="cursor:pointer;display:inline-block;min-width:36px" title="Checklist">';
+        if (clSummary) {
+          html += '<span style="font-size:10px;color:' + (clSummary.done === clSummary.total ? '#00E676' : '#8B9DAF') + '">' + clSummary.done + '/' + clSummary.total + ' ' + SVG.check + '</span>';
+          html += '<div style="height:2px;background:rgba(255,255,255,0.08);border-radius:1px;margin-top:1px"><div style="height:100%;background:' + (clSummary.done === clSummary.total ? '#00E676' : '#42A5F5') + ';border-radius:1px;width:' + clSummary.pct + '%"></div></div>';
+        }
+        html += '</span>';
+        html += '</td>';
+
         // Attachments (paperclip icon with count badge)
         var itemAtts = _rundownAttachments[item.id] || [];
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle;position:relative">';
@@ -10698,6 +10715,28 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _attachRundownDragDrop();
       // Attach hard/soft start and auto-advance toggles
       _attachRundownCueToggles(container);
+      // Phase 11: attach context menu for duplicate/delete
+      _attachRundownContextMenu(container);
+      // Phase 11: attach checklist badge click handlers
+      container.querySelectorAll('.checklist-badge').forEach(function(badge) {
+        badge.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = badge.getAttribute('data-item-id');
+          _rundownChecklistExpanded[itemId] = !_rundownChecklistExpanded[itemId];
+          _renderChecklistPanel(itemId);
+        });
+      });
+      // Phase 11: row click for selection highlight
+      container.querySelectorAll('tr[data-item-id]').forEach(function(row) {
+        if (row.classList.contains('rundown-director-notes-row') || row.classList.contains('rundown-checklist-row')) return;
+        row.addEventListener('click', function(e) {
+          if (e.target.closest('.rundown-inline-edit, .rundown-inline-type, .rundown-inline-col, .rundown-inline-director-note, input, select, textarea, .checklist-badge, .rundown-attachment-btn, .rundown-toggle-dir-note, .rundown-toggle-start-type, .rundown-toggle-auto, .rundown-batch-checkbox, [data-action]')) return;
+          var itemId = row.getAttribute('data-item-id');
+          _rundownSelectedItemId = itemId;
+          container.querySelectorAll('tr[data-item-id]').forEach(function(r) { r.classList.remove('rundown-selected-row'); });
+          row.classList.add('rundown-selected-row');
+        });
+      });
       // Attach director note toggle buttons
       container.querySelectorAll('.rundown-toggle-dir-note').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
@@ -13209,12 +13248,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     }
 
-    // Ctrl+Z / Cmd+Z for plan-level undo
+    // Phase 11: Ctrl+Z / Cmd+Z for undo, Ctrl+Shift+Z / Cmd+Shift+Z for redo
     document.addEventListener('keydown', function(e) {
+      var editorVisible = _rundownSelectedPlan && document.getElementById('rundown-editor') && document.getElementById('rundown-editor').style.display !== 'none';
+      if (!editorVisible) return;
+      var isEditing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT' || document.activeElement.isContentEditable);
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        if (_rundownSelectedPlan && document.getElementById('rundown-editor') && document.getElementById('rundown-editor').style.display !== 'none') {
+        e.preventDefault();
+        if (_rundownUndoStack.length > 0) _rundownUndo();
+        else rundownShowRevisionHistory();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        _rundownRedo();
+        return;
+      }
+
+      // Quick-add keyboard shortcuts (only when not editing a field)
+      if (isEditing) return;
+      if (e.key === 'a' || e.key === 'A') {
+        if (!e.ctrlKey && !e.metaKey) {
           e.preventDefault();
-          rundownShowRevisionHistory();
+          rundownAddItemInline();
+        }
+      } else if (e.key === 'i' || e.key === 'I') {
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          _rundownInsertItemAfterSelected();
         }
       }
     });
@@ -13514,6 +13576,500 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PHASE 11 (v3): WORKFLOW POWER FEATURES
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── 1. Per-Item Checklists ──────────────────────────────────────────────
+
+    function _loadChecklistsForPlan() {
+      if (!_rundownSelectedPlan) return;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/checklists').then(function(data) {
+        _rundownChecklistData = {};
+        (data.checklists || []).forEach(function(c) {
+          if (!_rundownChecklistData[c.itemId]) _rundownChecklistData[c.itemId] = [];
+          _rundownChecklistData[c.itemId].push(c);
+        });
+        renderRundownEditorItems(_rundownSelectedPlan.items || []);
+      }).catch(function() {});
+    }
+
+    function _getChecklistSummary(itemId) {
+      var checks = _rundownChecklistData[itemId] || [];
+      if (checks.length === 0) return null;
+      var done = checks.filter(function(c) { return c.checked; }).length;
+      return { done: done, total: checks.length, pct: Math.round((done / checks.length) * 100) };
+    }
+
+    function _renderChecklistPanel(itemId) {
+      var existing = document.querySelector('.rundown-checklist-row[data-checklist-for="' + itemId + '"]');
+      if (existing) existing.remove();
+      if (!_rundownChecklistExpanded[itemId]) return;
+      var checks = _rundownChecklistData[itemId] || [];
+      var itemRow = document.querySelector('tr[data-item-id="' + itemId + '"]:not(.rundown-director-notes-row):not(.rundown-checklist-row)');
+      if (!itemRow) return;
+      var colCount = itemRow.children.length;
+      var tr = document.createElement('tr');
+      tr.className = 'rundown-checklist-row';
+      tr.setAttribute('data-checklist-for', itemId);
+      tr.style.cssText = 'background:rgba(0,230,118,0.03);border-bottom:1px solid rgba(255,255,255,0.04)';
+      var td = document.createElement('td');
+      td.setAttribute('colspan', colCount);
+      td.style.cssText = 'padding:6px 12px 8px 78px';
+      var html = '<div class="checklist-panel" style="max-width:400px">';
+      checks.forEach(function(ck) {
+        html += '<div class="checklist-item" style="display:flex;align-items:center;gap:8px;padding:3px 0" data-check-id="' + ck.id + '">';
+        html += '<input type="checkbox" ' + (ck.checked ? 'checked' : '') + ' class="checklist-toggle" data-check-id="' + ck.id + '" data-item-id="' + itemId + '" style="accent-color:#00E676;cursor:pointer">';
+        html += '<span class="checklist-label" data-check-id="' + ck.id + '" data-item-id="' + itemId + '" style="cursor:text;flex:1;font-size:12px;color:' + (ck.checked ? '#556270' : '#F0F2F4') + ';' + (ck.checked ? 'text-decoration:line-through' : '') + '">' + escapeHtml(ck.label) + '</span>';
+        html += '<span class="checklist-delete" data-check-id="' + ck.id + '" data-item-id="' + itemId + '" style="cursor:pointer;color:#556270;font-size:11px" title="Remove">' + SVG.xMark + '</span>';
+        html += '</div>';
+      });
+      html += '<div style="display:flex;gap:6px;margin-top:4px">';
+      html += '<input type="text" class="checklist-add-input" data-item-id="' + itemId + '" placeholder="Add checklist item..." style="flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:12px">';
+      html += '</div>';
+      html += '</div>';
+      td.innerHTML = html;
+      tr.appendChild(td);
+
+      // Insert after the item row (and after director notes row if visible)
+      var dirRow = document.querySelector('.rundown-director-notes-row[data-item-id="' + itemId + '"]');
+      var insertAfter = dirRow || itemRow;
+      insertAfter.parentNode.insertBefore(tr, insertAfter.nextSibling);
+
+      // Attach events
+      tr.querySelectorAll('.checklist-toggle').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          var checkId = cb.getAttribute('data-check-id');
+          var iId = cb.getAttribute('data-item-id');
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + iId + '/checklists/' + checkId, { checked: cb.checked }).then(function() {
+            var ck = (_rundownChecklistData[iId] || []).find(function(c) { return c.id === checkId; });
+            if (ck) ck.checked = cb.checked;
+            _renderChecklistPanel(iId);
+            _updateChecklistBadge(iId);
+          }).catch(function(e) { toast('Failed: ' + e.message, true); });
+        });
+      });
+      tr.querySelectorAll('.checklist-delete').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var checkId = btn.getAttribute('data-check-id');
+          var iId = btn.getAttribute('data-item-id');
+          api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + iId + '/checklists/' + checkId).then(function() {
+            _rundownChecklistData[iId] = (_rundownChecklistData[iId] || []).filter(function(c) { return c.id !== checkId; });
+            _renderChecklistPanel(iId);
+            _updateChecklistBadge(iId);
+          }).catch(function(e) { toast('Failed: ' + e.message, true); });
+        });
+      });
+      tr.querySelectorAll('.checklist-label').forEach(function(lbl) {
+        lbl.addEventListener('dblclick', function() {
+          var checkId = lbl.getAttribute('data-check-id');
+          var iId = lbl.getAttribute('data-item-id');
+          var ck = (_rundownChecklistData[iId] || []).find(function(c) { return c.id === checkId; });
+          if (!ck) return;
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.value = ck.label;
+          input.style.cssText = 'flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(0,230,118,0.3);border-radius:4px;padding:2px 6px;font-size:12px;outline:none';
+          lbl.replaceWith(input);
+          input.focus();
+          function save() {
+            var val = input.value.trim();
+            if (val && val !== ck.label) {
+              ck.label = val;
+              api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + iId + '/checklists/' + checkId, { label: val });
+            }
+            _renderChecklistPanel(iId);
+          }
+          input.addEventListener('blur', save);
+          input.addEventListener('keydown', function(e) { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { _renderChecklistPanel(iId); } });
+        });
+      });
+      var addInput = tr.querySelector('.checklist-add-input');
+      if (addInput) {
+        addInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            var label = addInput.value.trim();
+            if (!label) return;
+            addInput.value = '';
+            api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/checklists', { label: label }).then(function(ck) {
+              if (!_rundownChecklistData[itemId]) _rundownChecklistData[itemId] = [];
+              _rundownChecklistData[itemId].push(ck);
+              _renderChecklistPanel(itemId);
+              _updateChecklistBadge(itemId);
+              setTimeout(function() {
+                var newInput = document.querySelector('.checklist-add-input[data-item-id="' + itemId + '"]');
+                if (newInput) newInput.focus();
+              }, 50);
+            }).catch(function(e) { toast('Failed: ' + e.message, true); });
+          }
+        });
+      }
+    }
+
+    function _updateChecklistBadge(itemId) {
+      var badge = document.querySelector('.checklist-badge[data-item-id="' + itemId + '"]');
+      if (!badge) return;
+      var summary = _getChecklistSummary(itemId);
+      if (summary) {
+        badge.innerHTML = '<span style="font-size:10px;color:' + (summary.done === summary.total ? '#00E676' : '#8B9DAF') + '">' + summary.done + '/' + summary.total + ' ' + SVG.check + '</span>'
+          + '<div style="height:2px;background:rgba(255,255,255,0.08);border-radius:1px;margin-top:1px"><div style="height:100%;background:' + (summary.done === summary.total ? '#00E676' : '#42A5F5') + ';border-radius:1px;width:' + summary.pct + '%;transition:width 0.3s"></div></div>';
+      } else {
+        badge.innerHTML = '';
+      }
+    }
+
+    // ── 2. PDF Export ───────────────────────────────────────────────────────
+
+    function rundownExportPDF(format) {
+      if (!_rundownSelectedPlan) return;
+      var url = '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/export/pdf?format=' + (format || 'tech');
+      window.open(url, '_blank');
+      toast('PDF export started');
+    }
+
+    // ── 3. CSV Import/Export ────────────────────────────────────────────────
+
+    function rundownExportCSV() {
+      if (!_rundownSelectedPlan) return;
+      var url = '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/export/csv';
+      window.open(url, '_blank');
+      toast('CSV export started');
+    }
+
+    function rundownImportCSV() {
+      if (!_rundownSelectedPlan) return;
+      var input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv,text/csv';
+      input.addEventListener('change', function() {
+        var file = input.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var csvData = e.target.result;
+          // Preview first
+          api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/import/csv', { csvData: csvData, preview: true }).then(function(data) {
+            styledConfirm('Import CSV', 'Import ' + data.count + ' items from "' + file.name + '"?').then(function(ok) {
+              if (!ok) return;
+              api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/import/csv', { csvData: csvData }).then(function(plan) {
+                _rundownSelectedPlan = plan;
+                renderRundownEditor(plan);
+                toast('Imported ' + data.count + ' items');
+              }).catch(function(e) { toast('Import failed: ' + e.message, true); });
+            });
+          }).catch(function(e) { toast('Failed to parse CSV: ' + e.message, true); });
+        };
+        reader.readAsText(file);
+      });
+      input.click();
+    }
+
+    // ── 4. Undo/Redo System ─────────────────────────────────────────────────
+
+    function _rundownPushUndo(entry) {
+      // entry: { type, desc, undoFn, redoFn }
+      _rundownUndoStack.push(entry);
+      if (_rundownUndoStack.length > 20) _rundownUndoStack.shift();
+      _rundownRedoStack = [];
+      _updateUndoRedoButtons();
+    }
+
+    function _rundownUndo() {
+      if (_rundownUndoStack.length === 0) return;
+      var entry = _rundownUndoStack.pop();
+      _rundownRedoStack.push(entry);
+      toast('Undid: ' + entry.desc);
+      entry.undoFn().then(function() {
+        _updateUndoRedoButtons();
+      }).catch(function(e) { toast('Undo failed: ' + e.message, true); });
+    }
+
+    function _rundownRedo() {
+      if (_rundownRedoStack.length === 0) return;
+      var entry = _rundownRedoStack.pop();
+      _rundownUndoStack.push(entry);
+      toast('Redid: ' + entry.desc);
+      entry.redoFn().then(function() {
+        _updateUndoRedoButtons();
+      }).catch(function(e) { toast('Redo failed: ' + e.message, true); });
+    }
+
+    function _updateUndoRedoButtons() {
+      var undoBtn = document.getElementById('btn-rundown-undo');
+      var redoBtn = document.getElementById('btn-rundown-redo');
+      if (undoBtn) undoBtn.disabled = _rundownUndoStack.length === 0;
+      if (redoBtn) redoBtn.disabled = _rundownRedoStack.length === 0;
+    }
+
+    function _refreshRundownPlan() {
+      if (!_rundownSelectedPlan) return Promise.resolve();
+      return api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+        if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownDashboard(); }
+      });
+    }
+
+    // Wrap existing item operations to push onto undo stack
+    var _origRundownDeleteItem = rundownDeleteItem;
+    rundownDeleteItem = function(itemId) {
+      if (!_rundownSelectedPlan) return;
+      var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+      if (!item) return _origRundownDeleteItem(itemId);
+      styledConfirm('Remove Item', 'Remove this item from the rundown?').then(function(ok) {
+        if (!ok) return;
+        var savedItem = JSON.parse(JSON.stringify(item));
+        api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId).then(function(plan) {
+          _rundownSelectedPlan = plan;
+          renderRundownEditor(plan);
+          var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+          if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownDashboard(); }
+          _rundownPushUndo({
+            type: 'deleteItem',
+            desc: 'Delete "' + savedItem.title + '"',
+            undoFn: function() {
+              return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', {
+                title: savedItem.title, itemType: savedItem.itemType, lengthSeconds: savedItem.lengthSeconds,
+                notes: savedItem.notes, assignee: savedItem.assignee, startType: savedItem.startType,
+                hardStartTime: savedItem.hardStartTime, autoAdvance: savedItem.autoAdvance, directorNotes: savedItem.directorNotes,
+              }).then(function() { return _refreshRundownPlan(); });
+            },
+            redoFn: function() {
+              // Can't re-delete the exact same item (new ID from undo), so just refresh
+              return _refreshRundownPlan();
+            },
+          });
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    };
+
+    // ── 5. Duplicate Item/Section ───────────────────────────────────────────
+
+    function rundownDuplicateItem(itemId) {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/duplicate').then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+        if (idx >= 0) { _rundownPlans[idx].itemCount = plan.items.length; renderRundownDashboard(); }
+        toast('Item duplicated');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function rundownDuplicateSection(sectionId) {
+      if (!_rundownSelectedPlan) return;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/sections/' + sectionId + '/duplicate').then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        toast('Section duplicated');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    // ── 6. Quick-Add from Keyboard ──────────────────────────────────────────
+
+    function _rundownInsertItemAfterSelected() {
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') return;
+      var planId = _rundownSelectedPlan.id;
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/items', {
+        title: 'New Item', itemType: 'other', lengthSeconds: 0, notes: '', assignee: '',
+      }).then(function(newItem) {
+        if (_rundownSelectedItemId) {
+          // Reorder: move new item after selected
+          var items = _rundownSelectedPlan.items || [];
+          var selIdx = items.findIndex(function(it) { return it.id === _rundownSelectedItemId; });
+          if (selIdx >= 0) {
+            var ids = items.map(function(it) { return it.id; });
+            var newIdx = ids.indexOf(newItem.id);
+            if (newIdx >= 0) ids.splice(newIdx, 1);
+            ids.splice(selIdx + 1, 0, newItem.id);
+            api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId + '/reorder', { itemIds: ids }).then(function() {
+              return _refreshRundownPlan();
+            }).then(function() {
+              _startEditingNewItem(newItem.id);
+            });
+            return;
+          }
+        }
+        _refreshRundownPlan().then(function() { _startEditingNewItem(newItem.id); });
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function _startEditingNewItem(itemId) {
+      _rundownSelectedItemId = itemId;
+      setTimeout(function() {
+        var titleSpan = document.querySelector('.rundown-inline-edit[data-field="title"][data-item-id="' + itemId + '"]');
+        if (titleSpan) titleSpan.click();
+      }, 100);
+    }
+
+    // ── 7. Plan Comparison View ─────────────────────────────────────────────
+
+    function rundownComparePlans() {
+      if (!_rundownSelectedPlan) return;
+      var currentPlan = _rundownSelectedPlan;
+      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans?includeTemplates=false').then(function(data) {
+        var plans = (data.plans || data || []).filter(function(p) { return p.id !== currentPlan.id; });
+        _showComparisonModal(currentPlan, plans);
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
+    function _showComparisonModal(currentPlan, otherPlans) {
+      var existing = document.getElementById('rundown-compare-modal');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'rundown-compare-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:900px;width:95%;max-height:85vh;overflow-y:auto">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+      html += '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Compare Plans</div>';
+      html += '<button id="close-compare-modal" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
+      html += '<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">';
+      html += '<div style="flex:1;min-width:200px"><div style="font-size:11px;color:#556270;text-transform:uppercase;font-weight:700;margin-bottom:6px">Current</div><div style="color:#F0F2F4;font-weight:600">' + escapeHtml(currentPlan.title) + '</div></div>';
+      html += '<div style="flex:1;min-width:200px"><div style="font-size:11px;color:#556270;text-transform:uppercase;font-weight:700;margin-bottom:6px">Compare with</div>';
+      html += '<select id="compare-plan-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:100%;color-scheme:dark">';
+      html += '<option value="">Select a plan...</option>';
+      otherPlans.forEach(function(p) {
+        html += '<option value="' + p.id + '">' + escapeHtml(p.title) + (p.serviceDate ? ' (' + p.serviceDate + ')' : '') + '</option>';
+      });
+      html += '</select></div></div>';
+      html += '<div id="compare-results" style="color:#8B9DAF;text-align:center;padding:32px;font-size:13px">Select a plan to compare</div>';
+      html += '</div>';
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+      document.getElementById('close-compare-modal').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      document.getElementById('compare-plan-select').addEventListener('change', function() {
+        var planId = this.value;
+        if (!planId) { document.getElementById('compare-results').innerHTML = '<div style="color:#8B9DAF;text-align:center;padding:32px;font-size:13px">Select a plan to compare</div>'; return; }
+        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId).then(function(other) {
+          _renderComparison(currentPlan, other);
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    function _renderComparison(planA, planB) {
+      var container = document.getElementById('compare-results');
+      if (!container) return;
+      var itemsA = (planA.items || []).filter(function(i) { return i.itemType !== 'section'; });
+      var itemsB = (planB.items || []).filter(function(i) { return i.itemType !== 'section'; });
+
+      // Simple diff: match by title
+      var titleMapB = {};
+      itemsB.forEach(function(it) { titleMapB[it.title] = it; });
+      var titleMapA = {};
+      itemsA.forEach(function(it) { titleMapA[it.title] = it; });
+
+      var html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+      html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
+      html += '<th style="padding:8px 6px;text-align:left">Item</th>';
+      html += '<th style="padding:8px 6px;text-align:center;width:80px">Duration A</th>';
+      html += '<th style="padding:8px 6px;text-align:center;width:80px">Duration B</th>';
+      html += '<th style="padding:8px 6px;text-align:left">Changes</th>';
+      html += '</tr></thead><tbody>';
+
+      // Items in A
+      var shown = {};
+      itemsA.forEach(function(a) {
+        var b = titleMapB[a.title];
+        shown[a.title] = true;
+        var changes = [];
+        var rowColor = 'transparent';
+        if (!b) {
+          rowColor = 'rgba(239,68,68,0.08)'; // removed
+          changes.push('<span style="color:#FF5252">Removed from B</span>');
+        } else {
+          if (a.lengthSeconds !== b.lengthSeconds) {
+            var diff = b.lengthSeconds - a.lengthSeconds;
+            changes.push('<span style="color:#FFB74D">Duration ' + (diff > 0 ? '+' : '') + Math.floor(diff / 60) + ':' + String(Math.abs(diff) % 60).padStart(2, '0') + '</span>');
+            rowColor = 'rgba(255,183,77,0.06)';
+          }
+          if ((a.notes || '') !== (b.notes || '')) changes.push('<span style="color:#FFB74D">Notes changed</span>');
+          if ((a.assignee || '') !== (b.assignee || '')) changes.push('<span style="color:#FFB74D">Assignee: ' + escapeHtml(a.assignee || '--') + ' → ' + escapeHtml(b.assignee || '--') + '</span>');
+          if (a.itemType !== b.itemType) changes.push('<span style="color:#FFB74D">Type: ' + a.itemType + ' → ' + b.itemType + '</span>');
+        }
+        if (changes.length === 0 && b) changes.push('<span style="color:#556270">No changes</span>');
+        var color = RUNDOWN_TYPE_COLORS[a.itemType] || '#95a5a6';
+        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);background:' + rowColor + '">';
+        html += '<td style="padding:6px;border-left:3px solid ' + color + '"><span style="font-weight:600;color:#F0F2F4">' + escapeHtml(a.title) + '</span></td>';
+        html += '<td style="padding:6px;text-align:center;font-family:monospace;color:#8B9DAF">' + _rundownFormatMMSS(a.lengthSeconds) + '</td>';
+        html += '<td style="padding:6px;text-align:center;font-family:monospace;color:#8B9DAF">' + (b ? _rundownFormatMMSS(b.lengthSeconds) : '--') + '</td>';
+        html += '<td style="padding:6px">' + changes.join(', ') + '</td>';
+        html += '</tr>';
+      });
+
+      // Items only in B (added)
+      itemsB.forEach(function(b) {
+        if (shown[b.title]) return;
+        var color = RUNDOWN_TYPE_COLORS[b.itemType] || '#95a5a6';
+        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);background:rgba(0,230,118,0.08)">';
+        html += '<td style="padding:6px;border-left:3px solid ' + color + '"><span style="font-weight:600;color:#F0F2F4">' + escapeHtml(b.title) + '</span></td>';
+        html += '<td style="padding:6px;text-align:center;color:#556270">--</td>';
+        html += '<td style="padding:6px;text-align:center;font-family:monospace;color:#8B9DAF">' + _rundownFormatMMSS(b.lengthSeconds) + '</td>';
+        html += '<td style="padding:6px"><span style="color:#00E676">Added in B</span></td>';
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+
+      // Summary
+      var totalA = itemsA.reduce(function(s, i) { return s + (i.lengthSeconds || 0); }, 0);
+      var totalB = itemsB.reduce(function(s, i) { return s + (i.lengthSeconds || 0); }, 0);
+      html += '<div style="margin-top:12px;display:flex;gap:20px;font-size:12px;color:#8B9DAF">';
+      html += '<span>A total: <strong style="color:#F0F2F4">' + _rundownFormatMMSS(totalA) + '</strong> (' + itemsA.length + ' items)</span>';
+      html += '<span>B total: <strong style="color:#F0F2F4">' + _rundownFormatMMSS(totalB) + '</strong> (' + itemsB.length + ' items)</span>';
+      var diff = totalB - totalA;
+      html += '<span>Diff: <strong style="color:' + (diff > 0 ? '#FF5252' : diff < 0 ? '#00E676' : '#F0F2F4') + '">' + (diff > 0 ? '+' : '') + _rundownFormatMMSS(diff) + '</strong></span>';
+      html += '</div>';
+
+      container.innerHTML = html;
+    }
+
+    // ── Context menu for items ──────────────────────────────────────────────
+
+    function _attachRundownContextMenu(container) {
+      container.querySelectorAll('tr[data-item-id]').forEach(function(row) {
+        if (row.classList.contains('rundown-director-notes-row') || row.classList.contains('rundown-checklist-row') || row.classList.contains('rundown-hard-start-helper')) return;
+        row.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          _showRundownItemContextMenu(e, row.getAttribute('data-item-id'));
+        });
+      });
+    }
+
+    function _showRundownItemContextMenu(e, itemId) {
+      var existing = document.getElementById('rundown-ctx-menu');
+      if (existing) existing.remove();
+      var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+      if (!item) return;
+      var menu = document.createElement('div');
+      menu.id = 'rundown-ctx-menu';
+      menu.style.cssText = 'position:fixed;z-index:10000;background:#0d1f14;border:1px solid #0d3320;border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
+      menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+      menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+
+      var options = [];
+      options.push({ label: 'Duplicate', action: function() { rundownDuplicateItem(itemId); } });
+      if (item.itemType === 'section') {
+        options.push({ label: 'Duplicate Section', action: function() { rundownDuplicateSection(itemId); } });
+      }
+      options.push({ label: 'Delete', action: function() { rundownDeleteItem(itemId); }, style: 'color:#FF5252' });
+
+      options.forEach(function(opt) {
+        var div = document.createElement('div');
+        div.textContent = opt.label;
+        div.style.cssText = 'padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer;' + (opt.style || '');
+        div.addEventListener('mouseenter', function() { div.style.background = 'rgba(255,255,255,0.06)'; });
+        div.addEventListener('mouseleave', function() { div.style.background = 'none'; });
+        div.addEventListener('click', function() { menu.remove(); opt.action(); });
+        menu.appendChild(div);
+      });
+
+      document.body.appendChild(menu);
+      function closeMenu() { menu.remove(); document.removeEventListener('click', closeMenu); }
+      setTimeout(function() { document.addEventListener('click', closeMenu); }, 10);
+    }
+
     // ── Timer Display ──────────────────────────────────────────────────────────
 
     function openTimerDisplay() {
@@ -13559,6 +14115,25 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Close on action
       overflowMenu.addEventListener('click', function(e) {
         if (e.target.tagName === 'BUTTON') setTimeout(function() { toggleOverflow(false); }, 100);
+      });
+    })();
+    // Phase 11: Export dropdown toggle
+    (function() {
+      var exportBtn = document.getElementById('btn-rundown-export');
+      var exportMenu = document.getElementById('rundown-export-menu');
+      if (!exportBtn || !exportMenu) return;
+      exportBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var isOpen = exportMenu.style.display === 'none';
+        exportMenu.style.display = isOpen ? 'block' : 'none';
+        if (isOpen) {
+          function closeExport() { exportMenu.style.display = 'none'; document.removeEventListener('click', closeExport); }
+          setTimeout(function() { document.addEventListener('click', closeExport); }, 10);
+        }
+      });
+      exportMenu.querySelectorAll('[data-action]').forEach(function(item) {
+        item.addEventListener('mouseenter', function() { item.style.background = 'rgba(255,255,255,0.06)'; });
+        item.addEventListener('mouseleave', function() { item.style.background = 'none'; });
       });
     })();
     var btnLiveTimer = document.getElementById('btn-rundown-live-timer');
@@ -15026,6 +15601,37 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownAddColumn':
         if (typeof rundownAddColumn === 'function') rundownAddColumn();
+        break;
+      // Phase 11: Workflow Power Features
+      case 'rundownUndo':
+        if (typeof _rundownUndo === 'function') _rundownUndo();
+        break;
+      case 'rundownRedo':
+        if (typeof _rundownRedo === 'function') _rundownRedo();
+        break;
+      case 'rundownComparePlans':
+        if (typeof rundownComparePlans === 'function') rundownComparePlans();
+        break;
+      case 'rundownExportPDFTech':
+        if (typeof rundownExportPDF === 'function') rundownExportPDF('tech');
+        break;
+      case 'rundownExportPDFBand':
+        if (typeof rundownExportPDF === 'function') rundownExportPDF('band');
+        break;
+      case 'rundownExportPDFPastor':
+        if (typeof rundownExportPDF === 'function') rundownExportPDF('pastor');
+        break;
+      case 'rundownExportCSV':
+        if (typeof rundownExportCSV === 'function') rundownExportCSV();
+        break;
+      case 'rundownImportCSV':
+        if (typeof rundownImportCSV === 'function') rundownImportCSV();
+        break;
+      case 'rundownDuplicateItem':
+        if (typeof rundownDuplicateItem === 'function') rundownDuplicateItem(btn.dataset.itemId);
+        break;
+      case 'rundownDuplicateSection':
+        if (typeof rundownDuplicateSection === 'function') rundownDuplicateSection(btn.dataset.itemId);
         break;
       case 'liveShowStart':
         if (typeof liveShowStart === 'function') liveShowStart();
