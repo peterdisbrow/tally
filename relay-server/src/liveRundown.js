@@ -449,12 +449,16 @@ class LiveRundownManager {
     const remaining = duration > 0 ? Math.max(0, duration - elapsedOnItem) : null;
     const isOvertime = duration > 0 && elapsedOnItem > duration;
 
+    // Phase 2: Smart timing — variance + projected end
+    const timing = this._calculateSmartTiming(session, now);
+
     return {
       plan_id: session.planId,
       plan_title: session.planTitle,
       room_id: session.roomId || '',
       cue_title: currentItem?.title || '',
       cue_index: session.currentIndex,
+      cue_color: currentItem?.color || null,
       total_cues: session.items.length,
       cue_duration_seconds: duration,
       elapsed_seconds: Math.round(elapsedOnItem),
@@ -466,8 +470,18 @@ class LiveRundownManager {
       next_cue_title: nextItem?.title || null,
       next_cue_duration: nextItem?.lengthSeconds || null,
       next_cue_index: nextItemIndex,
+      next_cue_color: nextItem?.color || null,
       started_at: session.startedAt,
+      scheduled_start: session.scheduledStart,
+      total_planned_duration: session.totalPlannedDuration,
       timestamp: now,
+      // Phase 2: Smart timing fields
+      variance: timing.variance,
+      projected_end_time: timing.projectedEndTime,
+      service_elapsed: timing.serviceElapsed,
+      service_remaining: timing.serviceRemaining,
+      item_timings: timing.itemTimings,
+      upcoming_items: timing.upcomingItems,
     };
   }
 
@@ -707,6 +721,77 @@ class LiveRundownManager {
   }
 
   /**
+   * Calculate smart timing data: cumulative variance, projected end, per-item actuals,
+   * and upcoming items for confidence monitor / show mode displays.
+   */
+  _calculateSmartTiming(session, now) {
+    let variance = 0; // positive = behind, negative = ahead (seconds)
+
+    // Sum variance from all completed items
+    for (const timing of session.itemTimings) {
+      if (timing.endedAt != null && timing.actualDuration != null && timing.plannedDuration > 0) {
+        variance += timing.actualDuration - timing.plannedDuration;
+      }
+    }
+
+    // Add current item's running variance (if it has a planned duration)
+    const currentItem = session.items[session.currentIndex];
+    if (currentItem?.lengthSeconds > 0) {
+      const elapsedOnCurrent = (now - session.currentItemStartedAt) / 1000;
+      if (elapsedOnCurrent > currentItem.lengthSeconds) {
+        variance += elapsedOnCurrent - currentItem.lengthSeconds;
+      }
+    }
+
+    // Service elapsed
+    const serviceElapsed = Math.round((now - session.startedAt) / 1000);
+
+    // Projected end time: original planned end + cumulative variance
+    const plannedEndMs = session.startedAt + (session.totalPlannedDuration * 1000);
+    const projectedEndMs = plannedEndMs + (variance * 1000);
+    const projectedEndTime = new Date(projectedEndMs).toISOString();
+
+    // Service remaining: projected end minus now
+    const serviceRemaining = Math.max(0, Math.round((projectedEndMs - now) / 1000));
+
+    // Per-item actual durations (for completed items)
+    const itemTimings = session.itemTimings
+      .filter(t => t.endedAt != null)
+      .map(t => ({
+        index: t.index,
+        plannedDuration: t.plannedDuration,
+        actualDuration: Math.round(t.actualDuration),
+        variance: t.plannedDuration > 0 ? Math.round(t.actualDuration - t.plannedDuration) : 0,
+      }));
+
+    // Upcoming items (next 3 playable) for confidence monitor
+    const upcomingItems = [];
+    let searchIdx = session.currentIndex;
+    while (upcomingItems.length < 3) {
+      const nextIdx = this._findNextPlayableIndex(session.items, searchIdx);
+      if (nextIdx == null) break;
+      const item = session.items[nextIdx];
+      upcomingItems.push({
+        index: nextIdx,
+        title: item.title,
+        lengthSeconds: item.lengthSeconds || 0,
+        color: item.color || null,
+        itemType: item.itemType,
+      });
+      searchIdx = nextIdx;
+    }
+
+    return {
+      variance: Math.round(variance),
+      projectedEndTime,
+      serviceElapsed,
+      serviceRemaining,
+      itemTimings,
+      upcomingItems,
+    };
+  }
+
+  /**
    * Calculate rippled estimated start times for all remaining items.
    * Completed items show actual times; future items shift based on accumulated delay.
    */
@@ -845,6 +930,9 @@ class LiveRundownManager {
         }
       }
 
+      // Phase 2: Smart timing for tick broadcasts
+      const smartTiming = this._calculateSmartTiming(session, now);
+
       const tick = {
         type: 'rundown_tick',
         churchId,
@@ -861,6 +949,11 @@ class LiveRundownManager {
         effectiveAutoAdvance: shouldAutoAdvance,
         autoAdvancedFrom: session.autoAdvancedFrom || null,
         timestamp: now,
+        // Phase 2 smart timing
+        variance: smartTiming.variance,
+        projectedEndTime: smartTiming.projectedEndTime,
+        serviceElapsed: smartTiming.serviceElapsed,
+        serviceRemaining: smartTiming.serviceRemaining,
       };
 
       // Clear autoAdvancedFrom after broadcasting once

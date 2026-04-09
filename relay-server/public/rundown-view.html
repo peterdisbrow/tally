@@ -2777,6 +2777,28 @@
           html += '</div>';
         }
 
+        // Phase 2: Projected end time and variance from timer state
+        var timerData = liveState.timer || liveState;
+        if (timerData.projected_end_time || timerData.variance !== undefined) {
+          html += '<div class="live-banner-meta" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">';
+          if (timerData.variance !== undefined && Math.abs(timerData.variance) >= 15) {
+            var vSec = timerData.variance;
+            var vStyle = vSec > 0 ? 'background:rgba(255,82,82,0.12);color:#FF5252' : 'background:rgba(0,230,118,0.12);color:#00E676';
+            var vLabel = vSec > 0 ? '+' + formatDuration(vSec) + ' over' : formatDuration(Math.abs(vSec)) + ' ahead';
+            html += '<span class="pill" style="font-family:ui-monospace,monospace;font-size:11px;' + vStyle + '">' + esc(vLabel) + '</span>';
+          }
+          if (timerData.projected_end_time) {
+            var projDate = new Date(timerData.projected_end_time);
+            var projH = projDate.getHours();
+            var projM = projDate.getMinutes();
+            var projAmpm = projH >= 12 ? 'PM' : 'AM';
+            projH = projH % 12 || 12;
+            var projStr = projH + ':' + String(projM).padStart(2, '0') + ' ' + projAmpm;
+            html += '<span class="pill" style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(66,165,245,0.10);color:#42A5F5">Ends at ' + esc(projStr) + '</span>';
+          }
+          html += '</div>';
+        }
+
         var pills = [];
         if (currentItem && currentItem.itemType) {
           pills.push({ label: String(currentItem.itemType), className: 'pill-section' });

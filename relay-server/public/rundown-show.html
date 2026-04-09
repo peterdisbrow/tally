@@ -453,6 +453,67 @@
       letter-spacing: 0.3px;
     }
 
+    /* Phase 2: Variance badges on completed items */
+    .cue-variance {
+      font-size: 10px;
+      font-weight: 700;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-top: 2px;
+      display: inline-block;
+    }
+    .cue-variance.on-time { background: var(--green-bg); color: var(--green); }
+    .cue-variance.over-slight { background: var(--amber-bg); color: var(--amber); }
+    .cue-variance.over-significant { background: var(--red-bg); color: var(--red); }
+
+    /* Phase 2: Service variance pill */
+    .pill-variance {
+      font-family: ui-monospace, 'SF Mono', monospace;
+    }
+    .pill-variance.ahead { background: var(--green-bg); color: var(--green); }
+    .pill-variance.behind { background: var(--red-bg); color: var(--red); }
+    .pill-variance.ontime { background: var(--surface2); color: var(--text-dim); }
+
+    .pill-projected {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      background: var(--blue-bg);
+      color: var(--blue);
+    }
+
+    /* Phase 2: Sticky floating controls */
+    .controls.sticky-controls {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      border-top: 1px solid var(--border);
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
+    }
+
+    /* Phase 2: Color stripe on next-up items */
+    .next-up-color {
+      width: 4px;
+      align-self: stretch;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    /* Phase 2: Bolder current cue countdown */
+    .cue-countdown-big {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    /* Phase 2: Timer color transitions */
+    .cue-countdown.timer-green { color: var(--green); }
+    .cue-countdown.timer-amber { color: var(--amber); }
+    .cue-countdown.timer-red { color: var(--red); }
+    .cue-countdown.timer-flash { color: var(--red); animation: flash-cue 1s ease-in-out infinite; }
+    @keyframes flash-cue { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
     /* ── 10.5 Standby / Blackout cue types ── */
     .cue-item.is-standby {
       background: rgba(139,157,175,0.06);
@@ -1939,15 +2000,6 @@
       app.appendChild(sb);
       renderStatusBar();
 
-      // Controls (hidden in readonly mode)
-      if (!isReadOnly) {
-        var ctrl = document.createElement('div');
-        ctrl.className = 'controls';
-        ctrl.id = 'controls';
-        app.appendChild(ctrl);
-        renderControls();
-      }
-
       // Cue list
       var cueWrap = document.createElement('div');
       cueWrap.className = 'cue-list-wrap';
@@ -1968,6 +2020,15 @@
       nextUp.id = 'next-up';
       app.appendChild(nextUp);
       renderNextUp();
+
+      // Phase 2: Sticky floating controls at bottom (hidden in readonly mode)
+      if (!isReadOnly) {
+        var ctrl = document.createElement('div');
+        ctrl.className = 'controls sticky-controls';
+        ctrl.id = 'controls';
+        app.appendChild(ctrl);
+        renderControls();
+      }
 
       // Start timers
       startClockTimer();
@@ -2007,6 +2068,27 @@
         html += '<button class="status-expand-btn" id="status-expand-btn">More</button>';
         html += '<div class="status-secondary" id="status-secondary">';
         html += '<span class="pill pill-elapsed" id="pill-elapsed">Elapsed ' + fmtElapsed(liveState.startedAt) + '</span>';
+        // Phase 2: Service variance pill
+        if (liveState.timer && liveState.timer.variance !== undefined) {
+          var v = liveState.timer.variance;
+          var vClass = 'pill pill-variance';
+          var vLabel = '';
+          if (Math.abs(v) < 15) { vClass += ' ontime'; vLabel = 'On Time'; }
+          else if (v > 0) { vClass += ' behind'; vLabel = 'Service: +' + fmtDuration(v) + ' over'; }
+          else { vClass += ' ahead'; vLabel = 'Service: -' + fmtDuration(Math.abs(v)) + ' ahead'; }
+          html += '<span class="' + vClass + '">' + escapeHtml(vLabel) + '</span>';
+        }
+        // Phase 2: Projected end time
+        if (liveState.timer && liveState.timer.projected_end_time) {
+          var projEnd = fmtClockTime(new Date(liveState.timer.projected_end_time).getTime());
+          var projVar = liveState.timer.variance || 0;
+          var projDelta = '';
+          if (Math.abs(projVar) >= 15) {
+            var projMin = Math.round(Math.abs(projVar) / 60);
+            projDelta = projVar > 0 ? ' (+' + projMin + ' min late)' : ' (' + projMin + ' min early)';
+          }
+          html += '<span class="pill pill-projected">Ends ' + escapeHtml(projEnd + projDelta) + '</span>';
+        }
         html += '</div>';
       } else {
         html += '<span class="pill pill-offline">STANDBY</span>';
@@ -2195,12 +2277,39 @@
           var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
           var cueRemaining = Math.max(0, displayDuration - cueElapsed);
           var isOvertime = cueElapsed > displayDuration;
-          var isWarning = !isOvertime && cueRemaining <= 30;
-          var cdClass = 'cue-countdown';
-          if (isOvertime) cdClass += ' is-overtime';
-          else if (isWarning) cdClass += ' is-warning';
-          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '-' + fmtDuration(cueElapsed - displayDuration) : fmtDuration(cueRemaining)) + '</div>';
+          // Phase 2: Enhanced timer color transitions
+          var cdClass = 'cue-countdown cue-countdown-big';
+          if (isOvertime) cdClass += ' timer-flash';
+          else if (cueRemaining <= 10) cdClass += ' timer-red';
+          else if (cueRemaining <= 30) cdClass += ' timer-amber';
+          else cdClass += ' timer-green';
+          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '+' + fmtDuration(cueElapsed - displayDuration) : fmtDuration(cueRemaining)) + '</div>';
           html += '<div class="cue-elapsed-label">' + (isOvertime ? 'overtime' : 'remaining') + '</div>';
+        } else if (isCompleted && displayDuration > 0) {
+          // Phase 2: Variance badge on completed items
+          html += '<div class="cue-duration">' + fmtDuration(displayDuration) + '</div>';
+          var itemTiming = (liveState.timer && liveState.timer.item_timings)
+            ? liveState.timer.item_timings.find(function(t) { return t.index === i; })
+            : null;
+          if (itemTiming && itemTiming.variance !== undefined) {
+            var vSec = itemTiming.variance;
+            var vBadgeClass = 'cue-variance';
+            var vBadgeText = '';
+            if (vSec <= 0 && vSec >= -60) {
+              vBadgeClass += ' on-time';
+              vBadgeText = vSec === 0 ? 'on time' : Math.abs(vSec) + 's early';
+            } else if (vSec > 0 && vSec <= 60) {
+              vBadgeClass += ' over-slight';
+              vBadgeText = '+' + vSec + 's';
+            } else if (vSec > 60) {
+              vBadgeClass += ' over-significant';
+              vBadgeText = '+' + fmtDuration(vSec);
+            } else {
+              vBadgeClass += ' on-time';
+              vBadgeText = fmtDuration(Math.abs(vSec)) + ' early';
+            }
+            html += '<div class="' + vBadgeClass + '">' + escapeHtml(vBadgeText) + '</div>';
+          }
         } else {
           html += '<div class="cue-duration">' + fmtDuration(displayDuration) + '</div>';
           // 12.3: Est. start for future cues during live show
@@ -2351,9 +2460,24 @@
 
       html += '<div class="next-up-label">Next Up</div><div class="next-up-items">';
       for (var u = 0; u < upcoming.length; u++) {
+        var upItem = upcoming[u];
         html += '<div class="next-up-item">';
-        html += '<span class="next-up-title">' + escapeHtml(upcoming[u].title) + '</span>';
-        html += '<span class="next-up-dur">' + fmtDuration(upcoming[u].lengthSeconds || 0) + '</span>';
+        // Phase 2: Color stripe from item.color
+        var upColor = upItem.color || 'var(--text-dim)';
+        html += '<div class="next-up-color" style="background:' + escapeHtml(upColor) + '"></div>';
+        html += '<span class="next-up-title">' + escapeHtml(upItem.title) + '</span>';
+        html += '<span class="next-up-dur">' + fmtDuration(upItem.lengthSeconds || 0) + '</span>';
+        // Phase 2: Show variance badge if item has actual timing
+        if (liveState.timer && liveState.timer.item_timings) {
+          var upTiming = liveState.timer.item_timings.find(function(t) {
+            return items[t.index] && items[t.index].id === upItem.id;
+          });
+          if (upTiming && upTiming.variance !== undefined && Math.abs(upTiming.variance) > 0) {
+            var uvClass = upTiming.variance > 60 ? 'cue-variance over-significant' : upTiming.variance > 0 ? 'cue-variance over-slight' : 'cue-variance on-time';
+            var uvText = upTiming.variance > 0 ? '+' + upTiming.variance + 's' : Math.abs(upTiming.variance) + 's early';
+            html += '<span class="' + uvClass + '">' + escapeHtml(uvText) + '</span>';
+          }
+        }
         html += '</div>';
       }
       html += '</div>';

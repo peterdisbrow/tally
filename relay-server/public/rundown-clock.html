@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Studio Clock - TallyConnect</title>
+<style>
+  :root {
+    --bg: #0A0F0D;
+    --surface: #111916;
+    --surface2: #19221E;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F2F4;
+    --text-muted: #8B9DAF;
+    --text-dim: #556270;
+    --green: #00E676;
+    --green-bg: rgba(0,230,118,0.12);
+    --red: #FF5252;
+    --red-bg: rgba(255,82,82,0.12);
+    --amber: #FFB74D;
+    --amber-bg: rgba(255,183,77,0.12);
+  }
+  body.light-theme {
+    --bg: #F5F7F5;
+    --surface: #FFFFFF;
+    --surface2: #F0F2F0;
+    --border: rgba(0,0,0,0.10);
+    --text: #1A1D27;
+    --text-muted: #4A5568;
+    --text-dim: #718096;
+    --green: #00A857;
+    --green-bg: rgba(0,168,87,0.10);
+    --red: #CC3333;
+    --red-bg: rgba(204,51,51,0.10);
+    --amber: #C47900;
+    --amber-bg: rgba(196,121,0,0.10);
+  }
+  body.theme-red-green {
+    --green: #00C853;
+    --red: #FF1744;
+    --amber: #FFAB00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: background 0.25s, color 0.25s;
+  }
+
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+    padding: 24px;
+  }
+
+  /* Wall clock */
+  .wall-clock-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+  }
+  .wall-clock {
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
+    font-size: clamp(80px, 16vw, 180px);
+    font-weight: 800;
+    letter-spacing: -3px;
+    line-height: 1;
+    color: var(--text);
+  }
+  .wall-clock .seconds {
+    font-size: 0.45em;
+    color: var(--text-dim);
+    vertical-align: super;
+    letter-spacing: 0;
+  }
+  .wall-clock .ampm {
+    font-size: 0.25em;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-left: 4px;
+  }
+
+  /* Divider */
+  .divider {
+    width: 120px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Countdown timer */
+  .cue-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .cue-title {
+    font-size: clamp(16px, 3vw, 28px);
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: center;
+    max-width: 80%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cue-timer {
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', monospace;
+    font-size: clamp(48px, 10vw, 120px);
+    font-weight: 800;
+    letter-spacing: -2px;
+    line-height: 1;
+    color: var(--green);
+    transition: color 0.3s;
+  }
+  .cue-timer.warning { color: var(--amber); }
+  .cue-timer.danger { color: var(--red); }
+  .cue-timer.flashing { animation: flash-red 1s ease-in-out infinite; }
+  @keyframes flash-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .cue-timer-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+  }
+
+  /* Next item preview */
+  .next-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+    max-width: 600px;
+  }
+  .next-preview.hidden { display: none; }
+  .next-label {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .next-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .next-dur {
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  /* Waiting / idle */
+  .idle-msg {
+    font-size: 16px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  /* Status bar */
+  .status-bar {
+    position: fixed; bottom: 8px; left: 12px;
+    font-size: 11px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0.3; transition: opacity 0.3s;
+  }
+  .status-bar:hover { opacity: 1; }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--red); transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--green); }
+
+  .connection-lost {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    padding: 8px 16px; background: linear-gradient(90deg, #FF5252, #FF7043);
+    color: #fff; font-size: 13px; font-weight: 700; text-align: center;
+    display: none;
+  }
+  .connection-lost.visible { display: block; }
+</style>
+</head>
+<body>
+  <div class="connection-lost" id="conn-banner">Connection lost - reconnecting...</div>
+
+  <div class="container">
+    <div class="wall-clock-label">CURRENT TIME</div>
+    <div class="wall-clock" id="wall-clock">--:--</div>
+
+    <div class="divider"></div>
+
+    <div class="cue-section" id="cue-section" style="display:none">
+      <div class="cue-title" id="cue-title"></div>
+      <div class="cue-timer-label" id="cue-timer-label">REMAINING</div>
+      <div class="cue-timer" id="cue-timer">00:00</div>
+    </div>
+
+    <div class="idle-msg" id="idle-msg">Waiting for live rundown</div>
+
+    <div class="next-preview hidden" id="next-preview">
+      <span class="next-label">NEXT</span>
+      <span class="next-title" id="next-title"></span>
+      <span class="next-dur" id="next-dur"></span>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  var pathParts = window.location.pathname.split('/');
+  var token = pathParts[pathParts.length - 1];
+  var params = new URLSearchParams(window.location.search);
+  var themeParam = params.get('theme') || '';
+  var storedTheme = '';
+  try { storedTheme = localStorage.getItem('tally.clock-theme:' + token) || ''; } catch(e) {}
+  var currentTheme = themeParam || storedTheme || 'dark';
+  applyTheme(currentTheme);
+
+  var showNext = true;
+
+  // DOM refs
+  var wallClock = document.getElementById('wall-clock');
+  var cueSection = document.getElementById('cue-section');
+  var cueTitle = document.getElementById('cue-title');
+  var cueTimer = document.getElementById('cue-timer');
+  var cueTimerLabel = document.getElementById('cue-timer-label');
+  var idleMsg = document.getElementById('idle-msg');
+  var nextPreview = document.getElementById('next-preview');
+  var nextTitle = document.getElementById('next-title');
+  var nextDur = document.getElementById('next-dur');
+  var statusDot = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+  var connBanner = document.getElementById('conn-banner');
+
+  var ws = null;
+  var reconnectTimer = null;
+  var reconnectDelay = 1000;
+  var lastState = null;
+
+  function formatTime(seconds) {
+    if (seconds == null || seconds < 0) seconds = 0;
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.round(seconds % 60);
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function applyTheme(theme) {
+    currentTheme = theme;
+    document.body.classList.remove('light-theme', 'theme-red-green');
+    if (theme === 'light') document.body.classList.add('light-theme');
+    else if (theme === 'red-green') document.body.classList.add('theme-red-green');
+    try { localStorage.setItem('tally.clock-theme:' + token, theme); } catch(e) {}
+  }
+
+  // Wall clock tick
+  function updateWallClock() {
+    var now = new Date();
+    var h = now.getHours();
+    var m = now.getMinutes();
+    var s = now.getSeconds();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    wallClock.innerHTML = h + ':' + String(m).padStart(2, '0')
+      + '<span class="seconds">:' + String(s).padStart(2, '0') + '</span>'
+      + '<span class="ampm">' + ampm + '</span>';
+  }
+  updateWallClock();
+  setInterval(updateWallClock, 1000);
+
+  function updateDisplay(state) {
+    lastState = state;
+
+    if (!state || !state.is_live) {
+      cueSection.style.display = 'none';
+      idleMsg.style.display = '';
+      idleMsg.textContent = state && state.plan_title
+        ? '"' + state.plan_title + '" is not live'
+        : 'Waiting for live rundown';
+      nextPreview.classList.add('hidden');
+      return;
+    }
+
+    cueSection.style.display = '';
+    idleMsg.style.display = 'none';
+
+    // Current cue
+    cueTitle.textContent = state.cue_title || '';
+
+    var remaining = state.remaining_seconds;
+    var duration = state.cue_duration_seconds || 0;
+    var elapsed = state.elapsed_seconds || 0;
+
+    if (state.is_overtime) {
+      cueTimer.textContent = '+' + formatTime(state.overtime_seconds);
+      cueTimer.className = 'cue-timer flashing';
+      cueTimerLabel.textContent = 'OVERTIME';
+    } else if (remaining !== null) {
+      cueTimer.textContent = formatTime(remaining);
+      if (remaining <= 10) {
+        cueTimer.className = 'cue-timer danger';
+      } else if (remaining <= 30) {
+        cueTimer.className = 'cue-timer warning';
+      } else {
+        cueTimer.className = 'cue-timer';
+      }
+      cueTimerLabel.textContent = 'REMAINING';
+    } else {
+      cueTimer.textContent = formatTime(elapsed);
+      cueTimer.className = 'cue-timer';
+      cueTimer.style.color = 'var(--text-muted)';
+      cueTimerLabel.textContent = 'ELAPSED';
+    }
+
+    // Next preview
+    if (showNext && state.next_cue_title) {
+      nextPreview.classList.remove('hidden');
+      nextTitle.textContent = state.next_cue_title;
+      nextDur.textContent = state.next_cue_duration ? formatTime(state.next_cue_duration) : '';
+    } else {
+      nextPreview.classList.add('hidden');
+    }
+  }
+
+  // WebSocket
+  function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = proto + '//' + location.host + '/rundown-clock?token=' + encodeURIComponent(token);
+    try { ws = new WebSocket(wsUrl); } catch(e) { scheduleReconnect(); return; }
+
+    ws.onopen = function() {
+      reconnectDelay = 1000;
+      statusDot.classList.add('connected');
+      statusText.textContent = 'Connected';
+      connBanner.classList.remove('visible');
+    };
+
+    ws.onmessage = function(event) {
+      try {
+        var msg = JSON.parse(event.data);
+        if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+          updateDisplay(msg);
+        } else if (msg.type === 'rundown_ended') {
+          updateDisplay({ is_live: false, plan_title: lastState ? lastState.plan_title : '' });
+        }
+      } catch(e) {}
+    };
+
+    ws.onclose = function() {
+      ws = null;
+      statusDot.classList.remove('connected');
+      statusText.textContent = 'Disconnected';
+      connBanner.classList.add('visible');
+      scheduleReconnect();
+    };
+
+    ws.onerror = function() {};
+
+    var heartbeat = setInterval(function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 25000);
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+  }
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 't' || e.key === 'T') {
+      var themes = ['dark', 'light', 'red-green'];
+      var idx = themes.indexOf(currentTheme);
+      applyTheme(themes[(idx + 1) % themes.length]);
+    }
+    if (e.key === 'n' || e.key === 'N') {
+      showNext = !showNext;
+      if (lastState) updateDisplay(lastState);
+    }
+    if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(function(){});
+    }
+  });
+
+  // Wake lock
+  var wakeLock = null;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    navigator.wakeLock.request('screen').then(function(lock) {
+      wakeLock = lock;
+      lock.addEventListener('release', function() { wakeLock = null; });
+    }).catch(function(){});
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') requestWakeLock();
+  });
+
+  connect();
+  requestWakeLock();
+})();
+</script>
+</body>
+</html>

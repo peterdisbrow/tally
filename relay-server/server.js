@@ -98,6 +98,16 @@ app.get('/rundown/show/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-show.html'));
 });
 
+// Serve the confidence monitor page at /rundown/confidence/:token
+app.get('/rundown/confidence/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-confidence.html'));
+});
+
+// Serve the studio clock page at /rundown/clock/:token
+app.get('/rundown/clock/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-clock.html'));
+});
+
 // Serve the standalone equipment status page at /rundown/equipment/:token
 app.get('/rundown/equipment/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-equipment.html'));
@@ -797,6 +807,10 @@ const timerWsClients = new Map();
 const showWsClients = new Map();
 // WebSocket clients for rundown public view (planId → Set of ws)
 const viewWsClients = new Map();
+// WebSocket clients for confidence monitor (planId → Set of ws)
+const confidenceWsClients = new Map();
+// WebSocket clients for studio clock (planId → Set of ws)
+const clockWsClients = new Map();
 // WebSocket clients for "follow room" mode — keyed by "churchId:roomId" (no plan required)
 const followWsClients = new Map();
 const roomRegistry = new Map();
@@ -3225,7 +3239,7 @@ const routeCtx = {
   broadcastPublicRundownTimer: (planId, message) => {
     // Inject server_timestamp for cross-campus sync (6.4)
     const enriched = { ...message, server_timestamp: Date.now() };
-    for (const clientMap of [timerWsClients, showWsClients, viewWsClients]) {
+    for (const clientMap of [timerWsClients, showWsClients, viewWsClients, confidenceWsClients, clockWsClients]) {
       const clients = clientMap.get(planId);
       if (!clients?.size) continue;
       for (const ws of clients) safeSend(ws, enriched);
@@ -5133,7 +5147,7 @@ _liveRundownBroadcastPortal = (churchId, msg) => {
       // Inject server_timestamp for cross-campus sync (6.4)
       const enriched = { ...msg, server_timestamp: Date.now() };
       const payload = JSON.stringify(enriched);
-      for (const clientMap of [timerWsClients, showWsClients, viewWsClients]) {
+      for (const clientMap of [timerWsClients, showWsClients, viewWsClients, confidenceWsClients, clockWsClients]) {
         const clients = clientMap.get(planId);
         if (clients?.size) {
           for (const ws of clients) {
@@ -5199,6 +5213,10 @@ wss.on('connection', (ws, req) => {
     handleShowWsConnection(ws, url);
   } else if (role === 'rundown-view') {
     handleViewWsConnection(ws, url);
+  } else if (role === 'rundown-confidence') {
+    handleConfidenceWsConnection(ws, url);
+  } else if (role === 'rundown-clock') {
+    handleClockWsConnection(ws, url);
   } else if (role === 'rundown-follow') {
     handleFollowWsConnection(ws, url);
   } else {
@@ -5429,6 +5447,94 @@ function handleViewWsConnection(ws, url) {
       if (clients) {
         clients.delete(ws);
         if (clients.size === 0) viewWsClients.delete(planId);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN CONFIDENCE WEBSOCKET (public, share-token auth) ────────────────
+function handleConfidenceWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
+    planId = plan.id;
+
+    if (!confidenceWsClients.has(planId)) confidenceWsClients.set(planId, new Set());
+    confidenceWsClients.get(planId).add(ws);
+
+    const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = confidenceWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) confidenceWsClients.delete(planId);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN CLOCK WEBSOCKET (public, share-token auth) ─────────────────────
+function handleClockWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
+    planId = plan.id;
+
+    if (!clockWsClients.has(planId)) clockWsClients.set(planId, new Set());
+    clockWsClients.get(planId).add(ws);
+
+    const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = clockWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) clockWsClients.delete(planId);
       }
     }
   });
