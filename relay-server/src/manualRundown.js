@@ -13,6 +13,9 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
+const VALID_COLUMN_TYPES = new Set(['text', 'dropdown']);
+const VALID_COLLABORATOR_ROLES = new Set(['owner', 'editor', 'viewer']);
+const VALID_COLLABORATOR_STATUSES = new Set(['active', 'offline', 'revoked']);
 
 class ManualRundownStore {
   constructor({ queryClient, log = console.log } = {}) {
@@ -117,6 +120,32 @@ class ManualRundownStore {
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
     `);
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_collaborators (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        collaborator_key TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'editor',
+        status TEXT NOT NULL DEFAULT 'active',
+        joined_at BIGINT NOT NULL,
+        last_seen_at BIGINT NOT NULL,
+        left_at BIGINT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        UNIQUE(plan_id, collaborator_key)
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rcollab_plan
+        ON rundown_collaborators(plan_id, status, last_seen_at DESC)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rcollab_church
+        ON rundown_collaborators(church_id, plan_id, role)
+    `);
 
     // ── Live show state table (per-plan cueing state) ─────────────────────────
     await this._db.exec(`
@@ -153,6 +182,15 @@ class ManualRundownStore {
         created_at BIGINT NOT NULL
       )
     `);
+    try {
+      await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN column_type TEXT NOT NULL DEFAULT 'text'`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'`);
+    } catch { /* column already exists */ }
+    try {
+      await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN equipment_binding TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_rc_plan ON rundown_columns(plan_id, sort_order)
     `);
@@ -196,7 +234,17 @@ class ManualRundownStore {
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
 
-  async createPlan(churchId, { title, serviceDate, isTemplate = false, templateName = null, status = 'draft', roomId = '' }) {
+  async createPlan(churchId, {
+    title,
+    serviceDate,
+    isTemplate = false,
+    templateName = null,
+    status = 'draft',
+    roomId = '',
+    ownerKey = null,
+    ownerName = '',
+    ownerRole = 'owner',
+  } = {}) {
     await this.ready;
     const id = uuidv4();
     const now = Date.now();
@@ -209,6 +257,16 @@ class ManualRundownStore {
       console.error('[ManualRundownStore] createPlan INSERT failed:', err);
       throw err;
     }
+    if (ownerKey || ownerName) {
+      await this.upsertCollaborator(id, churchId, {
+        collaboratorKey: ownerKey || ownerName || id,
+        displayName: ownerName || '',
+        role: ownerRole,
+        status: 'active',
+        joinedAt: now,
+        lastSeenAt: now,
+      });
+    }
     return this.getPlan(id);
   }
 
@@ -218,7 +276,8 @@ class ManualRundownStore {
     );
     if (!row) return null;
     const items = await this.getItems(planId);
-    return this._toPlan(row, items);
+    const collaborators = await this.getCollaborators(planId);
+    return this._toPlan(row, items, collaborators);
   }
 
   async listPlans(churchId, { includeTemplates = false } = {}) {
@@ -235,7 +294,8 @@ class ManualRundownStore {
     const plans = [];
     for (const row of rows) {
       const items = await this.getItems(row.id);
-      plans.push(this._toPlan(row, items));
+      const collaborators = await this.getCollaborators(row.id);
+      plans.push(this._toPlan(row, items, collaborators));
     }
     return plans;
   }
@@ -248,7 +308,8 @@ class ManualRundownStore {
     const templates = [];
     for (const row of rows) {
       const items = await this.getItems(row.id);
-      templates.push(this._toPlan(row, items));
+      const collaborators = await this.getCollaborators(row.id);
+      templates.push(this._toPlan(row, items, collaborators));
     }
     return templates;
   }
@@ -282,7 +343,7 @@ class ManualRundownStore {
     return this.getPlan(planId);
   }
 
-  async duplicatePlan(planId) {
+  async duplicatePlan(planId, { ownerKey = null, ownerName = '' } = {}) {
     const plan = await this.getPlan(planId);
     if (!plan) return null;
     const newPlan = await this.createPlan(plan.churchId, {
@@ -290,20 +351,37 @@ class ManualRundownStore {
       serviceDate: plan.serviceDate,
       status: 'draft',
       roomId: plan.roomId || '',
+      ownerKey,
+      ownerName,
     });
+    const itemIdMap = {};
     for (const item of plan.items) {
-      await this.addItem(newPlan.id, {
+      const newItem = await this.addItem(newPlan.id, {
         title: item.title,
         itemType: item.itemType,
         lengthSeconds: item.lengthSeconds,
         notes: item.notes,
         assignee: item.assignee,
+        startType: item.startType,
+        hardStartTime: item.hardStartTime,
+        autoAdvance: item.autoAdvance,
       });
+      itemIdMap[item.id] = newItem.id;
     }
+    await this.copyCollaborators(planId, newPlan.id, plan.churchId, { skipOwner: true });
+    await this._copyColumns(planId, newPlan.id, plan.churchId, itemIdMap);
     return this.getPlan(newPlan.id);
   }
 
   async deletePlan(planId) {
+    await this._db.run(
+      `DELETE FROM rundown_column_values WHERE column_id IN (SELECT id FROM rundown_columns WHERE plan_id = ?)`,
+      [planId]
+    );
+    await this._db.run(`DELETE FROM rundown_columns WHERE plan_id = ?`, [planId]);
+    await this._db.run(`DELETE FROM rundown_attachments WHERE plan_id = ?`, [planId]);
+    await this._db.run(`DELETE FROM rundown_shares WHERE plan_id = ?`, [planId]);
+    await this._db.run(`DELETE FROM rundown_live_state WHERE plan_id = ?`, [planId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE plan_id = ?`, [planId]);
     await this._db.run(`DELETE FROM manual_rundown_plans WHERE id = ?`, [planId]);
   }
@@ -361,6 +439,8 @@ class ManualRundownStore {
 
   async deleteItem(itemId) {
     const item = await this._db.queryOne(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
+    await this._db.run(`DELETE FROM rundown_column_values WHERE item_id = ?`, [itemId]);
+    await this._db.run(`DELETE FROM rundown_attachments WHERE item_id = ?`, [itemId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE id = ?`, [itemId]);
     if (item) await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [Date.now(), item.plan_id]);
   }
@@ -378,13 +458,15 @@ class ManualRundownStore {
 
   // ─── TEMPLATES ─────────────────────────────────────────────────────────────
 
-  async saveAsTemplate(planId, templateName) {
+  async saveAsTemplate(planId, templateName, { ownerKey = null, ownerName = '' } = {}) {
     const plan = await this.getPlan(planId);
     if (!plan) return null;
     const newPlan = await this.createPlan(plan.churchId, {
       title: plan.title,
       isTemplate: true,
       templateName: templateName || plan.title,
+      ownerKey,
+      ownerName,
     });
     // Copy items and build ID mapping for column values
     const itemIdMap = {};
@@ -401,18 +483,21 @@ class ManualRundownStore {
       });
       itemIdMap[item.id] = newItem.id;
     }
+    await this.copyCollaborators(planId, newPlan.id, plan.churchId, { skipOwner: true });
     // Copy custom columns and their values
     await this._copyColumns(planId, newPlan.id, plan.churchId, itemIdMap);
     return this.getPlan(newPlan.id);
   }
 
-  async createFromTemplate(templateId, { title, serviceDate }) {
+  async createFromTemplate(templateId, { title, serviceDate, ownerKey = null, ownerName = '' }) {
     const template = await this.getPlan(templateId);
     if (!template) return null;
     const newPlan = await this.createPlan(template.churchId, {
       title: title || template.title,
       serviceDate,
       isTemplate: false,
+      ownerKey,
+      ownerName,
     });
     // Copy items from template and build ID mapping
     const itemIdMap = {};
@@ -429,9 +514,28 @@ class ManualRundownStore {
       });
       itemIdMap[item.id] = newItem.id;
     }
+    await this.copyCollaborators(templateId, newPlan.id, template.churchId, { skipOwner: true });
     // Copy custom columns and their values
     await this._copyColumns(templateId, newPlan.id, template.churchId, itemIdMap);
     return this.getPlan(newPlan.id);
+  }
+
+  async copyCollaborators(sourcePlanId, targetPlanId, churchId, { skipOwner = false } = {}) {
+    const collaborators = await this.getCollaborators(sourcePlanId);
+    const now = Date.now();
+    for (const collaborator of collaborators) {
+      if (skipOwner && collaborator.role === 'owner') continue;
+      await this.upsertCollaborator(targetPlanId, churchId, {
+        collaboratorKey: collaborator.collaboratorKey,
+        displayName: collaborator.displayName,
+        role: collaborator.role,
+        status: collaborator.status === 'active' ? 'offline' : collaborator.status,
+        joinedAt: collaborator.joinedAt || now,
+        lastSeenAt: collaborator.lastSeenAt || now,
+        leftAt: collaborator.leftAt || null,
+        metadata: collaborator.metadata || {},
+      });
+    }
   }
 
   async _copyColumns(sourcePlanId, targetPlanId, churchId, itemIdMap) {
@@ -442,6 +546,9 @@ class ManualRundownStore {
         name: col.name,
         department: col.department,
         sortOrder: col.sortOrder,
+        type: col.type,
+        options: col.options,
+        equipmentBinding: col.equipmentBinding,
       });
       colIdMap[col.id] = newCol.id;
     }
@@ -462,28 +569,66 @@ class ManualRundownStore {
     const rows = await this._db.query(
       `SELECT * FROM rundown_columns WHERE plan_id = ? ORDER BY sort_order ASC, created_at ASC`, [planId]
     );
-    return rows.map(r => ({ id: r.id, planId: r.plan_id, churchId: r.church_id, name: r.name, department: r.department || '', sortOrder: r.sort_order, createdAt: r.created_at }));
+    return rows.map((r) => ({
+      id: r.id,
+      planId: r.plan_id,
+      churchId: r.church_id,
+      name: r.name,
+      department: r.department || '',
+      sortOrder: r.sort_order,
+      type: VALID_COLUMN_TYPES.has(r.column_type) ? r.column_type : 'text',
+      options: this._parseColumnOptions(r.options_json),
+      equipmentBinding: r.equipment_binding || null,
+      createdAt: r.created_at,
+    }));
   }
 
-  async addColumn(planId, churchId, { name, department = '', sortOrder }) {
+  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [], equipmentBinding = null }) {
     const id = uuidv4();
     const now = Date.now();
+    const normalizedType = VALID_COLUMN_TYPES.has(type) ? type : 'text';
+    const normalizedOptions = this._normalizeColumnOptions(options, normalizedType);
     if (sortOrder === undefined || sortOrder === null) {
       const max = await this._db.queryOne(`SELECT COALESCE(MAX(sort_order), -1) as mx FROM rundown_columns WHERE plan_id = ?`, [planId]);
       sortOrder = (max?.mx ?? -1) + 1;
     }
     await this._db.run(
-      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, planId, churchId, name, department || '', sortOrder, now]
+      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, equipment_binding, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), equipmentBinding || null, now]
     );
-    return { id, planId, churchId, name, department: department || '', sortOrder, createdAt: now };
+    return {
+      id,
+      planId,
+      churchId,
+      name,
+      department: department || '',
+      sortOrder,
+      type: normalizedType,
+      options: normalizedOptions,
+      equipmentBinding: equipmentBinding || null,
+      createdAt: now,
+    };
   }
 
-  async updateColumn(colId, { name, sortOrder }) {
+  async updateColumn(colId, { name, sortOrder, type, options, equipmentBinding }) {
     const sets = [];
     const params = [];
     if (name !== undefined) { sets.push('name = ?'); params.push(name); }
     if (sortOrder !== undefined) { sets.push('sort_order = ?'); params.push(sortOrder); }
+    const normalizedType = type !== undefined ? (VALID_COLUMN_TYPES.has(type) ? type : 'text') : undefined;
+    if (normalizedType !== undefined) {
+      sets.push('column_type = ?');
+      params.push(normalizedType);
+    }
+    if (options !== undefined || (normalizedType !== undefined && normalizedType !== 'dropdown')) {
+      sets.push('options_json = ?');
+      params.push(JSON.stringify(this._normalizeColumnOptions(options, normalizedType || 'text')));
+    }
+    if (equipmentBinding !== undefined) {
+      sets.push('equipment_binding = ?');
+      params.push(equipmentBinding || null);
+    }
     if (sets.length === 0) return;
     params.push(colId);
     await this._db.run(`UPDATE rundown_columns SET ${sets.join(', ')} WHERE id = ?`, params);
@@ -493,6 +638,127 @@ class ManualRundownStore {
     // Delete all values for this column first
     await this._db.run(`DELETE FROM rundown_column_values WHERE column_id = ?`, [colId]);
     await this._db.run(`DELETE FROM rundown_columns WHERE id = ?`, [colId]);
+  }
+
+  // ─── COLLABORATORS ─────────────────────────────────────────────────────────
+
+  async getCollaborators(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_collaborators WHERE plan_id = ? ORDER BY
+        CASE role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 WHEN 'viewer' THEN 2 ELSE 3 END,
+        CASE status WHEN 'active' THEN 0 WHEN 'offline' THEN 1 WHEN 'revoked' THEN 2 ELSE 3 END,
+        last_seen_at DESC,
+        created_at ASC`,
+      [planId]
+    );
+    return rows.map((row) => this._toCollaborator(row));
+  }
+
+  async getCollaborator(planId, collaboratorKey) {
+    if (!collaboratorKey) return null;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_collaborators WHERE plan_id = ? AND collaborator_key = ?`,
+      [planId, collaboratorKey]
+    );
+    return row ? this._toCollaborator(row) : null;
+  }
+
+  async upsertCollaborator(planId, churchId, {
+    collaboratorKey,
+    displayName = '',
+    role = 'editor',
+    status = 'active',
+    joinedAt,
+    lastSeenAt,
+    leftAt = null,
+    metadata = {},
+  }) {
+    if (!collaboratorKey) throw new Error('collaboratorKey is required');
+    const normalizedRole = VALID_COLLABORATOR_ROLES.has(role) ? role : 'editor';
+    const normalizedStatus = VALID_COLLABORATOR_STATUSES.has(status) ? status : 'active';
+    const now = Date.now();
+    const existing = await this.getCollaborator(planId, collaboratorKey);
+    const payload = {
+      id: existing?.id || uuidv4(),
+      planId,
+      churchId,
+      collaboratorKey,
+      displayName: String(displayName || '').trim(),
+      role: normalizedRole,
+      status: normalizedStatus,
+      joinedAt: existing?.joinedAt || joinedAt || now,
+      lastSeenAt: lastSeenAt || now,
+      leftAt: leftAt ?? existing?.leftAt ?? null,
+      metadata: metadata || {},
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    await this._db.run(`
+      INSERT INTO rundown_collaborators (
+        id, plan_id, church_id, collaborator_key, display_name, role, status,
+        joined_at, last_seen_at, left_at, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(plan_id, collaborator_key) DO UPDATE SET
+        church_id = excluded.church_id,
+        display_name = excluded.display_name,
+        role = excluded.role,
+        status = excluded.status,
+        joined_at = CASE
+          WHEN rundown_collaborators.joined_at IS NULL THEN excluded.joined_at
+          ELSE rundown_collaborators.joined_at
+        END,
+        last_seen_at = excluded.last_seen_at,
+        left_at = excluded.left_at,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at
+    `, [
+      payload.id,
+      payload.planId,
+      payload.churchId,
+      payload.collaboratorKey,
+      payload.displayName,
+      payload.role,
+      payload.status,
+      payload.joinedAt,
+      payload.lastSeenAt,
+      payload.leftAt,
+      JSON.stringify(payload.metadata || {}),
+      payload.createdAt,
+      payload.updatedAt,
+    ]);
+    return this.getCollaborator(planId, collaboratorKey);
+  }
+
+  async markCollaboratorOffline(planId, collaboratorKey, { leftAt = Date.now() } = {}) {
+    const existing = await this.getCollaborator(planId, collaboratorKey);
+    if (!existing) return null;
+    await this._db.run(
+      `UPDATE rundown_collaborators SET status = 'offline', left_at = ?, updated_at = ? WHERE plan_id = ? AND collaborator_key = ?`,
+      [leftAt, Date.now(), planId, collaboratorKey]
+    );
+    return this.getCollaborator(planId, collaboratorKey);
+  }
+
+  async revokeCollaborator(planId, collaboratorKey) {
+    const existing = await this.getCollaborator(planId, collaboratorKey);
+    if (!existing) return null;
+    await this._db.run(
+      `UPDATE rundown_collaborators SET status = 'revoked', left_at = ?, updated_at = ? WHERE plan_id = ? AND collaborator_key = ?`,
+      [Date.now(), Date.now(), planId, collaboratorKey]
+    );
+    return this.getCollaborator(planId, collaboratorKey);
+  }
+
+  async cleanupStaleCollaborators(staleBeforeMs) {
+    const threshold = typeof staleBeforeMs === 'number' ? staleBeforeMs : Date.now();
+    await this._db.run(
+      `UPDATE rundown_collaborators
+       SET status = CASE WHEN status = 'revoked' THEN status ELSE 'offline' END,
+           left_at = CASE WHEN left_at IS NULL THEN ? ELSE left_at END,
+           updated_at = ?
+       WHERE status = 'active' AND last_seen_at < ?`,
+      [threshold, Date.now(), threshold]
+    );
   }
 
   async getColumnValues(planId) {
@@ -609,6 +875,34 @@ class ManualRundownStore {
     );
   }
 
+  async setShareToken(planId, token) {
+    await this._db.run(
+      `UPDATE manual_rundown_plans SET share_token = ?, updated_at = ? WHERE id = ?`,
+      [token || null, Date.now(), planId]
+    );
+  }
+
+  async clearShareToken(planId) {
+    await this.setShareToken(planId, null);
+  }
+
+  async resolvePublicAccess(token) {
+    if (!token) return null;
+    const now = Date.now();
+    const share = await this.getShareByToken(token);
+    if (share) {
+      if (share.expiresAt < now) return null;
+      const plan = await this.getPlan(share.planId);
+      if (!plan) return null;
+      return { plan, share, isLegacyToken: false };
+    }
+    const plan = await this.getPlanByShareToken(token);
+    if (!plan) return null;
+    const activeShare = await this.getShareByPlanId(plan.id);
+    if (!activeShare || activeShare.expiresAt < now) return null;
+    return { plan, share: activeShare, isLegacyToken: true };
+  }
+
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
   // ─── SHARE TOKENS ──────────────────────────────────────────────────────────
@@ -634,10 +928,11 @@ class ManualRundownStore {
     );
     if (!row) return null;
     const items = await this.getItems(row.id);
-    return this._toPlan(row, items);
+    const collaborators = await this.getCollaborators(row.id);
+    return this._toPlan(row, items, collaborators);
   }
 
-  _toPlan(row, items = []) {
+  _toPlan(row, items = [], collaborators = []) {
     return {
       id: row.id,
       churchId: row.church_id,
@@ -650,6 +945,7 @@ class ManualRundownStore {
       shareToken: row.share_token || null,
       source: 'manual',
       items,
+      collaborators,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -682,6 +978,24 @@ class ManualRundownStore {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       isActive: !!row.is_active,
+    };
+  }
+
+  _toCollaborator(row) {
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      churchId: row.church_id,
+      collaboratorKey: row.collaborator_key,
+      displayName: row.display_name || '',
+      role: VALID_COLLABORATOR_ROLES.has(row.role) ? row.role : 'editor',
+      status: VALID_COLLABORATOR_STATUSES.has(row.status) ? row.status : 'active',
+      joinedAt: row.joined_at,
+      lastSeenAt: row.last_seen_at,
+      leftAt: row.left_at || null,
+      metadata: this._parseJson(row.metadata_json, {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 
@@ -738,6 +1052,37 @@ class ManualRundownStore {
       updatedAt: row.updated_at,
       currentCueStartedAt: row.current_cue_started_at,
     };
+  }
+
+  _parseColumnOptions(optionsJson) {
+    try {
+      const parsed = JSON.parse(optionsJson || '[]');
+      return this._normalizeColumnOptions(parsed, 'dropdown');
+    } catch {
+      return [];
+    }
+  }
+
+  _normalizeColumnOptions(options, type) {
+    if (type !== 'dropdown') return [];
+    const list = Array.isArray(options)
+      ? options
+      : String(options || '')
+        .split(',');
+    return [...new Set(
+      list
+        .map((option) => String(option || '').trim())
+        .filter(Boolean)
+    )];
+  }
+
+  _parseJson(value, fallback) {
+    try {
+      if (value == null || value === '') return fallback;
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
   }
 }
 

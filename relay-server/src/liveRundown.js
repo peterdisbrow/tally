@@ -101,6 +101,29 @@ class LiveRundownManager {
     try { return JSON.parse(str || 'null') ?? fallback; } catch { return fallback; }
   }
 
+  _isPlayableItem(item) {
+    return !!item && item.itemType !== 'section';
+  }
+
+  _findFirstPlayableIndex(items = []) {
+    const index = items.findIndex((item) => this._isPlayableItem(item));
+    return index >= 0 ? index : 0;
+  }
+
+  _findNextPlayableIndex(items = [], currentIndex = -1) {
+    for (let i = Number(currentIndex) + 1; i < items.length; i += 1) {
+      if (this._isPlayableItem(items[i])) return i;
+    }
+    return null;
+  }
+
+  _findPreviousPlayableIndex(items = [], currentIndex = 0) {
+    for (let i = Number(currentIndex) - 1; i >= 0; i -= 1) {
+      if (this._isPlayableItem(items[i])) return i;
+    }
+    return null;
+  }
+
   // ─── DB WRITE HELPERS ──────────────────────────────────────────────────────
 
   _dbUpsert(session) {
@@ -176,14 +199,15 @@ class LiveRundownManager {
     // Extract service items that are actionable (skip headers for position tracking,
     // but include them in the list for display)
     const items = (plan.items || []).map((item, index) => ({
+      ...item,
       index,
       id: item.id,
       title: item.title,
       itemType: item.itemType,
-      servicePosition: item.servicePosition,
-      lengthSeconds: item.lengthSeconds || 0,
-      description: item.description || null,
-      notes: item.notes || [],
+      servicePosition: item.servicePosition ?? item.sequence ?? item.sortOrder ?? index + 1,
+      lengthSeconds: Number(item.lengthSeconds) > 0 ? Number(item.lengthSeconds) : 0,
+      description: item.description ?? item.summary ?? null,
+      notes: Array.isArray(item.notes) ? item.notes : (item.notes ? [item.notes] : []),
       songTitle: item.songTitle || null,
       author: item.author || null,
       arrangementKey: item.arrangementKey || null,
@@ -205,6 +229,7 @@ class LiveRundownManager {
     const scheduledStart = serviceTime?.startsAt ? new Date(serviceTime.startsAt).getTime() : null;
 
     const now = Date.now();
+    const initialIndex = this._findFirstPlayableIndex(items);
     // Build Map<itemId, actions[]> from the provided map
     const companionActions = new Map(Object.entries(companionActionsMap));
 
@@ -212,10 +237,11 @@ class LiveRundownManager {
       churchId,
       planId: plan.id,
       planTitle: plan.title,
+      source: plan.source || null,
       callerName,
       items,
       team: plan.team || [],
-      currentIndex: 0,
+      currentIndex: initialIndex,
       state: 'active', // active | paused | ended
       startedAt: now,
       scheduledStart,
@@ -235,11 +261,11 @@ class LiveRundownManager {
 
     // Record timing for the first item
     session.itemTimings.push({
-      index: 0,
+      index: initialIndex,
       startedAt: now,
       endedAt: null,
       actualDuration: null,
-      plannedDuration: items[0]?.lengthSeconds || 0,
+      plannedDuration: items[initialIndex]?.lengthSeconds || 0,
     });
 
     // Persist to DB
@@ -262,8 +288,8 @@ class LiveRundownManager {
     const session = this._sessions.get(churchId);
     if (!session || session.state !== 'active') return null;
 
-    const nextIndex = session.currentIndex + 1;
-    if (nextIndex >= session.items.length) return null;
+    const nextIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
+    if (nextIndex == null) return null;
 
     return this._moveTo(session, nextIndex);
   }
@@ -275,8 +301,8 @@ class LiveRundownManager {
     const session = this._sessions.get(churchId);
     if (!session || session.state !== 'active') return null;
 
-    const prevIndex = session.currentIndex - 1;
-    if (prevIndex < 0) return null;
+    const prevIndex = this._findPreviousPlayableIndex(session.items, session.currentIndex);
+    if (prevIndex == null) return null;
 
     return this._moveTo(session, prevIndex);
   }
@@ -345,7 +371,8 @@ class LiveRundownManager {
 
     const now = Date.now();
     const currentItem = session.items[session.currentIndex] || null;
-    const nextItem = session.items[session.currentIndex + 1] || null;
+    const nextItemIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
+    const nextItem = nextItemIndex != null ? session.items[nextItemIndex] : null;
     const elapsedOnItem = currentItem ? (now - session.currentItemStartedAt) / 1000 : 0;
     const duration = currentItem?.lengthSeconds || 0;
     const remaining = duration > 0 ? Math.max(0, duration - elapsedOnItem) : null;
@@ -366,6 +393,7 @@ class LiveRundownManager {
       is_live: true,
       next_cue_title: nextItem?.title || null,
       next_cue_duration: nextItem?.lengthSeconds || null,
+      next_cue_index: nextItemIndex,
       started_at: session.startedAt,
       timestamp: now,
     };
@@ -431,6 +459,7 @@ class LiveRundownManager {
 
     for (let i = startIdx; i < endIdx; i++) {
       const item = session.items[i];
+      if (!this._isPlayableItem(item)) continue;
       if (this._matchesPresentationName(normalized, item)) {
         session.lastAutoAdvanceAt = now;
         this._log(`[LiveRundown] Auto-advancing church ${churchId} to item ${i} ("${item.title}") — matched PP presentation "${presentationName}"`);
@@ -550,6 +579,7 @@ class LiveRundownManager {
       callerName: session.callerName,
       state: session.state,
       currentIndex: session.currentIndex,
+      currentCueIndex: session.currentIndex,
       totalItems: session.items.length,
       currentItem: currentItem ? {
         ...currentItem,
@@ -567,7 +597,9 @@ class LiveRundownManager {
       totalPlannedDuration: session.totalPlannedDuration,
       totalElapsed: Math.round((now - session.startedAt) / 1000),
       autoAdvance: session.autoAdvance,
+      effectiveAutoAdvance: session.autoAdvance || !!currentItem?.autoAdvance,
       autoAdvancedFrom: session.autoAdvancedFrom || null,
+      source: session.source || null,
       timestamp: now,
     };
   }
@@ -699,9 +731,10 @@ class LiveRundownManager {
         : null;
 
       // Auto-advance: when remaining hits 0 and auto-advance is on
-      if (session.autoAdvance && currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= 0) {
-        const nextIndex = session.currentIndex + 1;
-        if (nextIndex < session.items.length) {
+      const shouldAutoAdvance = session.autoAdvance || !!currentItem.autoAdvance;
+      if (shouldAutoAdvance && currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= 0) {
+        const nextIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
+        if (nextIndex != null) {
           this._moveTo(session, nextIndex, currentItem.title);
           return; // _moveTo broadcasts rundown_position, skip the tick
         }
@@ -719,6 +752,7 @@ class LiveRundownManager {
         scheduleDelta: this._calculateScheduleDelta(session, now),
         totalElapsed: Math.round((now - session.startedAt) / 1000),
         autoAdvance: session.autoAdvance,
+        effectiveAutoAdvance: shouldAutoAdvance,
         autoAdvancedFrom: session.autoAdvancedFrom || null,
         timestamp: now,
       };

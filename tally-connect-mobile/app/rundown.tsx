@@ -1,117 +1,307 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, SectionList, StyleSheet, ActivityIndicator,
-  RefreshControl, TouchableOpacity, Alert, Animated,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api, getChurchId } from '../src/api/client';
+import { getChurchId } from '../src/api/client';
 import { tallySocket } from '../src/ws/TallySocket';
 import { useThemeColors, ThemeColors } from '../src/theme/ThemeContext';
-import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
-import type { RundownState, RundownTick, ScheduleDelta } from '../src/ws/types';
+import { borderRadius, fontSize, spacing } from '../src/theme/spacing';
+import type { RundownState, RundownTick } from '../src/ws/types';
+import type {
+  LegacyRundownState,
+  ManualPlaybackState,
+  ManualRundownItem,
+  ManualRundownLiveState,
+  ManualRundownPlan,
+  ManualTimingEntry,
+  PcoRundownItem,
+  PcoRundownPlan,
+  RundownPlanDetail,
+  RundownPlanSummary,
+  RundownSource,
+} from '../src/rundown/api';
+import {
+  advanceManualLive,
+  backManualLive,
+  computeManualPlaybackState,
+  computeManualTimings,
+  fetchLegacyLiveState,
+  fetchManualLiveState,
+  fetchManualPlanDetail,
+  fetchPlanningCenterNextService,
+  fetchPcoPlanDetail,
+  fetchRundownPlanSummaries,
+  gotoManualLive,
+  startManualLive,
+  stopManualLive,
+} from '../src/rundown/api';
 
-interface PlanItem {
-  id: string;
-  sequence: number;
-  itemType: string;
-  title: string;
-  servicePosition: string;
-  lengthSeconds: number | null;
-  description: string | null;
-  songId: string | null;
-  songTitle: string | null;
-  author: string | null;
-  arrangementKey: string | null;
-}
+type ScreenState = 'loading' | 'ready' | 'empty' | 'no_connection' | 'error';
 
-interface TeamMember {
-  id: string;
-  name: string;
-  teamName: string;
-  position: string;
-  status: string;
-  statusLabel: string;
-}
+type DisplayRow =
+  | {
+      kind: 'section';
+      key: string;
+      label: string;
+      index: number;
+    }
+  | {
+      kind: 'cue';
+      key: string;
+      item: ManualRundownItem | PcoRundownItem;
+      index: number;
+      groupLabel?: string;
+    };
 
-interface ServiceTime {
-  id: string;
-  name: string;
-  timeType: string;
-  startsAt: string | null;
-  endsAt: string | null;
-}
+type SelectionCache = {
+  detail: RundownPlanDetail;
+  manualLiveState?: ManualRundownLiveState | null;
+  legacyLiveState?: LegacyRundownState | null;
+};
 
-interface ServicePlan {
-  id: string;
-  title: string;
-  sortDate: string;
-  items: PlanItem[];
-  team: TeamMember[];
-  times: ServiceTime[];
-}
-
-type ScreenState = 'loading' | 'no_connection' | 'no_service' | 'ready' | 'error';
+const PCO_GROUP_ORDER = [
+  { label: 'PRE-SERVICE', positions: ['before'] },
+  { label: 'SERVICE', positions: ['during', '', 'main'] },
+  { label: 'POST-SERVICE', positions: ['after'] },
+];
 
 export default function RundownScreen() {
   const colors = useThemeColors();
+  const listRef = useRef<FlatList<DisplayRow>>(null);
+  const cacheRef = useRef<Map<string, SelectionCache>>(new Map());
+  const loadTokenRef = useRef(0);
+  const selectedIdRef = useRef<string | null>(null);
+
   const [state, setState] = useState<ScreenState>('loading');
-  const [plan, setPlan] = useState<ServicePlan | null>(null);
+  const [churchId, setChurchId] = useState<string | null>(null);
+  const [summaries, setSummaries] = useState<RundownPlanSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSummary, setSelectedSummary] = useState<RundownPlanSummary | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<RundownPlanDetail | null>(null);
+  const [manualLiveState, setManualLiveState] = useState<ManualRundownLiveState | null>(null);
+  const [legacyLiveState, setLegacyLiveState] = useState<LegacyRundownState | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Live rundown state
-  const [liveState, setLiveState] = useState<RundownState | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
-  const liveStateRef = useRef<RundownState | null>(null);
-  const scrollRef = useRef<SectionList>(null);
+  const manualPlayback = useMemo<ManualPlaybackState | null>(() => {
+    if (!selectedDetail || selectedDetail.source !== 'manual') return null;
+    return computeManualPlaybackState(selectedDetail.items, manualLiveState);
+  }, [selectedDetail, manualLiveState]);
 
-  const loadData = useCallback(async (signal?: AbortSignal) => {
+  const manualTimings = useMemo<ManualTimingEntry[]>(() => {
+    if (!selectedDetail || selectedDetail.source !== 'manual') return [];
+    return computeManualTimings(selectedDetail.items);
+  }, [selectedDetail]);
+
+  const displayRows = useMemo(() => buildDisplayRows(selectedDetail), [selectedDetail]);
+
+  const currentLiveState = useMemo(() => {
+    if (!selectedSummary || !selectedDetail) return null;
+    if (selectedSummary.source === 'manual') return manualLiveState;
+    if (selectedSummary.source === 'pco' && legacyLiveState?.planId === selectedSummary.id) {
+      return legacyLiveState;
+    }
+    return null;
+  }, [selectedSummary, selectedDetail, manualLiveState, legacyLiveState]);
+
+  const isManualLive = !!manualPlayback;
+  const isLegacyLive = !!selectedSummary
+    && selectedSummary.source === 'pco'
+    && !!legacyLiveState
+    && legacyLiveState.planId === selectedSummary.id
+    && (legacyLiveState.active ?? legacyLiveState.state === 'active');
+  const isLive = isManualLive || isLegacyLive;
+
+  const selectedRows = displayRows;
+
+  const loadSelectedPlan = useCallback(async (
+    summary: RundownPlanSummary,
+    hint?: Partial<SelectionCache> | null,
+    options: { scrollToTop?: boolean; churchIdOverride?: string } = {}
+  ) => {
+    const resolvedChurchId = options.churchIdOverride || churchId;
+    if (!resolvedChurchId) return;
+    const loadId = ++loadTokenRef.current;
+    setLoadingPlanId(summary.id);
+    setErrorMessage(null);
+
     try {
-      const churchId = await getChurchId();
-      if (!churchId) {
-        setState('no_connection');
+      const cacheKey = `${summary.source}:${summary.id}`;
+      const cached = cacheRef.current.get(cacheKey);
+      if (cached?.detail) {
+        setSelectedSummary(summary);
+        setSelectedDetail(cached.detail);
+        setManualLiveState(summary.source === 'manual' ? (hint?.manualLiveState ?? cached.manualLiveState ?? null) : null);
+        setLegacyLiveState(summary.source === 'pco' ? (hint?.legacyLiveState ?? cached.legacyLiveState ?? null) : null);
+        selectedIdRef.current = summary.id;
+        if (options.scrollToTop) {
+          requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
+        }
         return;
       }
 
-      // Check PCO connection status first
-      const status = await api<{ connected: boolean }>(
-        `/api/churches/${churchId}/planning-center`,
-        { signal }
-      );
+      let detail: RundownPlanDetail;
+      let manualState: ManualRundownLiveState | null = summary.source === 'manual' ? (hint?.manualLiveState ?? null) : null;
+      let legacyState: LegacyRundownState | null = summary.source === 'pco' ? (hint?.legacyLiveState ?? null) : null;
 
-      if (!status.connected) {
-        setState('no_connection');
-        return;
+      if (summary.source === 'manual') {
+        detail = await fetchManualPlanDetail(resolvedChurchId, summary.id);
+        manualState = manualState || await fetchManualLiveState(resolvedChurchId, summary.id);
+      } else {
+        detail = await fetchPcoPlanDetail(resolvedChurchId, summary.id);
+        legacyState = legacyState || await fetchLegacyLiveState(resolvedChurchId);
+        if (legacyState && legacyState.planId !== summary.id) {
+          legacyState = null;
+        }
       }
 
-      // Fetch next service
-      const data = await api<{ plan: ServicePlan | null }>(
-        `/api/churches/${churchId}/planning-center/next-service`,
-        { signal }
-      );
+      cacheRef.current.set(cacheKey, {
+        detail,
+        manualLiveState: manualState,
+        legacyLiveState: legacyState,
+      });
 
-      if (!data.plan) {
-        setState('no_service');
-        return;
-      }
+      if (loadTokenRef.current !== loadId) return;
 
-      setPlan(data.plan);
-      setState('ready');
+      setSelectedId(summary.id);
+      setSelectedSummary(summary);
+      setSelectedDetail(detail);
+      setManualLiveState(summary.source === 'manual' ? manualState : null);
+      setLegacyLiveState(summary.source === 'pco' ? legacyState : null);
+      selectedIdRef.current = summary.id;
 
-      // Check if there's already an active live rundown session
-      const liveData = await api<RundownState & { active: boolean }>(
-        `/api/churches/${churchId}/live-rundown/state`,
-        { signal }
-      );
-      if (liveData.active) {
-        setLiveState(liveData);
-        liveStateRef.current = liveData;
+      if (options.scrollToTop) {
+        requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
       }
     } catch (err) {
+      if (loadTokenRef.current !== loadId) return;
+      console.error('[rundown] failed to load plan', err);
+      setErrorMessage(err instanceof Error ? err.message : 'Unable to load rundown plan');
+      setSelectedDetail(null);
+      setManualLiveState(null);
+      setLegacyLiveState(null);
+    } finally {
+      if (loadTokenRef.current === loadId) {
+        setLoadingPlanId(null);
+      }
+    }
+  }, [churchId]);
+
+  const loadData = useCallback(async (signal?: AbortSignal) => {
+    const myLoad = ++loadTokenRef.current;
+    setErrorMessage(null);
+    try {
+      const currentChurchId = await getChurchId();
+      if (!currentChurchId) {
+        if (loadTokenRef.current === myLoad) {
+          setState('no_connection');
+        }
+        return;
+      }
+
+      if (loadTokenRef.current === myLoad) {
+        setChurchId(currentChurchId);
+      }
+
+      let planSummaries = await fetchRundownPlanSummaries(currentChurchId, signal);
+      planSummaries = sortSummaries(planSummaries);
+
+      const manualSummaries = planSummaries.filter((plan) => plan.source === 'manual' && !plan.isTemplate);
+      const manualStates = await Promise.all(
+        manualSummaries.map(async (summary) => ({
+          summary,
+          state: await fetchManualLiveState(currentChurchId, summary.id, signal),
+        }))
+      );
+
+      const liveManual = manualStates.find((entry) => entry.state?.isLive);
+      const legacyState = await fetchLegacyLiveState(currentChurchId, signal);
+      const liveLegacySummary = legacyState?.planId
+        ? planSummaries.find((plan) => plan.source === 'pco' && plan.id === legacyState.planId)
+        : null;
+
+      if (loadTokenRef.current !== myLoad) return;
+
+      setSummaries(planSummaries);
+
+      if (selectedIdRef.current) {
+        const stillThere = planSummaries.find((plan) => plan.id === selectedIdRef.current);
+        if (stillThere) {
+          const manualHint = stillThere.source === 'manual'
+            ? manualStates.find((entry) => entry.summary.id === stillThere.id)?.state || null
+            : null;
+          const legacyHint = stillThere.source === 'pco' && legacyState?.planId === stillThere.id
+            ? legacyState
+            : null;
+          await loadSelectedPlan(
+            stillThere,
+            stillThere.source === 'manual' ? { manualLiveState: manualHint } : { legacyLiveState: legacyHint },
+            { scrollToTop: false, churchIdOverride: currentChurchId }
+          );
+          setState('ready');
+          return;
+        }
+      }
+
+      const initialSummary = liveManual?.summary
+        || liveLegacySummary
+        || pickMostRelevantManual(manualSummaries)
+        || pickMostRelevantPco(planSummaries.filter((plan) => plan.source === 'pco'));
+
+      if (initialSummary) {
+        const liveHint = initialSummary.source === 'manual'
+          ? manualStates.find((entry) => entry.summary.id === initialSummary.id)?.state || null
+          : legacyState && legacyState.planId === initialSummary.id
+            ? legacyState
+            : null;
+        await loadSelectedPlan(initialSummary, initialSummary.source === 'manual'
+          ? { manualLiveState: liveHint as ManualRundownLiveState | null }
+          : { legacyLiveState: liveHint as LegacyRundownState | null }, { scrollToTop: false, churchIdOverride: currentChurchId });
+        setState('ready');
+        return;
+      }
+
+      const nextService = await fetchPlanningCenterNextService(currentChurchId, signal);
+      if (nextService) {
+        const fallbackSummary: RundownPlanSummary = {
+          id: nextService.id,
+          title: nextService.title,
+          serviceDate: nextService.sortDate || nextService.serviceDate || null,
+          source: 'pco',
+          itemCount: nextService.items?.length || 0,
+        };
+        setSummaries([fallbackSummary]);
+        await loadSelectedPlan(fallbackSummary, { legacyLiveState: null }, { scrollToTop: false, churchIdOverride: currentChurchId });
+        setState('ready');
+        return;
+      }
+
+      setSelectedId(null);
+      setSelectedSummary(null);
+      setSelectedDetail(null);
+      setManualLiveState(null);
+      setLegacyLiveState(null);
+      setState('empty');
+    } catch (err) {
+      if (loadTokenRef.current !== myLoad) return;
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.error('Failed to load service rundown:', err);
+      console.error('[rundown] failed to load rundown data', err);
+      setErrorMessage(err instanceof Error ? err.message : 'Unable to load rundown data');
       setState('error');
     }
-  }, []);
+  }, [loadSelectedPlan]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,40 +309,60 @@ export default function RundownScreen() {
     return () => controller.abort();
   }, [loadData]);
 
-  // Listen for WebSocket rundown messages
   useEffect(() => {
     const unsub = tallySocket.onMessage((msg) => {
-      if (msg.type === 'rundown_state' || msg.type === 'rundown_position') {
-        const rs = msg as RundownState;
-        setLiveState(rs);
-        liveStateRef.current = rs;
-      } else if (msg.type === 'rundown_tick') {
-        const tick = msg as RundownTick;
-        setLiveState((prev) => {
-          if (!prev) return prev;
-          const updated = {
-            ...prev,
-            totalElapsed: tick.totalElapsed,
-            scheduleDelta: tick.scheduleDelta,
-            currentItem: prev.currentItem ? {
-              ...prev.currentItem,
-              elapsedSeconds: tick.elapsedSeconds,
-              remainingSeconds: tick.remainingSeconds,
-              isOvertime: tick.isOvertime,
-              overtimeSeconds: tick.overtimeSeconds,
-              isWarning: tick.isWarning,
-            } : null,
-          };
-          liveStateRef.current = updated;
-          return updated;
-        });
+      if (!selectedSummary) return;
+
+      if (msg.type === 'rundown_state' || msg.type === 'rundown_position' || msg.type === 'rundown_tick') {
+        const stateMsg = msg as RundownState;
+        if (selectedSummary.source === 'pco' && stateMsg.planId === selectedSummary.id) {
+          setLegacyLiveState(stateMsg as LegacyRundownState);
+          setErrorMessage(null);
+        }
       } else if (msg.type === 'rundown_ended') {
-        setLiveState(null);
-        liveStateRef.current = null;
+        const ended = msg as { planId?: string };
+        if (selectedSummary.source === 'pco' && ended.planId === selectedSummary.id) {
+          setLegacyLiveState(null);
+        }
+      } else if (msg.type === 'rundown_error') {
+        const err = msg as { error?: string };
+        setErrorMessage(err.error || 'Unable to update rundown state');
       }
     });
     return unsub;
-  }, []);
+  }, [selectedSummary]);
+
+  useEffect(() => {
+    if (!selectedSummary || !churchId) return undefined;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        if (selectedSummary.source === 'manual') {
+          const state = await fetchManualLiveState(churchId, selectedSummary.id);
+          if (cancelled) return;
+          setManualLiveState(state);
+        } else {
+          const state = await fetchLegacyLiveState(churchId);
+          if (cancelled) return;
+          if (state && state.planId === selectedSummary.id) {
+            setLegacyLiveState(state);
+          } else {
+            setLegacyLiveState(null);
+          }
+        }
+      } catch {
+        if (!cancelled) return;
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [selectedSummary, churchId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -160,67 +370,159 @@ export default function RundownScreen() {
     setRefreshing(false);
   }, [loadData]);
 
-  const startService = useCallback(async () => {
-    if (!plan) return;
-    setIsStarting(true);
+  const selectPlan = useCallback(async (summary: RundownPlanSummary) => {
+    if (summary.id === selectedIdRef.current && selectedDetail) return;
+    await loadSelectedPlan(summary, null, { scrollToTop: true });
+  }, [loadSelectedPlan, selectedDetail]);
+
+  const performManualAction = useCallback(async (action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
+    if (!churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
+    const planId = selectedSummary.id;
+    setActionBusy(action);
+    setErrorMessage(null);
     try {
-      const churchId = await getChurchId();
-      if (!churchId) return;
-      const result = await api<RundownState>(
-        `/api/churches/${churchId}/live-rundown/start`,
-        { method: 'POST', body: { planId: plan.id, callerName: 'Mobile TD' } }
-      );
-      setLiveState(result);
-      liveStateRef.current = result;
+      if (action === 'start') {
+        const result = await startManualLive(churchId, planId);
+        setManualLiveState(result as ManualRundownLiveState);
+      } else if (action === 'stop') {
+        await stopManualLive(churchId, planId);
+        setManualLiveState(null);
+      } else if (action === 'back') {
+        const result = await backManualLive(churchId, planId);
+        if (result) {
+          const live = await fetchManualLiveState(churchId, planId);
+          setManualLiveState(live);
+        }
+      } else if (action === 'next') {
+        const result = await advanceManualLive(churchId, planId);
+        if (result) {
+          const live = await fetchManualLiveState(churchId, planId);
+          setManualLiveState(live);
+        }
+      } else if (action === 'goto' && typeof index === 'number') {
+        const result = await gotoManualLive(churchId, planId, index);
+        if (result) {
+          const live = await fetchManualLiveState(churchId, planId);
+          setManualLiveState(live);
+        }
+      }
     } catch (err) {
-      Alert.alert('Error', 'Failed to start rundown session');
+      const message = err instanceof Error ? err.message : 'Unable to control rundown';
+      setErrorMessage(message);
+      Alert.alert('Rundown action failed', message);
     } finally {
-      setIsStarting(false);
+      setActionBusy(null);
     }
-  }, [plan]);
+  }, [churchId, selectedSummary]);
 
-  const endService = useCallback(async () => {
-    Alert.alert('End Service', 'Are you sure you want to end this rundown session?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'End',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const churchId = await getChurchId();
-            if (!churchId) return;
-            await api(`/api/churches/${churchId}/live-rundown/end`, { method: 'POST' });
-            setLiveState(null);
-            liveStateRef.current = null;
-          } catch {
-            Alert.alert('Error', 'Failed to end rundown session');
-          }
-        },
-      },
-    ]);
-  }, []);
+  const performLegacyAction = useCallback((action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
+    if (!selectedSummary || selectedSummary.source !== 'pco') return;
+    const messageId = `rundown-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setActionBusy(action);
+    setErrorMessage(null);
 
-  const advance = useCallback(async () => {
     try {
-      const churchId = await getChurchId();
-      if (!churchId) return;
-      await api(`/api/churches/${churchId}/live-rundown/advance`, { method: 'POST' });
-    } catch {}
-  }, []);
+      if (action === 'start') {
+        tallySocket.send({
+          type: 'rundown_start',
+          planId: selectedSummary.id,
+          callerName: 'Mobile TD',
+          messageId,
+        });
+      } else if (action === 'stop') {
+        tallySocket.send({
+          type: 'rundown_end',
+          messageId,
+        });
+      } else if (action === 'back') {
+        tallySocket.send({
+          type: 'rundown_back',
+          messageId,
+        });
+      } else if (action === 'next') {
+        tallySocket.send({
+          type: 'rundown_advance',
+          messageId,
+        });
+      } else if (action === 'goto' && typeof index === 'number') {
+        tallySocket.send({
+          type: 'rundown_goto',
+          index,
+          messageId,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to control legacy rundown';
+      setErrorMessage(message);
+      Alert.alert('Rundown action failed', message);
+    } finally {
+      setTimeout(() => setActionBusy((current) => (current === action ? null : current)), 400);
+    }
+  }, [selectedSummary]);
 
-  const goBack = useCallback(async () => {
-    try {
-      const churchId = await getChurchId();
-      if (!churchId) return;
-      await api(`/api/churches/${churchId}/live-rundown/back`, { method: 'POST' });
-    } catch {}
-  }, []);
+  const isLoading = state === 'loading';
+  const isEmpty = state === 'empty';
+  const selectedTime = useMemo(() => {
+    if (!selectedDetail) return null;
+    if (selectedDetail.source === 'manual') {
+      const plan = selectedDetail as ManualRundownPlan;
+      return {
+        label: plan.serviceDate ? formatDateOnly(plan.serviceDate) : null,
+        subtitle: plan.status || 'draft',
+      };
+    }
+    const plan = selectedDetail as PcoRundownPlan;
+    const serviceTime = plan.times?.find((time) => time.timeType === 'service') || plan.times?.[0] || null;
+    return {
+      label: serviceTime?.startsAt ? formatDateTime(serviceTime.startsAt) : (plan.sortDate ? formatDateOnly(plan.sortDate) : null),
+      subtitle: serviceTime?.name || 'Planning Center service',
+    };
+  }, [selectedDetail]);
 
-  if (state === 'loading') {
+  const selectedPlanTotals = useMemo(() => {
+    if (!selectedDetail) return { cues: 0, duration: 0 };
+    if (selectedDetail.source === 'manual') {
+      const items = selectedDetail.items || [];
+      return {
+        cues: items.filter((item) => item.itemType !== 'section').length || items.length,
+        duration: items.reduce((sum, item) => sum + (item.itemType === 'section' ? 0 : (Number(item.lengthSeconds) || 0)), 0),
+      };
+    }
+    const items = selectedDetail.items || [];
+    return {
+      cues: items.length,
+      duration: items.reduce((sum, item) => sum + (Number(item.lengthSeconds) || 0), 0),
+    };
+  }, [selectedDetail]);
+
+  const selectedCurrentCue = useMemo(() => {
+    if (!selectedDetail) return null;
+    if (selectedDetail.source === 'manual') {
+      if (!manualPlayback) return null;
+      return manualPlayback.currentItem;
+    }
+    if (!isLegacyLive || !legacyLiveState) return null;
+    if (legacyLiveState.currentItem) return legacyLiveState.currentItem;
+    const index = Number(legacyLiveState.currentIndex ?? -1);
+    return legacyLiveState.items?.[index] || null;
+  }, [selectedDetail, manualPlayback, isLegacyLive, legacyLiveState]);
+
+  const selectedNextCue = useMemo(() => {
+    if (!selectedDetail) return null;
+    if (selectedDetail.source === 'manual') {
+      if (!manualPlayback) return null;
+      return manualPlayback.nextItem;
+    }
+    if (!isLegacyLive || !legacyLiveState) return null;
+    const nextIndex = Math.min(Number(legacyLiveState.currentIndex ?? -1) + 1, Math.max((legacyLiveState.items?.length || 1) - 1, 0));
+    return legacyLiveState.items?.[nextIndex] || null;
+  }, [selectedDetail, manualPlayback, isLegacyLive, legacyLiveState]);
+
+  if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.bg }]}>
         <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, marginTop: 12 }}>Loading service plan...</Text>
+        <Text style={[styles.centerText, { color: colors.textSecondary }]}>Loading rundown plans...</Text>
       </View>
     );
   }
@@ -229,471 +531,900 @@ export default function RundownScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: colors.bg }]}>
         <Ionicons name="cloud-offline-outline" size={48} color={colors.textMuted} />
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>Planning Center Not Connected</Text>
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>No church connected</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-          Connect your Planning Center account in the admin portal to see your service rundown here.
+          Sign in to a church account to view and control rundowns.
         </Text>
       </View>
-    );
-  }
-
-  if (state === 'no_service') {
-    return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: colors.bg }]}
-        contentContainerStyle={[styles.centered, { backgroundColor: colors.bg }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-      >
-        <Ionicons name="calendar-outline" size={48} color={colors.textMuted} />
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>No Upcoming Service</Text>
-        <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-          There are no upcoming service plans found. Pull down to refresh.
-        </Text>
-      </ScrollView>
     );
   }
 
   if (state === 'error') {
     return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: colors.bg }]}
-        contentContainerStyle={[styles.centered, { backgroundColor: colors.bg }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-      >
+      <View style={[styles.centered, { backgroundColor: colors.bg }]}>
         <Ionicons name="warning-outline" size={48} color={colors.warning} />
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>Failed to Load</Text>
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>Could not load rundown</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-          Could not load service data. Pull down to try again.
+          {errorMessage || 'Pull down to try again.'}
         </Text>
-      </ScrollView>
+        <TouchableOpacity style={[styles.primaryAction, { backgroundColor: colors.accent }]} onPress={onRefresh}>
+          <Text style={styles.primaryActionText}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
-  const isLive = liveState != null;
-  const serviceTime = plan!.times.find((t) => t.timeType === 'service') || plan!.times[0];
-
-  // Build items list from live state or static plan
-  const displayItems = isLive ? liveState!.items : plan!.items;
-  const serviceItems = displayItems.filter((i: any) => i.servicePosition === 'during');
-  const preServiceItems = displayItems.filter((i: any) => i.servicePosition === 'before');
-  const postServiceItems = displayItems.filter((i: any) => i.servicePosition === 'after');
-
-  const mainItems = serviceItems.length > 0 ? serviceItems : displayItems;
-  const rundownSections: Array<{ key: string; title: string; data: any[] }> = [];
-  if (preServiceItems.length > 0) {
-    rundownSections.push({ key: 'pre', title: 'PRE-SERVICE', data: preServiceItems });
-  }
-  rundownSections.push({ key: 'service', title: 'SERVICE RUNDOWN', data: mainItems });
-  if (postServiceItems.length > 0) {
-    rundownSections.push({ key: 'post', title: 'POST-SERVICE', data: postServiceItems });
+  if (isEmpty || !selectedDetail) {
+    return (
+      <View style={[styles.centered, { backgroundColor: colors.bg }]}>
+        <Ionicons name="document-outline" size={48} color={colors.textMuted} />
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>No rundown plans yet</Text>
+        <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+          Create a manual rundown in the portal to start using this screen, or sync Planning Center for a fallback service order.
+        </Text>
+        <TouchableOpacity style={[styles.primaryAction, { backgroundColor: colors.accent }]} onPress={onRefresh}>
+          <Text style={styles.primaryActionText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
-  // Group team by teamName
-  const teamGroups: Record<string, TeamMember[]> = {};
-  for (const member of plan!.team) {
-    const group = member.teamName || 'Other';
-    if (!teamGroups[group]) teamGroups[group] = [];
-    teamGroups[group].push(member);
-  }
+  const header = (
+    <View>
+      <View style={styles.screenHeader}>
+        <View style={styles.screenHeaderTopRow}>
+          <View>
+            <Text style={[styles.screenKicker, { color: colors.textSecondary }]}>RUNDOWN</Text>
+            <Text style={[styles.screenTitle, { color: colors.text }]}>
+              {selectedSummary?.source === 'manual' ? 'Manual First' : 'Planning Center Fallback'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={onRefresh}
+          >
+            <Ionicons name="refresh" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {errorMessage && (
+          <View style={[styles.inlineError, { borderColor: colors.warning, backgroundColor: colors.surface }]}>
+            <Ionicons name="alert-circle-outline" size={16} color={colors.warning} />
+            <Text style={[styles.inlineErrorText, { color: colors.textSecondary }]}>{errorMessage}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.planStrip}>
+          {summaries.map((summary) => (
+            <PlanChip
+              key={`${summary.source}:${summary.id}`}
+              summary={summary}
+              selected={selectedSummary?.id === summary.id && selectedSummary?.source === summary.source}
+              loading={loadingPlanId === summary.id}
+              live={isSummaryLive(summary, selectedSummary, manualLiveState, legacyLiveState)}
+              colors={colors}
+              onPress={() => selectPlan(summary)}
+            />
+          ))}
+        </ScrollView>
+
+        <View style={styles.heroRow}>
+          <View style={styles.heroContent}>
+            <View style={styles.pillRow}>
+              <Pill tone="accent" label={selectedSummary?.source === 'manual' ? 'Manual' : 'PCO'} colors={colors} />
+              {selectedSummary?.status && selectedSummary.source === 'manual' && (
+                <Pill tone="muted" label={selectedSummary.status} colors={colors} />
+              )}
+              {selectedSummary?.activeEditors ? (
+                <Pill tone="muted" label={`${selectedSummary.activeEditors} editors`} colors={colors} />
+              ) : null}
+              {isLive ? <Pill tone="live" label="LIVE" colors={colors} /> : <Pill tone="muted" label="Ready" colors={colors} />}
+            </View>
+
+            <Text style={[styles.heroTitle, { color: colors.text }]}>
+              {selectedSummary?.title || 'Untitled rundown'}
+            </Text>
+
+            {selectedTime?.label ? (
+              <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
+                {selectedTime.label}
+                {selectedTime.subtitle ? ` · ${selectedTime.subtitle}` : ''}
+              </Text>
+            ) : (
+              <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
+                {selectedSummary?.source === 'manual'
+                  ? 'Manual rundown with cue timing and live control'
+                  : 'Planning Center service plan'}
+              </Text>
+            )}
+
+            <View style={styles.metricsRow}>
+              <Metric label="Cues" value={`${selectedPlanTotals.cues}`} colors={colors} />
+              <Metric label="Duration" value={formatDuration(selectedPlanTotals.duration)} colors={colors} />
+              {selectedSummary?.roomId ? <Metric label="Room" value={selectedSummary.roomId} colors={colors} /> : null}
+            </View>
+          </View>
+
+          <View style={styles.heroStatusColumn}>
+            <LiveSummaryCard
+              colors={colors}
+              isLive={isLive}
+              currentCue={selectedCurrentCue}
+              nextCue={selectedNextCue}
+              manualPlayback={manualPlayback}
+              legacyLiveState={isLegacyLive ? legacyLiveState : null}
+            />
+          </View>
+        </View>
+
+        {selectedSummary?.source === 'manual' ? (
+          <View style={styles.actionGrid}>
+            {!isLive ? (
+              <ActionButton
+                label={actionBusy === 'start' ? 'Starting...' : 'Start live'}
+                icon="play"
+                tone="primary"
+                colors={colors}
+                loading={actionBusy === 'start'}
+                onPress={() => performManualAction('start')}
+              />
+            ) : (
+              <ActionButton
+                label={actionBusy === 'stop' ? 'Stopping...' : 'Stop live'}
+                icon="stop"
+                tone="danger"
+                colors={colors}
+                loading={actionBusy === 'stop'}
+                onPress={() => performManualAction('stop')}
+              />
+            )}
+            <ActionButton
+              label="Back"
+              icon="chevron-back"
+              tone="ghost"
+              colors={colors}
+              disabled={!isLive || actionBusy != null}
+              onPress={() => performManualAction('back')}
+            />
+            <ActionButton
+              label="Next"
+              icon="chevron-forward"
+              tone="ghost"
+              colors={colors}
+              disabled={!isLive || actionBusy != null}
+              onPress={() => performManualAction('next')}
+            />
+            <ActionButton
+              label={manualPlayback?.nextIndex != null && manualPlayback.nextIndex >= 0 ? 'Go to next cue' : 'Jump to cue'}
+              icon="locate"
+              tone="ghost"
+              colors={colors}
+              disabled={!isLive || actionBusy != null}
+              onPress={() => {
+                const target = manualPlayback?.nextIndex;
+                if (typeof target === 'number' && target >= 0) {
+                  performManualAction('goto', target);
+                }
+              }}
+            />
+          </View>
+        ) : (
+          <View style={styles.actionGrid}>
+            {!isLive ? (
+              <ActionButton
+                label={actionBusy === 'start' ? 'Starting...' : 'Start legacy live'}
+                icon="play"
+                tone="primary"
+                colors={colors}
+                loading={actionBusy === 'start'}
+                onPress={() => performLegacyAction('start')}
+              />
+            ) : (
+              <ActionButton
+                label={actionBusy === 'stop' ? 'Stopping...' : 'Stop live'}
+                icon="stop"
+                tone="danger"
+                colors={colors}
+                loading={actionBusy === 'stop'}
+                onPress={() => performLegacyAction('stop')}
+              />
+            )}
+            <ActionButton
+              label="Back"
+              icon="chevron-back"
+              tone="ghost"
+              colors={colors}
+              disabled={!isLive || actionBusy != null}
+              onPress={() => performLegacyAction('back')}
+            />
+            <ActionButton
+              label="Next"
+              icon="chevron-forward"
+              tone="ghost"
+              colors={colors}
+              disabled={!isLive || actionBusy != null}
+              onPress={() => performLegacyAction('next')}
+            />
+            <ActionButton
+              label="Refresh state"
+              icon="refresh"
+              tone="ghost"
+              colors={colors}
+              disabled={actionBusy != null}
+              onPress={() => onRefresh()}
+            />
+          </View>
+        )}
+      </View>
+
+      {selectedSummary?.source === 'manual' && manualPlayback ? (
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.sectionHead}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>LIVE TIMING</Text>
+            <Pill tone={manualPlayback.isOvertime ? 'danger' : manualPlayback.isWarning ? 'warning' : 'accent'} label={manualPlayback.isOvertime ? 'Overtime' : manualPlayback.isWarning ? 'Almost out' : 'On pace'} colors={colors} />
+          </View>
+          <View style={styles.timingGrid}>
+            <TimingStat label="Current" value={manualPlayback.currentItem?.title || 'No cue'} colors={colors} />
+            <TimingStat label="Next" value={manualPlayback.nextItem?.title || 'None'} colors={colors} />
+            <TimingStat label="Elapsed" value={formatTimer(manualPlayback.elapsedSeconds)} colors={colors} />
+            <TimingStat
+              label="Remaining"
+              value={manualPlayback.remainingSeconds != null ? formatTimer(manualPlayback.remainingSeconds) : '—'}
+              colors={colors}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {selectedSummary?.source === 'pco' && isLegacyLive && legacyLiveState ? (
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.sectionHead}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>LIVE STATE</Text>
+            <Pill tone="live" label={legacyLiveState.scheduleDelta?.label || 'Live'} colors={colors} />
+          </View>
+          <View style={styles.timingGrid}>
+            <TimingStat label="Current" value={legacyLiveState.currentItem?.title || 'No cue'} colors={colors} />
+            <TimingStat label="Next" value={legacyLiveState.items?.[legacyLiveState.currentIndex + 1]?.title || 'None'} colors={colors} />
+            <TimingStat label="Elapsed" value={formatTimer(legacyLiveState.totalElapsed || 0)} colors={colors} />
+            <TimingStat
+              label="Progress"
+              value={`${legacyLiveState.currentIndex + 1} / ${legacyLiveState.totalItems}`}
+              colors={colors}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.sectionHead}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>CUES</Text>
+        <Text style={[styles.sectionCaption, { color: colors.textMuted }]}>
+          Tap a cue to jump live, or use the controls above.
+        </Text>
+      </View>
+    </View>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      <SectionList
-        ref={scrollRef}
-        style={[styles.container, { backgroundColor: colors.bg }]}
-        contentContainerStyle={styles.content}
-        stickySectionHeadersEnabled={false}
+      <FlatList
+        ref={listRef}
+        data={selectedRows}
+        keyExtractor={(item) => item.key}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-        sections={rundownSections}
-        keyExtractor={(item) => item.id}
-        renderSectionHeader={({ section }) => (
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{section.title}</Text>
-        )}
-        renderSectionFooter={({ section }) => {
-          if (section.key === 'service' && section.data.length === 0) {
-            return (
-              <View>
-                <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>No items in this service plan</Text>
-                </View>
-                <View style={{ marginBottom: spacing.xxl }} />
-              </View>
-            );
-          }
-          return <View style={{ marginBottom: spacing.xxl }} />;
-        }}
-        renderItem={({ item, index, section }) => (
-          <RundownItem
-            item={item}
-            isLast={index === section.data.length - 1}
-            colors={colors}
-            isLive={isLive}
-            isCurrent={isLive && item.status === 'current'}
-            isCompleted={isLive && item.status === 'completed'}
-          />
-        )}
-        ListHeaderComponent={
-          <View>
-            {/* Plan header card */}
-            <View style={[styles.headerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.serviceTitle, { color: colors.text }]}>{plan!.title}</Text>
-              {serviceTime?.startsAt && (
-                <View style={styles.timeRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.accent} />
-                  <Text style={[styles.timeText, { color: colors.accent }]}>
-                    {formatServiceDate(serviceTime.startsAt)}
-                  </Text>
-                </View>
-              )}
-              {!serviceTime?.startsAt && plan!.sortDate && (
-                <View style={styles.timeRow}>
-                  <Ionicons name="calendar-outline" size={16} color={colors.accent} />
-                  <Text style={[styles.timeText, { color: colors.accent }]}>
-                    {new Date(plan!.sortDate).toLocaleDateString(undefined, {
-                      weekday: 'long', month: 'long', day: 'numeric',
-                    })}
-                  </Text>
-                </View>
-              )}
-              {/* Start/End Service button */}
-              {!isLive ? (
-                <TouchableOpacity
-                  style={[styles.startButton, { backgroundColor: colors.accent }]}
-                  onPress={startService}
-                  disabled={isStarting}
-                >
-                  {isStarting ? (
-                    <ActivityIndicator size="small" color="#000" />
-                  ) : (
-                    <>
-                      <Ionicons name="play" size={18} color="#000" />
-                      <Text style={styles.startButtonText}>Start Service</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.endButton]}
-                  onPress={endService}
-                >
-                  <Ionicons name="stop" size={16} color="#FF5252" />
-                  <Text style={styles.endButtonText}>End Service</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Live countdown hero */}
-            {isLive && liveState!.currentItem && (
-              <View style={[styles.countdownHero, {
-                backgroundColor: colors.surface,
-                borderColor: liveState!.currentItem.isOvertime ? '#FF5252' :
-                  liveState!.currentItem.isWarning ? '#FFA726' : colors.accent,
-              }]}>
-                <Text style={[styles.nowLabel, { color: colors.textSecondary }]}>NOW</Text>
-                <Text style={[styles.currentItemTitle, { color: colors.text }]}>{liveState!.currentItem.title}</Text>
-                <Text style={[styles.countdownTimer, {
-                  color: liveState!.currentItem.isOvertime ? '#FF5252' :
-                    liveState!.currentItem.isWarning ? '#FFA726' : colors.accent,
-                }]}>
-                  {liveState!.currentItem.isOvertime
-                    ? `+${formatTimer(liveState!.currentItem.overtimeSeconds || 0)}`
-                    : liveState!.currentItem.remainingSeconds != null
-                      ? formatTimer(liveState!.currentItem.remainingSeconds)
-                      : formatTimer(liveState!.currentItem.elapsedSeconds || 0)}
-                </Text>
-                <Text style={[styles.timerLabel, { color: colors.textMuted }]}>
-                  {liveState!.currentItem.isOvertime ? 'OVERTIME' :
-                    liveState!.currentItem.remainingSeconds != null ? 'REMAINING' : 'ELAPSED'}
-                </Text>
-
-                {/* Schedule delta */}
-                {liveState!.scheduleDelta && (
-                  <View style={[styles.deltaBadge, {
-                    backgroundColor: liveState!.scheduleDelta.isOnTime ? 'rgba(0,230,118,0.15)' :
-                      liveState!.scheduleDelta.isBehind ? 'rgba(239,68,68,0.15)' : 'rgba(33,150,243,0.15)',
-                  }]}>
-                    <Text style={[styles.deltaText, {
-                      color: liveState!.scheduleDelta.isOnTime ? colors.accent :
-                        liveState!.scheduleDelta.isBehind ? '#FF5252' : '#42A5F5',
-                    }]}>
-                      {liveState!.scheduleDelta.label}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Show-caller controls */}
-            {isLive && (
-              <View style={styles.controlBar}>
-                <TouchableOpacity
-                  style={[styles.controlButton, styles.backButton, {
-                    backgroundColor: colors.surface, borderColor: colors.border,
-                    opacity: liveState!.currentIndex === 0 ? 0.4 : 1,
-                  }]}
-                  onPress={goBack}
-                  disabled={liveState!.currentIndex === 0}
-                >
-                  <Ionicons name="chevron-back" size={24} color={colors.text} />
-                  <Text style={[styles.controlLabel, { color: colors.text }]}>Back</Text>
-                </TouchableOpacity>
-
-                <View style={styles.progressInfo}>
-                  <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-                    {liveState!.currentIndex + 1} / {liveState!.totalItems}
-                  </Text>
-                  <Text style={[styles.elapsedText, { color: colors.textMuted }]}>
-                    {formatDuration(liveState!.totalElapsed || 0)} elapsed
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.controlButton, styles.nextButton, {
-                    backgroundColor: colors.accent,
-                    opacity: liveState!.currentIndex >= liveState!.totalItems - 1 ? 0.4 : 1,
-                  }]}
-                  onPress={advance}
-                  disabled={liveState!.currentIndex >= liveState!.totalItems - 1}
-                >
-                  <Text style={styles.nextLabel}>Next</Text>
-                  <Ionicons name="chevron-forward" size={24} color="#000" />
-                </TouchableOpacity>
-              </View>
-            )}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No cues yet</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+              This plan does not have any cues to display.
+            </Text>
           </View>
         }
-        ListFooterComponent={
-          <View>
-            {plan!.team.length > 0 && (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SERVICE TEAM</Text>
-                <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  {Object.entries(teamGroups).map(([groupName, members], gi) => (
-                    <View key={groupName}>
-                      {gi > 0 && <View style={[styles.teamDivider, { backgroundColor: colors.border }]} />}
-                      <Text style={[styles.teamGroupName, { color: colors.accent }]}>{groupName}</Text>
-                      {members.map((member) => (
-                        <View key={member.id} style={styles.teamRow}>
-                          <View style={styles.teamInfo}>
-                            <Text style={[styles.teamMemberName, { color: colors.text }]}>{member.name}</Text>
-                            <Text style={[styles.teamPosition, { color: colors.textSecondary }]}>{member.position}</Text>
-                          </View>
-                          <StatusBadge status={member.status} label={member.statusLabel} colors={colors} />
-                        </View>
-                      ))}
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-            <View style={{ height: spacing.xxxl }} />
-          </View>
-        }
+        renderItem={({ item }) => (
+          item.kind === 'section'
+            ? <SectionRow label={item.label} colors={colors} />
+            : (
+              <CueRow
+                item={item.item}
+                colors={colors}
+                isLive={isLive}
+                isCurrent={isCurrentCue(selectedSummary, currentLiveState, item.index, item.item)}
+                isNext={isNextCue(selectedSummary, currentLiveState, item.index)}
+                manualTiming={selectedSummary?.source === 'manual' ? manualTimings[item.index] || null : null}
+                onGoTo={() => {
+                  if (!isLive || actionBusy != null) return;
+                  if (selectedSummary?.source === 'manual') {
+                    performManualAction('goto', item.index);
+                  } else {
+                    performLegacyAction('goto', item.index);
+                  }
+                }}
+              />
+            )
+        )}
       />
     </View>
   );
 }
 
-function RundownItem({ item, isLast, colors, isLive, isCurrent, isCompleted }: {
-  item: any; isLast: boolean; colors: ThemeColors; isLive: boolean; isCurrent: boolean; isCompleted: boolean;
+function PlanChip({
+  summary,
+  selected,
+  loading,
+  live,
+  colors,
+  onPress,
+}: {
+  summary: RundownPlanSummary;
+  selected: boolean;
+  loading: boolean;
+  live: boolean;
+  colors: ThemeColors;
+  onPress: () => void;
 }) {
-  const isHeader = item.itemType === 'header';
-
-  if (isHeader) {
-    return (
-      <View style={[styles.headerItem, !isLast && styles.itemBorder]}>
-        <Text style={[styles.headerItemText, { color: colors.accent }]}>{item.title}</Text>
+  return (
+    <TouchableOpacity
+      style={[
+        styles.planChip,
+        {
+          borderColor: selected ? colors.accent : colors.border,
+          backgroundColor: selected ? 'rgba(0,230,118,0.08)' : colors.bg,
+        },
+      ]}
+      onPress={onPress}
+      disabled={loading}
+    >
+      <View style={styles.planChipTopRow}>
+        <Text style={[styles.planChipLabel, { color: colors.text }]} numberOfLines={1}>{summary.title}</Text>
+        {loading ? <ActivityIndicator size="small" color={colors.accent} /> : null}
       </View>
-    );
+      <View style={styles.planChipMetaRow}>
+        <Pill tone={summary.source === 'manual' ? 'accent' : 'info'} label={summary.source === 'manual' ? 'Manual' : 'PCO'} colors={colors} />
+        {live ? <Pill tone="live" label="Live" colors={colors} /> : null}
+      </View>
+      <Text style={[styles.planChipMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+        {summary.serviceDate ? formatDateOnly(summary.serviceDate) : `${summary.itemCount} cues`}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function CueRow({
+  item,
+  colors,
+  isLive,
+  isCurrent,
+  isNext,
+  manualTiming,
+  onGoTo,
+}: {
+  item: ManualRundownItem | PcoRundownItem;
+  colors: ThemeColors;
+  isLive: boolean;
+  isCurrent: boolean;
+  isNext: boolean;
+  manualTiming: ManualTimingEntry | null;
+  onGoTo: () => void;
+}) {
+  const isSection = item.itemType === 'section';
+
+  if (isSection) {
+    return <SectionRow label={item.title || 'Section'} colors={colors} />;
   }
 
+  const cue = item as ManualRundownItem & PcoRundownItem;
+  const accent = isCurrent ? colors.accent : isNext ? colors.info : colors.border;
+
   return (
-    <View style={[
-      styles.rundownItem,
-      {
-        backgroundColor: isCurrent ? 'rgba(0,230,118,0.08)' : colors.surface,
-        borderColor: isCurrent ? 'rgba(0,230,118,0.3)' : colors.border,
-        opacity: isCompleted ? 0.5 : 1,
-      },
-      isCurrent && styles.currentItemHighlight,
-      !isLast && styles.itemBorder,
-    ]}>
-      {isCurrent && <View style={styles.currentBar} />}
-      <View style={styles.itemLeft}>
-        <ItemTypeIcon type={item.itemType} colors={colors} isCurrent={isCurrent} />
-      </View>
-      <View style={styles.itemContent}>
-        <View style={styles.itemTitleRow}>
-          <Text style={[styles.itemTitle, { color: isCurrent ? colors.text : isCompleted ? colors.textMuted : colors.text, fontWeight: isCurrent ? '800' : '700', flexShrink: 1 }]}>{item.title}</Text>
-          {isCurrent && <EqBars />}
-        </View>
-        {item.songTitle && item.songTitle !== item.title && (
-          <Text style={[styles.itemSubtitle, { color: colors.textSecondary }]}>{item.songTitle}</Text>
-        )}
-        {item.author && (
-          <Text style={[styles.itemMeta, { color: colors.textMuted }]}>{item.author}</Text>
-        )}
-        <View style={styles.itemDetails}>
-          {item.itemType && (
-            <Text style={[styles.itemType, { color: colors.textMuted, backgroundColor: colors.isDark ? colors.surfaceElevated : '#e8e8ed' }]}>{formatItemType(item.itemType)}</Text>
-          )}
-          {item.lengthSeconds != null && item.lengthSeconds > 0 && (
-            <Text style={[styles.itemDuration, { color: colors.textSecondary }]}>{formatDuration(item.lengthSeconds)}</Text>
-          )}
-          {item.arrangementKey && (
-            <Text style={[styles.itemKey, { color: colors.textSecondary }]}>Key: {item.arrangementKey}</Text>
-          )}
-        </View>
-      </View>
-      {/* Show actual vs planned delta for completed items */}
-      {isCompleted && item.actualDuration != null && item.lengthSeconds > 0 && (
-        <View style={styles.deltaColumn}>
-          <Text style={[styles.actualDuration, { color: colors.textMuted }]}>{formatDuration(Math.round(item.actualDuration))}</Text>
-          {Math.abs(item.actualDuration - item.lengthSeconds) >= 5 && (
-            <Text style={[styles.itemDelta, {
-              color: item.actualDuration > item.lengthSeconds ? '#FF5252' : '#42A5F5',
-            }]}>
-              {item.actualDuration > item.lengthSeconds ? '+' : ''}{Math.round(item.actualDuration - item.lengthSeconds)}s
+    <TouchableOpacity
+      activeOpacity={isLive ? 0.88 : 1}
+      style={[
+        styles.cueCard,
+        {
+          backgroundColor: isCurrent ? 'rgba(0,230,118,0.08)' : colors.surface,
+          borderColor: accent,
+          opacity: isCurrent ? 1 : 0.98,
+        },
+        isCurrent ? styles.currentCueCard : null,
+      ]}
+      onPress={isLive ? onGoTo : undefined}
+    >
+      {isCurrent ? <View style={[styles.currentRail, { backgroundColor: colors.accent }]} /> : null}
+
+      <View style={styles.cueMain}>
+        <View style={styles.cueTopRow}>
+          <View style={styles.cueTitleWrap}>
+            <Text style={[styles.cueTitle, { color: colors.text }]} numberOfLines={2}>
+              {cue.title || 'Untitled cue'}
             </Text>
-          )}
+            {isCurrent ? <Pill tone="live" label="Current" colors={colors} /> : null}
+            {!isCurrent && isNext ? <Pill tone="info" label="Next" colors={colors} /> : null}
+          </View>
+          {isLive ? (
+            <TouchableOpacity
+              style={[styles.goButton, { borderColor: colors.accent, backgroundColor: 'rgba(0,230,118,0.08)' }]}
+              onPress={onGoTo}
+            >
+              <Text style={[styles.goButtonText, { color: colors.accent }]}>Go</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
-      )}
+
+        {cue.songTitle && cue.songTitle !== cue.title ? (
+          <Text style={[styles.cueSubtext, { color: colors.textSecondary }]} numberOfLines={2}>
+            {cue.songTitle}
+          </Text>
+        ) : null}
+        {cue.description ? (
+          <Text style={[styles.cueSubtext, { color: colors.textSecondary }]} numberOfLines={2}>
+            {cue.description}
+          </Text>
+        ) : null}
+        {cue.notes ? (
+          <Text style={[styles.cueNotes, { color: colors.textMuted }]} numberOfLines={3}>
+            {stripTags(cue.notes)}
+          </Text>
+        ) : null}
+
+        <View style={styles.cueMetaRow}>
+          <Pill tone="muted" label={formatCueType(cue.itemType)} colors={colors} />
+          {cue.startType ? <Pill tone={cue.startType === 'hard' ? 'warning' : 'accent'} label={cue.startType === 'hard' ? 'Hard start' : 'Soft start'} colors={colors} /> : null}
+          {cue.autoAdvance ? <Pill tone="info" label="Auto" colors={colors} /> : null}
+          {cue.servicePosition ? <Pill tone="muted" label={formatServicePosition(cue.servicePosition)} colors={colors} /> : null}
+        </View>
+
+        <View style={styles.cueFooter}>
+          <Text style={[styles.cueDuration, { color: colors.textSecondary }]}>
+            {cue.lengthSeconds != null && cue.lengthSeconds > 0 ? formatDuration(Number(cue.lengthSeconds)) : 'No duration'}
+          </Text>
+          {cue.assignee ? <Text style={[styles.cueAssignee, { color: colors.textMuted }]} numberOfLines={1}>{cue.assignee}</Text> : null}
+        </View>
+
+        {manualTiming ? (
+          <View style={styles.timingRow}>
+            <Text style={[styles.timingText, { color: colors.textSecondary }]}>
+              {manualTiming.isHard ? `Hard ${manualTiming.start}` : `Soft ${manualTiming.start}`}
+            </Text>
+            {manualTiming.gapSeconds > 0 ? (
+              <Text style={[styles.timingGap, { color: colors.info }]}>Gap {formatDuration(manualTiming.gapSeconds)}</Text>
+            ) : null}
+            {manualTiming.overlapSeconds > 0 ? (
+              <Text style={[styles.timingOverlap, { color: colors.warning }]}>Overlap {formatDuration(manualTiming.overlapSeconds)}</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function SectionRow({ label, colors }: { label: string; colors: ThemeColors }) {
+  return (
+    <View style={[styles.sectionRow, { borderColor: colors.border }]}>
+      <Text style={[styles.sectionRowText, { color: colors.accent }]}>{label}</Text>
     </View>
   );
 }
 
-function ItemTypeIcon({ type, colors, isCurrent }: { type: string; colors: ThemeColors; isCurrent?: boolean }) {
-  let icon: string;
-  let iconColor = colors.textSecondary;
-
-  switch (type) {
-    case 'song':
-      icon = 'musical-notes-outline';
-      iconColor = isCurrent ? colors.accent : colors.accent;
-      break;
-    case 'media':
-      icon = 'videocam-outline';
-      iconColor = isCurrent ? colors.accent : colors.info;
-      break;
-    case 'item':
-      icon = 'document-text-outline';
-      if (isCurrent) iconColor = colors.accent;
-      break;
-    default:
-      icon = 'ellipse-outline';
-      if (isCurrent) iconColor = colors.accent;
-      break;
-  }
-
-  return <Ionicons name={icon as any} size={20} color={iconColor} />;
-}
-
-const EQ_BAR_MAX_H = 14;
-const EQ_BAR_PEAKS = [0.9, 0.5, 1.0, 0.6];
-const EQ_BAR_DELAYS = [0, 120, 60, 200];
-
-function EqBars() {
-  // Animate raw height values (0..EQ_BAR_MAX_H) so bars grow from the bottom
-  const heights = useRef(EQ_BAR_PEAKS.map((p) => new Animated.Value(p * EQ_BAR_MAX_H))).current;
+function LiveSummaryCard({
+  colors,
+  isLive,
+  currentCue,
+  nextCue,
+  manualPlayback,
+  legacyLiveState,
+}: {
+  colors: ThemeColors;
+  isLive: boolean;
+  currentCue: ManualRundownItem | PcoRundownItem | null;
+  nextCue: ManualRundownItem | PcoRundownItem | null;
+  manualPlayback: ManualPlaybackState | null;
+  legacyLiveState: LegacyRundownState | null;
+}) {
+  const [pulse] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
-    const anims = heights.map((h, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(EQ_BAR_DELAYS[i]),
-          Animated.timing(h, { toValue: EQ_BAR_PEAKS[i] * EQ_BAR_MAX_H, duration: 280, useNativeDriver: false }),
-          Animated.timing(h, { toValue: 0.2 * EQ_BAR_MAX_H, duration: 320, useNativeDriver: false }),
-          Animated.timing(h, { toValue: EQ_BAR_PEAKS[i] * 0.7 * EQ_BAR_MAX_H, duration: 240, useNativeDriver: false }),
-          Animated.timing(h, { toValue: 0.3 * EQ_BAR_MAX_H, duration: 300, useNativeDriver: false }),
-        ])
-      )
+    if (!isLive) return undefined;
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.12, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
     );
-    anims.forEach((a) => a.start());
-    return () => anims.forEach((a) => a.stop());
-  }, []);
+    animation.start();
+    return () => animation.stop();
+  }, [isLive, pulse]);
+
+  const liveLabel = manualPlayback
+    ? (manualPlayback.isOvertime ? `+${formatTimer(manualPlayback.overtimeSeconds)}` : manualPlayback.remainingSeconds != null ? formatTimer(manualPlayback.remainingSeconds) : formatTimer(manualPlayback.elapsedSeconds))
+    : isLive
+      ? (legacyLiveState?.currentItem?.isOvertime ? `+${formatTimer(legacyLiveState.currentItem.overtimeSeconds || 0)}` : legacyLiveState?.currentItem?.remainingSeconds != null ? formatTimer(legacyLiveState.currentItem.remainingSeconds || 0) : formatTimer(legacyLiveState?.totalElapsed || 0))
+      : '--:--';
 
   return (
-    <View style={eqStyles.container}>
-      {heights.map((h, i) => (
-        <Animated.View key={i} style={[eqStyles.bar, { height: h }]} />
-      ))}
+    <View style={[styles.liveCard, { borderColor: isLive ? colors.accent : colors.border, backgroundColor: colors.bg }]}>
+      <View style={styles.liveHeaderRow}>
+        <Animated.View style={[styles.livePulse, { backgroundColor: isLive ? colors.accent : colors.textMuted, transform: [{ scale: pulse }] }]} />
+        <Text style={[styles.liveHeaderText, { color: colors.textSecondary }]}>
+          {isLive ? 'LIVE NOW' : 'Standby'}
+        </Text>
+      </View>
+
+      <Text style={[styles.liveTimer, { color: isLive ? colors.accent : colors.textMuted }]}>
+        {liveLabel}
+      </Text>
+
+      <Text style={[styles.liveCueTitle, { color: colors.text }]} numberOfLines={2}>
+        {currentCue?.title || 'No live cue'}
+      </Text>
+
+      <Text style={[styles.liveCueMeta, { color: colors.textSecondary }]} numberOfLines={2}>
+        {nextCue ? `Next: ${nextCue.title}` : 'No next cue'}
+      </Text>
+
+      {legacyLiveState?.scheduleDelta ? (
+        <Pill
+          tone={legacyLiveState.scheduleDelta.isBehind ? 'danger' : legacyLiveState.scheduleDelta.isAhead ? 'info' : 'accent'}
+          label={legacyLiveState.scheduleDelta.label}
+          colors={colors}
+        />
+      ) : manualPlayback ? (
+        <Pill
+          tone={manualPlayback.isOvertime ? 'danger' : manualPlayback.isWarning ? 'warning' : 'accent'}
+          label={manualPlayback.isOvertime ? 'Overtime' : manualPlayback.isWarning ? 'Warning' : 'On pace'}
+          colors={colors}
+        />
+      ) : null}
     </View>
   );
 }
 
-const eqStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
-    height: EQ_BAR_MAX_H + 2,
-    marginLeft: 6,
-  },
-  bar: {
-    width: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#22c55e',
-  },
-});
+function ActionButton({
+  label,
+  icon,
+  tone,
+  colors,
+  onPress,
+  disabled,
+  loading,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: 'primary' | 'ghost' | 'danger';
+  colors: ThemeColors;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const isGhost = tone === 'ghost';
+  const backgroundColor = tone === 'primary'
+    ? colors.accent
+    : tone === 'danger'
+      ? 'rgba(239,68,68,0.12)'
+      : colors.surface;
+  const borderColor = tone === 'danger' ? 'rgba(239,68,68,0.4)' : colors.border;
+  const textColor = tone === 'primary' ? '#000' : tone === 'danger' ? '#ff6b6b' : colors.text;
+  return (
+    <TouchableOpacity
+      style={[
+        styles.actionButton,
+        {
+          backgroundColor,
+          borderColor,
+          opacity: disabled ? 0.45 : 1,
+        },
+        isGhost ? styles.ghostActionButton : null,
+      ]}
+      onPress={onPress}
+      disabled={disabled || loading}
+      activeOpacity={0.82}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={textColor} />
+      ) : (
+        <>
+          <Ionicons name={icon} size={16} color={textColor} />
+          <Text style={[styles.actionButtonText, { color: textColor }]}>{label}</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+}
 
-function StatusBadge({ status, label, colors }: { status: string; label: string; colors: ThemeColors }) {
-  let badgeColor = colors.textMuted;
-  if (status === 'C') badgeColor = colors.online;
-  else if (status === 'D') badgeColor = colors.critical;
-  else if (status === 'U') badgeColor = colors.warning;
+type PillTone = 'accent' | 'muted' | 'info' | 'warning' | 'danger' | 'live';
+
+function Pill({
+  label,
+  tone,
+  colors,
+}: {
+  label: string;
+  tone: PillTone;
+  colors: ThemeColors;
+}) {
+  const toneMap: Record<PillTone, { bg: string; fg: string; border: string }> = {
+    accent: { bg: 'rgba(0,230,118,0.12)', fg: colors.accent, border: 'rgba(0,230,118,0.28)' },
+    muted: { bg: colors.isDark ? colors.surfaceElevated : '#eef2f7', fg: colors.textSecondary, border: colors.border },
+    info: { bg: 'rgba(59,130,246,0.12)', fg: '#60a5fa', border: 'rgba(59,130,246,0.28)' },
+    warning: { bg: 'rgba(245,158,11,0.14)', fg: colors.warning, border: 'rgba(245,158,11,0.35)' },
+    danger: { bg: 'rgba(239,68,68,0.14)', fg: '#ff6b6b', border: 'rgba(239,68,68,0.35)' },
+    live: { bg: 'rgba(0,230,118,0.16)', fg: colors.accent, border: 'rgba(0,230,118,0.35)' },
+  };
+  const pill = toneMap[tone];
 
   return (
-    <View style={[styles.badge, { borderColor: badgeColor }]}>
-      <View style={[styles.badgeDot, { backgroundColor: badgeColor }]} />
-      <Text style={[styles.badgeText, { color: badgeColor }]}>
-        {label || status}
+    <View style={[styles.pill, { backgroundColor: pill.bg, borderColor: pill.border }]}>
+      <Text style={[styles.pillText, { color: pill.fg }]}>{label}</Text>
+    </View>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  colors,
+}: {
+  label: string;
+  value: string;
+  colors: ThemeColors;
+}) {
+  return (
+    <View style={[styles.metricCard, { backgroundColor: colors.isDark ? colors.surfaceElevated : '#f3f4f6', borderColor: colors.border }]}>
+      <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.metricValue, { color: colors.text }]} numberOfLines={1}>
+        {value}
       </Text>
     </View>
   );
 }
 
-function formatServiceDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric',
-  }) + ' at ' + d.toLocaleTimeString(undefined, {
-    hour: 'numeric', minute: '2-digit',
+function TimingStat({
+  label,
+  value,
+  colors,
+}: {
+  label: string;
+  value: string;
+  colors: ThemeColors;
+}) {
+  return (
+    <View style={[styles.timingStat, { backgroundColor: colors.isDark ? colors.surfaceElevated : '#f3f4f6', borderColor: colors.border }]}>
+      <Text style={[styles.timingStatLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.timingStatValue, { color: colors.text }]} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function buildDisplayRows(detail: RundownPlanDetail | null): DisplayRow[] {
+  if (!detail) return [];
+  const rows: DisplayRow[] = [];
+
+  if (detail.source === 'manual') {
+    detail.items.forEach((item, index) => {
+      if (item.itemType === 'section') {
+        rows.push({
+          kind: 'section',
+          key: `section-${item.id}`,
+          label: item.title || 'Section',
+          index,
+        });
+        return;
+      }
+      rows.push({
+        kind: 'cue',
+        key: item.id,
+        item,
+        index,
+      });
+    });
+    return rows;
+  }
+
+  const items = [...(detail.items || [])].sort((a, b) => {
+    const aSeq = Number(a.sequence ?? 0);
+    const bSeq = Number(b.sequence ?? 0);
+    return aSeq - bSeq;
+  });
+
+  const hasPositions = items.some((item) => !!item.servicePosition);
+  if (!hasPositions) {
+    items.forEach((item, index) => {
+      rows.push({
+        kind: 'cue',
+        key: item.id,
+        item,
+        index,
+      });
+    });
+    return rows;
+  }
+
+  for (const group of PCO_GROUP_ORDER) {
+    const grouped = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => group.positions.includes(String(item.servicePosition || '').trim()));
+
+    if (grouped.length === 0) continue;
+    rows.push({
+      kind: 'section',
+      key: `group-${group.label}`,
+      label: group.label,
+      index: grouped[0].index,
+    });
+    grouped.forEach(({ item, index }) => {
+      rows.push({
+        kind: 'cue',
+        key: item.id,
+        item,
+        index,
+        groupLabel: group.label,
+      });
+    });
+  }
+
+  return rows;
+}
+
+function sortSummaries(summaries: RundownPlanSummary[]): RundownPlanSummary[] {
+  const now = Date.now();
+  const sourceRank = (source: RundownSource) => (source === 'manual' ? 0 : 1);
+  const distance = (summary: RundownPlanSummary) => {
+    if (!summary.serviceDate) return Number.MAX_SAFE_INTEGER;
+    const date = new Date(summary.serviceDate);
+    if (Number.isNaN(date.getTime())) return Number.MAX_SAFE_INTEGER;
+    return Math.abs(date.getTime() - now);
+  };
+
+  return [...summaries].sort((a, b) => {
+    const sourceDiff = sourceRank(a.source) - sourceRank(b.source);
+    if (sourceDiff !== 0) return sourceDiff;
+    const distanceDiff = distance(a) - distance(b);
+    if (distanceDiff !== 0) return distanceDiff;
+    const updatedDiff = (Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+    if (updatedDiff !== 0) return updatedDiff;
+    return a.title.localeCompare(b.title);
   });
 }
 
+function pickMostRelevantManual(summaries: RundownPlanSummary[]): RundownPlanSummary | null {
+  if (summaries.length === 0) return null;
+  return sortSummaries(summaries).find(Boolean) || null;
+}
+
+function pickMostRelevantPco(summaries: RundownPlanSummary[]): RundownPlanSummary | null {
+  if (summaries.length === 0) return null;
+  return sortSummaries(summaries).find(Boolean) || null;
+}
+
+function isSummaryLive(
+  summary: RundownPlanSummary,
+  selectedSummary: RundownPlanSummary | null,
+  manualLiveState: ManualRundownLiveState | null,
+  legacyLiveState: LegacyRundownState | null,
+): boolean {
+  if (!selectedSummary || selectedSummary.id !== summary.id || selectedSummary.source !== summary.source) return false;
+  if (summary.source === 'manual') return !!manualLiveState?.isLive;
+  return !!legacyLiveState && legacyLiveState.planId === summary.id && (legacyLiveState.active ?? legacyLiveState.state === 'active');
+}
+
+function isCurrentCue(
+  selectedSummary: RundownPlanSummary | null,
+  liveState: LegacyRundownState | ManualRundownLiveState | null,
+  index: number,
+  item: ManualRundownItem | PcoRundownItem,
+): boolean {
+  if (!selectedSummary || !liveState) return false;
+  if (selectedSummary.source === 'manual') {
+    return !!(liveState as ManualRundownLiveState).isLive && (liveState as ManualRundownLiveState).currentCueIndex === index;
+  }
+  const legacy = liveState as LegacyRundownState;
+  if (!(legacy.active ?? legacy.state === 'active')) return false;
+  if (legacy.currentIndex === index) return true;
+  return legacy.currentItem?.id === item.id;
+}
+
+function isNextCue(
+  selectedSummary: RundownPlanSummary | null,
+  liveState: LegacyRundownState | ManualRundownLiveState | null,
+  index: number,
+): boolean {
+  if (!selectedSummary || !liveState) return false;
+  if (selectedSummary.source === 'manual') {
+    return !!(liveState as ManualRundownLiveState).isLive
+      && (liveState as ManualRundownLiveState).currentCueIndex >= 0
+      && index === (liveState as ManualRundownLiveState).currentCueIndex + 1;
+  }
+  const legacy = liveState as LegacyRundownState;
+  if (!(legacy.active ?? legacy.state === 'active')) return false;
+  return index === (legacy.currentIndex + 1);
+}
+
+function stripTags(text: string): string {
+  return String(text || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatDateOnly(iso: string): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  return `${date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })} at ${date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+}
+
 function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m === 0) return `${s}s`;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  if (minutes > 0) {
+    return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+  }
+  return `${secs}s`;
 }
 
 function formatTimer(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function formatItemType(type: string): string {
+function formatCueType(type: string): string {
+  if (!type) return 'Cue';
   return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function formatServicePosition(position: string): string {
+  if (position === 'before') return 'Pre';
+  if (position === 'during') return 'Service';
+  if (position === 'after') return 'Post';
+  return position;
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
+  listContent: {
     padding: spacing.lg,
+    paddingBottom: spacing.xxxl,
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: spacing.xxxl,
+  },
+  centerText: {
+    marginTop: spacing.md,
+    fontSize: fontSize.md,
   },
   emptyTitle: {
     fontSize: fontSize.lg,
-    fontWeight: '700',
+    fontWeight: '800',
     marginTop: spacing.lg,
     textAlign: 'center',
   },
@@ -702,313 +1433,384 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'center',
     lineHeight: 22,
+    maxWidth: 320,
   },
-
-  // Header card
-  headerCard: {
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    marginBottom: spacing.xxl,
-    borderWidth: 1,
-  },
-  serviceTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '800',
-  },
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  timeText: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-  },
-
-  // Start/End buttons
-  startButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: spacing.lg,
+  primaryAction: {
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.xl,
     paddingVertical: 12,
     borderRadius: borderRadius.md,
+    alignItems: 'center',
   },
-  startButtonText: {
+  primaryActionText: {
     fontSize: fontSize.md,
     fontWeight: '800',
     color: '#000',
   },
-  endButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: spacing.lg,
-    paddingVertical: 10,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.3)',
-  },
-  endButtonText: {
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    color: '#FF5252',
-  },
-
-  // Countdown hero
-  countdownHero: {
-    borderRadius: borderRadius.md,
-    padding: spacing.xl,
+  screenHeader: {
     marginBottom: spacing.lg,
-    borderWidth: 2,
-    alignItems: 'center',
   },
-  nowLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 2,
-    marginBottom: 4,
-  },
-  currentItemTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-  countdownTimer: {
-    fontSize: 56,
-    fontFamily: 'JetBrainsMono-Bold',
-    letterSpacing: -1,
-  },
-  timerLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  deltaBadge: {
-    marginTop: spacing.md,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: borderRadius.full,
-  },
-  deltaText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // Control bar
-  controlBar: {
+  screenHeaderTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xl,
+    justifyContent: 'space-between',
     gap: spacing.md,
   },
-  controlButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: borderRadius.md,
-  },
-  backButton: {
-    borderWidth: 1,
-  },
-  nextButton: {},
-  controlLabel: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  nextLabel: {
-    fontSize: fontSize.md,
-    fontWeight: '800',
-    color: '#000',
-    marginRight: 4,
-  },
-  progressInfo: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  progressText: {
-    fontSize: fontSize.md,
-    fontFamily: 'JetBrainsMono-Bold',
-  },
-  elapsedText: {
+  screenKicker: {
     fontSize: fontSize.xs,
-    fontFamily: 'JetBrainsMono-Bold',
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  screenTitle: {
+    fontSize: fontSize.xxl,
+    fontWeight: '900',
     marginTop: 2,
   },
-
-  // Sections
-  section: {
-    marginBottom: spacing.xxl,
-  },
-  sectionTitle: {
-    fontSize: fontSize.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '600',
-    marginBottom: spacing.md,
-  },
-
-  // Card
-  card: {
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-  },
-  emptyCard: {
-    borderRadius: borderRadius.md,
-    padding: spacing.xxl,
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: borderRadius.full,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyCardText: {
-    fontSize: fontSize.md,
-  },
-
-  // Rundown items
-  rundownItem: {
-    flexDirection: 'row',
+  inlineError: {
+    marginTop: spacing.md,
     borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  inlineErrorText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 18,
+  },
+  card: {
+    borderRadius: borderRadius.xl,
     padding: spacing.lg,
     borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  planStrip: {
+    gap: spacing.sm,
+    paddingBottom: spacing.md,
+  },
+  planChip: {
+    width: 182,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginRight: spacing.sm,
+  },
+  planChipTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  planChipLabel: {
+    flex: 1,
+    fontSize: fontSize.md,
+    fontWeight: '800',
+  },
+  planChipMetaRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  planChipMeta: {
+    marginTop: spacing.sm,
+    fontSize: fontSize.xs,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
+  heroContent: {
+    flex: 1,
+  },
+  heroStatusColumn: {
+    width: 138,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
     marginBottom: spacing.sm,
   },
-  currentItemHighlight: {
-    borderWidth: 2,
+  pill: {
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
   },
-  currentBar: {
-    position: 'absolute',
-    left: 0,
-    top: 8,
-    bottom: 8,
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: '#00E676',
+  pillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  itemBorder: {},
-  headerItem: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+  heroTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: '900',
+    lineHeight: 28,
   },
-  headerItemText: {
+  heroSubtitle: {
+    marginTop: spacing.xs,
     fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  metricCard: {
+    minWidth: 94,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexGrow: 1,
+  },
+  metricLabel: {
+    fontSize: fontSize.xs,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  itemLeft: {
-    width: 32,
-    alignItems: 'center',
-    paddingTop: 2,
-  },
-  itemContent: {
-    flex: 1,
-  },
-  itemTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemTitle: {
+  metricValue: {
+    marginTop: 4,
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  itemSubtitle: {
-    fontSize: fontSize.sm,
-    marginTop: 2,
+  liveCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    minHeight: 176,
+    justifyContent: 'space-between',
   },
-  itemMeta: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  itemDetails: {
+  liveHeaderRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  livePulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  liveHeaderText: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  liveTimer: {
+    fontSize: 34,
+    fontWeight: '900',
     marginTop: spacing.sm,
   },
-  itemType: {
-    fontSize: fontSize.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
+  liveCueTitle: {
+    fontSize: fontSize.md,
+    fontWeight: '800',
+    marginTop: spacing.sm,
+    lineHeight: 22,
   },
-  itemDuration: {
-    fontSize: fontSize.xs,
-    fontFamily: 'JetBrainsMono-Bold',
-  },
-  itemKey: {
-    fontSize: fontSize.xs,
-  },
-
-  // Delta column for completed items
-  deltaColumn: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    marginLeft: spacing.sm,
-  },
-  actualDuration: {
-    fontSize: fontSize.xs,
-    fontFamily: 'JetBrainsMono-Bold',
-  },
-  itemDelta: {
-    fontSize: 10,
-    fontFamily: 'JetBrainsMono-Bold',
-    marginTop: 1,
-  },
-
-  // Team
-  teamGroupName: {
+  liveCueMeta: {
     fontSize: fontSize.sm,
-    fontWeight: '700',
+    marginTop: spacing.xs,
+    lineHeight: 20,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  actionButton: {
+    minWidth: '48%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+  },
+  ghostActionButton: {
+    // no-op placeholder to keep styles grouped
+  },
+  actionButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+  },
+  sectionHead: {
     marginBottom: spacing.sm,
     marginTop: spacing.xs,
-  },
-  teamRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  teamInfo: {
+  sectionTitle: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  sectionCaption: {
+    flex: 1,
+    fontSize: fontSize.xs,
+    textAlign: 'right',
+  },
+  timingGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  timingStat: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    minHeight: 74,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  timingStatLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  timingStatValue: {
+    marginTop: 6,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  sectionRow: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginBottom: spacing.sm,
+  },
+  sectionRowText: {
+    fontSize: fontSize.sm,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  cueCard: {
+    borderWidth: 1,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  currentCueCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  currentRail: {
+    width: 4,
+    borderRadius: 2,
+    marginRight: -spacing.sm,
+  },
+  cueMain: {
     flex: 1,
   },
-  teamMemberName: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-  },
-  teamPosition: {
-    fontSize: fontSize.sm,
-    marginTop: 1,
-  },
-  teamDivider: {
-    height: 1,
-    marginVertical: spacing.md,
-  },
-
-  // Badge
-  badge: {
+  cueTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  cueTitleWrap: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  cueTitle: {
+    fontSize: fontSize.md,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  goButton: {
     borderWidth: 1,
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    gap: 4,
+    paddingVertical: 4,
   },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  badgeText: {
+  goButtonText: {
     fontSize: fontSize.xs,
-    fontWeight: '600',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  cueSubtext: {
+    fontSize: fontSize.sm,
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  cueNotes: {
+    fontSize: fontSize.sm,
+    marginTop: 4,
+    lineHeight: 19,
+    fontStyle: 'italic',
+  },
+  cueMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  cueFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  cueDuration: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+  },
+  cueAssignee: {
+    fontSize: fontSize.xs,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  timingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  timingText: {
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+  },
+  timingGap: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+  },
+  timingOverlap: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
   },
 });

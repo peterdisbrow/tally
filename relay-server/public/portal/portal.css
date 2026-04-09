@@ -1543,6 +1543,77 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   animation: rundown-cell-flash 1s ease-out;
 }
 
+.rundown-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: rgba(0,230,118,0.06);
+  border: 1px solid rgba(0,230,118,0.16);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.rundown-batch-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
+.rundown-batch-spacer {
+  flex: 1;
+  min-width: 6px;
+}
+
+.rundown-batch-bar button { white-space: nowrap; }
+
+.rundown-batch-check {
+  width: 28px;
+  text-align: center;
+}
+
+.rundown-batch-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(6,13,8,0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.rundown-batch-checkbox:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(0,230,118,0.15);
+}
+
+.rundown-batch-checkbox:checked::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #060D08;
+}
+
+.rundown-batch-selected {
+  background: rgba(0,230,118,0.08) !important;
+  box-shadow: inset 3px 0 0 rgba(0,230,118,0.8);
+}
+
+.rundown-batch-section-selected {
+  background: rgba(0,230,118,0.08) !important;
+  border-top-color: rgba(0,230,118,0.7) !important;
+}
+
 /* Light theme overrides */
 body.light-theme .rundown-dash-card { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.08); }
 body.light-theme .rundown-dash-card:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.12); }
@@ -1555,3 +1626,6 @@ body.light-theme .rundown-status-badge.status-live { background: rgba(220,38,38,
 body.light-theme .rundown-status-badge.status-archived { background: rgba(107,114,128,0.08); color: #9ca3af; }
 body.light-theme .presence-avatar { border-color: #fff; }
 body.light-theme #rundown-presence-bar.has-editors { background: rgba(22,163,74,0.06); border-color: rgba(22,163,74,0.15); }
+body.light-theme .rundown-batch-bar { background: rgba(22,163,74,0.05); border-color: rgba(22,163,74,0.16); }
+body.light-theme .rundown-batch-checkbox { background: #fff; border-color: rgba(0,0,0,0.18); }
+body.light-theme .rundown-batch-checkbox:checked::after { background: #fff; }

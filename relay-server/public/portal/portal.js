@@ -72,6 +72,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _selectedRoomId = new URLSearchParams(window.location.search).get('room') || '';
     var _roomListCache = null; // [{id, name, connected}, ...]
     var _totalRoomCount = -1; // total rooms for the church (not filtered by TD scope), -1 = unknown
+    var _totalRoomLimit = -1;
+    var _churchProfileCache = null;
+    var _churchProfilePromise = null;
+    var _churchProfileFetchedAt = 0;
+    var CHURCH_PROFILE_CACHE_MS = 60000;
+    var _activeSessionCache = null;
+    var _activeSessionCacheKey = '';
+    var _activeSessionPromise = null;
+    var _activeSessionFetchedAt = 0;
+    var ACTIVE_SESSION_CACHE_MS = 5000;
+    var _profilePageLoaded = false;
+    var _engineerPageLoaded = false;
+    var _coachingFetchedAt = 0;
+    var COACHING_CACHE_MS = 300000;
 
     /** Fetch rooms from API (cached). Force refresh with skipCache=true. */
     async function fetchRoomList(skipCache) {
@@ -82,8 +96,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         _roomListCache._fetched = true;
         if (payload && payload.limits && typeof payload.limits.usedTotal === 'number') {
           _totalRoomCount = payload.limits.usedTotal;
+          _totalRoomLimit = typeof payload.limits.maxTotal === 'number' ? payload.limits.maxTotal : -1;
         }
-      } catch { _roomListCache = []; _roomListCache._fetched = false; }
+      } catch {
+        _roomListCache = [];
+        _roomListCache._fetched = false;
+        _totalRoomCount = -1;
+        _totalRoomLimit = -1;
+      }
       return _roomListCache;
     }
 
@@ -122,6 +142,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function setSelectedRoom(roomId) {
       if (roomId === _selectedRoomId) return;
       _selectedRoomId = roomId;
+      _activeSessionCache = null;
+      _activeSessionCacheKey = '';
+      _activeSessionPromise = null;
+      _activeSessionFetchedAt = 0;
       // Persist to URL
       var url = new URL(window.location);
       if (_selectedRoomId) { url.searchParams.set('room', _selectedRoomId); }
@@ -1187,7 +1211,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { initOverviewSections(); loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
-      if (id === 'profile') loadNotifications();
+      if (id === 'profile') { loadProfile(); loadNotifications(); }
       if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
       if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
@@ -1201,7 +1225,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'rundown') loadRundownPage();
       if (id === 'commands') loadCommandsPage();
-      if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
+      if (id === 'engineer') { loadEngineerProfile(); loadCoaching(); startEngineerChatPoll(); } else stopEngineerChatPoll();
     }
 
     // ── Tab switching ────────────────────────────────────────────────────────────
@@ -1316,6 +1340,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return _selectedRoomId ? '&roomId=' + encodeURIComponent(_selectedRoomId) : '';
     }
 
+    function applyPortalSessionContext(d) {
+      if (!d || !d.isTd) return;
+      window._tdSession = { name: d.tdName, accessLevel: d.tdAccessLevel };
+      applyTdAccessRestrictions(d.tdAccessLevel, d.tdName);
+    }
+
+    function invalidateChurchProfileCache() {
+      _churchProfileCache = null;
+      _churchProfilePromise = null;
+      _churchProfileFetchedAt = 0;
+      _profilePageLoaded = false;
+      _engineerPageLoaded = false;
+    }
+
+    async function fetchChurchProfile(opts) {
+      opts = opts || {};
+      var now = Date.now();
+      if (!opts.force && _churchProfileCache && (now - _churchProfileFetchedAt) < CHURCH_PROFILE_CACHE_MS) {
+        return _churchProfileCache;
+      }
+      if (_churchProfilePromise) return _churchProfilePromise;
+      _churchProfilePromise = api('GET', '/api/church/me').then(function(d) {
+        _churchProfileCache = d || {};
+        _churchProfileFetchedAt = Date.now();
+        applyPortalSessionContext(_churchProfileCache);
+        return _churchProfileCache;
+      }).finally(function() {
+        _churchProfilePromise = null;
+      });
+      return _churchProfilePromise;
+    }
+
+    async function getActiveSessionData(opts) {
+      opts = opts || {};
+      var key = roomParam();
+      var now = Date.now();
+      if (!opts.force && _activeSessionCache && _activeSessionCacheKey === key && (now - _activeSessionFetchedAt) < ACTIVE_SESSION_CACHE_MS) {
+        return _activeSessionCache;
+      }
+      if (_activeSessionPromise && _activeSessionCacheKey === key) return _activeSessionPromise;
+      _activeSessionCacheKey = key;
+      _activeSessionPromise = api('GET', '/api/church/session/active' + key).then(function(data) {
+        _activeSessionCache = data || { active: false };
+        _activeSessionFetchedAt = Date.now();
+        return _activeSessionCache;
+      }).finally(function() {
+        _activeSessionPromise = null;
+      });
+      return _activeSessionPromise;
+    }
+
     /** Populate overview room selector from DB rooms (once). */
     async function loadOverviewRoomSelector() {
       if (_overviewRoomsLoaded) return;
@@ -1335,6 +1410,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         await loadOverviewRoomSelector();
         const d = await api('GET', '/api/church/me' + roomParam());
         profileData = d;
+        applyPortalSessionContext(d);
 
         // Show/hide data cards based on whether the desktop app has ever connected.
         // New users see only the onboarding checklist, Quick Info, and a "Get Connected" prompt.
@@ -1358,16 +1434,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
         try {
-          var roomsPayload = await api('GET', '/api/church/rooms');
+          await fetchRoomList();
           var roomLimitEl = document.getElementById('plan-room-limit');
           if (roomLimitEl) {
-            var limits = roomsPayload && roomsPayload.limits ? roomsPayload.limits : null;
-            if (limits) {
-              roomLimitEl.textContent = limits.usedTotal + ' / ' + limits.maxTotal;
-            } else {
-              var rooms = roomsPayload && roomsPayload.rooms ? roomsPayload.rooms : [];
-              roomLimitEl.textContent = rooms.length || '0';
-            }
+            if (_totalRoomCount >= 0 && _totalRoomLimit > 0) roomLimitEl.textContent = _totalRoomCount + ' / ' + _totalRoomLimit;
+            else if (_totalRoomCount >= 0) roomLimitEl.textContent = String(_totalRoomCount);
+            else roomLimitEl.textContent = Array.isArray(_roomListCache) ? String(_roomListCache.length || 0) : '0';
           }
         } catch {
           var roomLimitEl = document.getElementById('plan-room-limit');
@@ -1748,6 +1820,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           loadActivityFeed();
           loadProblems();
         }
+        _overviewSecondaryLastRefreshedAt = Date.now();
 
         // Room selector is now populated from DB in loadOverviewRoomSelector()
       } catch(e) {
@@ -2803,7 +2876,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!body) return;
       try {
         var sessionData, alerts;
-        try { sessionData = await api('GET', '/api/church/session/active' + roomParam()); } catch { sessionData = { active: false }; }
+        try { sessionData = await getActiveSessionData(); } catch { sessionData = { active: false }; }
         try { alerts = await api('GET', '/api/church/alerts' + roomParam()); } catch { alerts = []; }
 
         var items = [];
@@ -2870,7 +2943,71 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _overviewPollTimer = null;
     var _overviewPollActive = false;
     var _overviewPollBackoff = 1000;
-    var OVERVIEW_POLL_MS = 15000;
+    var OVERVIEW_POLL_MS = 300000;
+    var OVERVIEW_SECONDARY_REFRESH_MS = 900000;
+    var _overviewSecondaryLastRefreshedAt = 0;
+
+    function isPortalPageActive(pageId) {
+      var page = document.getElementById('page-' + pageId);
+      return !!(page && page.classList.contains('active'));
+    }
+
+    function applyOverviewLiveData(d) {
+      if (!d) return;
+      profileData = profileData && typeof profileData === 'object' ? profileData : {};
+      if (d.connected !== undefined) profileData.connected = !!d.connected;
+      if (d.status !== undefined) profileData.status = d.status || {};
+      if (d.lastSeen !== undefined) profileData.lastSeen = d.lastSeen || null;
+      if (d.broadcastHealth !== undefined) profileData.broadcastHealth = d.broadcastHealth;
+      if (d.audio_via_atem !== undefined) profileData.audio_via_atem = !!d.audio_via_atem;
+
+      var status = d.status || {};
+      var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
+      var audioViaAtem = d.audio_via_atem !== undefined ? !!d.audio_via_atem : !!profileData.audio_via_atem;
+      var broadcastHealth = d.broadcastHealth !== undefined
+        ? d.broadcastHealth
+        : (profileData.broadcastHealth !== undefined ? profileData.broadcastHealth : (window._lastBroadcastHealth || null));
+
+      var getConnectedCard = document.getElementById('get-connected-card');
+      if (getConnectedCard && profileData.onboarding_app_connected_at) {
+        getConnectedCard.style.display = d.connected ? 'none' : 'block';
+      }
+
+      var statusText = document.getElementById('stat-status-text');
+      var statusDot = document.getElementById('stat-status-dot');
+      if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+      if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
+
+      var stalenessEl = document.getElementById('equip-staleness');
+      if (stalenessEl) {
+        if (d.lastSeen) {
+          var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
+          if (ago < 60) stalenessEl.textContent = 'Updated just now';
+          else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
+          else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
+          stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
+        } else {
+          stalenessEl.textContent = d.connected ? 'Live' : 'Waiting for update';
+          stalenessEl.style.color = d.connected ? '#00E676' : '#556270';
+        }
+      }
+
+      try { updateStreamStats(status, enc); } catch (e) { console.error('Stream stats error', e); }
+      try { updateBroadcastHealthCard(broadcastHealth); } catch (e) { console.error('BH error', e); }
+      try { updateAtemDetailCard(status); } catch (e) { console.error('ATEM card error', e); }
+      try { updateAudioHealthCard(status, audioViaAtem); } catch (e) { console.error('Audio health error', e); }
+    }
+
+    function refreshOverviewSecondaryData(force) {
+      var now = Date.now();
+      if (!force && (now - _overviewSecondaryLastRefreshedAt) < OVERVIEW_SECONDARY_REFRESH_MS) return;
+      _overviewSecondaryLastRefreshedAt = now;
+      loadIncidents();
+      if (profileData && profileData.onboarding_app_connected_at) {
+        loadRundown();
+        loadActivityFeed();
+      }
+    }
 
     function scheduleOverviewPoll(delay) {
       if (!_overviewPollActive) return;
@@ -2901,43 +3038,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _overviewPollBackoff = 1000;
     }
 
-    async function refreshOverviewData() {
-      var d = await api('GET', '/api/church/me' + roomParam());
-      var status = d.status || {};
-      var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
-      var audioViaAtem = !!(d.audio_via_atem);
-
-      // Connection status
-      var statusText = document.getElementById('stat-status-text');
-      var statusDot = document.getElementById('stat-status-dot');
-      if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
-      if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
-
-      // Staleness
-      var stalenessEl = document.getElementById('equip-staleness');
-      if (stalenessEl && d.lastSeen) {
-        var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
-        if (ago < 60) stalenessEl.textContent = 'Updated just now';
-        else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
-        else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
-        stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
-      }
-
-      // Cards
-      updateStreamStats(status, enc);
-      updateBroadcastHealthCard(window._lastBroadcastHealth || null);
-      updateAtemDetailCard(status);
-      updateAudioHealthCard(status, audioViaAtem);
-      loadRundown();
-      loadIncidents();
-      loadActivityFeed();
+    async function refreshOverviewData(opts) {
+      opts = opts || {};
+      var d = await api('GET', '/api/church/live-status' + roomParam());
+      applyOverviewLiveData(d);
+      refreshOverviewSecondaryData(!!opts.forceSecondary);
     }
 
     document.addEventListener('visibilitychange', function() {
-      if (document.hidden) { stopOverviewPoll(); }
+      if (document.hidden) {
+        stopOverviewPoll();
+        stopEngineerChatPoll();
+      }
       else {
-        var overviewPage = document.getElementById('page-overview');
-        if (overviewPage && overviewPage.classList.contains('active')) startOverviewPoll();
+        if (isPortalPageActive('overview')) startOverviewPoll();
+        if (isPortalPageActive('engineer')) startEngineerChatPoll();
       }
     });
 
@@ -2994,7 +3109,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!card) return;
 
       try {
-        var data = await api('GET', '/api/church/session/active' + roomParam());
+        var data = await getActiveSessionData();
         if (!data || !data.active) {
           card.style.display = 'none';
           // Also hide live session cards when no session is active
@@ -4226,8 +4341,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Profile ─────────────────────────────────────────────────────────────────
     async function loadProfile() {
       try {
-        const d = await api('GET', '/api/church/me');
-        profileData = d;
+        if (_profilePageLoaded) return;
+        const d = await fetchChurchProfile();
+        profileData = Object.assign({}, profileData || {}, d);
         document.getElementById('profile-name').value = d.name || '';
         document.getElementById('profile-email').value = d.email || '';
         document.getElementById('profile-phone').value = d.phone || '';
@@ -4252,25 +4368,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Memory summary for engineer page
         var memEl = document.getElementById('engineer-memory-summary');
         if (memEl) memEl.value = d.memory_summary || '';
-        // Per-room stream keys for equipment page
-        loadRoomStreamKeys();
-
-        // TD session — scope sidebar & show indicator
-        if (d.isTd) {
-          window._tdSession = { name: d.tdName, accessLevel: d.tdAccessLevel };
-          applyTdAccessRestrictions(d.tdAccessLevel, d.tdName);
-        }
+        _profilePageLoaded = true;
       } catch(e) { toast('Failed to load profile', true); }
     }
-    loadProfile();
 
     /** Load per-room stream keys into the Help & Support page */
     async function loadRoomStreamKeys() {
       var container = document.getElementById('eq-room-stream-keys');
       if (!container) return;
       try {
-        var data = await api('GET', '/api/church/rooms');
-        var rooms = data.rooms || [];
+        var rooms = await fetchRoomList();
         if (!rooms.length) {
           container.innerHTML = '<span style="color:#556270;font-size:13px">No rooms yet. Create a room first.</span>';
           return;
@@ -4340,6 +4447,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           locale: (document.getElementById('profile-locale') || {}).value || 'en',
           timezone: (document.getElementById('profile-timezone') || {}).value || '',
         });
+        invalidateChurchProfileCache();
         toast('Profile saved');
       } catch(e) { toast(e.message, true); }
       finally { btnReset('btn-save-profile'); }
@@ -4354,6 +4462,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           eventLabel: document.getElementById('profile-event-label').value,
           eventExpiresAt: document.getElementById('profile-event-expires').value || null,
         });
+        invalidateChurchProfileCache();
         toast('Church type saved');
       } catch(e) { toast(e.message, true); }
       finally { btnReset('btn-save-church-type'); }
@@ -4377,6 +4486,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (np.length < 8) return toast('Password must be at least 8 characters', true);
       try {
         await api('PUT', '/api/church/me', { currentPassword: cur, newPassword: np });
+        invalidateChurchProfileCache();
         document.getElementById('current-password').value = '';
         document.getElementById('new-password').value = '';
         document.getElementById('confirm-password').value = '';
@@ -4387,7 +4497,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Tally Engineer profile ─────────────────────────────────────────────────
     async function loadEngineerProfile() {
       try {
-        const d = await api('GET', '/api/church/me');
+        if (_engineerPageLoaded) return;
+        const d = await fetchChurchProfile();
         var ep = {};
         try { ep = JSON.parse(d.engineer_profile || '{}'); } catch {}
         document.getElementById('eng-stream-platform').value = ep.streamPlatform || '';
@@ -4397,13 +4508,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('eng-backup-switcher').value = ep.backupSwitcher || '';
         document.getElementById('eng-special-notes').value = ep.specialNotes || '';
         updateTrainingBadge(ep);
+        _engineerPageLoaded = true;
       } catch(e) {
         console.warn('[Portal] Profile load failed:', e);
         toast('Failed to load profile', true);
       }
     }
-    loadEngineerProfile();
-    loadCoaching();
 
     function updateTrainingBadge(ep) {
       var badge = document.getElementById('engineer-training-badge');
@@ -4430,6 +4540,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       };
       try {
         await api('PUT', '/api/church/me', { engineerProfile: ep });
+        invalidateChurchProfileCache();
+        _engineerPageLoaded = false;
         updateTrainingBadge(ep);
         toast('Tally Engineer profile saved');
       } catch(e) { toast(e.message, true); }
@@ -4440,18 +4552,41 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var engineerChatMsgs = [];
     var engineerChatPollTimer = null;
     var engineerChatLastTs = null;
+    var engineerChatLastActivityAt = 0;
+    var ENGINEER_CHAT_ACTIVE_POLL_MS = 15000;
+    var ENGINEER_CHAT_IDLE_POLL_MS = 60000;
+    var ENGINEER_CHAT_IDLE_AFTER_MS = 120000;
+    var ENGINEER_CHAT_REPLY_POLL_MS = 3000;
+
+    function shouldPollEngineerChat() {
+      return !document.hidden && isPortalPageActive('engineer');
+    }
+
+    function getEngineerChatPollDelay() {
+      if ((Date.now() - engineerChatLastActivityAt) < ENGINEER_CHAT_IDLE_AFTER_MS) return ENGINEER_CHAT_ACTIVE_POLL_MS;
+      return ENGINEER_CHAT_IDLE_POLL_MS;
+    }
+
+    function scheduleEngineerChatPoll(delay) {
+      if (!shouldPollEngineerChat()) {
+        stopEngineerChatPoll();
+        return;
+      }
+      if (engineerChatPollTimer) clearTimeout(engineerChatPollTimer);
+      engineerChatPollTimer = setTimeout(function() {
+        engineerChatPollTimer = null;
+        pollEngineerChat();
+      }, Math.max(1000, delay || getEngineerChatPollDelay()));
+    }
 
     async function loadEngineerChat() {
       try {
-        var since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        var url = '/api/church/chat?limit=50&since=' + encodeURIComponent(since);
+        var url = '/api/church/chat?latest=true&limit=20';
         if (_selectedRoomId) url += '&roomId=' + encodeURIComponent(_selectedRoomId);
         var resp = await api('GET', url);
         if (resp && resp.messages) {
           engineerChatMsgs = resp.messages;
-          if (engineerChatMsgs.length > 0) {
-            engineerChatLastTs = engineerChatMsgs[engineerChatMsgs.length - 1].timestamp;
-          }
+          engineerChatLastTs = engineerChatMsgs.length ? engineerChatMsgs[engineerChatMsgs.length - 1].timestamp : null;
           renderEngineerChat();
         }
       } catch(e) {
@@ -4461,30 +4596,41 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     async function startEngineerChatPoll() {
-      loadEngineerChat();
-      if (engineerChatPollTimer) clearInterval(engineerChatPollTimer);
-      engineerChatPollTimer = setInterval(pollEngineerChat, 4000);
+      if (!shouldPollEngineerChat()) return;
+      engineerChatLastActivityAt = Date.now();
+      await loadEngineerChat();
+      scheduleEngineerChatPoll(getEngineerChatPollDelay());
     }
 
     function stopEngineerChatPoll() {
-      if (engineerChatPollTimer) { clearInterval(engineerChatPollTimer); engineerChatPollTimer = null; }
+      if (engineerChatPollTimer) { clearTimeout(engineerChatPollTimer); engineerChatPollTimer = null; }
     }
 
     async function pollEngineerChat() {
-      if (!engineerChatLastTs) return loadEngineerChat();
+      if (!shouldPollEngineerChat()) {
+        stopEngineerChatPoll();
+        return;
+      }
       try {
+        if (!engineerChatLastTs) {
+          await loadEngineerChat();
+          return;
+        }
         var url = '/api/church/chat?since=' + encodeURIComponent(engineerChatLastTs);
         if (_selectedRoomId) url += '&roomId=' + encodeURIComponent(_selectedRoomId);
         var resp = await api('GET', url);
         if (resp && resp.messages && resp.messages.length > 0) {
           engineerChatMsgs = engineerChatMsgs.concat(resp.messages);
           engineerChatLastTs = resp.messages[resp.messages.length - 1].timestamp;
+          engineerChatLastActivityAt = Date.now();
           hideEngineerThinking();
           renderEngineerChat();
         }
       } catch(e) {
         console.warn('[Portal] Engineer chat load failed:', e);
         if (!engineerChatMsgs.length) toast('Failed to load chat', true);
+      } finally {
+        if (shouldPollEngineerChat()) scheduleEngineerChatPoll(getEngineerChatPollDelay());
       }
     }
 
@@ -4535,12 +4681,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (resp && resp.id) {
           engineerChatMsgs.push(resp);
           engineerChatLastTs = resp.timestamp;
+          engineerChatLastActivityAt = Date.now();
           renderEngineerChat();
           // Show thinking indicator while waiting for AI response
           showEngineerThinking();
-          // Quick-poll for faster response: check at 1s and 2s instead of waiting for 4s interval
-          setTimeout(function() { pollEngineerChat(); }, 1000);
-          setTimeout(function() { pollEngineerChat(); }, 2000);
+          // Use one short follow-up check, then fall back to the slower idle cadence.
+          scheduleEngineerChatPoll(ENGINEER_CHAT_REPLY_POLL_MS);
         }
       } catch(e) {
         toast(e.message, true);
@@ -4608,11 +4754,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var body = document.getElementById('coaching-body');
       var weekEl = document.getElementById('coaching-week');
       if (!card || !body) return;
+      if (_coachingFetchedAt && (Date.now() - _coachingFetchedAt) < COACHING_CACHE_MS) return;
 
       try {
         var data = await api('GET', '/api/church/coaching');
         if (!data || data.totalEvents === undefined) {
           card.style.display = 'none';
+          _coachingFetchedAt = Date.now();
           return;
         }
 
@@ -4659,6 +4807,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
 
         body.innerHTML = html;
+        _coachingFetchedAt = Date.now();
       } catch(e) {
         card.style.display = 'none';
       }
@@ -5132,7 +5281,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Notifications ─────────────────────────────────────────────────────────
     async function loadNotifications() {
       try {
-        const d = await api('GET', '/api/church/me');
+        const d = await fetchChurchProfile();
         notifData = d.notifications || {};
         document.getElementById('notif-email').checked = !!notifData.email;
         document.getElementById('notif-telegram').checked = !!notifData.telegram;
@@ -5160,6 +5309,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           telegramChatId: document.getElementById('telegram-chat-id').value,
           autoRecoveryEnabled: document.getElementById('notif-auto-recovery').checked,
         });
+        invalidateChurchProfileCache();
         toast('Notification preferences saved');
       } catch(e) { toast(e.message, true); }
     }
@@ -5823,7 +5973,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function loadAutopilot() {
       try {
-        var me = await api('GET', '/api/church/me');
+        var me = await fetchChurchProfile();
         var billing = await api('GET', '/api/church/billing');
         _autopilotChurchId = me.churchId;
 
@@ -8089,15 +8239,126 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownPresenceEditors = [];
     var _rundownRoomMap = {}; // roomId → roomName
     // Custom columns state
-    var _rundownColumns = [];    // [{ id, name, department, sortOrder }]
+    var _rundownColumns = [];    // [{ id, name, department, sortOrder, type, options, equipmentBinding }]
     var _rundownColumnValues = {}; // { itemId_colId: value }
+    var _rundownTimingCache = null; // { items, timingData }
     // Attachments state — keyed by itemId
     var _rundownAttachments = {}; // { itemId: [{ id, filename, mimetype, size }] }
+    var _rundownBatchSelection = {}; // { itemId: true }
+    var _rundownBatchAnchorId = null;
 
     // ── Status display config ────────────────────────────────────────────────
     var RUNDOWN_STATUS_LABELS = { draft: 'Draft', rehearsal: 'Rehearsal', show_ready: 'Show Ready', live: 'Live', archived: 'Archived' };
     var RUNDOWN_STATUS_ORDER = ['live', 'show_ready', 'rehearsal', 'draft', 'archived'];
     var RUNDOWN_PRESENCE_COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#98D8C8','#F7DC6F'];
+    var RUNDOWN_COLUMN_TYPE_LABELS = { text: 'Text', dropdown: 'Dropdown' };
+    var RUNDOWN_COLUMN_BINDING_LABELS = {
+      'atem.program_input': 'ATEM Program',
+      'atem.preview_input': 'ATEM Preview',
+      'propresenter.presentation': 'ProPresenter',
+      'encoder.status': 'Encoder Status',
+      'stream.live': 'Stream Live',
+    };
+
+    function _normalizeRundownColumnType(type) {
+      return type === 'dropdown' ? 'dropdown' : 'text';
+    }
+
+    function _getRundownColumnOptions(column) {
+      return Array.isArray(column && column.options)
+        ? column.options.map(function(opt) { return String(opt || '').trim(); }).filter(Boolean)
+        : [];
+    }
+
+    function _normalizeRundownCompareValue(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/&nbsp;/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    }
+
+    function _getRundownBindingLabel(binding) {
+      return RUNDOWN_COLUMN_BINDING_LABELS[binding] || binding || 'No live source';
+    }
+
+    function _getRundownLiveBindingSnapshot(binding) {
+      if (!binding) return null;
+      var status = profileData && profileData.status || {};
+      var atem = status.atem && typeof status.atem === 'object' ? status.atem : {};
+      var enc = status.encoder && typeof status.encoder === 'object' ? status.encoder : {};
+      var pp = status.proPresenter || status.propresenter || {};
+      if (binding === 'atem.program_input') {
+        if (atem.programInput == null) return { label: 'No program feed', compareValues: [], tone: 'muted' };
+        var pgmLabel = atem.inputLabels && atem.inputLabels[atem.programInput] ? atem.inputLabels[atem.programInput] : '';
+        return {
+          label: 'PGM ' + friendlyInputName(atem.programInput) + (pgmLabel ? ' · ' + pgmLabel : ''),
+          compareValues: [String(atem.programInput), friendlyInputName(atem.programInput), pgmLabel],
+          tone: atem.connected ? 'good' : 'bad',
+        };
+      }
+      if (binding === 'atem.preview_input') {
+        if (atem.previewInput == null) return { label: 'No preview feed', compareValues: [], tone: 'muted' };
+        var pvwLabel = atem.inputLabels && atem.inputLabels[atem.previewInput] ? atem.inputLabels[atem.previewInput] : '';
+        return {
+          label: 'PVW ' + friendlyInputName(atem.previewInput) + (pvwLabel ? ' · ' + pvwLabel : ''),
+          compareValues: [String(atem.previewInput), friendlyInputName(atem.previewInput), pvwLabel],
+          tone: atem.connected ? 'good' : 'bad',
+        };
+      }
+      if (binding === 'propresenter.presentation') {
+        var currentSlide = pp.currentSlide;
+        var presentation = (typeof currentSlide === 'string' ? currentSlide : (currentSlide && currentSlide.presentationName)) || pp.currentPresentation || pp.presentationName || '';
+        return {
+          label: presentation || 'No presentation',
+          compareValues: presentation ? [presentation] : [],
+          tone: pp && (pp.connected || pp === true) ? 'good' : 'muted',
+        };
+      }
+      if (binding === 'encoder.status') {
+        var obsStreaming = status.streaming === true || !!(status.obs && status.obs.streaming);
+        var atemStreaming = !!(atem && atem.streaming);
+        var vmixStreaming = !!(status.vmix && status.vmix.streaming);
+        var encoderConnected = status.encoder === true || !!enc.connected;
+        var encoderLive = !!enc.live || !!enc.streaming || obsStreaming || atemStreaming || vmixStreaming;
+        var label = encoderLive ? 'Live' : (encoderConnected ? 'Connected' : 'Offline');
+        return {
+          label: label,
+          compareValues: [label],
+          tone: encoderLive ? 'good' : (encoderConnected ? 'warn' : 'bad'),
+        };
+      }
+      if (binding === 'stream.live') {
+        var isLive = !!(status.obs && status.obs.streaming) || !!(atem && atem.streaming) || !!(status.vmix && status.vmix.streaming) || !!enc.live || !!enc.streaming;
+        return {
+          label: isLive ? 'Live' : 'Off Air',
+          compareValues: isLive ? ['Live'] : ['Off Air', 'OffAir', 'Offline'],
+          tone: isLive ? 'good' : 'bad',
+        };
+      }
+      return null;
+    }
+
+    function _getRundownColumnLiveStatus(column, expectedValue) {
+      if (!column || !column.equipmentBinding) return null;
+      var snapshot = _getRundownLiveBindingSnapshot(column.equipmentBinding);
+      if (!snapshot) return null;
+      var expected = String(expectedValue || '').trim();
+      if (!expected) return {
+        matched: null,
+        label: snapshot.label,
+        tone: snapshot.tone || 'muted',
+      };
+      var normalizedExpected = _normalizeRundownCompareValue(expected);
+      var matched = (snapshot.compareValues || []).some(function(candidate) {
+        return _normalizeRundownCompareValue(candidate) === normalizedExpected;
+      });
+      return {
+        matched: matched,
+        label: snapshot.label,
+        tone: matched ? 'good' : 'bad',
+      };
+    }
 
     function loadRundownPage() {
       api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state').then(function(data) {
@@ -8523,6 +8784,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownSelectPlan(planId, source) {
       _rundownSelectedPlanId = planId;
       renderRundownDashboard();
+      _rundownBatchSelection = {};
+      _rundownBatchAnchorId = null;
+      _updateRundownBatchBar();
       if (source === 'pco') {
         // PCO plans can be started directly but not edited
         _rundownSelectedPlan = { id: planId, source: 'pco' };
@@ -8593,6 +8857,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
     }
 
+    function _rundownParseHHMMToMinutes(hhmm) {
+      if (!hhmm || !/^\d{1,2}:\d{2}$/.test(String(hhmm))) return null;
+      var parts = String(hhmm).split(':');
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+
     function _rundownFormatTime12(hhmm) {
       if (!hhmm) return '--:--';
       var parts = hhmm.split(':');
@@ -8615,6 +8885,431 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var parts = str.split(':');
       if (parts.length === 2) return Math.max(0, parseInt(parts[0],10) * 60 + parseInt(parts[1],10));
       return Math.max(0, parseInt(parts[0],10) * 60);
+    }
+
+    function _rundownFormatLongDuration(seconds) {
+      var s = Math.max(0, Math.round(seconds || 0));
+      var hours = Math.floor(s / 3600);
+      var minutes = Math.floor((s % 3600) / 60);
+      var secs = s % 60;
+      if (hours > 0) {
+        return hours + ':' + (minutes < 10 ? '0' : '') + minutes + ':' + (secs < 10 ? '0' : '') + secs;
+      }
+      return minutes + ':' + (secs < 10 ? '0' : '') + secs;
+    }
+
+    function _rundownDateKey(date) {
+      if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+      return date.getFullYear() + '-'
+        + ((date.getMonth() + 1) < 10 ? '0' : '') + (date.getMonth() + 1) + '-'
+        + (date.getDate() < 10 ? '0' : '') + date.getDate();
+    }
+
+    function _rundownFormatMonthDay(date) {
+      if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function _getRundownEffectiveDate() {
+      if (_liveShowState && _liveShowState.startedAt) {
+        var liveDate = new Date(_liveShowState.startedAt);
+        if (!isNaN(liveDate.getTime())) return liveDate;
+      }
+      if (_rundownSelectedPlan && _rundownSelectedPlan.serviceDate) {
+        var planDate = new Date(_rundownSelectedPlan.serviceDate + 'T00:00:00');
+        if (!isNaN(planDate.getTime())) return planDate;
+      }
+      return new Date();
+    }
+
+    function _getRundownAbsoluteTimeMs(hhmm) {
+      var parsedMinutes = _rundownParseHHMMToMinutes(hhmm);
+      if (parsedMinutes === null) return null;
+      var baseDate = _getRundownEffectiveDate();
+      var target = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+      target.setMinutes(parsedMinutes);
+      return target.getTime();
+    }
+
+    function _getRundownBatchSelectedIds() {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return [];
+      return _rundownSelectedPlan.items
+        .filter(function(item) { return !!_rundownBatchSelection[item.id]; })
+        .map(function(item) { return item.id; });
+    }
+
+    function _getRundownBatchSelectedItems() {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return [];
+      return _rundownSelectedPlan.items.filter(function(item) { return !!_rundownBatchSelection[item.id]; });
+    }
+
+    function _rundownClearBatchSelection() {
+      _rundownBatchSelection = {};
+      _rundownBatchAnchorId = null;
+      _updateRundownBatchBar();
+      if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+    }
+
+    function _rundownSetBatchSelection(itemId, selected, opts) {
+      if (!itemId) return;
+      if (selected) _rundownBatchSelection[itemId] = true;
+      else delete _rundownBatchSelection[itemId];
+      if (!opts || !opts.keepAnchor) {
+        _rundownBatchAnchorId = selected ? itemId : null;
+      }
+      _updateRundownBatchBar();
+      if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
+    }
+
+    function _rundownToggleBatchSelection(itemId, opts) {
+      if (!itemId) return;
+      _rundownSetBatchSelection(itemId, !_rundownBatchSelection[itemId], opts);
+    }
+
+    function _rundownApplyBatchSelectionRange(targetItemId) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
+      if (!_rundownBatchAnchorId) {
+        _rundownSetBatchSelection(targetItemId, true);
+        return;
+      }
+      var items = _rundownSelectedPlan.items;
+      var fromIdx = items.findIndex(function(item) { return item.id === _rundownBatchAnchorId; });
+      var toIdx = items.findIndex(function(item) { return item.id === targetItemId; });
+      if (fromIdx < 0 || toIdx < 0) {
+        _rundownSetBatchSelection(targetItemId, true);
+        return;
+      }
+      var start = Math.min(fromIdx, toIdx);
+      var end = Math.max(fromIdx, toIdx);
+      _rundownBatchSelection = {};
+      for (var i = start; i <= end; i++) {
+        _rundownBatchSelection[items[i].id] = true;
+      }
+      _rundownBatchAnchorId = targetItemId;
+      _updateRundownBatchBar();
+      renderRundownEditorItems(_rundownSelectedPlan.items || []);
+    }
+
+    function _updateRundownBatchBar() {
+      var bar = document.getElementById('rundown-batch-bar');
+      if (!bar) return;
+      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+      }
+
+      var items = _getRundownBatchSelectedItems();
+      if (!items.length) {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+      }
+
+      var count = items.length;
+      bar.style.display = '';
+      bar.innerHTML =
+        '<span class="rundown-batch-count">' + count + ' selected</span>' +
+        '<button class="btn-secondary" data-batch-action="select-all" style="font-size:12px;padding:5px 10px">Select all</button>' +
+        '<button class="btn-secondary" data-batch-action="clear" style="font-size:12px;padding:5px 10px">Clear</button>' +
+        '<span class="rundown-batch-spacer"></span>' +
+        '<button class="btn-secondary" data-batch-action="duplicate" style="font-size:12px;padding:5px 10px">Duplicate</button>' +
+        '<button class="btn-secondary" data-batch-action="top" style="font-size:12px;padding:5px 10px">Top</button>' +
+        '<button class="btn-secondary" data-batch-action="bottom" style="font-size:12px;padding:5px 10px">Bottom</button>' +
+        '<button class="btn-secondary" data-batch-action="before" style="font-size:12px;padding:5px 10px">Before cue</button>' +
+        '<button class="btn-secondary" data-batch-action="after" style="font-size:12px;padding:5px 10px">After cue</button>' +
+        '<button class="btn-secondary" data-batch-action="delete" style="font-size:12px;padding:5px 10px;color:#FF5252">Delete</button>';
+    }
+
+    function _attachRundownBatchBarActions() {
+      var bar = document.getElementById('rundown-batch-bar');
+      if (!bar || bar._rundownBatchBound) return;
+      bar._rundownBatchBound = true;
+      bar.addEventListener('click', function(e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-batch-action]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        var action = btn.getAttribute('data-batch-action');
+        if (action === 'select-all') {
+          if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
+          _rundownBatchSelection = {};
+          _rundownSelectedPlan.items.forEach(function(item) { _rundownBatchSelection[item.id] = true; });
+          _rundownBatchAnchorId = _rundownSelectedPlan.items.length ? _rundownSelectedPlan.items[0].id : null;
+          _updateRundownBatchBar();
+          renderRundownEditorItems(_rundownSelectedPlan.items || []);
+        } else if (action === 'clear') {
+          _rundownClearBatchSelection();
+        } else if (action === 'duplicate') {
+          _rundownBatchDuplicateSelected();
+        } else if (action === 'delete') {
+          _rundownBatchDeleteSelected();
+        } else if (action === 'top' || action === 'bottom') {
+          _rundownBatchMoveSelected(action);
+        } else if (action === 'before' || action === 'after') {
+          styledPrompt(action === 'before' ? 'Move Before Cue' : 'Move After Cue', 'Enter cue number or title', '').then(function(target) {
+            if (!target) return;
+            _rundownBatchMoveSelected(action, target);
+          });
+        }
+      });
+    }
+
+    function _rundownBatchNormalizeQuery(query) {
+      return String(query || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    }
+
+    function _rundownResolveBatchTarget(query) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return null;
+      var items = _rundownSelectedPlan.items || [];
+      var cues = items.filter(function(item) { return item.itemType !== 'section'; });
+      var raw = String(query || '').trim();
+      if (!raw) return null;
+      if (/^\d+$/.test(raw)) {
+        var idx = parseInt(raw, 10) - 1;
+        if (idx >= 0 && idx < cues.length) return cues[idx];
+      }
+      var norm = _rundownBatchNormalizeQuery(raw);
+      if (!norm) return null;
+      var exact = cues.find(function(item) { return _rundownBatchNormalizeQuery(item.title) === norm; });
+      if (exact) return exact;
+      return cues.find(function(item) { return _rundownBatchNormalizeQuery(item.title).indexOf(norm) >= 0; }) || null;
+    }
+
+    function _rundownCloneBatchItemPayload(item) {
+      return {
+        title: item.title ? item.title + ' Copy' : 'Copy',
+        itemType: item.itemType || 'other',
+        lengthSeconds: item.lengthSeconds || 0,
+        notes: item.notes || '',
+        assignee: item.assignee || '',
+        startType: item.startType || 'soft',
+        hardStartTime: item.hardStartTime || null,
+        autoAdvance: !!item.autoAdvance,
+      };
+    }
+
+    function _rundownSetBatchPlanRefresh() {
+      return api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
+        if (idx >= 0) {
+          _rundownPlans[idx].itemCount = plan.items.length;
+          renderRundownDashboard();
+        }
+        return plan;
+      });
+    }
+
+    function _rundownReorderBatchItemIds(finalIds) {
+      return api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/reorder', { itemIds: finalIds }).then(function(plan) {
+        _rundownSelectedPlan = plan;
+        renderRundownEditor(plan);
+        return plan;
+      });
+    }
+
+    function _rundownBatchMoveSelected(where, targetQuery) {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
+      var items = _rundownSelectedPlan.items.slice();
+      var selectedMap = _rundownBatchSelection;
+      var selectedIds = _getRundownBatchSelectedIds();
+      if (!selectedIds.length) return;
+      var selectedSet = {};
+      selectedIds.forEach(function(id) { selectedSet[id] = true; });
+      var remainingIds = items.map(function(item) { return item.id; }).filter(function(id) { return !selectedSet[id]; });
+      var orderedSelectedIds = items.map(function(item) { return item.id; }).filter(function(id) { return !!selectedMap[id]; });
+      var finalIds = [];
+      if (where === 'top') {
+        finalIds = orderedSelectedIds.concat(remainingIds);
+      } else if (where === 'bottom') {
+        finalIds = remainingIds.concat(orderedSelectedIds);
+      } else {
+        var target = _rundownResolveBatchTarget(targetQuery);
+        if (!target) {
+          toast('Could not find that cue', true);
+          return;
+        }
+        if (selectedSet[target.id]) {
+          toast('Choose a cue outside the current selection', true);
+          return;
+        }
+        var base = remainingIds.slice();
+        var targetIdx = base.indexOf(target.id);
+        if (targetIdx < 0) return;
+        if (where === 'after') targetIdx += 1;
+        finalIds = base.slice(0, targetIdx).concat(orderedSelectedIds, base.slice(targetIdx));
+      }
+
+      _rundownReorderBatchItemIds(finalIds).then(function() {
+        _rundownBatchSelection = {};
+        _rundownBatchAnchorId = null;
+        _updateRundownBatchBar();
+      }).catch(function(e) {
+        toast('Failed: ' + e.message, true);
+      });
+    }
+
+    function _rundownBatchDeleteSelected() {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
+      var selectedItems = _getRundownBatchSelectedItems();
+      if (!selectedItems.length) return;
+      styledConfirm('Delete Selected Cues', 'Delete ' + selectedItems.length + ' selected cues from the rundown? This cannot be undone.').then(function(ok) {
+        if (!ok) return;
+        var chain = Promise.resolve();
+        selectedItems.forEach(function(item) {
+          chain = chain.then(function() {
+            return api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + item.id);
+          });
+        });
+        chain.then(function() {
+          _rundownBatchSelection = {};
+          _rundownBatchAnchorId = null;
+          return _rundownSetBatchPlanRefresh();
+        }).catch(function(e) { toast('Failed: ' + e.message, true); });
+      });
+    }
+
+    function _rundownBatchDuplicateSelected() {
+      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
+      var selectedItems = _getRundownBatchSelectedItems();
+      if (!selectedItems.length) return;
+      var columnIds = (_rundownColumns || []).map(function(col) { return col.id; });
+      var duplicateIdMap = {};
+      var order = _rundownSelectedPlan.items.map(function(item) { return item.id; });
+      var chain = Promise.resolve();
+
+      selectedItems.forEach(function(item) {
+        chain = chain.then(function() {
+          return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', _rundownCloneBatchItemPayload(item)).then(function(newItem) {
+            duplicateIdMap[item.id] = newItem && newItem.id;
+            var columnChain = Promise.resolve();
+            columnIds.forEach(function(colId) {
+              var value = _rundownColumnValues[item.id + '_' + colId];
+              if (value === undefined || value === null || value === '') return;
+              columnChain = columnChain.then(function() {
+                return api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + newItem.id + '/columns/' + colId, { value: value });
+              });
+            });
+            return columnChain;
+          });
+        });
+      });
+
+      chain.then(function() {
+        var finalIds = [];
+        order.forEach(function(id) {
+          finalIds.push(id);
+          if (duplicateIdMap[id]) finalIds.push(duplicateIdMap[id]);
+        });
+        if (!finalIds.length) return _rundownSetBatchPlanRefresh();
+        return _rundownReorderBatchItemIds(finalIds).then(function() {
+          _rundownBatchSelection = {};
+          _rundownBatchAnchorId = null;
+          _updateRundownBatchBar();
+          return _rundownSetBatchPlanRefresh();
+        });
+      }).catch(function(e) {
+        toast('Failed: ' + e.message, true);
+      });
+    }
+
+    function _updateRundownHardStartBar() {
+      var bar = document.getElementById('rundown-hard-start-bar');
+      if (!bar) return;
+      var cache = _rundownTimingCache;
+      var isLive = _liveShowState && _liveShowState.isLive;
+      if (!cache || !cache.items || !cache.items.length) {
+        bar.innerHTML = '';
+        bar.style.display = 'none';
+        bar.style.marginBottom = '0';
+        return;
+      }
+
+      var startIndex = 0;
+      if (isLive && _liveShowState.currentCueIndex != null) {
+        startIndex = Math.max(0, _liveShowState.currentCueIndex + 1);
+      }
+
+      var nextIndex = -1;
+      for (var i = startIndex; i < cache.items.length; i++) {
+        if (cache.timingData[i] && cache.timingData[i].isHard) {
+          nextIndex = i;
+          break;
+        }
+      }
+      if (nextIndex < 0) {
+        bar.innerHTML = '';
+        bar.style.display = 'none';
+        bar.style.marginBottom = '0';
+        return;
+      }
+
+      var nextItem = cache.items[nextIndex];
+      var timing = cache.timingData[nextIndex] || {};
+      var effectiveDate = _getRundownEffectiveDate();
+      var serviceDateKey = _rundownSelectedPlan && _rundownSelectedPlan.serviceDate ? _rundownSelectedPlan.serviceDate : '';
+      var todayKey = _rundownDateKey(new Date());
+      var targetMs = _getRundownAbsoluteTimeMs(timing.start);
+      var deltaSec = targetMs == null ? null : Math.round((targetMs - Date.now()) / 1000);
+      var countdownLabel = '';
+      if (isLive && deltaSec != null) {
+        countdownLabel = deltaSec >= 0
+          ? 'Starts in ' + _rundownFormatLongDuration(deltaSec)
+          : 'Late by ' + _rundownFormatLongDuration(-deltaSec);
+      } else {
+        countdownLabel = 'Starts at ' + _rundownFormatTime12(timing.start);
+        if (serviceDateKey && serviceDateKey !== todayKey) {
+          countdownLabel += ' on ' + _rundownFormatMonthDay(effectiveDate);
+        }
+      }
+
+      var deltaTone = '#8B9DAF';
+      var deltaBadge = 'On time';
+      if (timing.overlapSeconds > 0) {
+        deltaTone = '#FF5252';
+        deltaBadge = 'Overlap ' + _rundownFormatLongDuration(timing.overlapSeconds);
+      } else if (timing.gapSeconds > 0) {
+        deltaTone = '#64B5F6';
+        deltaBadge = 'Gap ' + _rundownFormatLongDuration(timing.gapSeconds);
+      }
+
+      bar.style.display = '';
+      bar.style.marginBottom = '12px';
+      bar.innerHTML = '<div data-rundown-hard-start-target="' + nextItem.id + '" style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 14px;background:rgba(100,181,246,0.08);border:1px solid rgba(100,181,246,0.18);border-radius:10px;cursor:pointer">'
+        + '<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+        + '<span style="display:inline-flex;color:#64B5F6">' + SVG.clock + '</span>'
+        + '<div style="min-width:0">'
+        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64B5F6;font-weight:700">Next hard start</div>'
+        + '<div style="font-size:13px;color:#F0F2F4;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(nextItem.title || 'Untitled cue') + '</div>'
+        + '</div>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-end">'
+        + '<div style="text-align:right">'
+        + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270">Hard start</div>'
+        + '<div style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:13px;color:#F0F2F4;font-weight:700">' + escapeHtml(_rundownFormatTime12(timing.start)) + '</div>'
+        + '</div>'
+        + '<div style="text-align:right">'
+        + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270">Countdown</div>'
+        + '<div style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:13px;color:#F0F2F4;font-weight:700">' + escapeHtml(countdownLabel) + '</div>'
+        + '</div>'
+        + '<div style="text-align:right">'
+        + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#556270">Schedule</div>'
+        + '<div style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-size:13px;color:' + deltaTone + ';font-weight:700">' + escapeHtml(deltaBadge) + '</div>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+
+      var jumpEl = bar.querySelector('[data-rundown-hard-start-target]');
+      if (jumpEl) {
+        jumpEl.addEventListener('click', function() {
+          var row = document.querySelector('#rundown-editor-items tr[data-item-id="' + nextItem.id + '"]');
+          if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      }
     }
 
     function renderRundownEditor(plan) {
@@ -8656,6 +9351,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           liveBar = document.createElement('div');
           liveBar.id = 'rundown-live-bar';
           tableCard.parentNode.insertBefore(liveBar, tableCard);
+        }
+      }
+      var hardStartBar = document.getElementById('rundown-hard-start-bar');
+      if (!hardStartBar) {
+        var tableCardForHardStart = document.querySelector('#rundown-editor > .card:last-of-type');
+        if (tableCardForHardStart) {
+          hardStartBar = document.createElement('div');
+          hardStartBar.id = 'rundown-hard-start-bar';
+          tableCardForHardStart.parentNode.insertBefore(hardStartBar, tableCardForHardStart);
         }
       }
       var isLive = _liveShowState && _liveShowState.isLive;
@@ -8712,6 +9416,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderRundownEditorItems(items) {
       var container = document.getElementById('rundown-editor-items');
       if (!container) return;
+      if (_rundownSelectedPlan && Array.isArray(_rundownSelectedPlan.items)) {
+        var prunedSelection = {};
+        _rundownSelectedPlan.items.forEach(function(item) {
+          if (_rundownBatchSelection[item.id]) prunedSelection[item.id] = true;
+        });
+        _rundownBatchSelection = prunedSelection;
+        if (_rundownBatchAnchorId && !_rundownBatchSelection[_rundownBatchAnchorId]) {
+          _rundownBatchAnchorId = null;
+        }
+      } else {
+        _rundownBatchSelection = {};
+        _rundownBatchAnchorId = null;
+      }
 
       var isLive = _liveShowState && _liveShowState.isLive;
       var activeCueIdx = isLive ? _liveShowState.currentCueIndex : -1;
@@ -8724,16 +9441,32 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         var dur = item.lengthSeconds || 0;
+        var gapSeconds = 0;
+        var overlapSeconds = 0;
         // Hard start: anchor to wall clock time
         if (item.startType === 'hard' && item.hardStartTime) {
+          var computedStartMinutes = _rundownParseHHMMToMinutes(currentTime);
+          var hardStartMinutes = _rundownParseHHMMToMinutes(item.hardStartTime);
+          if (computedStartMinutes !== null && hardStartMinutes !== null) {
+            var deltaMinutes = hardStartMinutes - computedStartMinutes;
+            if (deltaMinutes > 0) gapSeconds = deltaMinutes * 60;
+            if (deltaMinutes < 0) overlapSeconds = Math.abs(deltaMinutes) * 60;
+          }
           currentTime = item.hardStartTime;
         }
         var st = currentTime;
         var et = _rundownTimeAdd(currentTime, dur);
-        timingData.push({ start: st, end: et, isHard: item.startType === 'hard' && !!item.hardStartTime });
+        timingData.push({
+          start: st,
+          end: et,
+          isHard: item.startType === 'hard' && !!item.hardStartTime,
+          gapSeconds: gapSeconds,
+          overlapSeconds: overlapSeconds,
+        });
         totalSeconds += dur;
         currentTime = et;
       }
+      _rundownTimingCache = { items: items.slice(), timingData: timingData };
 
       // Check if behind schedule (for hard-start items)
       var now = new Date();
@@ -8773,10 +9506,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // Build table — compute total column count
-      var colCount = 11 + _rundownColumns.length + 1 + (isLive ? 1 : 0); // base + indicators + custom cols + attachments + live timer
+      var colCount = 14 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + attachments + live timer
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
+      html += '<th style="padding:8px 4px;width:30px;text-align:center"><span style="display:inline-flex;align-items:center;justify-content:center;color:#8B9DAF">Sel</span></th>';
       html += '<th style="padding:8px 4px;width:24px"></th>'; // drag
       html += '<th style="padding:8px 2px;width:28px;text-align:center">#</th>';
       html += '<th style="padding:8px 6px;text-align:left">Title</th>';
@@ -8784,11 +9518,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;width:100px;text-align:left">Who</th>';
       // Custom department columns (between Assignee and Duration)
       for (var ci = 0; ci < _rundownColumns.length; ci++) {
-        html += '<th style="padding:8px 6px;width:100px;text-align:left;position:relative" data-col-id="' + _rundownColumns[ci].id + '">';
+        var headerCol = _rundownColumns[ci];
+        var headerType = _normalizeRundownColumnType(headerCol.type);
+        var headerBinding = headerCol.equipmentBinding ? _getRundownBindingLabel(headerCol.equipmentBinding) : '';
+        html += '<th style="padding:8px 6px;width:120px;text-align:left;position:relative" data-col-id="' + headerCol.id + '">';
         html += '<span style="display:inline-flex;align-items:center;gap:4px">';
-        html += escapeHtml(_rundownColumns[ci].name);
-        html += '<span class="rundown-col-gear" data-col-id="' + _rundownColumns[ci].id + '" data-col-name="' + escapeHtml(_rundownColumns[ci].name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Rename or delete column">' + SVG.wrench + '</span>';
-        html += '</span></th>';
+        html += escapeHtml(headerCol.name);
+        html += '<span class="rundown-col-gear" data-col-id="' + headerCol.id + '" data-col-name="' + escapeHtml(headerCol.name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Configure column">' + SVG.wrench + '</span>';
+        html += '</span>';
+        html += '<div style="font-size:10px;color:#556270;margin-top:2px;line-height:1.3">' + escapeHtml(RUNDOWN_COLUMN_TYPE_LABELS[headerType] || 'Text') + (headerBinding ? ' · Live: ' + escapeHtml(headerBinding) : '') + '</div>';
+        html += '</th>';
       }
       // Add column button header
       html += '<th style="padding:8px 2px;width:28px;text-align:center">';
@@ -8816,12 +9555,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var t = timingData[i];
         var isCurrent = (i === activeCueIdx);
         var isPast = isLive && i < activeCueIdx;
+        var isSelected = !!_rundownBatchSelection[item.id];
 
         // Section header — full-width divider row
         if (item.itemType === 'section') {
-          html += '<tr data-item-id="' + item.id + '" draggable="true" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
+          html += '<tr data-item-id="' + item.id + '" draggable="true" class="' + (isSelected ? 'rundown-batch-section-selected' : '') + '" style="background:rgba(255,255,255,0.04);border-top:2px solid ' + color + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
+          html += '<td class="rundown-batch-check" style="padding:6px 4px;vertical-align:middle;text-align:center">';
+          html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select section">';
+          html += '</td>';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="' + (colCount - 2) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 3) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
           html += '<span class="rundown-inline-edit" data-field="title" data-item-id="' + item.id + '" style="cursor:text" title="Click to edit">' + escapeHtml(item.title) + '</span>';
           html += '</td>';
           html += '<td style="padding:8px 4px;text-align:center"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -8830,6 +9573,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
 
         rowNum++;
+
+        if (t.isHard && (t.gapSeconds > 0 || t.overlapSeconds > 0)) {
+          var hasOverlap = t.overlapSeconds > 0;
+          var deltaCopy = hasOverlap ? _rundownFormatLongDuration(t.overlapSeconds) : _rundownFormatLongDuration(t.gapSeconds);
+          var helperTone = hasOverlap ? '#FF5252' : '#64B5F6';
+          var helperBg = hasOverlap ? 'rgba(239,68,68,0.08)' : 'rgba(100,181,246,0.08)';
+          var helperBody = hasOverlap
+            ? 'This hard start collides with the current schedule. Trim time earlier in the rundown or move the cue.'
+            : 'You have built-in cushion before this hard start. Leave it as padding or add time to earlier cues.';
+          html += '<tr class="rundown-hard-start-helper" data-hard-start-target="' + item.id + '">';
+          html += '<td colspan="' + colCount + '" style="padding:6px 10px;background:' + helperBg + ';border-left:4px solid ' + helperTone + ';font-size:11px;color:' + helperTone + '">';
+          html += '<span style="font-weight:700">' + (hasOverlap ? 'Overlap before hard start' : 'Gap before hard start') + '</span>';
+          html += '<span style="font-family:\'SF Mono\',SFMono-Regular,ui-monospace,monospace;font-weight:700;margin-left:8px">' + deltaCopy + '</span>';
+          html += '<span style="margin-left:10px;color:#8B9DAF">' + helperBody + '</span>';
+          html += '</td>';
+          html += '</tr>';
+        }
 
         // Row styling based on live state
         var rowBg = 'none';
@@ -8845,10 +9605,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var rowStyle = 'border-bottom:1px solid rgba(255,255,255,0.04);border-left:' + borderLeft + ';transition:background 0.15s;background:' + rowBg + ';opacity:' + rowOpacity;
         if (isLive) rowStyle += ';cursor:pointer';
         html += '<tr data-item-id="' + item.id + '" data-cue-index="' + i + '" draggable="true"'
-          + ' class="' + (isCurrent ? 'live-cue-active' : '') + '"'
+          + ' class="' + (isCurrent ? 'live-cue-active' : '') + (isSelected ? ' rundown-batch-selected' : '') + '"'
           + ' style="' + rowStyle + '"'
           + (isCurrent ? '' : ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'' + rowBg + '\'"')
           + (isLive ? ' onclick="if(typeof liveShowGoto===\'function\')liveShowGoto(' + i + ')"' : '') + '>';
+
+        // Selection checkbox
+        html += '<td class="rundown-batch-check" style="padding:4px 4px;text-align:center;vertical-align:middle">';
+        html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select cue">';
+        html += '</td>';
 
         // Drag handle
         html += '<td style="padding:4px 4px;cursor:grab;color:#556270;vertical-align:middle" class="rundown-drag-handle">' + SVG.grip + '</td>';
@@ -8873,10 +9638,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Custom column cells (inline editable)
         for (var ci = 0; ci < _rundownColumns.length; ci++) {
-          var colId = _rundownColumns[ci].id;
+          var column = _rundownColumns[ci];
+          var colId = column.id;
           var cellVal = _rundownColumnValues[item.id + '_' + colId] || '';
+          var colType = _normalizeRundownColumnType(column.type);
+          var liveStatus = isLive && isCurrent ? _getRundownColumnLiveStatus(column, cellVal) : null;
           html += '<td style="padding:4px 6px;vertical-align:middle">';
-          html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
+          html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" data-col-type="' + colType + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
+          if (liveStatus) {
+            var liveColor = liveStatus.tone === 'good' ? '#00E676' : liveStatus.tone === 'bad' ? '#FF5252' : liveStatus.tone === 'warn' ? '#FFB74D' : '#556270';
+            html += '<div style="margin-top:2px;font-size:10px;color:' + liveColor + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(liveStatus.label) + '">';
+            html += (liveStatus.matched === true ? 'Live match' : 'Live: ' + escapeHtml(liveStatus.label));
+            html += '</div>';
+          }
           html += '</td>';
         }
         // Empty cell under the add-column header
@@ -8892,7 +9666,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var startColor = '#556270';
         if (t.isHard) {
           startDisplay = SVG.clock + ' ' + startDisplay;
-          startColor = '#64B5F6';
+          startColor = t.overlapSeconds > 0 ? '#FF5252' : '#64B5F6';
           // Check if behind schedule during live mode
           if (isLive && isCurrent && nowHHMM > t.start) {
             startColor = '#FF5252';
@@ -8972,6 +9746,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Attach inline editing listeners
       _attachRundownInlineEditing(container);
+      // Attach batch selection controls
+      _attachRundownBatchEditing(container);
+      _attachRundownBatchBarActions();
       // Attach custom column inline editing
       _attachRundownColumnEditing(container);
       // Attach attachment button listeners
@@ -8990,6 +9767,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
+      _updateRundownHardStartBar();
+      _updateRundownBatchBar();
+    }
+
+    function _attachRundownBatchEditing(container) {
+      container.querySelectorAll('.rundown-batch-checkbox').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var itemId = el.getAttribute('data-item-id');
+          if (!itemId || !_rundownSelectedPlan) return;
+          if (e.shiftKey && _rundownBatchAnchorId) {
+            _rundownApplyBatchSelectionRange(itemId);
+            return;
+          }
+          _rundownToggleBatchSelection(itemId);
+        });
+      });
     }
 
     // ── Hard/soft start and auto-advance toggle handlers ──────────────────────
@@ -9006,8 +9801,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             // Switch to soft
             _rundownInlineSave(itemId, { startType: 'soft', hardStartTime: null });
           } else {
+            var defaultHardStart = item.hardStartTime || '09:00';
+            if (_rundownTimingCache && _rundownTimingCache.items && _rundownTimingCache.timingData) {
+              var itemIndex = _rundownTimingCache.items.findIndex(function(x) { return x.id === itemId; });
+              if (itemIndex >= 0 && _rundownTimingCache.timingData[itemIndex] && _rundownTimingCache.timingData[itemIndex].start) {
+                defaultHardStart = _rundownTimingCache.timingData[itemIndex].start;
+              }
+            }
             // Prompt for hard start time
-            styledPrompt('Hard Start Time', 'Enter wall-clock time (HH:MM, 24h)', '09:00').then(function(val) {
+            styledPrompt('Hard Start Time', 'Enter wall-clock time (HH:MM, 24h)', defaultHardStart).then(function(val) {
               if (!val) return;
               val = val.trim();
               if (!/^\d{1,2}:\d{2}$/.test(val)) { toast('Invalid time format. Use HH:MM', true); return; }
@@ -9236,24 +10038,54 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var itemId = el.getAttribute('data-item-id');
           var colId = el.getAttribute('data-col-id');
           if (!itemId || !_rundownSelectedPlan) return;
+          var column = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
+          var colType = _normalizeRundownColumnType(column.type);
           var currentVal = _rundownColumnValues[itemId + '_' + colId] || '';
-          var input = document.createElement('input');
-          input.type = 'text';
-          input.value = currentVal;
-          input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:12px;outline:none;font-family:inherit';
+          var input;
+          if (colType === 'dropdown') {
+            input = document.createElement('select');
+            input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:12px;outline:none;font-family:inherit';
+            var blankOpt = document.createElement('option');
+            blankOpt.value = '';
+            blankOpt.textContent = '—';
+            input.appendChild(blankOpt);
+            _getRundownColumnOptions(column).forEach(function(option) {
+              var opt = document.createElement('option');
+              opt.value = option;
+              opt.textContent = option;
+              if (option === currentVal) opt.selected = true;
+              input.appendChild(opt);
+            });
+          } else {
+            input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentVal;
+            input.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);color:#F0F2F4;border:1px solid rgba(66,165,245,0.5);border-radius:3px;padding:2px 6px;font-size:12px;outline:none;font-family:inherit';
+          }
           el.innerHTML = '';
           el.appendChild(input);
           input.focus();
-          input.select();
+          if (typeof input.select === 'function') input.select();
 
           function save() {
-            var val = input.value.trim();
+            var val = String(input.value || '').trim();
             _rundownColumnValues[itemId + '_' + colId] = val;
             api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId + '/columns/' + colId, { value: val })
               .then(function() { renderRundownEditorItems(_rundownSelectedPlan.items || []); })
               .catch(function(err) { toast('Failed: ' + err.message, true); });
           }
-          input.addEventListener('blur', save);
+          if (colType === 'dropdown') {
+            input.addEventListener('change', save);
+            input.addEventListener('blur', function() {
+              setTimeout(function() {
+                if (document.activeElement !== input) {
+                  renderRundownEditorItems(_rundownSelectedPlan.items || []);
+                }
+              }, 50);
+            });
+          } else {
+            input.addEventListener('blur', save);
+          }
           input.addEventListener('keydown', function(ev) {
             if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
             if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderRundownEditorItems(_rundownSelectedPlan.items || []); }
@@ -9271,6 +10103,47 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var colName = el.getAttribute('data-col-name');
           _showColumnMenu(el, colId, colName);
         });
+      });
+    }
+
+    function _promptRundownColumnType(currentType) {
+      return styledPrompt('Column Type', 'Enter "text" or "dropdown"', _normalizeRundownColumnType(currentType))
+        .then(function(value) {
+          if (value === null) return null;
+          var raw = String(value || '').trim().toLowerCase();
+          if (raw !== 'text' && raw !== 'dropdown') {
+            toast('Type must be "text" or "dropdown"', true);
+            return null;
+          }
+          return raw;
+        });
+    }
+
+    function _promptRundownColumnOptions(currentOptions) {
+      return styledPrompt(
+        'Dropdown Options',
+        'Comma-separated options',
+        Array.isArray(currentOptions) ? currentOptions.join(', ') : ''
+      ).then(function(value) {
+        if (value === null) return null;
+        return String(value || '')
+          .split(',')
+          .map(function(option) { return option.trim(); })
+          .filter(Boolean);
+      });
+    }
+
+    function _promptRundownColumnBinding(currentBinding) {
+      var hint = 'Use "none", "atem.program_input", "atem.preview_input", "propresenter.presentation", "encoder.status", or "stream.live"';
+      return styledPrompt('Live Source', hint, currentBinding || 'none').then(function(value) {
+        if (value === null) return '__cancel__';
+        var trimmed = String(value || '').trim();
+        if (!trimmed || trimmed.toLowerCase() === 'none') return null;
+        if (!RUNDOWN_COLUMN_BINDING_LABELS[trimmed]) {
+          toast('Unknown live source', true);
+          return undefined;
+        }
+        return trimmed;
       });
     }
 
@@ -9299,6 +10172,60 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         });
       });
       menu.appendChild(renameBtn);
+
+      var configBtn = document.createElement('div');
+      configBtn.textContent = 'Type & Options';
+      configBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      configBtn.addEventListener('mouseenter', function() { configBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      configBtn.addEventListener('mouseleave', function() { configBtn.style.background = 'none'; });
+      configBtn.addEventListener('click', function() {
+        menu.remove();
+        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
+        _promptRundownColumnType(currentColumn.type).then(function(nextType) {
+          if (!nextType) return;
+          var finalize = function(nextOptions) {
+            api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
+              type: nextType,
+              options: nextOptions || [],
+            }).then(function(data) {
+              _rundownColumns = data.columns || _rundownColumns;
+              renderRundownEditorItems(_rundownSelectedPlan.items || []);
+              toast('Column updated');
+            }).catch(function(err) { toast('Failed: ' + err.message, true); });
+          };
+          if (nextType === 'dropdown') {
+            _promptRundownColumnOptions(currentColumn.options).then(function(nextOptions) {
+              if (nextOptions === null) return;
+              finalize(nextOptions);
+            });
+            return;
+          }
+          finalize([]);
+        });
+      });
+      menu.appendChild(configBtn);
+
+      var bindingBtn = document.createElement('div');
+      bindingBtn.textContent = 'Live Source';
+      bindingBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
+      bindingBtn.addEventListener('mouseenter', function() { bindingBtn.style.background = 'rgba(255,255,255,0.08)'; });
+      bindingBtn.addEventListener('mouseleave', function() { bindingBtn.style.background = 'none'; });
+      bindingBtn.addEventListener('click', function() {
+        menu.remove();
+        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
+        _promptRundownColumnBinding(currentColumn.equipmentBinding).then(function(nextBinding) {
+          if (nextBinding === '__cancel__') return;
+          if (nextBinding === undefined) return;
+          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
+            equipmentBinding: nextBinding,
+          }).then(function(data) {
+            _rundownColumns = data.columns || _rundownColumns;
+            renderRundownEditorItems(_rundownSelectedPlan.items || []);
+            toast(nextBinding ? 'Live source linked' : 'Live source removed');
+          }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        });
+      });
+      menu.appendChild(bindingBtn);
 
       var deleteBtn = document.createElement('div');
       deleteBtn.textContent = 'Delete';
@@ -9347,11 +10274,29 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
       styledPrompt('Add Column', 'Column name (e.g. Audio, Video, Lighting)', suggestion).then(function(name) {
         if (!name || !name.trim()) return;
-        api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns', { name: name.trim(), department: name.trim() }).then(function(col) {
-          _rundownColumns.push(col);
-          renderRundownEditorItems(_rundownSelectedPlan.items || []);
-          toast('Column added: ' + col.name);
-        }).catch(function(err) { toast('Failed: ' + err.message, true); });
+        _promptRundownColumnType('text').then(function(type) {
+          if (!type) return;
+          var finishCreate = function(options) {
+            api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns', {
+              name: name.trim(),
+              department: name.trim(),
+              type: type,
+              options: options || [],
+            }).then(function(col) {
+              _rundownColumns.push(col);
+              renderRundownEditorItems(_rundownSelectedPlan.items || []);
+              toast('Column added: ' + col.name);
+            }).catch(function(err) { toast('Failed: ' + err.message, true); });
+          };
+          if (type === 'dropdown') {
+            _promptRundownColumnOptions([]).then(function(options) {
+              if (options === null) return;
+              finishCreate(options);
+            });
+            return;
+          }
+          finishCreate([]);
+        });
       });
     }
 
@@ -9527,7 +10472,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           tbody.querySelectorAll('.rundown-drag-placeholder').forEach(function(p) { p.remove(); });
           var ph = document.createElement('tr');
           ph.className = 'rundown-drag-placeholder';
-          ph.innerHTML = '<td colspan="' + (10 + (_rundownColumns ? _rundownColumns.length : 0) + 1) + '" style="height:2px;background:#42A5F5;padding:0"></td>';
+          ph.innerHTML = '<td colspan="' + (14 + (_rundownColumns ? _rundownColumns.length : 0) + ((_liveShowState && _liveShowState.isLive) ? 1 : 0)) + '" style="height:2px;background:#42A5F5;padding:0"></td>';
           var rect = row.getBoundingClientRect();
           var midY = rect.top + rect.height / 2;
           if (e.clientY < midY) {
@@ -9788,6 +10733,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           toast('Rundown deleted');
           _rundownSelectedPlan = null;
           _rundownSelectedPlanId = null;
+          _rundownBatchSelection = {};
+          _rundownBatchAnchorId = null;
+          _updateRundownBatchBar();
           var editor = document.getElementById('rundown-editor');
           if (editor) editor.style.display = 'none';
           loadRundownManager();
@@ -9896,6 +10844,95 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     var _rundownShareData = null; // { share: { id, token, url, expiresAt } | null }
 
+    function _rundownNormalizeShareUrl(url) {
+      if (!url) return '';
+      try {
+        return new URL(url, window.location.origin).href;
+      } catch (e) {
+        return String(url);
+      }
+    }
+
+    function _rundownBuildOperatorOutputUrl(baseUrl, columnId) {
+      if (!baseUrl || !columnId) return '';
+      try {
+        var url = new URL(baseUrl, window.location.origin);
+        url.searchParams.set('columns', columnId);
+        return url.href;
+      } catch (e) {
+        var separator = baseUrl.indexOf('?') >= 0 ? '&' : '?';
+        return baseUrl + separator + 'columns=' + encodeURIComponent(columnId);
+      }
+    }
+
+    function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
+      if (!buttonEl) return;
+      var label = defaultLabel || buttonEl.dataset.defaultLabel || buttonEl.textContent || 'Copy Link';
+      buttonEl.textContent = 'Copied!';
+      setTimeout(function() {
+        buttonEl.textContent = label;
+      }, 1800);
+    }
+
+    function _rundownCopyTextToClipboard(text, buttonEl, defaultLabel) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(function() {
+        _rundownShareCopyFeedback(buttonEl, defaultLabel);
+      }).catch(function() {
+        window.prompt('Copy this link:', text);
+      });
+    }
+
+    function _rundownRenderShareLinks(share) {
+      var publicUrl = _rundownNormalizeShareUrl(share && share.url);
+      var timerBase = publicUrl || _rundownNormalizeShareUrl(window.location.origin);
+      var timerUrl = _rundownNormalizeShareUrl(share && share.timer_url ? new URL(share.timer_url, timerBase).href : '');
+      if (!timerUrl && share && share.share_token) {
+        timerUrl = _rundownNormalizeShareUrl(new URL('/rundown/timer/' + share.share_token, timerBase).href);
+      }
+
+      var urlEl = document.getElementById('rundown-share-url');
+      var timerEl = document.getElementById('rundown-share-timer-url');
+      var expiryEl = document.getElementById('rundown-share-expiry');
+      var operatorWrap = document.getElementById('rundown-share-operator-wrap');
+      var operatorLinks = document.getElementById('rundown-share-operator-links');
+
+      if (urlEl) urlEl.textContent = publicUrl || '';
+      if (timerEl) timerEl.textContent = timerUrl || '';
+
+      if (expiryEl && share && share.expiresAt) {
+        var exp = new Date(share.expiresAt);
+        expiryEl.textContent = 'Expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+
+      var hasOperatorLinks = false;
+      if (operatorLinks) {
+        var baseUrl = publicUrl || '';
+        var columnItems = [];
+        if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
+          for (var i = 0; i < _rundownColumns.length; i++) {
+            var column = _rundownColumns[i];
+            if (!column || !column.id) continue;
+            var operatorUrl = _rundownBuildOperatorOutputUrl(baseUrl, column.id);
+            if (!operatorUrl) continue;
+            hasOperatorLinks = true;
+            columnItems.push(
+              '<div style="display:flex;gap:8px;align-items:stretch">'
+                + '<div style="min-width:0;flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px">'
+                  + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#00E676;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(column.name || column.id) + '</div>'
+                  + '<div style="font-family:ui-monospace,monospace;font-size:12px;color:#8B9DAF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(operatorUrl) + '</div>'
+                + '</div>'
+                + '<button class="btn-secondary" style="font-size:12px;padding:6px 14px;white-space:nowrap" data-share-copy-url="' + escapeHtml(operatorUrl) + '" data-copy-default-label="Copy">Copy</button>'
+              + '</div>'
+            );
+          }
+        }
+        operatorLinks.innerHTML = columnItems.join('');
+      }
+
+      if (operatorWrap) operatorWrap.style.display = hasOperatorLinks ? '' : 'none';
+    }
+
     function _updateSharedBadge(hasShare) {
       var badge = document.getElementById('rundown-shared-badge');
       if (badge) badge.style.display = hasShare ? '' : 'none';
@@ -9908,8 +10945,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var loadingEl = document.getElementById('rundown-share-loading');
       var contentEl = document.getElementById('rundown-share-content');
       var errorEl = document.getElementById('rundown-share-error');
-      var urlEl = document.getElementById('rundown-share-url');
-      var expiryEl = document.getElementById('rundown-share-expiry');
       if (!backdrop) return;
       // Reset state
       if (loadingEl) loadingEl.style.display = '';
@@ -9936,11 +10971,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       function _showShareContent(share) {
         if (loadingEl) loadingEl.style.display = 'none';
-        if (urlEl) urlEl.textContent = share.url || '';
-        if (expiryEl && share.expiresAt) {
-          var exp = new Date(share.expiresAt);
-          expiryEl.textContent = 'Expires ' + exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        }
+        _rundownRenderShareLinks(share);
         if (contentEl) contentEl.style.display = '';
         _updateSharedBadge(true);
       }
@@ -9950,12 +10981,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var urlEl = document.getElementById('rundown-share-url');
       var url = urlEl ? urlEl.textContent.trim() : '';
       if (!url) return;
-      navigator.clipboard.writeText(url).then(function() {
-        var btn = document.getElementById('rundown-share-copy-btn');
-        if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Link'; }, 2000); }
-      }).catch(function() {
-        window.prompt('Copy this link:', url);
-      });
+      _rundownCopyTextToClipboard(url, document.getElementById('rundown-share-copy-btn'), 'Copy Link');
+    }
+
+    function rundownCopyTimerLink() {
+      var urlEl = document.getElementById('rundown-share-timer-url');
+      var url = urlEl ? urlEl.textContent.trim() : '';
+      if (!url) return;
+      _rundownCopyTextToClipboard(url, document.getElementById('rundown-share-timer-copy-btn'), 'Copy Link');
     }
 
     function rundownRevokeShare() {
@@ -9977,11 +11010,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var closeBtn = document.getElementById('rundown-share-modal-close');
       var backdrop = document.getElementById('modal-rundown-share');
       var copyBtn = document.getElementById('rundown-share-copy-btn');
+      var timerCopyBtn = document.getElementById('rundown-share-timer-copy-btn');
       var revokeBtn = document.getElementById('rundown-share-revoke-btn');
+      var contentEl = document.getElementById('rundown-share-content');
       if (closeBtn) closeBtn.addEventListener('click', function() { if (backdrop) backdrop.classList.remove('open'); });
       if (backdrop) backdrop.addEventListener('click', function(e) { if (e.target === backdrop) backdrop.classList.remove('open'); });
       if (copyBtn) copyBtn.addEventListener('click', function() { if (typeof rundownCopyShareLink === 'function') rundownCopyShareLink(); });
+      if (timerCopyBtn) timerCopyBtn.addEventListener('click', function() { if (typeof rundownCopyTimerLink === 'function') rundownCopyTimerLink(); });
       if (revokeBtn) revokeBtn.addEventListener('click', function() { if (typeof rundownRevokeShare === 'function') rundownRevokeShare(); });
+      if (contentEl && !contentEl._rundownShareCopyDelegateBound) {
+        contentEl._rundownShareCopyDelegateBound = true;
+        contentEl.addEventListener('click', function(e) {
+          var btn = e.target && e.target.closest ? e.target.closest('[data-share-copy-url]') : null;
+          if (!btn) return;
+          var url = btn.dataset.shareCopyUrl || '';
+          if (!url) return;
+          _rundownCopyTextToClipboard(url, btn, btn.dataset.copyDefaultLabel || 'Copy');
+        });
+      }
     })();
 
     // ── Start Live ────────────────────────────────────────────────────────────
@@ -10183,6 +11229,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var ss = showElapsed % 60;
         showEl.textContent = (sh > 0 ? sh + ':' : '') + (sm < 10 && sh > 0 ? '0' : '') + sm + ':' + (ss < 10 ? '0' : '') + ss;
       }
+      _updateRundownHardStartBar();
     }
 
     // ── Keyboard shortcuts for live show mode ─────────────────────────────────
@@ -10886,9 +11933,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     });
 
     // ── Real-time status push via SSE ─────────────────────────────────────────
-    // Connect to the server-sent event stream for this church. When the server
-    // pushes a status_update we patch the equipment table live, so the worship
-    // pastor or TD doesn't need to manually refresh.
+    // Connect to the server-sent event stream for this church. Live status
+    // updates patch overview cards directly so we avoid re-fetching the full
+    // portal profile on every device heartbeat.
     (function initPortalStatusStream() {
       var es;
       var reconnectDelay = 3000;
@@ -10903,10 +11950,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             if (data.type === 'status_update' || data.type === 'status_snapshot' || data.type === 'connected') {
               // Resolve per-room status using instanceStatus + roomInstanceMap
               var effectiveStatus = data.status;
+              var isConnected = data.type === 'connected';
               if (data.instanceStatus && data.roomInstanceMap && _selectedRoomId) {
                 var instanceName = data.roomInstanceMap[_selectedRoomId];
                 if (instanceName && data.instanceStatus[instanceName]) {
                   effectiveStatus = data.instanceStatus[instanceName];
+                  isConnected = true;
+                } else {
+                  effectiveStatus = { _offline: true };
+                  isConnected = false;
                 }
               }
               if (effectiveStatus) {
@@ -10914,7 +11966,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 var dot = document.getElementById('stat-status-dot');
                 var txt = document.getElementById('stat-status-text');
                 if (dot && txt) {
-                  var isConnected = data.type === 'connected' || !!(effectiveStatus.connected !== false && (effectiveStatus.atem || effectiveStatus.obs || effectiveStatus.encoder));
+                  if (!isConnected) {
+                    isConnected = !effectiveStatus._offline && !!(effectiveStatus.connected !== false && (
+                      effectiveStatus.atem || effectiveStatus.obs || effectiveStatus.encoder || effectiveStatus.vmix ||
+                      effectiveStatus.mixer || effectiveStatus.proPresenter || effectiveStatus.companion
+                    ));
+                  }
                   dot.style.background = isConnected ? '#00E676' : '#556270';
                   txt.textContent = isConnected ? 'Connected' : 'Offline';
                 }
@@ -10924,9 +11981,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                   stale.textContent = 'Live';
                   stale.style.color = '#00E676';
                 }
-                // Refresh the equipment table if the overview page is visible
+                // Update lightweight overview cards from SSE without forcing
+                // another full /api/church/me load.
                 if (document.getElementById('page-overview').classList.contains('active')) {
-                  loadOverview();
+                  applyOverviewLiveData({
+                    connected: isConnected,
+                    status: effectiveStatus,
+                    lastSeen: data.lastSeen || data.timestamp || null,
+                    broadcastHealth: data.broadcastHealth,
+                    audio_via_atem: profileData && profileData.audio_via_atem,
+                  });
                 }
               }
             } else if (data.type === 'instance_disconnected') {

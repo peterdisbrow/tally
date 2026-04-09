@@ -2342,6 +2342,9 @@
             <div id="rundown-over-under" style="font-size:13px;font-weight:700;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;min-width:80px;text-align:right"></div>
           </div>
 
+          <!-- Batch action bar -->
+          <div id="rundown-batch-bar" class="rundown-batch-bar" style="display:none;margin-bottom:12px"></div>
+
           <!-- Table container -->
           <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
             <div id="rundown-editor-items"></div>
@@ -2561,10 +2564,27 @@
         <div style="padding:0 20px 20px">
           <div id="rundown-share-loading" style="text-align:center;padding:24px;color:#556270;font-size:13px">Loading&hellip;</div>
           <div id="rundown-share-content" style="display:none">
-            <div style="font-size:13px;color:#8B9DAF;margin-bottom:12px;line-height:1.5">Anyone with this link can view the rundown in read-only mode. The link expires after 7 days.</div>
-            <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:16px">
-              <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-url"></div>
-              <button class="btn-primary" id="rundown-share-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
+            <div style="font-size:13px;color:#8B9DAF;margin-bottom:16px;line-height:1.5">Anyone with these links can view the rundown in read-only mode. The guest link expires after 7 days. The timer and operator output links are built from the same public share token.</div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+              <div>
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Public rundown link</div>
+                <div style="display:flex;gap:8px;align-items:stretch">
+                  <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-url"></div>
+                  <button class="btn-primary" id="rundown-share-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Timer link</div>
+                <div style="display:flex;gap:8px;align-items:stretch">
+                  <div style="flex:1;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rundown-share-timer-url"></div>
+                  <button class="btn-primary" id="rundown-share-timer-copy-btn" style="font-size:12px;padding:6px 14px;white-space:nowrap">Copy Link</button>
+                </div>
+              </div>
+            </div>
+            <div id="rundown-share-operator-wrap" style="display:none;margin-bottom:16px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Operator outputs</div>
+              <div style="font-size:12px;color:#8B9DAF;margin-bottom:10px;line-height:1.45">Quick-copy filtered public links for each custom column.</div>
+              <div id="rundown-share-operator-links" style="display:flex;flex-direction:column;gap:8px"></div>
             </div>
             <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
               <div id="rundown-share-expiry" style="font-size:11px;color:#556270"></div>

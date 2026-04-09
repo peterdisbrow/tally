@@ -191,6 +191,7 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { LiveRundownManager } = require('./src/liveRundown');
 const { ManualRundownStore } = require('./src/manualRundown');
+const { buildManualPlanTimerState, buildPublicRundownPayload } = require('./src/rundownPublic');
 const { RundownScheduler } = require('./src/scheduler');
 const { PushNotificationService } = require('./src/pushNotifications');
 const { createMobileWebSocketHandler } = require('./src/mobileWebSocket');
@@ -3135,14 +3136,32 @@ require('./src/routes/statusComponents')(app, {
 });
 
 // ─── EXTRACTED ROUTE MODULES ───────────────────────────────────────────────
-// ─── Rundown presence tracking (planId → [{ sessionId, churchId, userName, joinedAt }]) ─
+// ─── Rundown presence tracking (planId → [{ sessionId, churchId, userName, joinedAt, lastSeenAt, status }]) ─
 const rundownPresence = new Map();
+const RUNDOWN_PRESENCE_STALE_AFTER_MS = 5 * 60 * 1000;
 
-// Periodic cleanup: remove stale presence entries older than 5 minutes without heartbeat
+// Periodic cleanup: mark stale presence entries offline when they stop heartbeating.
 setInterval(() => {
-  const staleThreshold = Date.now() - 5 * 60 * 1000;
+  const staleThreshold = Date.now() - RUNDOWN_PRESENCE_STALE_AFTER_MS;
+  if (manualRundown?.cleanupStaleCollaborators) {
+    manualRundown.cleanupStaleCollaborators(staleThreshold).catch((error) => {
+      log(`[rundown] stale collaborator cleanup failed: ${error.message}`, {
+        event: 'rundown_stale_collaborator_cleanup_failed',
+        error: error.message,
+      });
+    });
+  }
   for (const [planId, editors] of rundownPresence) {
-    const fresh = editors.filter(e => e.joinedAt > staleThreshold);
+    const fresh = editors.map((editor) => {
+      if ((editor.lastSeenAt || editor.joinedAt || 0) < staleThreshold && editor.status === 'active') {
+        return {
+          ...editor,
+          status: 'offline',
+          leftAt: editor.leftAt || Date.now(),
+        };
+      }
+      return editor;
+    }).filter((editor) => editor.status !== 'active' || (editor.lastSeenAt || editor.joinedAt || 0) >= staleThreshold);
     if (fresh.length === 0) rundownPresence.delete(planId);
     else rundownPresence.set(planId, fresh);
   }
@@ -3166,7 +3185,13 @@ const routeCtx = {
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
   BILLING_TIERS, BILLING_STATUSES, QUEUE_TTL_MS, totalMessagesRelayed,
-  broadcastToPortal, rundownPresence,
+  broadcastToPortal,
+  broadcastPublicRundownTimer: (planId, message) => {
+    const clients = timerWsClients.get(planId);
+    if (!clients?.size) return;
+    for (const ws of clients) safeSend(ws, message);
+  },
+  rundownPresence,
   log,
 };
 require('./src/routes/churchAuth')(app, routeCtx);
@@ -3176,6 +3201,24 @@ require('./src/routes/adminChurches')(app, routeCtx);
 require('./src/routes/sessions')(app, routeCtx);
 require('./src/routes/planningCenter')(app, routeCtx);
 require('./src/routes/liveRundown')(app, routeCtx);
+
+async function resolvePublicRundownAccess(token) {
+  return manualRundown.resolvePublicAccess(token);
+}
+
+async function buildPublicTimerStateForPlan(plan) {
+  if (!plan) return null;
+  const found = liveRundown.findSessionByPlanId(plan.id);
+  if (found) {
+    return liveRundown.getTimerState(found.churchId, plan.id) || {
+      is_live: false,
+      plan_id: plan.id,
+      plan_title: plan.title,
+    };
+  }
+  const liveState = await manualRundown.getLiveState(plan.id);
+  return buildManualPlanTimerState(plan, liveState);
+}
 
 // ─── Public rundown data endpoint (no auth) ──────────────────────────────────
 // GET /api/public/rundown/:token — returns plan+items for a valid share token
@@ -3188,14 +3231,24 @@ app.get('/api/public/rundown/:token', async (req, res) => {
     }
     const plan = await manualRundown.getPlan(share.planId);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
-    res.json({
-      id: plan.id,
-      title: plan.title,
-      serviceDate: plan.serviceDate,
-      items: plan.items,
-      updatedAt: plan.updatedAt,
-      expiresAt: share.expiresAt,
-    });
+    const [columns, values, attachments, liveState] = await Promise.all([
+      manualRundown.getColumns(plan.id),
+      manualRundown.getColumnValues(plan.id),
+      manualRundown.getAttachmentsByPlan(plan.id),
+      manualRundown.getLiveState(plan.id),
+    ]);
+    const requestBase = `${req.protocol}://${req.get('host')}`;
+    res.json(buildPublicRundownPayload({
+      plan,
+      share,
+      liveState,
+      columns,
+      values,
+      attachments,
+      attachmentUrlBuilder: (attachment) => (
+        `${requestBase}/api/public/rundown/${encodeURIComponent(share.token)}/attachments/${encodeURIComponent(attachment.id)}`
+      ),
+    }));
   } catch (e) {
     console.error('[rundown-public] error:', e);
     res.status(500).json({ error: 'Internal server error' });
@@ -5025,11 +5078,11 @@ function handleTimerWsConnection(ws, url) {
   if (!token) return ws.close(1008, 'token required');
 
   let planId = null;
-  let churchId = null;
 
   // Resolve share token to plan asynchronously
-  manualRundown.getPlanByShareToken(token).then(plan => {
-    if (!plan) return ws.close(1008, 'invalid share token');
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
     planId = plan.id;
 
     // Register in timer clients map (keyed by planId for targeted broadcasts)
@@ -5037,12 +5090,9 @@ function handleTimerWsConnection(ws, url) {
     timerWsClients.get(planId).add(ws);
 
     // Send initial state
-    const found = liveRundown.findSessionByPlanId(planId);
-    if (found) {
-      churchId = found.churchId;
-      const timer = liveRundown.getTimerState(churchId, planId);
-      if (timer) safeSend(ws, { type: 'timer_state', ...timer });
-      else safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title });
+    const timer = await buildPublicTimerStateForPlan(plan);
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer });
     } else {
       safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title });
     }

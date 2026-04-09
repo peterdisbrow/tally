@@ -70,6 +70,10 @@
     .meta-right {
       text-align: right;
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
     }
 
     .last-updated {
@@ -87,6 +91,41 @@
       background: rgba(255,255,255,0.04);
       padding: 3px 8px;
       border-radius: 10px;
+    }
+
+    .mode-switch {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .mode-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: #8B9DAF;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+    }
+
+    .mode-link:hover {
+      transform: translateY(-1px);
+      color: #F0F2F4;
+      background: rgba(255,255,255,0.07);
+    }
+
+    .mode-link.active {
+      color: #00E676;
+      border-color: rgba(0,230,118,0.18);
+      background: rgba(0,230,118,0.10);
     }
 
     .refresh-dot {
@@ -107,12 +146,14 @@
       background: #111816;
       border: 1px solid rgba(255,255,255,0.07);
       border-radius: 12px;
-      overflow: hidden;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
+      min-width: 100%;
       font-size: 13px;
     }
 
@@ -171,6 +212,87 @@
       color: #F0F2F4;
     }
 
+    .title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .title-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .title-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: #8B9DAF;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      white-space: nowrap;
+    }
+
+    .pill-live { background: rgba(0,230,118,0.12); border-color: rgba(0,230,118,0.18); color: #00E676; }
+    .pill-hard { background: rgba(255,167,38,0.12); border-color: rgba(255,167,38,0.18); color: #FFB74D; }
+    .pill-soft { background: rgba(66,165,245,0.10); border-color: rgba(66,165,245,0.16); color: #81D4FA; }
+    .pill-auto { background: rgba(171,71,188,0.10); border-color: rgba(171,71,188,0.16); color: #CE93D8; }
+    .pill-section { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.10); color: #D0D8E0; }
+    .pill-attachment { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: #D0D8E0; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+    .attachment-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .attachment-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      color: #D0D8E0;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .attachment-chip a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .attachment-size {
+      color: #556270;
+      font-variant-numeric: tabular-nums;
+    }
+
     .item-notes {
       font-size: 11px;
       color: #556270;
@@ -211,6 +333,290 @@
       font-size: 12px;
       color: #556270;
       max-width: 200px;
+    }
+
+    td.custom-cell {
+      color: #D0D8E0;
+      max-width: 180px;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .custom-value {
+      display: inline-block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .custom-empty {
+      color: #556270;
+    }
+
+    .live-banner {
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(0,230,118,0.12), rgba(255,255,255,0.03));
+      border: 1px solid rgba(0,230,118,0.18);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+    }
+
+    .summary-shell {
+      display: none;
+      margin-bottom: 18px;
+      gap: 16px;
+    }
+
+    .compact-mode .summary-shell {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .summary-panel {
+      background: #111816;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+      position: sticky;
+      top: 18px;
+    }
+
+    .summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .summary-kicker {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: #8B9DAF;
+    }
+
+    .summary-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #F0F2F4;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .summary-subtitle {
+      font-size: 13px;
+      color: #8B9DAF;
+      line-height: 1.45;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .summary-stat {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .summary-stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #556270;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .summary-stat-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: #F0F2F4;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .cue-list {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cue-list-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #8B9DAF;
+      margin-bottom: 4px;
+    }
+
+    .cue-card {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .cue-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .cue-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #F0F2F4;
+      line-height: 1.35;
+    }
+
+    .cue-card-sub {
+      font-size: 11px;
+      color: #556270;
+      line-height: 1.45;
+    }
+
+    .cue-card-empty {
+      font-size: 13px;
+      color: #556270;
+      padding: 6px 0;
+    }
+
+    .compact-table-wrap {
+      min-width: 0;
+    }
+
+    .compact-mode .table-wrap {
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+    }
+
+    .compact-mode table {
+      font-size: 12px;
+    }
+
+    .compact-mode thead th,
+    .compact-mode tbody td {
+      padding-top: 9px;
+      padding-bottom: 9px;
+    }
+
+    .compact-mode .title-main {
+      gap: 6px;
+    }
+
+    .live-banner-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: #00E676;
+    }
+
+    .live-banner-title {
+      margin-top: 8px;
+      font-size: 18px;
+      font-weight: 800;
+      color: #F0F2F4;
+      line-height: 1.25;
+    }
+
+    .live-banner-sub {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #8B9DAF;
+      line-height: 1.5;
+    }
+
+    .live-banner-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #00E676;
+      box-shadow: 0 0 0 4px rgba(0,230,118,0.10);
+    }
+
+    tbody tr.current-row {
+      background: rgba(0,230,118,0.05);
+    }
+
+    tbody tr.current-row td {
+      border-color: rgba(0,230,118,0.10);
+    }
+
+    tbody tr.current-row td.color-cell .color-bar {
+      box-shadow: 0 0 0 1px rgba(0,230,118,0.2);
+    }
+
+    tbody tr.section-row td {
+      background: rgba(255,255,255,0.03);
+      border-top: 1px solid rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-top: 12px;
+      padding-bottom: 12px;
+    }
+
+    .section-row-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .section-row-title {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #F0F2F4;
+    }
+
+    .section-row-sub {
+      font-size: 11px;
+      color: #556270;
+    }
+
+    .column-header {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .column-header-title {
+      color: #D0D8E0;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .column-header-sub {
+      color: #556270;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
     }
 
     /* ── Total row ── */
@@ -272,12 +678,13 @@
     /* ── Responsive ── */
     @media (max-width: 600px) {
       .plan-title { font-size: 20px; }
-      thead th:nth-child(6),
-      tbody td:nth-child(6),
-      thead th:nth-child(7),
-      tbody td:nth-child(7),
-      thead th:nth-child(9),
-      tbody td:nth-child(9) { display: none; }
+      .header { gap: 12px; }
+      .meta-right { text-align: left; }
+      .compact-mode .summary-shell { grid-template-columns: 1fr; }
+      .summary-panel { position: static; }
+      .state-box { padding: 54px 18px; }
+      tbody td { padding: 10px 12px; }
+      thead th { padding: 9px 12px; }
     }
   </style>
 </head>
@@ -307,9 +714,15 @@
   <script>
     (function () {
       var token = location.pathname.split('/').pop();
+      var query = new URLSearchParams(location.search);
+      var viewMode = (query.get('mode') || query.get('view') || '').toLowerCase();
+      var isCompactMode = viewMode === 'compact' || viewMode === 'operator';
       var apiBase = location.origin;
       var lastUpdated = null;
       var refreshTimer = null;
+      var updatedClockTimer = null;
+      var columnFilter = parseColumnFilter(query.get('columns'));
+      if (isCompactMode) document.body.classList.add('compact-mode');
 
       function esc(str) {
         if (!str) return '';
@@ -331,6 +744,19 @@
 
       function pad(n) { return String(n).padStart(2, '0'); }
 
+      function toMs(value) {
+        if (value === null || value === undefined || value === '') return null;
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          var num = Number(value);
+          if (!isNaN(num) && isFinite(num)) return num;
+          var parsed = Date.parse(value);
+          if (!isNaN(parsed)) return parsed;
+        }
+        if (value instanceof Date) return value.getTime();
+        return null;
+      }
+
       function formatTime(date) {
         var h = date.getHours();
         var m = date.getMinutes();
@@ -339,8 +765,27 @@
         return h + ':' + pad(m) + ' ' + ampm;
       }
 
+      function formatDateTime(value) {
+        var ms = toMs(value);
+        if (ms === null) return '';
+        return formatTime(new Date(ms));
+      }
+
+      function formatClockLabel(value) {
+        if (!value) return '';
+        if (typeof value === 'string' && /^\d{1,2}:\d{2}$/.test(value)) {
+          var parts = value.split(':');
+          var date = new Date();
+          date.setHours(Number(parts[0]) || 0, Number(parts[1]) || 0, 0, 0);
+          return formatTime(date);
+        }
+        return formatDateTime(value);
+      }
+
       function timeAgo(ms) {
-        var diff = Math.floor((Date.now() - ms) / 1000);
+        var stamp = toMs(ms);
+        if (stamp === null) return '';
+        var diff = Math.floor((Date.now() - stamp) / 1000);
         if (diff < 10) return 'just now';
         if (diff < 60) return diff + 's ago';
         if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
@@ -357,9 +802,504 @@
         return map[type] || 'rgba(255,255,255,0.15)';
       }
 
+      function parseColumnFilter(raw) {
+        if (!raw) return null;
+        var ids = raw.split(',').map(function (part) { return part.trim(); }).filter(Boolean);
+        return ids.length ? ids : null;
+      }
+
+      function buildQuery(params) {
+        var next = new URLSearchParams(location.search);
+        Object.keys(params || {}).forEach(function (key) {
+          var value = params[key];
+          if (value === null || value === undefined || value === '') next.delete(key);
+          else next.set(key, value);
+        });
+        var search = next.toString();
+        return search ? '?' + search : '';
+      }
+
+      function buildModeHref(mode, extraParams) {
+        return location.pathname + buildQuery(Object.assign({ mode: mode }, extraParams || {}));
+      }
+
+      function buildTimerHref(mode, extraParams) {
+        var timerPath = location.origin + '/rundown/timer/' + encodeURIComponent(token);
+        var next = new URLSearchParams(location.search);
+        next.set('mode', mode);
+        Object.keys(extraParams || {}).forEach(function (key) {
+          var value = extraParams[key];
+          if (value === null || value === undefined || value === '') next.delete(key);
+          else next.set(key, value);
+        });
+        var search = next.toString();
+        return timerPath + (search ? '?' + search : '');
+      }
+
+      function isSectionItem(item) {
+        var type = String(item && (item.itemType || item.type || '')).toLowerCase();
+        return type === 'section' || type === 'header';
+      }
+
+      function normalizeColumn(column) {
+        if (!column) return null;
+        var id = column.id || column.columnId || column.column_id;
+        if (!id) return null;
+        var type = String(column.type || column.columnType || column.column_type || 'text').toLowerCase();
+        if (type !== 'dropdown') type = 'text';
+        return {
+          id: String(id),
+          name: column.name || column.title || column.label || 'Column',
+          department: column.department || '',
+          type: type,
+          options: Array.isArray(column.options) ? column.options.slice() : [],
+          equipmentBinding: column.equipmentBinding || column.equipment_binding || null,
+        };
+      }
+
+      function getColumns(plan) {
+        var raw = plan.columns || plan.customColumns || [];
+        if (!Array.isArray(raw)) raw = [];
+        var columns = raw.map(normalizeColumn).filter(Boolean);
+        if (columnFilter && columnFilter.length) {
+          var lookup = {};
+          columnFilter.forEach(function (id) { lookup[String(id)] = true; });
+          columns = columns.filter(function (column) { return lookup[String(column.id)]; });
+        }
+        return columns;
+      }
+
+      function normalizeValue(value) {
+        if (value === null || value === undefined) return '';
+        if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+        if (typeof value === 'object') {
+          if (value.value !== undefined) return normalizeValue(value.value);
+          if (value.text !== undefined) return normalizeValue(value.text);
+          if (value.label !== undefined) return normalizeValue(value.label);
+          return '';
+        }
+        return String(value);
+      }
+
+      function buildColumnValueMap(plan, items, columns) {
+        var map = {};
+
+        function setValue(itemId, columnId, value) {
+          if (!itemId || !columnId) return;
+          var itemKey = String(itemId);
+          var columnKey = String(columnId);
+          if (!map[itemKey]) map[itemKey] = {};
+          map[itemKey][columnKey] = normalizeValue(value);
+        }
+
+        function ingestEntry(entry) {
+          if (!entry) return;
+          var itemId = entry.itemId || entry.item_id || entry.parentItemId || entry.rowId || entry.row_id;
+          var columnId = entry.columnId || entry.column_id || entry.id || entry.fieldId || entry.field_id;
+          if (itemId && columnId) {
+            setValue(itemId, columnId, entry.value !== undefined ? entry.value : entry.text);
+          }
+        }
+
+        if (Array.isArray(plan.values)) {
+          plan.values.forEach(ingestEntry);
+        }
+        if (Array.isArray(plan.columnValues)) {
+          plan.columnValues.forEach(ingestEntry);
+        }
+        if (plan.valuesByItem && typeof plan.valuesByItem === 'object') {
+          Object.keys(plan.valuesByItem).forEach(function (itemId) {
+            var row = plan.valuesByItem[itemId] || {};
+            Object.keys(row).forEach(function (columnId) {
+              setValue(itemId, columnId, row[columnId]);
+            });
+          });
+        }
+
+        items.forEach(function (item) {
+          if (!item) return;
+          var itemId = item.id || item.itemId || item.item_id;
+          if (!itemId) return;
+
+          if (Array.isArray(item.columns)) {
+            item.columns.forEach(function (entry) {
+              if (!entry) return;
+              setValue(itemId, entry.columnId || entry.column_id || entry.id, entry.value !== undefined ? entry.value : entry.text);
+            });
+          }
+
+          if (Array.isArray(item.values)) {
+            item.values.forEach(function (entry) {
+              if (!entry) return;
+              setValue(itemId, entry.columnId || entry.column_id || entry.id, entry.value !== undefined ? entry.value : entry.text);
+            });
+          }
+
+          if (item.columnValues && typeof item.columnValues === 'object') {
+            Object.keys(item.columnValues).forEach(function (columnId) {
+              setValue(itemId, columnId, item.columnValues[columnId]);
+            });
+          }
+
+          if (item.customColumns && typeof item.customColumns === 'object') {
+            Object.keys(item.customColumns).forEach(function (columnId) {
+              setValue(itemId, columnId, item.customColumns[columnId]);
+            });
+          }
+
+          if (item.columnData && typeof item.columnData === 'object') {
+            Object.keys(item.columnData).forEach(function (columnId) {
+              setValue(itemId, columnId, item.columnData[columnId]);
+            });
+          }
+
+          if (item.cells && typeof item.cells === 'object') {
+            Object.keys(item.cells).forEach(function (columnId) {
+              var cell = item.cells[columnId];
+              setValue(itemId, columnId, cell && cell.value !== undefined ? cell.value : cell);
+            });
+          }
+        });
+
+        if (columns && columns.length) {
+          items.forEach(function (item) {
+            var itemId = item && (item.id || item.itemId || item.item_id);
+            if (!itemId) return;
+            columns.forEach(function (column) {
+              if (map[String(itemId)] && map[String(itemId)][String(column.id)] !== undefined) return;
+              if (item && item[column.id] !== undefined) {
+                setValue(itemId, column.id, item[column.id]);
+              }
+            });
+          });
+        }
+
+        return map;
+      }
+
+      function findNextCueIndex(items, startIndex) {
+        for (var i = startIndex + 1; i < items.length; i++) {
+          if (!isSectionItem(items[i])) return i;
+        }
+        return -1;
+      }
+
+      function findPreviousCueIndex(items, startIndex) {
+        for (var i = startIndex - 1; i >= 0; i--) {
+          if (!isSectionItem(items[i])) return i;
+        }
+        return -1;
+      }
+
+      function normalizeAttachments(plan, item) {
+        var attachments = [];
+        var seen = {};
+
+        function pushAttachment(att) {
+          if (!att) return;
+          var id = att.id || att.attachmentId || att.attachment_id || att.url || att.href || att.filename;
+          if (id && seen[id]) return;
+          if (id) seen[id] = true;
+          attachments.push(att);
+        }
+
+        function ingest(list) {
+          if (!Array.isArray(list)) return;
+          list.forEach(pushAttachment);
+        }
+
+        ingest(item.attachments);
+        ingest(item.files);
+        ingest(item.docs);
+
+        if (Array.isArray(plan.attachments)) {
+          plan.attachments.forEach(function (att) {
+            var itemId = att.itemId || att.item_id || att.parentItemId;
+            if (itemId && String(itemId) !== String(item.id || item.itemId || item.item_id)) return;
+            pushAttachment(att);
+          });
+        }
+
+        return attachments;
+      }
+
+      function attachmentUrl(att) {
+        return att && (att.url || att.href || att.downloadUrl || att.download_url || att.fileUrl || att.file_url || att.link || att.linkUrl || att.link_url || null);
+      }
+
+      function attachmentSize(att) {
+        if (!att || att.size === null || att.size === undefined) return '';
+        var size = Number(att.size);
+        if (!isFinite(size) || size < 0) return '';
+        if (size < 1024) return size + ' B';
+        if (size < 1024 * 1024) return (size / 1024).toFixed(size < 10 * 1024 ? 1 : 0) + ' KB';
+        return (size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+      }
+
+      function getLiveState(plan) {
+        return plan.liveState || plan.live_state || plan.live || plan.currentLiveState || null;
+      }
+
+      function getLiveCueIndex(liveState, items) {
+        if (!liveState) return null;
+        var candidates = [
+          liveState.currentCueIndex,
+          liveState.currentItemIndex,
+          liveState.currentIndex,
+          liveState.cueIndex,
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+          var idx = candidates[i];
+          if (idx === null || idx === undefined || idx === '') continue;
+          var num = Number(idx);
+          if (isFinite(num)) return num;
+        }
+
+        var cueId = liveState.currentCueId || liveState.currentCueID || liveState.currentItemId || liveState.currentItemID;
+        if (!cueId && liveState.currentCue && typeof liveState.currentCue === 'object') {
+          cueId = liveState.currentCue.id || liveState.currentCue.itemId || liveState.currentCue.item_id;
+        }
+        if (!cueId && liveState.currentItem && typeof liveState.currentItem === 'object') {
+          cueId = liveState.currentItem.id || liveState.currentItem.itemId || liveState.currentItem.item_id;
+        }
+        if (cueId) {
+          for (var j = 0; j < items.length; j++) {
+            if (String(items[j].id || items[j].itemId || items[j].item_id) === String(cueId)) return j;
+          }
+        }
+        return null;
+      }
+
+      function formatLiveCueLabel(item, index) {
+        var number = item && (item.number || item.cueNumber || item.sortOrder || index + 1);
+        var title = item && (item.title || item.name || 'Untitled cue');
+        return 'Cue ' + number + ': ' + title;
+      }
+
+      function renderPills(pills) {
+        return pills.map(function (pill) {
+          return '<span class="pill ' + esc(pill.className || '') + '">' + esc(pill.label) + '</span>';
+        }).join('');
+      }
+
+      function getItemTags(item, liveState, index, isCurrent) {
+        var tags = [];
+        var startType = String(item.startType || item.start_type || '').toLowerCase();
+        var hardStartTime = item.hardStartTime || item.hard_start_time || null;
+        var autoAdvance = item.autoAdvance;
+        if (autoAdvance === undefined) autoAdvance = item.auto_advance;
+        var timing = item.timing || null;
+        if (startType === 'hard' || hardStartTime) {
+          tags.push({ label: hardStartTime ? 'Hard ' + formatClockLabel(hardStartTime) : 'Hard start', className: 'pill-hard' });
+        } else if (startType === 'soft') {
+          tags.push({ label: 'Soft start', className: 'pill-soft' });
+        }
+        if (autoAdvance) {
+          tags.push({ label: 'Auto-start', className: 'pill-auto' });
+        }
+        if (timing && Number(timing.overlapSeconds) > 0) {
+          tags.push({ label: 'Overlap ' + formatDuration(Number(timing.overlapSeconds)), className: 'pill-hard' });
+        } else if (timing && Number(timing.gapSeconds) > 0) {
+          tags.push({ label: 'Gap ' + formatDuration(Number(timing.gapSeconds)), className: 'pill-soft' });
+        }
+        if (isCurrent && liveState) {
+          tags.push({ label: 'Live cue', className: 'pill-live' });
+        }
+        if (item.itemType && String(item.itemType).toLowerCase() === 'section') {
+          tags.push({ label: 'Section', className: 'pill-section' });
+        }
+        return tags;
+      }
+
+      function renderAttachmentList(attachments) {
+        if (!attachments || !attachments.length) return '';
+        var html = '<div class="attachment-list">';
+        var shown = attachments.slice(0, 4);
+        shown.forEach(function (att) {
+          var label = esc(att.filename || att.name || att.title || 'Attachment');
+          var size = attachmentSize(att);
+          var url = attachmentUrl(att);
+          html += '<span class="attachment-chip">';
+          if (url) {
+            html += '<a href="' + esc(url) + '" target="_blank" rel="noopener">';
+            html += '📎 ' + label;
+            if (size) html += ' <span class="attachment-size">(' + esc(size) + ')</span>';
+            html += '</a>';
+          } else {
+            html += '📎 ' + label;
+            if (size) html += ' <span class="attachment-size">(' + esc(size) + ')</span>';
+          }
+          html += '</span>';
+        });
+        if (attachments.length > shown.length) {
+          html += '<span class="attachment-chip">+' + esc(String(attachments.length - shown.length)) + ' more</span>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      function renderCustomCell(value) {
+        var text = normalizeValue(value);
+        if (!text) return '<span class="custom-empty">—</span>';
+        return '<span class="custom-value">' + esc(text) + '</span>';
+      }
+
+      function renderNotesCell(item) {
+        var parts = [];
+        if (item && item.notes) {
+          parts.push('<div>' + esc(item.notes).replace(/\n/g, '<br>') + '</div>');
+        }
+        if (item && item.assignee) {
+          parts.push('<div style="margin-top:4px;color:#8B9DAF;font-size:11px;">Assignee: ' + esc(item.assignee) + '</div>');
+        }
+        return parts.join('');
+      }
+
+      function renderCueSummary(item, label, index, columns, valueMap) {
+        if (!item) {
+          return '<div class="cue-card-empty">No ' + esc(label) + ' cue available.</div>';
+        }
+        var itemId = item.id || item.itemId || item.item_id;
+        var meta = [];
+        if (item.itemType) meta.push(String(item.itemType));
+        if (item.lengthSeconds) meta.push(formatDuration(item.lengthSeconds));
+        if (item.startType) meta.push(item.startType);
+        if (item.hardStartTime) meta.push(formatDateTime(item.hardStartTime));
+        var html = '<div class="cue-card">';
+        html += '<div class="cue-card-top">';
+        html += '<div class="cue-card-title">' + esc(label) + '</div>';
+        html += typeBadge(item.itemType);
+        html += '</div>';
+        html += '<div class="cue-card-title" style="font-size:16px;">' + esc(item.title || 'Untitled cue') + '</div>';
+        if (meta.length) html += '<div class="cue-card-sub">' + esc(meta.join(' · ')) + '</div>';
+        if (item.notes) html += '<div class="cue-card-sub" style="margin-top:8px;">' + esc(item.notes) + '</div>';
+        if (item.assignee) html += '<div class="cue-card-sub" style="margin-top:8px;color:#8B9DAF;">Assignee: ' + esc(item.assignee) + '</div>';
+        if (columns && columns.length) {
+          var customRows = [];
+          for (var i = 0; i < columns.length; i++) {
+            var column = columns[i];
+            var cellValue = valueMap[String(itemId)] && valueMap[String(itemId)][String(column.id)] !== undefined
+              ? valueMap[String(itemId)][String(column.id)]
+              : '';
+            if (cellValue) customRows.push('<div class="cue-card-sub"><strong style="color:#D0D8E0">' + esc(column.name) + ':</strong> ' + esc(cellValue) + '</div>');
+          }
+          if (customRows.length) {
+            html += '<div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">' + customRows.join('') + '</div>';
+          }
+        }
+        html += '</div>';
+        return html;
+      }
+
+      function renderCompactRail(plan, liveState, items, columns, valueMap, currentIndex, totalSeconds, serviceDateText) {
+        var currentItem = currentIndex !== null && currentIndex >= 0 ? items[currentIndex] : null;
+        var nextIndex = currentIndex !== null && currentIndex >= 0 ? findNextCueIndex(items, currentIndex) : (items.length ? 0 : -1);
+        var nextItem = nextIndex >= 0 ? items[nextIndex] : null;
+        var previousIndex = currentIndex !== null && currentIndex >= 0 ? findPreviousCueIndex(items, currentIndex) : -1;
+        var previousItem = previousIndex >= 0 ? items[previousIndex] : null;
+        var html = '<div class="summary-panel">';
+        html += '<div class="summary-header">';
+        html += '<div>';
+        html += '<div class="summary-kicker">Operator view</div>';
+        html += '<div class="summary-title">' + esc(plan.title || 'Rundown') + '</div>';
+        html += '<div class="summary-subtitle">' + esc(serviceDateText ? 'Service ' + serviceDateText : 'Live rundown surface') + '</div>';
+        html += '</div>';
+        html += '<div class="mode-switch">';
+        html += '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>';
+        html += '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
+        html += '</div>';
+        html += '</div>';
+
+        html += liveState && liveState.isLive !== false ? renderLiveBanner(plan, liveState, items) : '';
+
+        html += '<div class="summary-grid">';
+        html += '<div class="summary-stat"><div class="summary-stat-label">Total cues</div><div class="summary-stat-value">' + esc(String(items.filter(function (item) { return !isSectionItem(item); }).length)) + '</div></div>';
+        html += '<div class="summary-stat"><div class="summary-stat-label">Total runtime</div><div class="summary-stat-value">' + esc(formatDuration(totalSeconds)) + '</div></div>';
+        html += '<div class="summary-stat"><div class="summary-stat-label">Current cue</div><div class="summary-stat-value">' + esc(currentItem ? (currentItem.title || 'Untitled cue') : 'Waiting') + '</div></div>';
+        html += '<div class="summary-stat"><div class="summary-stat-label">Selected columns</div><div class="summary-stat-value">' + esc(String(columns.length || 0)) + '</div></div>';
+        html += '</div>';
+
+        html += '<div class="cue-list">';
+        html += '<div class="cue-list-title">Live stack</div>';
+        html += renderCueSummary(currentItem, 'Current', currentIndex, columns, valueMap);
+        html += renderCueSummary(nextItem, 'Next', nextIndex, columns, valueMap);
+        html += renderCueSummary(previousItem, 'Previous', previousIndex, columns, valueMap);
+        html += '</div>';
+
+        html += '</div>';
+        return html;
+      }
+
+      function renderColumnHeader(column) {
+        var parts = [];
+        if (column.department) parts.push(column.department);
+        parts.push(column.type === 'dropdown' ? 'Dropdown' : 'Text');
+        if (column.equipmentBinding) parts.push(column.equipmentBinding);
+        return '<div class="column-header">' +
+          '<div class="column-header-title">' + esc(column.name) + '</div>' +
+          '<div class="column-header-sub">' + esc(parts.join(' · ')) + '</div>' +
+          '</div>';
+      }
+
+      function renderLiveBanner(plan, liveState, items) {
+        if (!liveState || liveState.isLive === false) return '';
+        var currentIndex = getLiveCueIndex(liveState, items);
+        var currentItem = currentIndex !== null && currentIndex >= 0 ? items[currentIndex] : (liveState.currentCue || liveState.currentItem || null);
+        var currentTitle = currentItem ? (currentItem.title || currentItem.name || 'Current cue') : (liveState.currentCueTitle || liveState.currentItemTitle || 'Current cue');
+        var currentLabel = currentItem ? formatLiveCueLabel(currentItem, currentIndex >= 0 ? currentIndex : 0) : esc(currentTitle);
+        var extraBits = [];
+
+        if (liveState.startedAt) {
+          var started = toMs(liveState.startedAt);
+          if (started !== null) extraBits.push('Started ' + timeAgo(started));
+        }
+        if (liveState.currentCueStartedAt) {
+          var cueStart = toMs(liveState.currentCueStartedAt);
+          if (cueStart !== null) extraBits.push('Cue running ' + timeAgo(cueStart));
+        }
+        if (liveState.elapsedSeconds !== undefined && liveState.elapsedSeconds !== null) {
+          extraBits.push('Elapsed ' + formatDuration(Number(liveState.elapsedSeconds)));
+        }
+        if (liveState.overtimeSeconds !== undefined && liveState.overtimeSeconds !== null && Number(liveState.overtimeSeconds) > 0) {
+          extraBits.push('Over by ' + formatDuration(Number(liveState.overtimeSeconds)));
+        }
+        if (liveState.nextCueTitle || liveState.nextCue || liveState.nextCueIndex !== undefined) {
+          var nextItem = null;
+          if (typeof liveState.nextCueIndex === 'number' && items[liveState.nextCueIndex]) nextItem = items[liveState.nextCueIndex];
+          if (!nextItem && liveState.nextCue && typeof liveState.nextCue === 'object') nextItem = liveState.nextCue;
+          if (nextItem) extraBits.push('Next ' + (nextItem.title || nextItem.name || 'cue'));
+          else if (liveState.nextCueTitle) extraBits.push('Next ' + liveState.nextCueTitle);
+        }
+
+        var html = '<div class="live-banner">';
+        html += '<div class="live-banner-head"><span class="live-dot"></span>Live cue</div>';
+        html += '<div class="live-banner-title">' + esc(currentLabel) + '</div>';
+        if (extraBits.length) {
+          html += '<div class="live-banner-sub">' + esc(extraBits.join(' · ')) + '</div>';
+        }
+        var pills = [];
+        if (currentItem && currentItem.itemType) {
+          pills.push({ label: String(currentItem.itemType), className: 'pill-section' });
+        }
+        if (liveState.status) {
+          pills.push({ label: String(liveState.status), className: 'pill-live' });
+        }
+        if (pills.length) {
+          html += '<div class="live-banner-meta">' + renderPills(pills) + '</div>';
+        }
+        html += '</div>';
+        return html;
+      }
+
       // Build the full page once data is loaded
       function render(plan) {
         var items = plan.items || [];
+        var liveState = getLiveState(plan);
+        var columns = getColumns(plan);
+        var valueMap = buildColumnValueMap(plan, items, columns);
+        var totalColumnCount = 8 + columns.length;
+        var currentIndex = liveState ? getLiveCueIndex(liveState, items) : null;
         var serviceDate = plan.serviceDate ? new Date(plan.serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '';
 
         // Calculate start times (assume service starts at top of first item = now if no serviceDate, else 9:00 AM on the date)
@@ -382,6 +1322,7 @@
         }
 
         var lastUpdatedStr = plan.updatedAt ? timeAgo(plan.updatedAt) : '';
+        var hasFilter = columnFilter && columnFilter.length;
 
         var html = '';
 
@@ -394,13 +1335,29 @@
         html += '<div class="meta-right">';
         if (lastUpdatedStr) html += '<div class="last-updated" id="last-updated-label">Updated ' + lastUpdatedStr + '</div>';
         html += '<div class="refresh-badge"><span class="refresh-dot"></span> Live</div>';
+        html += '<div class="mode-switch">';
+        html += isCompactMode
+          ? '<a class="mode-link active" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
+            '<a class="mode-link" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>'
+          : '<a class="mode-link" href="' + esc(buildModeHref('compact', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Compact</a>' +
+            '<a class="mode-link active" href="' + esc(buildModeHref('', columnFilter ? { columns: columnFilter.join(',') } : {})) + '">Full</a>';
+        html += '<a class="mode-link" href="' + esc(buildTimerHref('stage', {})) + '">Stage timer</a>';
         html += '</div>';
         html += '</div>';
+        html += '</div>';
+
+        html += renderLiveBanner(plan, liveState, items);
 
         if (items.length === 0) {
           html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no items added yet.</div></div>';
           document.getElementById('app').innerHTML = html;
           return;
+        }
+
+        if (isCompactMode) {
+          html += '<div class="summary-shell">';
+          html += renderCompactRail(plan, liveState, items, columns, valueMap, currentIndex, totalSeconds, serviceDate);
+          html += '<div class="compact-table-wrap">';
         }
 
         html += '<div class="table-wrap"><table>';
@@ -413,24 +1370,56 @@
         html += '<th>Start</th>';
         html += '<th>End</th>';
         html += '<th>Notes</th>';
+        for (var c = 0; c < columns.length; c++) {
+          html += '<th>' + renderColumnHeader(columns[c]) + '</th>';
+        }
         html += '</tr></thead>';
         html += '<tbody>';
 
         for (var j = 0; j < items.length; j++) {
           var item = items[j];
           var t = itemTimes[j];
-          var startTime = item.lengthSeconds > 0 ? formatTime(new Date(t.start)) : '--';
-          var endTime = item.lengthSeconds > 0 ? formatTime(new Date(t.end)) : '--';
-          html += '<tr>';
-          html += '<td class="num">' + (j + 1) + '</td>';
+          var itemId = item.id || item.itemId || item.item_id;
+          var isCurrent = currentIndex !== null && Number(currentIndex) === j;
+          var attachments = normalizeAttachments(plan, item);
+          var timing = item.timing || {};
+          var startTime = timing.start ? formatClockLabel(timing.start) : (item.lengthSeconds > 0 ? formatTime(new Date(t.start)) : '--');
+          var endTime = timing.end ? formatClockLabel(timing.end) : (item.lengthSeconds > 0 ? formatTime(new Date(t.end)) : '--');
+          if (isSectionItem(item)) {
+            html += '<tr class="section-row' + (isCurrent ? ' current-row' : '') + '">';
+            html += '<td colspan="' + totalColumnCount + '">';
+            html += '<div class="section-row-wrap">';
+            html += '<span class="pill pill-section">Section</span>';
+            html += '<span class="section-row-title">' + esc(item.title || 'Section') + '</span>';
+            if (item.notes) html += '<span class="section-row-sub">' + esc(item.notes) + '</span>';
+            html += '</div>';
+            html += '</td>';
+            html += '</tr>';
+            continue;
+          }
+          html += '<tr' + (isCurrent ? ' class="current-row"' : '') + '>';
+          html += '<td class="num">' + esc(String(item.sequence || (j + 1))) + '</td>';
           html += '<td class="color-cell"><div class="color-bar" style="background:' + colorForType(item.itemType) + '"></div></td>';
-          html += '<td class="title-cell">' + esc(item.title);
+          html += '<td class="title-cell">';
+          html += '<div class="title-wrap">';
+          html += '<div class="title-main">';
+          html += '<span class="title-text">' + esc(item.title) + '</span>';
+          var tags = getItemTags(item, liveState, j, isCurrent);
+          if (tags.length) html += renderPills(tags);
+          html += '</div>';
+          if (attachments.length) html += renderAttachmentList(attachments);
+          html += '</div>';
           html += '</td>';
           html += '<td class="type-cell">' + typeBadge(item.itemType) + '</td>';
           html += '<td class="dur-cell">' + esc(formatDuration(item.lengthSeconds)) + '</td>';
           html += '<td class="start-cell">' + esc(startTime) + '</td>';
           html += '<td class="end-cell">' + esc(endTime) + '</td>';
-          html += '<td class="notes-cell">' + esc(item.notes || '') + '</td>';
+          html += '<td class="notes-cell">' + renderNotesCell(item) + '</td>';
+          for (var k = 0; k < columns.length; k++) {
+            var column = columns[k];
+            var cellValue = (valueMap[String(itemId)] && valueMap[String(itemId)][String(column.id)] !== undefined) ? valueMap[String(itemId)][String(column.id)] : '';
+            html += '<td class="custom-cell">' + renderCustomCell(cellValue) + '</td>';
+          }
           html += '</tr>';
         }
 
@@ -440,16 +1429,23 @@
         html += '<tfoot><tr class="total-row">';
         html += '<td colspan="4" style="text-align:right;color:#556270">Total</td>';
         html += '<td class="dur-cell">' + formatDuration(totalSeconds) + '</td>';
-        html += '<td colspan="3"></td>';
+        html += '<td colspan="' + (3 + columns.length) + '"></td>';
         html += '</tr></tfoot>';
 
         html += '</table></div>';
+        if (isCompactMode) {
+          html += '</div></div>';
+        }
+        if (hasFilter && columns.length === 0) {
+          html += '<div class="state-box" style="padding:24px 0 0"><div class="state-title" style="font-size:16px">No matching columns</div><div class="state-sub">The `columns` filter did not match any custom columns on this rundown.</div></div>';
+        }
 
         document.getElementById('app').innerHTML = html;
         lastUpdated = plan.updatedAt;
 
         // Keep "updated X ago" label live
-        setInterval(function () {
+        if (updatedClockTimer) clearInterval(updatedClockTimer);
+        updatedClockTimer = setInterval(function () {
           var el = document.getElementById('last-updated-label');
           if (el && lastUpdated) el.textContent = 'Updated ' + timeAgo(lastUpdated);
         }, 15000);

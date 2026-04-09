@@ -47,6 +47,21 @@
     align-items: center;
     gap: 16px;
   }
+  body.stage-mode {
+    background:
+      radial-gradient(circle at top, rgba(0,230,118,0.12), transparent 34%),
+      radial-gradient(circle at bottom right, rgba(255,255,255,0.04), transparent 26%),
+      var(--bg);
+  }
+  .stage-mode .container {
+    max-width: 1280px;
+    padding: 28px;
+    text-align: left;
+  }
+  .stage-mode .waiting-screen {
+    text-align: left;
+    align-items: flex-start;
+  }
   .cue-title {
     font-size: clamp(24px, 5vw, 48px);
     font-weight: 800;
@@ -66,12 +81,19 @@
     color: var(--green);
     transition: color 0.3s;
   }
+  .stage-mode .timer-display {
+    font-size: clamp(88px, 16vw, 240px);
+    letter-spacing: -6px;
+  }
   .timer-label {
     font-size: clamp(12px, 2vw, 16px);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 2px;
     color: var(--text-secondary);
+  }
+  .stage-mode .timer-label {
+    color: #00E676;
   }
   .progress-bar-container {
     width: 100%;
@@ -88,6 +110,9 @@
     transition: width 1s linear, background 0.3s;
     width: 0%;
   }
+  .stage-mode .progress-bar-container {
+    max-width: none;
+  }
   .next-cue {
     font-size: clamp(14px, 2.5vw, 20px);
     color: var(--text-muted);
@@ -103,6 +128,146 @@
     letter-spacing: 1px;
     color: var(--text-muted);
     margin-top: 8px;
+  }
+  .stage-layout {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .stage-main,
+  .stage-side,
+  .stage-shell {
+    width: 100%;
+  }
+  .stage-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+  .stage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stage-kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #8B9DAF;
+  }
+  .stage-title {
+    font-size: clamp(18px, 2.2vw, 26px);
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.25;
+  }
+  .stage-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+    margin-top: 4px;
+  }
+  .stage-status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .stage-stat {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+  }
+  .stage-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .stage-stat-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .stage-panel {
+    padding: 18px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.24);
+  }
+  .stage-panel + .stage-panel {
+    margin-top: 12px;
+  }
+  .stage-panel-title {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .stage-panel-hero {
+    font-size: clamp(22px, 2.8vw, 36px);
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.18;
+    margin-bottom: 8px;
+  }
+  .stage-panel-copy {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .stage-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .stage-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .stage-badge.live {
+    color: var(--green);
+    border-color: rgba(0,230,118,0.18);
+    background: rgba(0,230,118,0.10);
+  }
+  .stage-badge.warn {
+    color: var(--yellow);
+    border-color: rgba(255,167,38,0.22);
+    background: rgba(255,167,38,0.10);
+  }
+  .stage-badge.red {
+    color: var(--red);
+    border-color: rgba(255,82,82,0.22);
+    background: rgba(255,82,82,0.10);
+  }
+  .stage-mode .toolbar {
+    opacity: 0.7;
+  }
+  .stage-mode .status-bar {
+    opacity: 0.7;
   }
   .toolbar {
     position: fixed;
@@ -166,12 +331,17 @@
     50% { opacity: 0.3; }
   }
   .flashing .timer-display { animation: flash-red 1s ease-in-out infinite; }
+  @media (max-width: 920px) {
+    .stage-layout { grid-template-columns: 1fr; }
+    .stage-status-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
   <div class="toolbar">
     <button id="btn-theme" title="Toggle light/dark theme">Light</button>
     <button id="btn-fullscreen" title="Fullscreen">Fullscreen</button>
+    <button id="btn-mode" title="Switch display mode">Stage</button>
   </div>
 
   <div class="status-bar">
@@ -192,14 +362,60 @@
 
   <!-- Active timer -->
   <div class="container" id="timer-screen" style="display:none">
-    <div class="timer-label" id="timer-label">REMAINING</div>
-    <div class="cue-title" id="cue-title"></div>
-    <div class="timer-display" id="timer-display">00:00</div>
-    <div class="progress-bar-container">
-      <div class="progress-bar-fill" id="progress-bar"></div>
+    <div class="stage-layout">
+      <div class="stage-main">
+        <div class="stage-shell">
+          <div class="stage-head">
+            <div>
+              <div class="stage-kicker" id="stage-kicker">LIVE TIMER</div>
+              <div class="stage-title" id="stage-plan-title">Waiting for live rundown</div>
+              <div class="stage-subtitle" id="stage-plan-subtitle">The countdown timer will appear when the show goes live.</div>
+            </div>
+            <div class="stage-badges" id="stage-badges"></div>
+          </div>
+
+          <div class="timer-label" id="timer-label">REMAINING</div>
+          <div class="cue-title" id="cue-title"></div>
+          <div class="timer-display" id="timer-display">00:00</div>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progress-bar"></div>
+          </div>
+          <div class="next-cue-label" id="next-label" style="display:none">NEXT</div>
+          <div class="next-cue" id="next-cue"></div>
+        </div>
+      </div>
+
+      <div class="stage-side" id="stage-side" style="display:none">
+        <div class="stage-panel">
+          <div class="stage-panel-title">Current cue</div>
+          <div class="stage-panel-hero" id="stage-current-title"></div>
+          <div class="stage-panel-copy" id="stage-current-copy"></div>
+          <div class="stage-badges" id="stage-current-badges"></div>
+        </div>
+        <div class="stage-panel">
+          <div class="stage-panel-title">Next cue</div>
+          <div class="stage-panel-hero" style="font-size: clamp(18px, 2.2vw, 28px);" id="stage-next-title"></div>
+          <div class="stage-panel-copy" id="stage-next-copy"></div>
+        </div>
+        <div class="stage-panel">
+          <div class="stage-panel-title">Cue stats</div>
+          <div class="stage-status-grid">
+            <div class="stage-stat">
+              <div class="stage-stat-label">Elapsed</div>
+              <div class="stage-stat-value" id="stage-elapsed">--:--</div>
+            </div>
+            <div class="stage-stat">
+              <div class="stage-stat-label">Remaining</div>
+              <div class="stage-stat-value" id="stage-remaining">--:--</div>
+            </div>
+            <div class="stage-stat">
+              <div class="stage-stat-label">Duration</div>
+              <div class="stage-stat-value" id="stage-duration">--:--</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="next-cue-label" id="next-label" style="display:none">NEXT</div>
-    <div class="next-cue" id="next-cue"></div>
   </div>
 
 <script>
@@ -211,6 +427,9 @@
   var token = pathParts[pathParts.length - 1];
   var params = new URLSearchParams(window.location.search);
   var roomId = params.get('room');
+  var displayMode = (params.get('mode') || '').toLowerCase();
+  var isStageMode = displayMode === 'stage' || displayMode === 'confidence';
+  if (isStageMode) document.body.classList.add('stage-mode');
 
   // DOM refs
   var waitingScreen = document.getElementById('waiting-screen');
@@ -224,6 +443,20 @@
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
   var waitingTitle = document.getElementById('waiting-title');
+  var btnMode = document.getElementById('btn-mode');
+  var stageSide = document.getElementById('stage-side');
+  var stagePlanTitle = document.getElementById('stage-plan-title');
+  var stagePlanSubtitle = document.getElementById('stage-plan-subtitle');
+  var stageCurrentTitle = document.getElementById('stage-current-title');
+  var stageCurrentCopy = document.getElementById('stage-current-copy');
+  var stageCurrentBadges = document.getElementById('stage-current-badges');
+  var stageNextTitle = document.getElementById('stage-next-title');
+  var stageNextCopy = document.getElementById('stage-next-copy');
+  var stageElapsed = document.getElementById('stage-elapsed');
+  var stageRemaining = document.getElementById('stage-remaining');
+  var stageDuration = document.getElementById('stage-duration');
+  var stageBadges = document.getElementById('stage-badges');
+  var stageKicker = document.getElementById('stage-kicker');
 
   var ws = null;
   var reconnectTimer = null;
@@ -242,6 +475,32 @@
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   }
 
+  function esc(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function buildModeUrl(nextMode) {
+    var url = new URL(window.location.href);
+    if (nextMode) url.searchParams.set('mode', nextMode);
+    else url.searchParams.delete('mode');
+    return url.pathname + url.search + url.hash;
+  }
+
+  function badgeHtml(label, className) {
+    return '<span class="stage-badge ' + (className || '') + '">' + esc(label) + '</span>';
+  }
+
+  function liveTag(state) {
+    if (state.is_overtime) return badgeHtml('Overtime', 'red');
+    if (state.remaining_seconds != null && state.remaining_seconds <= 30) return badgeHtml('Less than 30s', 'warn');
+    if (state.remaining_seconds != null && state.remaining_seconds <= 120) return badgeHtml('Tight window', 'warn');
+    return badgeHtml('On air', 'live');
+  }
+
   function updateDisplay(state) {
     lastState = state;
 
@@ -253,6 +512,12 @@
         ? '"' + state.plan_title + '" is not live'
         : 'Waiting for Live Rundown';
       isLive = false;
+      if (isStageMode) {
+        stageSide.style.display = 'none';
+        stagePlanTitle.textContent = state && state.plan_title ? state.plan_title : 'Waiting for live rundown';
+        stagePlanSubtitle.textContent = 'The stage display will open once the countdown starts.';
+        stageBadges.innerHTML = badgeHtml('Idle', '');
+      }
       return;
     }
 
@@ -263,6 +528,25 @@
 
     // Cue title
     cueTitle.textContent = state.cue_title || '';
+    if (isStageMode) {
+      stageSide.style.display = 'block';
+      stagePlanTitle.textContent = state.plan_title || 'Live Rundown';
+      stagePlanSubtitle.textContent = state.remaining_seconds != null
+        ? 'Cueing "' + (state.cue_title || 'current cue') + '" in a full-screen stage layout.'
+        : 'Live rundown in stage mode.';
+      stageKicker.textContent = 'LIVE STAGE';
+      stageBadges.innerHTML = liveTag(state) + (state.current_cue_index != null ? badgeHtml('Cue ' + (Number(state.current_cue_index) + 1), '') : '');
+      stageCurrentTitle.textContent = state.cue_title || '';
+      stageCurrentCopy.textContent = [
+        state.remaining_seconds != null ? 'Remaining ' + formatTime(state.remaining_seconds) : 'No remaining timer',
+        state.cue_duration_seconds ? 'Planned ' + formatTime(state.cue_duration_seconds) : '',
+        state.elapsed_seconds != null ? 'Elapsed ' + formatTime(state.elapsed_seconds) : ''
+      ].filter(Boolean).join(' · ');
+      stageCurrentBadges.innerHTML = '';
+      stageCurrentBadges.innerHTML += state.is_overtime ? badgeHtml('Overtime', 'red') : badgeHtml('Live cue', 'live');
+      if (state.cue_duration_seconds != null) stageCurrentBadges.innerHTML += badgeHtml('Duration ' + formatTime(state.cue_duration_seconds), '');
+      if (state.elapsed_seconds != null) stageCurrentBadges.innerHTML += badgeHtml('Elapsed ' + formatTime(state.elapsed_seconds), '');
+    }
 
     // Timer value + color
     var remaining = state.remaining_seconds;
@@ -317,9 +601,23 @@
       if (state.next_cue_duration) {
         nextCue.textContent += ' (' + formatTime(state.next_cue_duration) + ')';
       }
+      if (isStageMode) {
+        stageNextTitle.textContent = state.next_cue_title;
+        stageNextCopy.textContent = state.next_cue_duration ? 'Planned ' + formatTime(state.next_cue_duration) : 'No planned duration';
+      }
     } else {
       nextLabel.style.display = 'none';
       nextCue.textContent = '';
+      if (isStageMode) {
+        stageNextTitle.textContent = 'No next cue';
+        stageNextCopy.textContent = 'This is the last live cue on the rundown.';
+      }
+    }
+
+    if (isStageMode) {
+      stageElapsed.textContent = formatTime(elapsed);
+      stageRemaining.textContent = remaining !== null ? formatTime(remaining) : '--:--';
+      stageDuration.textContent = duration > 0 ? formatTime(duration) : '--:--';
     }
   }
 
@@ -412,6 +710,11 @@
       document.exitFullscreen().catch(function(){});
     }
   });
+
+  btnMode.addEventListener('click', function() {
+    window.location.href = buildModeUrl(isStageMode ? '' : 'stage');
+  });
+  btnMode.textContent = isStageMode ? 'Timer' : 'Stage';
 
   // ─── Init ──────────────────────────────────────────────────────────────────
 
