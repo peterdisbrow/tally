@@ -2327,7 +2327,7 @@
                   <option value="archived">Archived</option>
                 </select>
                 <button class="btn-secondary" data-action="rundownCollaborators" style="font-size:12px;padding:5px 12px">Team</button>
-                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:5px 12px">Outputs</button>
+                <button class="btn-secondary" data-action="rundownShare" style="font-size:12px;padding:5px 12px">Share</button>
                 <button class="btn-secondary" data-action="rundownEditPlan" style="font-size:12px;padding:5px 12px">Edit</button>
               </div>
               <div class="rundown-toolbar-divider"></div>
@@ -2570,7 +2570,7 @@
     <div class="modal-backdrop" id="modal-rundown-share">
       <div class="modal" style="max-width:640px">
         <div class="modal-header">
-          <div class="modal-title">Rundown Outputs</div>
+          <div class="modal-title">Share Rundown</div>
           <button class="modal-close" id="rundown-share-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
         <div style="padding:0 20px 20px">
@@ -2582,10 +2582,20 @@
               <button class="btn-secondary" id="rundown-share-copy-demo-btn" style="font-size:12px;padding:7px 14px">Copy Setup Notes</button>
             </div>
             <div id="rundown-share-output-suite" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px"></div>
+            <div id="rundown-share-team-wrap" style="display:none;margin-bottom:16px">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
+                <div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Share with Team</div>
+                  <div style="font-size:12px;color:#8B9DAF;line-height:1.45">Pre-written messages with links for your volunteers. Tap Copy Message and paste into a text or chat.</div>
+                </div>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(66,165,245,0.10);color:#81D4FA">Quick Share</span>
+              </div>
+              <div id="rundown-share-team-links" style="display:flex;flex-direction:column;gap:8px"></div>
+            </div>
             <div id="rundown-share-operator-wrap" style="display:none;margin-bottom:16px">
               <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
                 <div>
-                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Column feeds</div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700;margin-bottom:6px">Department / Volunteer Links</div>
                   <div style="font-size:12px;color:#8B9DAF;line-height:1.45">Quick-copy filtered public links for each custom column.</div>
                 </div>
                 <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.12);color:#00E676">Optional</span>

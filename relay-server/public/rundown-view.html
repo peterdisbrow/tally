@@ -1311,6 +1311,7 @@
       var viewMode = (query.get('mode') || query.get('view') || '').toLowerCase();
       var isCompactMode = viewMode === 'compact' || viewMode === 'operator';
       var isPrompterMode = viewMode === 'prompter';
+      var showDetail = query.get('detail') === '1';
       var apiBase = location.origin;
       var lastUpdated = null;
       var refreshTimer = null;
@@ -1497,7 +1498,29 @@
         }
       }
 
+      var mirrorConfirmed = false;
       function toggleMirror() {
+        if (!displayPrefs.mirror && !mirrorConfirmed) {
+          // Show confirmation tooltip before enabling mirror
+          mirrorConfirmed = true;
+          var tip = document.createElement('div');
+          tip.style.cssText = 'position:fixed;top:52px;right:12px;z-index:30;padding:12px 16px;border-radius:12px;background:rgba(14,20,17,0.96);border:1px solid rgba(255,255,255,0.12);box-shadow:0 16px 40px rgba(0,0,0,0.35);max-width:280px;backdrop-filter:blur(14px)';
+          tip.innerHTML = '<div style="font-size:13px;font-weight:700;color:#F0F2F4;margin-bottom:6px">Enable Mirror Mode?</div>'
+            + '<div style="font-size:12px;color:#8B9DAF;line-height:1.5;margin-bottom:12px">This flips the display horizontally for use with teleprompter glass or mirrored monitors.</div>'
+            + '<div style="display:flex;gap:8px">'
+              + '<button id="mirror-confirm-yes" style="appearance:none;border:none;background:#00E676;color:#0A0F0D;font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;cursor:pointer">Enable Mirror</button>'
+              + '<button id="mirror-confirm-no" style="appearance:none;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.06);color:#D0D8E0;font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;cursor:pointer">Cancel</button>'
+            + '</div>';
+          document.body.appendChild(tip);
+          document.getElementById('mirror-confirm-yes').addEventListener('click', function() {
+            document.body.removeChild(tip);
+            setDisplayPrefs({ mirror: true, density: displayPrefs.density, scale: displayPrefs.scale, help: displayPrefs.help });
+          });
+          document.getElementById('mirror-confirm-no').addEventListener('click', function() {
+            document.body.removeChild(tip);
+          });
+          return;
+        }
         setDisplayPrefs({
           mirror: !displayPrefs.mirror,
           density: displayPrefs.density,
@@ -1932,13 +1955,16 @@
         var autoAdvance = item.autoAdvance;
         if (autoAdvance === undefined) autoAdvance = item.auto_advance;
         var timing = item.timing || null;
-        if (startType === 'hard' || hardStartTime) {
-          tags.push({ label: hardStartTime ? 'Hard ' + formatClockLabel(hardStartTime) : 'Hard start', className: 'pill-hard' });
-        } else if (startType === 'soft') {
-          tags.push({ label: 'Soft start', className: 'pill-soft' });
-        }
-        if (autoAdvance) {
-          tags.push({ label: 'Auto-start', className: 'pill-auto' });
+        // Only show operator-specific badges when ?detail=1 is set
+        if (showDetail) {
+          if (startType === 'hard' || hardStartTime) {
+            tags.push({ label: hardStartTime ? 'Hard ' + formatClockLabel(hardStartTime) : 'Hard start', className: 'pill-hard' });
+          } else if (startType === 'soft') {
+            tags.push({ label: 'Soft start', className: 'pill-soft' });
+          }
+          if (autoAdvance) {
+            tags.push({ label: 'Auto-start', className: 'pill-auto' });
+          }
         }
         if (timing && Number(timing.overlapSeconds) > 0) {
           tags.push({ label: 'Overlap ' + formatDuration(Number(timing.overlapSeconds)), className: 'pill-hard' });
@@ -2166,8 +2192,8 @@
           if (currentItem.notes) detailFields.push(renderPrompterField('Notes', currentItem.notes));
           if (currentItem.assignee) detailFields.push(renderPrompterField('Assignee', currentItem.assignee));
           if (currentItem.lengthSeconds) detailFields.push(renderPrompterField('Duration', formatDuration(currentItem.lengthSeconds)));
-          if (currentItem.startType) detailFields.push(renderPrompterField('Start type', currentItem.startType));
-          if (currentItem.hardStartTime) detailFields.push(renderPrompterField('Hard start', formatClockLabel(currentItem.hardStartTime)));
+          if (showDetail && currentItem.startType) detailFields.push(renderPrompterField('Start type', currentItem.startType));
+          if (showDetail && currentItem.hardStartTime) detailFields.push(renderPrompterField('Hard start', formatClockLabel(currentItem.hardStartTime)));
           if (detailFields.length) {
             html += '<div class="prompter-field-grid">' + detailFields.filter(Boolean).join('') + '</div>';
           }

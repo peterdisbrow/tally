@@ -746,6 +746,8 @@
 
     // ── State ──
     var token = location.pathname.split('/').pop();
+    var query = new URLSearchParams(location.search);
+    var isReadOnly = query.get('readonly') === '1';
     var apiBase = location.origin;
     var plan = null;        // { id, title, serviceDate, items, columns, liveState, ... }
     var items = [];
@@ -1106,6 +1108,8 @@
       if (editingItemId) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+      if (isReadOnly) return; // No cue-advancing shortcuts in readonly mode
+
       if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'Enter') {
         e.preventDefault();
         if (liveState && liveState.isLive) liveGo();
@@ -1145,6 +1149,7 @@
               '<div id="show-col-list"></div>' +
             '</div>' +
           '</div>' : '') +
+          (isReadOnly ? '<span class="pill pill-offline" style="font-size:10px;padding:3px 10px">Read Only</span>' : '') +
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
       app.appendChild(topbar);
@@ -1163,12 +1168,14 @@
       app.appendChild(sb);
       renderStatusBar();
 
-      // Controls
-      var ctrl = document.createElement('div');
-      ctrl.className = 'controls';
-      ctrl.id = 'controls';
-      app.appendChild(ctrl);
-      renderControls();
+      // Controls (hidden in readonly mode)
+      if (!isReadOnly) {
+        var ctrl = document.createElement('div');
+        ctrl.className = 'controls';
+        ctrl.id = 'controls';
+        app.appendChild(ctrl);
+        renderControls();
+      }
 
       // Cue list
       var cueWrap = document.createElement('div');
@@ -1363,21 +1370,23 @@
 
       wrap.innerHTML = html;
 
-      // Bind click events
-      var cueItems = wrap.querySelectorAll('.cue-item[data-index]');
-      for (var j = 0; j < cueItems.length; j++) {
-        (function(el) {
-          el.addEventListener('click', function(e) {
-            var index = parseInt(el.dataset.index, 10);
-            if (isLive) {
-              liveGoto(index);
-            }
-          });
-          el.addEventListener('dblclick', function(e) {
-            e.preventDefault();
-            openEdit(el.dataset.id);
-          });
-        })(cueItems[j]);
+      // Bind click events (disabled in readonly mode)
+      if (!isReadOnly) {
+        var cueItems = wrap.querySelectorAll('.cue-item[data-index]');
+        for (var j = 0; j < cueItems.length; j++) {
+          (function(el) {
+            el.addEventListener('click', function(e) {
+              var index = parseInt(el.dataset.index, 10);
+              if (isLive) {
+                liveGoto(index);
+              }
+            });
+            el.addEventListener('dblclick', function(e) {
+              e.preventDefault();
+              openEdit(el.dataset.id);
+            });
+          })(cueItems[j]);
+        }
       }
     }
 
