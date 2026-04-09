@@ -108,6 +108,11 @@ app.get('/rundown/report/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-report.html'));
 });
 
+// Serve the teleprompter output page at /rundown/prompter/:token
+app.get('/rundown/prompter/:token', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-prompter.html'));
+});
+
 // Multi-campus monitor — requires portal session cookie (served inside portal auth boundary)
 app.get('/rundown/multicampus', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-multicampus.html'));
@@ -5201,6 +5206,8 @@ wss.on('connection', (ws, req) => {
     handleViewWsConnection(ws, url);
   } else if (role === 'rundown-follow') {
     handleFollowWsConnection(ws, url);
+  } else if (role === 'rundown-prompter') {
+    handlePrompterWsConnection(ws, url);
   } else {
     ws.close(1008, 'Unknown role');
   }
@@ -5483,6 +5490,62 @@ function handleFollowWsConnection(ws, url) {
       if (clients) {
         clients.delete(ws);
         if (clients.size === 0) followWsClients.delete(followKey);
+      }
+    }
+  });
+
+  ws.on('error', () => {});
+}
+
+// ─── RUNDOWN PROMPTER WEBSOCKET (public, share-token auth) ──────────────────
+// Teleprompter output: same as view WS but also tracked in viewWsClients
+// so it receives rundown_timer, rundown_position, rundown_state, rundown_ended
+const prompterWsClients = new Map(); // planId → Set<ws>
+function handlePrompterWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let planId = null;
+
+  resolvePublicRundownAccess(token).then(async (access) => {
+    if (!access?.plan) return ws.close(1008, 'invalid share token');
+    const plan = access.plan;
+    planId = plan.id;
+
+    // Register in both prompter and view client maps so broadcasts reach us
+    if (!prompterWsClients.has(planId)) prompterWsClients.set(planId, new Set());
+    prompterWsClients.get(planId).add(ws);
+    if (!viewWsClients.has(planId)) viewWsClients.set(planId, new Set());
+    viewWsClients.get(planId).add(ws);
+
+    // Send initial timer state
+    const timer = await buildPublicTimerStateForPlan(plan);
+    const serverTs = Date.now();
+    if (timer) {
+      safeSend(ws, { type: 'timer_state', ...timer, server_timestamp: serverTs });
+    } else {
+      safeSend(ws, { type: 'timer_state', is_live: false, plan_title: plan.title, server_timestamp: serverTs });
+    }
+  }).catch(() => ws.close(1011, 'internal error'));
+
+  ws.on('message', data => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'ping') safeSend(ws, { type: 'pong' });
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    if (planId) {
+      const clients = prompterWsClients.get(planId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) prompterWsClients.delete(planId);
+      }
+      const vClients = viewWsClients.get(planId);
+      if (vClients) {
+        vClients.delete(ws);
+        if (vClients.size === 0) viewWsClients.delete(planId);
       }
     }
   });

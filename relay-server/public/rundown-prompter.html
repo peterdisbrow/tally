@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleprompter</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #111;
+    --text: #fff;
+    --text-dim: rgba(255,255,255,0.35);
+    --text-next: rgba(255,255,255,0.65);
+    --current-bg: rgba(0,230,118,0.06);
+    --font-size: 32px;
+    --scroll-speed: 40;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-size);
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+    user-select: none;
+    transition: background 0.3s, color 0.3s;
+  }
+  body.light-theme {
+    --bg: #f5f5f5;
+    --text: #111;
+    --text-dim: rgba(0,0,0,0.25);
+    --text-next: rgba(0,0,0,0.55);
+    --current-bg: rgba(0,200,100,0.08);
+  }
+  body.mirror { transform: scaleX(-1); }
+
+  #prompter-scroll {
+    height: 100vh;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    padding: 40vh 48px 60vh;
+  }
+  .prompter-item {
+    padding: 24px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    transition: opacity 0.3s, font-size 0.3s;
+    opacity: 0.3;
+  }
+  body.light-theme .prompter-item { border-color: rgba(0,0,0,0.06); }
+  .prompter-item.past { opacity: 0.15; }
+  .prompter-item.current {
+    opacity: 1;
+    background: var(--current-bg);
+    border-radius: 8px;
+    padding: 24px 16px;
+    font-size: calc(var(--font-size) * 1.1);
+  }
+  .prompter-item.next { opacity: 0.6; }
+  .prompter-item-title {
+    font-size: 0.6em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #00E676;
+    margin-bottom: 8px;
+  }
+  .prompter-item.past .prompter-item-title { color: var(--text-dim); }
+  .prompter-item.current .prompter-item-title { color: #00E676; }
+  .prompter-item.next .prompter-item-title { color: var(--text-next); }
+  .prompter-item-script {
+    line-height: 1.6;
+  }
+  .prompter-item-script h3 { font-size: 1.3em; margin: 8px 0; }
+  .prompter-item-script h4 { font-size: 1.1em; margin: 6px 0; }
+  .prompter-item-script p { margin: 4px 0; }
+
+  .prompter-empty {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.6em;
+    padding: 24px;
+  }
+
+  /* Controls bar */
+  #controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: #8B9DAF;
+    z-index: 100;
+    transition: opacity 0.3s;
+  }
+  body.light-theme #controls { background: rgba(245,245,245,0.9); }
+  #controls.hidden { opacity: 0; pointer-events: none; }
+  #controls button {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #E0E0E0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  body.light-theme #controls button { background: rgba(0,0,0,0.08); color: #333; }
+  #controls button:hover { background: rgba(255,255,255,0.2); }
+  #controls .separator { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+
+  #status-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: #8B9DAF;
+    z-index: 100;
+    transition: opacity 0.3s;
+  }
+  body.light-theme #status-bar { background: rgba(245,245,245,0.85); }
+  #status-bar.hidden { opacity: 0; pointer-events: none; }
+  #status-bar .live-badge {
+    background: #FF5252;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  #status-bar .plan-title { color: #E0E0E0; font-weight: 600; }
+  body.light-theme #status-bar .plan-title { color: #333; }
+  #status-bar .cue-info { margin-left: auto; color: #00E676; font-weight: 600; }
+
+  /* Help overlay */
+  #help-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #help-overlay.show { display: flex; }
+  #help-content {
+    background: #1A1E24;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 24px 32px;
+    max-width: 420px;
+    font-size: 14px;
+    color: #E0E0E0;
+    line-height: 2;
+  }
+  #help-content h2 { color: #42A5F5; margin-bottom: 12px; font-size: 16px; }
+  #help-content kbd {
+    background: rgba(255,255,255,0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="status-bar">
+  <span class="live-badge" id="live-badge" style="display:none">LIVE</span>
+  <span class="plan-title" id="plan-title">Loading...</span>
+  <span class="cue-info" id="cue-info"></span>
+</div>
+
+<div id="prompter-scroll"></div>
+
+<div id="controls">
+  <button id="btn-font-down" title="Decrease font (-)">&minus;</button>
+  <span id="font-size-label">32px</span>
+  <button id="btn-font-up" title="Increase font (+)">+</button>
+  <div class="separator"></div>
+  <span>Speed:</span>
+  <input type="range" id="speed-slider" min="0" max="100" value="40" style="width:80px;accent-color:#42A5F5">
+  <span id="speed-label">40</span>
+  <div class="separator"></div>
+  <button id="btn-mirror" title="Mirror mode (M)">Mirror</button>
+  <button id="btn-theme" title="Toggle theme (T)">Theme</button>
+  <button id="btn-fullscreen" title="Fullscreen (F)">Fullscreen</button>
+  <button id="btn-help" title="Help (?)">?</button>
+  <span id="connection-status" style="margin-left:auto;font-size:10px;color:#556270">Connecting...</span>
+</div>
+
+<div id="help-overlay">
+  <div id="help-content">
+    <h2>Teleprompter Controls</h2>
+    <div><kbd>=</kbd> / <kbd>-</kbd> &mdash; Font size up / down</div>
+    <div><kbd>Space</kbd> &mdash; Toggle auto-scroll</div>
+    <div><kbd>M</kbd> &mdash; Mirror mode (for teleprompter glass)</div>
+    <div><kbd>T</kbd> &mdash; Toggle light/dark theme</div>
+    <div><kbd>F</kbd> &mdash; Toggle fullscreen</div>
+    <div><kbd>?</kbd> &mdash; Toggle this help</div>
+    <div><kbd>H</kbd> &mdash; Hide/show controls</div>
+    <div style="margin-top:8px;color:#8B9DAF;font-size:12px">
+      When the live show operator advances cues, the prompter auto-scrolls to the current item's script.
+      Scroll manually to override. Auto-scroll resumes on the next cue advance.
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── Parse token from URL ──────────────────────────────────────────────────
+  var pathParts = location.pathname.split('/');
+  var token = pathParts[pathParts.length - 1];
+  if (!token) {
+    document.getElementById('plan-title').textContent = 'Error: no share token in URL';
+    return;
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  var items = [];
+  var currentIndex = -1;
+  var fontSize = 32;
+  var autoScrollEnabled = false;
+  var autoScrollSpeed = 40;
+  var manualScrollOverride = false;
+  var scrollAnimFrame = null;
+  var isLive = false;
+  var planTitle = '';
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  var scrollEl = document.getElementById('prompter-scroll');
+  var planTitleEl = document.getElementById('plan-title');
+  var cueInfoEl = document.getElementById('cue-info');
+  var liveBadge = document.getElementById('live-badge');
+  var fontLabel = document.getElementById('font-size-label');
+  var speedSlider = document.getElementById('speed-slider');
+  var speedLabel = document.getElementById('speed-label');
+  var connStatus = document.getElementById('connection-status');
+
+  // ── Fetch plan data ───────────────────────────────────────────────────────
+  fetch('/api/public/rundown/' + encodeURIComponent(token))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data || !data.items) {
+        planTitleEl.textContent = 'Plan not found';
+        return;
+      }
+      planTitle = data.title || 'Untitled';
+      planTitleEl.textContent = planTitle;
+      items = data.items || [];
+      renderItems();
+    })
+    .catch(function() {
+      planTitleEl.textContent = 'Error loading plan';
+    });
+
+  // ── Render items ──────────────────────────────────────────────────────────
+  function renderItems() {
+    if (items.length === 0) {
+      scrollEl.innerHTML = '<div class="prompter-empty">No items with scripts</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (item.itemType === 'section') continue;
+      var cls = '';
+      if (currentIndex >= 0) {
+        if (i < currentIndex) cls = 'past';
+        else if (i === currentIndex) cls = 'current';
+        else if (i === currentIndex + 1) cls = 'next';
+      }
+      var script = item.script || '';
+      var plainScript = script.replace(/<[^>]*>/g, '').trim();
+      html += '<div class="prompter-item ' + cls + '" data-index="' + i + '" id="prompter-item-' + i + '">';
+      html += '<div class="prompter-item-title">' + escapeHtml(item.title || 'Item ' + (i + 1)) + '</div>';
+      if (plainScript) {
+        html += '<div class="prompter-item-script">' + script + '</div>';
+      } else {
+        html += '<div class="prompter-empty">No script content</div>';
+      }
+      html += '</div>';
+    }
+    scrollEl.innerHTML = html;
+  }
+
+  function updateItemClasses() {
+    var allItems = scrollEl.querySelectorAll('.prompter-item');
+    for (var i = 0; i < allItems.length; i++) {
+      var el = allItems[i];
+      var idx = parseInt(el.getAttribute('data-index'), 10);
+      el.classList.remove('past', 'current', 'next');
+      if (currentIndex >= 0) {
+        if (idx < currentIndex) el.classList.add('past');
+        else if (idx === currentIndex) el.classList.add('current');
+        else if (idx === currentIndex + 1) el.classList.add('next');
+      }
+    }
+  }
+
+  function scrollToCurrentItem() {
+    var el = document.getElementById('prompter-item-' + currentIndex);
+    if (el) {
+      manualScrollOverride = false;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  // ── WebSocket connection ──────────────────────────────────────────────────
+  var ws = null;
+  var reconnectDelay = 1000;
+
+  function connectWs() {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = proto + '//' + location.host + '/rundown-prompter?token=' + encodeURIComponent(token);
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = function() {
+      connStatus.textContent = 'Connected';
+      connStatus.style.color = '#00E676';
+      reconnectDelay = 1000;
+    };
+
+    ws.onmessage = function(evt) {
+      try {
+        var msg = JSON.parse(evt.data);
+        handleWsMessage(msg);
+      } catch (e) { /* ignore */ }
+    };
+
+    ws.onclose = function() {
+      connStatus.textContent = 'Disconnected';
+      connStatus.style.color = '#FF5252';
+      setTimeout(connectWs, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+    };
+
+    ws.onerror = function() {};
+
+    // Heartbeat
+    setInterval(function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 25000);
+  }
+
+  function handleWsMessage(msg) {
+    if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+      isLive = !!msg.is_live;
+      liveBadge.style.display = isLive ? 'inline' : 'none';
+      if (msg.plan_title) planTitleEl.textContent = msg.plan_title;
+      if (msg.current_index !== undefined && msg.current_index !== currentIndex) {
+        currentIndex = msg.current_index;
+        updateItemClasses();
+        cueInfoEl.textContent = 'Cue ' + (currentIndex + 1) + ' of ' + items.length;
+        if (!manualScrollOverride) scrollToCurrentItem();
+      }
+      if (msg.items && msg.items.length) {
+        items = msg.items;
+        renderItems();
+        if (currentIndex >= 0) scrollToCurrentItem();
+      }
+    }
+    if (msg.type === 'rundown_state' || msg.type === 'rundown_position') {
+      if (msg.current_index !== undefined && msg.current_index !== currentIndex) {
+        currentIndex = msg.current_index;
+        updateItemClasses();
+        cueInfoEl.textContent = 'Cue ' + (currentIndex + 1) + ' of ' + items.length;
+        scrollToCurrentItem();
+      }
+      if (msg.items && msg.items.length) {
+        items = msg.items;
+        renderItems();
+      }
+      isLive = msg.state === 'active' || msg.active === true || !!msg.is_live;
+      liveBadge.style.display = isLive ? 'inline' : 'none';
+    }
+    if (msg.type === 'rundown_ended') {
+      isLive = false;
+      liveBadge.style.display = 'none';
+      cueInfoEl.textContent = 'Show ended';
+    }
+  }
+
+  connectWs();
+
+  // ── Manual scroll detection ───────────────────────────────────────────────
+  var scrollTimeout;
+  scrollEl.addEventListener('wheel', function() {
+    manualScrollOverride = true;
+    clearTimeout(scrollTimeout);
+  });
+  scrollEl.addEventListener('touchmove', function() {
+    manualScrollOverride = true;
+  });
+
+  // ── Auto-scroll ───────────────────────────────────────────────────────────
+  function autoScrollTick() {
+    if (autoScrollEnabled && !manualScrollOverride) {
+      scrollEl.scrollTop += autoScrollSpeed / 60;
+    }
+    scrollAnimFrame = requestAnimationFrame(autoScrollTick);
+  }
+
+  // ── Controls ──────────────────────────────────────────────────────────────
+  function setFontSize(size) {
+    fontSize = Math.max(16, Math.min(80, size));
+    document.body.style.setProperty('--font-size', fontSize + 'px');
+    fontLabel.textContent = fontSize + 'px';
+  }
+
+  document.getElementById('btn-font-up').addEventListener('click', function() { setFontSize(fontSize + 4); });
+  document.getElementById('btn-font-down').addEventListener('click', function() { setFontSize(fontSize - 4); });
+  speedSlider.addEventListener('input', function() {
+    autoScrollSpeed = parseInt(speedSlider.value, 10);
+    speedLabel.textContent = autoScrollSpeed;
+  });
+  document.getElementById('btn-mirror').addEventListener('click', function() {
+    document.body.classList.toggle('mirror');
+  });
+  document.getElementById('btn-theme').addEventListener('click', function() {
+    document.body.classList.toggle('light-theme');
+  });
+  document.getElementById('btn-fullscreen').addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(function() {});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+  document.getElementById('btn-help').addEventListener('click', function() {
+    document.getElementById('help-overlay').classList.toggle('show');
+  });
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    var key = e.key;
+    if (key === '=' || key === '+') { e.preventDefault(); setFontSize(fontSize + 4); }
+    else if (key === '-') { e.preventDefault(); setFontSize(fontSize - 4); }
+    else if (key === ' ') {
+      e.preventDefault();
+      autoScrollEnabled = !autoScrollEnabled;
+      if (autoScrollEnabled && !scrollAnimFrame) autoScrollTick();
+    }
+    else if (key === 'm' || key === 'M') document.body.classList.toggle('mirror');
+    else if (key === 't' || key === 'T') document.body.classList.toggle('light-theme');
+    else if (key === 'f' || key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function() {});
+      else document.exitFullscreen();
+    }
+    else if (key === '?') document.getElementById('help-overlay').classList.toggle('show');
+    else if (key === 'h' || key === 'H') {
+      document.getElementById('controls').classList.toggle('hidden');
+      document.getElementById('status-bar').classList.toggle('hidden');
+    }
+    else if (key === 'Escape') {
+      document.getElementById('help-overlay').classList.remove('show');
+    }
+  });
+
+  // ── Help overlay close on click ───────────────────────────────────────────
+  document.getElementById('help-overlay').addEventListener('click', function(e) {
+    if (e.target === this) this.classList.remove('show');
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+})();
+</script>
+</body>
+</html>

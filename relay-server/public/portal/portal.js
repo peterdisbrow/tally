@@ -65,6 +65,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       grip: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="5.5" cy="3.5" r="1.25"/><circle cx="10.5" cy="3.5" r="1.25"/><circle cx="5.5" cy="8" r="1.25"/><circle cx="10.5" cy="8" r="1.25"/><circle cx="5.5" cy="12.5" r="1.25"/><circle cx="10.5" cy="12.5" r="1.25"/></svg>',
       users: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path d="M10.5 5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM2 13.5A3.5 3.5 0 0 1 5.5 10h5a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-.5Z"/></svg>',
       chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path fill-rule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>',
+      // Phase 4: Teleprompter / script / announcement icons
+      script: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M4 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4Zm1 3.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 5 5.25Zm.75 2.25a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-4.5ZM5 10.75a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg>',
+      megaphone: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M13 2.5a.5.5 0 0 1 .325.12A6.99 6.99 0 0 1 15.5 7a6.99 6.99 0 0 1-2.175 4.38.5.5 0 0 1-.825-.38V2.5ZM3.5 12.5l1.322 2.644A.5.5 0 0 0 5.27 15.5h.96a.5.5 0 0 0 .447-.724L5.5 12.5h-2ZM12 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1Z"/></svg>',
+      music: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M6 1a.75.75 0 0 1 .75.75V11a2.5 2.5 0 1 1-1.5-2.291V1.75A.75.75 0 0 1 6 1Zm5 2a.75.75 0 0 1 .75.75V11a2.5 2.5 0 1 1-1.5-2.291V3.75A.75.75 0 0 1 11 3Z"/></svg>',
     };
 
     // ── Global room context ─────────────────────────────────────────────────────
@@ -10148,7 +10152,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // Build table — compute total column count
-      var colCount = 14 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + attachments + live timer
+      var colCount = 15 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + script/ann + attachments + live timer
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
@@ -10181,6 +10185,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<th style="padding:8px 6px;width:72px;text-align:center" title="Calculated end time">End</th>';
       html += '<th class="rundown-adv" style="padding:8px 6px;width:28px;text-align:center" title="Fixed Time: locks item to a wall-clock time. Auto-advance: automatically moves to next item when timer expires.">' + SVG.clock + '</th>';
       html += '<th style="padding:8px 6px;text-align:left" title="Optional notes — click to edit, use Format toggle for rich text">Notes</th>';
+      html += '<th style="padding:8px 6px;width:48px;text-align:center" title="Script (teleprompter) and Announcement">' + SVG.script + '</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // attachments
       if (isLive) html += '<th style="padding:8px 6px;width:72px;text-align:center">Timer</th>';
       html += '<th style="padding:8px 6px;width:32px"></th>'; // delete
@@ -10343,6 +10348,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span class="rundown-inline-edit" data-field="notes" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#556270;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px" title="' + escapeHtml(notesPlain || 'Click to add notes') + '">' + (notesPreview ? escapeHtml(notesPreview) : '<span style="color:#3A4556">--</span>') + '</span>';
         html += '</td>';
 
+        // Script button (teleprompter content)
+        var hasScript = !!(item.script && item.script.replace(/<[^>]*>/g, '').trim());
+        html += '<td style="padding:4px 2px;text-align:center;vertical-align:middle">';
+        html += '<span class="rundown-script-btn" data-item-id="' + item.id + '" style="cursor:pointer;color:' + (hasScript ? '#42A5F5' : '#3A4556') + ';display:inline-flex" title="' + (hasScript ? 'Edit script' : 'Add script') + '">' + SVG.script + '</span>';
+        html += ' <span class="rundown-announcement-btn" data-item-id="' + item.id + '" style="cursor:pointer;color:' + (item.announcement ? '#FFB74D' : '#3A4556') + ';display:inline-flex;margin-left:2px" title="' + (item.announcement ? 'Edit announcement' : 'Add announcement') + '">' + SVG.megaphone + '</span>';
+        html += '</td>';
+
         // Attachments (paperclip icon with count badge)
         var itemAtts = _rundownAttachments[item.id] || [];
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle;position:relative">';
@@ -10385,6 +10397,57 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="display:flex;align-items:flex-start;gap:6px">';
         html += '<span style="color:#FFD740;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;margin-top:1px">Dir Note</span>';
         html += '<span class="rundown-inline-director-note" data-item-id="' + item.id + '" style="cursor:text;font-size:11px;color:#8B9DAF;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(dnVal || 'Click to add director note') + '">' + (dnVal ? escapeHtml(dnVal) : '<span style="color:#3A4556">click to add</span>') + '</span>';
+        html += '</div>';
+        html += '</td>';
+        html += '<td></td>';
+        html += '</tr>';
+
+        // Script editor sub-row (Phase 4 — hidden by default, toggled by script btn)
+        html += '<tr class="rundown-script-row" data-item-id="' + item.id + '" style="display:none;border-bottom:1px solid rgba(255,255,255,0.04);background:rgba(66,165,245,0.04)">';
+        html += '<td></td><td></td><td></td>';
+        html += '<td colspan="' + (colCount - 4) + '" style="padding:6px 6px 8px">';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+        html += '<span style="color:#42A5F5;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Script / Teleprompter</span>';
+        var isSongType = /song|worship|hymn|music/i.test(item.itemType || '');
+        if (isSongType) {
+          html += '<span class="rundown-lyrics-search-btn" data-item-id="' + item.id + '" style="cursor:pointer;color:#42A5F5;font-size:10px;font-weight:600;margin-left:auto;display:flex;align-items:center;gap:3px">' + SVG.music + ' Search Lyrics</span>';
+        }
+        html += '<span class="rundown-script-save-lib" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270;font-size:10px;margin-left:' + (isSongType ? '8px' : 'auto') + '">Save to Library</span>';
+        html += '</div>';
+        // Toolbar
+        html += '<div class="rundown-script-toolbar" style="display:flex;gap:2px;margin-bottom:4px;padding:2px 4px;background:rgba(255,255,255,0.06);border-radius:4px">';
+        html += '<button data-cmd="bold" style="cursor:pointer;background:none;border:none;color:#8B9DAF;font-weight:700;padding:2px 6px;border-radius:3px;font-size:12px" title="Bold (Ctrl+B)">B</button>';
+        html += '<button data-cmd="italic" style="cursor:pointer;background:none;border:none;color:#8B9DAF;font-style:italic;padding:2px 6px;border-radius:3px;font-size:12px" title="Italic (Ctrl+I)">I</button>';
+        html += '<button data-cmd="h1" style="cursor:pointer;background:none;border:none;color:#8B9DAF;font-weight:700;padding:2px 6px;border-radius:3px;font-size:11px" title="Heading 1">H1</button>';
+        html += '<button data-cmd="h2" style="cursor:pointer;background:none;border:none;color:#8B9DAF;font-weight:600;padding:2px 6px;border-radius:3px;font-size:11px" title="Heading 2">H2</button>';
+        html += '<button data-cmd="highlight" style="cursor:pointer;background:none;border:none;color:#FFD740;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700" title="Highlight">Hi</button>';
+        html += '<button data-cmd="speaker" style="cursor:pointer;background:none;border:none;color:#CE93D8;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700" title="Speaker Label">Spk</button>';
+        html += '</div>';
+        // Editable area
+        html += '<div class="rundown-script-editor" data-item-id="' + item.id + '" contenteditable="true" style="min-height:80px;max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:8px;font-size:13px;color:#E0E0E0;line-height:1.6;outline:none">' + (item.script || '') + '</div>';
+        html += '</td>';
+        html += '<td></td>';
+        html += '</tr>';
+
+        // Announcement editor sub-row (Phase 4 — hidden by default)
+        var ann = item.announcement || {};
+        html += '<tr class="rundown-announcement-row" data-item-id="' + item.id + '" style="display:none;border-bottom:1px solid rgba(255,255,255,0.04);background:rgba(255,183,77,0.04)">';
+        html += '<td></td><td></td><td></td>';
+        html += '<td colspan="' + (colCount - 4) + '" style="padding:6px 6px 8px">';
+        html += '<div style="color:#FFB74D;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Announcement Card</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+        html += '<div><label style="font-size:10px;color:#8B9DAF;display:block;margin-bottom:2px">Title</label>';
+        html += '<input class="rundown-ann-title" data-item-id="' + item.id + '" value="' + escapeHtml(ann.title || '') + '" style="width:100%;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:4px 6px;color:#E0E0E0;font-size:12px;outline:none" placeholder="Announcement title"></div>';
+        html += '<div><label style="font-size:10px;color:#8B9DAF;display:block;margin-bottom:2px">Image URL (optional)</label>';
+        html += '<input class="rundown-ann-image" data-item-id="' + item.id + '" value="' + escapeHtml(ann.imageUrl || '') + '" style="width:100%;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:4px 6px;color:#E0E0E0;font-size:12px;outline:none" placeholder="https://..."></div>';
+        html += '</div>';
+        html += '<div style="margin-top:6px"><label style="font-size:10px;color:#8B9DAF;display:block;margin-bottom:2px">Body</label>';
+        html += '<textarea class="rundown-ann-body" data-item-id="' + item.id + '" style="width:100%;min-height:48px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:4px 6px;color:#E0E0E0;font-size:12px;outline:none;resize:vertical" placeholder="Announcement body text">' + escapeHtml(ann.body || '') + '</textarea></div>';
+        html += '<div style="margin-top:6px;display:flex;align-items:center;gap:8px">';
+        html += '<label style="font-size:10px;color:#8B9DAF">Duration (sec)</label>';
+        html += '<input class="rundown-ann-duration" data-item-id="' + item.id + '" type="number" min="3" max="120" value="' + (ann.displayDuration || 10) + '" style="width:60px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:4px 6px;color:#E0E0E0;font-size:12px;outline:none">';
+        html += '<button class="rundown-ann-save" data-item-id="' + item.id + '" style="cursor:pointer;margin-left:auto;background:#FFB74D;color:#1A1E24;border:none;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600">Save</button>';
+        html += '<button class="rundown-ann-clear" data-item-id="' + item.id + '" style="cursor:pointer;background:none;border:1px solid rgba(255,255,255,0.1);color:#8B9DAF;border-radius:4px;padding:4px 10px;font-size:11px">Clear</button>';
         html += '</div>';
         html += '</td>';
         html += '<td></td>';
@@ -10533,6 +10596,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         });
       });
 
+      // Attach script editor buttons (Phase 4)
+      _attachRundownScriptEditors(container);
+      // Attach announcement editor buttons (Phase 4)
+      _attachRundownAnnouncementEditors(container);
+
       // Auto-scroll active cue into view during live mode
       if (isLive && activeCueIdx >= 0) {
         var activeRow = container.querySelector('.live-cue-active');
@@ -10561,6 +10629,285 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Hard/soft start and auto-advance toggle handlers ──────────────────────
+    // ─── PHASE 4: Script Editor Handlers ──────────────────────────────────────
+    var _scriptAutoSaveTimers = {};
+    function _attachRundownScriptEditors(container) {
+      // Toggle script editor row
+      container.querySelectorAll('.rundown-script-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          var row = container.querySelector('.rundown-script-row[data-item-id="' + itemId + '"]');
+          if (row) {
+            var isHidden = row.style.display === 'none';
+            row.style.display = isHidden ? 'table-row' : 'none';
+            if (isHidden) {
+              var editor = row.querySelector('.rundown-script-editor');
+              if (editor) editor.focus();
+            }
+          }
+        });
+      });
+
+      // Script toolbar commands
+      container.querySelectorAll('.rundown-script-toolbar button').forEach(function(btn) {
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault(); // prevent losing selection in contenteditable
+          var cmd = btn.getAttribute('data-cmd');
+          if (cmd === 'bold') document.execCommand('bold', false);
+          else if (cmd === 'italic') document.execCommand('italic', false);
+          else if (cmd === 'h1') document.execCommand('formatBlock', false, '<h3>');
+          else if (cmd === 'h2') document.execCommand('formatBlock', false, '<h4>');
+          else if (cmd === 'highlight') {
+            document.execCommand('hiliteColor', false, '#FFD740');
+          }
+          else if (cmd === 'speaker') {
+            var sel = window.getSelection();
+            if (sel.rangeCount) {
+              var range = sel.getRangeAt(0);
+              var span = document.createElement('span');
+              span.style.color = '#CE93D8';
+              span.style.fontWeight = '700';
+              span.style.fontStyle = 'italic';
+              range.surroundContents(span);
+            }
+          }
+        });
+      });
+
+      // Script editor auto-save (2s debounce + on blur)
+      container.querySelectorAll('.rundown-script-editor').forEach(function(editor) {
+        var itemId = editor.getAttribute('data-item-id');
+        function saveScript() {
+          if (!_rundownSelectedPlan) return;
+          var churchId = _rundownSelectedPlan.churchId;
+          var planId = _rundownSelectedPlan.id;
+          var script = editor.innerHTML;
+          api('PUT', '/api/churches/' + churchId + '/rundown-plans/' + planId + '/items/' + itemId + '/script', { script: script });
+          // Update local cache
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (item) item.script = script;
+          // Update icon color
+          var btn = container.querySelector('.rundown-script-btn[data-item-id="' + itemId + '"]');
+          if (btn) btn.style.color = script.replace(/<[^>]*>/g, '').trim() ? '#42A5F5' : '#3A4556';
+        }
+        editor.addEventListener('input', function() {
+          clearTimeout(_scriptAutoSaveTimers[itemId]);
+          _scriptAutoSaveTimers[itemId] = setTimeout(saveScript, 2000);
+        });
+        editor.addEventListener('blur', function() {
+          clearTimeout(_scriptAutoSaveTimers[itemId]);
+          saveScript();
+        });
+      });
+
+      // Lyrics search button
+      container.querySelectorAll('.rundown-lyrics-search-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          _openLyricsSearchModal(itemId);
+        });
+      });
+
+      // Save script to lyrics library
+      container.querySelectorAll('.rundown-script-save-lib').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          if (!_rundownSelectedPlan) return;
+          var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+          if (!item || !item.script) return;
+          var title = prompt('Save to lyrics library as:', item.title || 'Untitled');
+          if (!title) return;
+          api('POST', '/api/churches/' + _rundownSelectedPlan.churchId + '/lyrics', {
+            title: title,
+            lyrics: item.script,
+            artist: item.assignee || '',
+          }).then(function() {
+            toast('Saved to lyrics library');
+          });
+        });
+      });
+    }
+
+    // ─── PHASE 4: Announcement Editor Handlers ─────────────────────────────────
+    function _attachRundownAnnouncementEditors(container) {
+      // Toggle announcement editor row
+      container.querySelectorAll('.rundown-announcement-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          var row = container.querySelector('.rundown-announcement-row[data-item-id="' + itemId + '"]');
+          if (row) {
+            var isHidden = row.style.display === 'none';
+            row.style.display = isHidden ? 'table-row' : 'none';
+          }
+        });
+      });
+
+      // Save announcement
+      container.querySelectorAll('.rundown-ann-save').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          if (!_rundownSelectedPlan) return;
+          var row = container.querySelector('.rundown-announcement-row[data-item-id="' + itemId + '"]');
+          if (!row) return;
+          var announcement = {
+            title: (row.querySelector('.rundown-ann-title') || {}).value || '',
+            body: (row.querySelector('.rundown-ann-body') || {}).value || '',
+            imageUrl: (row.querySelector('.rundown-ann-image') || {}).value || '',
+            displayDuration: parseInt((row.querySelector('.rundown-ann-duration') || {}).value, 10) || 10,
+          };
+          api('PUT', '/api/churches/' + _rundownSelectedPlan.churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, { announcement: announcement })
+            .then(function() {
+              var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+              if (item) item.announcement = announcement;
+              var icon = container.querySelector('.rundown-announcement-btn[data-item-id="' + itemId + '"]');
+              if (icon) icon.style.color = '#FFB74D';
+              toast('Announcement saved');
+            });
+        });
+      });
+
+      // Clear announcement
+      container.querySelectorAll('.rundown-ann-clear').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemId = btn.getAttribute('data-item-id');
+          if (!_rundownSelectedPlan) return;
+          api('PUT', '/api/churches/' + _rundownSelectedPlan.churchId + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + itemId, { announcement: null })
+            .then(function() {
+              var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
+              if (item) item.announcement = null;
+              var icon = container.querySelector('.rundown-announcement-btn[data-item-id="' + itemId + '"]');
+              if (icon) icon.style.color = '#3A4556';
+              var row = container.querySelector('.rundown-announcement-row[data-item-id="' + itemId + '"]');
+              if (row) row.style.display = 'none';
+              toast('Announcement cleared');
+            });
+        });
+      });
+    }
+
+    // ─── PHASE 4: Lyrics Search Modal ──────────────────────────────────────────
+    function _openLyricsSearchModal(itemId) {
+      if (!_rundownSelectedPlan) return;
+      var churchId = _rundownSelectedPlan.churchId;
+      // Create modal overlay
+      var overlay = document.createElement('div');
+      overlay.id = 'lyrics-search-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center';
+      var modal = document.createElement('div');
+      modal.style.cssText = 'background:#1A1E24;border:1px solid rgba(255,255,255,0.1);border-radius:8px;width:560px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden';
+      modal.innerHTML = '<div style="padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:8px">'
+        + '<span style="color:#42A5F5;font-size:13px;font-weight:700">Lyrics Library</span>'
+        + '<span id="lyrics-modal-add" style="cursor:pointer;margin-left:auto;color:#42A5F5;font-size:11px;font-weight:600">+ Add New</span>'
+        + '<span id="lyrics-modal-close" style="cursor:pointer;color:#556270;font-size:18px;margin-left:8px">' + SVG.xMark + '</span>'
+        + '</div>'
+        + '<div style="padding:8px 16px"><input id="lyrics-search-input" placeholder="Search lyrics..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:6px 10px;color:#E0E0E0;font-size:12px;outline:none"></div>'
+        + '<div id="lyrics-search-results" style="flex:1;overflow-y:auto;padding:4px 16px 12px;min-height:200px"></div>';
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      var input = document.getElementById('lyrics-search-input');
+      var results = document.getElementById('lyrics-search-results');
+
+      function loadResults(query) {
+        var url = '/api/churches/' + churchId + '/lyrics' + (query ? '/search?q=' + encodeURIComponent(query) : '');
+        api('GET', url).then(function(data) {
+          if (!data || data.length === 0) {
+            results.innerHTML = '<div style="color:#556270;text-align:center;padding:32px;font-size:12px">No lyrics found</div>';
+            return;
+          }
+          var html = '';
+          data.forEach(function(entry) {
+            var preview = (entry.lyrics || '').replace(/<[^>]*>/g, '').substring(0, 80);
+            html += '<div class="lyrics-result-item" data-lyrics-id="' + entry.id + '" style="cursor:pointer;padding:8px;border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.1s" onmouseenter="this.style.background=\'rgba(255,255,255,0.04)\'" onmouseleave="this.style.background=\'none\'">';
+            html += '<div style="font-weight:600;color:#E0E0E0;font-size:12px">' + escapeHtml(entry.title) + (entry.artist ? ' <span style="color:#556270;font-weight:400">— ' + escapeHtml(entry.artist) + '</span>' : '') + '</div>';
+            html += '<div style="color:#8B9DAF;font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(preview) + '</div>';
+            html += '<div style="display:flex;gap:8px;margin-top:4px">';
+            html += '<span class="lyrics-insert-btn" data-lyrics-id="' + entry.id + '" style="cursor:pointer;color:#42A5F5;font-size:10px;font-weight:600">Insert</span>';
+            html += '<span class="lyrics-edit-btn" data-lyrics-id="' + entry.id + '" style="cursor:pointer;color:#8B9DAF;font-size:10px">Edit</span>';
+            html += '<span class="lyrics-delete-btn" data-lyrics-id="' + entry.id + '" style="cursor:pointer;color:#FF5252;font-size:10px">Delete</span>';
+            html += '</div>';
+            html += '</div>';
+          });
+          results.innerHTML = html;
+
+          // Insert button: inserts lyrics into the script editor
+          results.querySelectorAll('.lyrics-insert-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              var lid = btn.getAttribute('data-lyrics-id');
+              var match = data.find(function(x) { return x.id === lid; });
+              if (match) {
+                var scriptEditor = document.querySelector('.rundown-script-editor[data-item-id="' + itemId + '"]');
+                if (scriptEditor) {
+                  scriptEditor.innerHTML = match.lyrics || '';
+                  scriptEditor.dispatchEvent(new Event('input'));
+                  // Show the script row
+                  var scriptRow = document.querySelector('.rundown-script-row[data-item-id="' + itemId + '"]');
+                  if (scriptRow) scriptRow.style.display = 'table-row';
+                }
+                overlay.remove();
+              }
+            });
+          });
+
+          // Edit button
+          results.querySelectorAll('.lyrics-edit-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              var lid = btn.getAttribute('data-lyrics-id');
+              var match = data.find(function(x) { return x.id === lid; });
+              if (!match) return;
+              var newTitle = prompt('Title:', match.title);
+              if (newTitle === null) return;
+              var newArtist = prompt('Artist:', match.artist || '');
+              api('PUT', '/api/churches/' + churchId + '/lyrics/' + lid, { title: newTitle, artist: newArtist || '' })
+                .then(function() { loadResults(input.value); });
+            });
+          });
+
+          // Delete button
+          results.querySelectorAll('.lyrics-delete-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              var lid = btn.getAttribute('data-lyrics-id');
+              if (!confirm('Delete this lyrics entry?')) return;
+              api('DELETE', '/api/churches/' + churchId + '/lyrics/' + lid)
+                .then(function() { loadResults(input.value); });
+            });
+          });
+        });
+      }
+
+      // Initial load
+      loadResults('');
+
+      // Search debounce
+      var searchTimer;
+      input.addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() { loadResults(input.value); }, 300);
+      });
+      input.focus();
+
+      // Add new lyrics
+      document.getElementById('lyrics-modal-add').addEventListener('click', function() {
+        var title = prompt('New lyrics title:');
+        if (!title) return;
+        api('POST', '/api/churches/' + churchId + '/lyrics', { title: title, lyrics: '', artist: '' })
+          .then(function() { loadResults(input.value); });
+      });
+
+      // Close
+      document.getElementById('lyrics-modal-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
     function _attachRundownCueToggles(container) {
       // Toggle start type (soft <-> hard)
       container.querySelectorAll('.rundown-toggle-start-type').forEach(function(el) {
@@ -12020,8 +12367,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (token) {
         equipmentUrl = _rundownNormalizeShareUrl(new URL('/rundown/equipment/' + token, window.location.origin).href);
       }
+      var prompterUrl = '';
+      if (token) {
+        prompterUrl = _rundownNormalizeShareUrl(new URL('/rundown/prompter/' + token, window.location.origin).href);
+      }
       var readonlyShowUrl = showUrl ? _rundownBuildModeUrl(showUrl, '', { readonly: '1' }) : '';
-      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, equipmentUrl: equipmentUrl, readonlyShowUrl: readonlyShowUrl };
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, equipmentUrl: equipmentUrl, prompterUrl: prompterUrl, readonlyShowUrl: readonlyShowUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -12230,6 +12581,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             })
           ],
           { label: 'Monitoring', bg: 'rgba(66,165,245,0.10)', fg: '#81D4FA' }
+        ));
+      }
+
+      if (urls.prompterUrl) {
+        sections.push(_rundownBuildSectionCard(
+          'Teleprompter',
+          'Full-screen scrolling teleprompter output. Auto-scrolls to follow live cues. Supports mirror mode, font sizing, dark/light themes, and keyboard shortcuts.',
+          [
+            _rundownBuildOutputCard({
+              kicker: 'Output',
+              title: 'Teleprompter',
+              description: 'High-contrast scrolling script display. Mirrors for teleprompter glass. Auto-follows live cue advances.',
+              url: urls.prompterUrl,
+              badge: 'New',
+              badgeBg: 'rgba(206,147,216,0.12)',
+              badgeColor: '#CE93D8',
+              accent: '#CE93D8',
+            })
+          ],
+          { label: 'Teleprompter', bg: 'rgba(206,147,216,0.10)', fg: '#CE93D8' }
         ));
       }
 

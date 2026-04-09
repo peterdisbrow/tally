@@ -794,6 +794,36 @@
       box-shadow: 0 12px 30px rgba(0,0,0,0.18);
     }
 
+    /* Phase 4: Announcement card overlay */
+    .announcement-card {
+      margin-bottom: 18px;
+      padding: 20px 24px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(255,183,77,0.12), rgba(255,255,255,0.04));
+      border: 1px solid rgba(255,183,77,0.25);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+      text-align: center;
+      animation: announcementFadeIn 0.4s ease-out;
+    }
+    .announcement-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .announcement-body {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .announcement-image {
+      margin-bottom: 12px;
+    }
+    @keyframes announcementFadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     .summary-shell {
       display: none;
       margin-bottom: 18px;
@@ -2672,6 +2702,7 @@
         html += '</div>';
 
         html += liveState && liveState.isLive !== false ? renderLiveBanner(plan, liveState, items) : '';
+        html += renderAnnouncementCard(currentIndex, items);
 
         html += '<div class="summary-grid">';
         html += '<div class="summary-stat"><div class="summary-stat-label">Total cues</div><div class="summary-stat-value">' + esc(String(items.filter(function (item) { return !isSectionItem(item); }).length)) + '</div></div>';
@@ -2709,6 +2740,22 @@
       function computeNextCue() { return null; }
       function estimateMinutesUntil() { return null; }
       function renderNextCueCard() { return ''; }
+
+      // Phase 4: Announcement card overlay for live cues
+      function renderAnnouncementCard(currentIndex, items) {
+        if (currentIndex === null || currentIndex === undefined || currentIndex < 0) return '';
+        var item = items[currentIndex];
+        if (!item || !item.announcement) return '';
+        var ann = item.announcement;
+        if (typeof ann === 'string') { try { ann = JSON.parse(ann); } catch(e) { return ''; } }
+        if (!ann || (!ann.title && !ann.body)) return '';
+        var html = '<div class="announcement-card" id="announcement-card" data-duration="' + (ann.displayDuration || 10) + '">';
+        if (ann.imageUrl) html += '<div class="announcement-image"><img src="' + esc(ann.imageUrl) + '" alt="" style="max-width:100%;max-height:180px;border-radius:6px;object-fit:cover"></div>';
+        if (ann.title) html += '<div class="announcement-title">' + esc(ann.title) + '</div>';
+        if (ann.body) html += '<div class="announcement-body">' + esc(ann.body) + '</div>';
+        html += '</div>';
+        return html;
+      }
 
       function renderLiveBanner(plan, liveState, items) {
         if (!liveState || liveState.isLive === false) return '';
@@ -2891,6 +2938,7 @@
         html += '</div>';
 
         html += renderLiveBanner(plan, liveState, items);
+        html += renderAnnouncementCard(currentIndex, items);
 
         if (items.length === 0) {
           html += '<div class="state-box"><div class="state-title">No items yet</div><div class="state-sub">This rundown has no items added yet.</div></div>';
@@ -3034,6 +3082,20 @@
 
         document.getElementById('app').innerHTML = html;
         lastUpdated = plan.updatedAt;
+
+        // Phase 4: Auto-dismiss announcement card after displayDuration seconds
+        var annCard = document.getElementById('announcement-card');
+        if (annCard) {
+          var annDuration = parseInt(annCard.getAttribute('data-duration'), 10) || 10;
+          setTimeout(function() {
+            if (annCard && annCard.parentNode) {
+              annCard.style.transition = 'opacity 0.4s, transform 0.4s';
+              annCard.style.opacity = '0';
+              annCard.style.transform = 'translateY(12px)';
+              setTimeout(function() { if (annCard.parentNode) annCard.remove(); }, 400);
+            }
+          }, annDuration * 1000);
+        }
 
         // 10.1: Bind stack collapse/expand toggle buttons
         var stackBtns = document.querySelectorAll('.stack-parent-toggle');
