@@ -473,6 +473,7 @@
         0 4px 20px rgba(0,0,0,0.3),
         inset 0 0 40px rgba(0,230,118,0.03);
       position: relative;
+      transition: none;
     }
     .cue-item.is-current::before {
       content: '';
@@ -710,12 +711,33 @@
       text-shadow: 0 0 20px currentColor;
     }
 
-    /* Timer color transitions */
+    /* Timer color transitions — NO CSS transitions on any timer element to prevent flicker */
     .cue-countdown.timer-green { color: var(--green); }
     .cue-countdown.timer-amber { color: var(--amber); }
     .cue-countdown.timer-red { color: var(--red); }
     .cue-countdown.timer-flash { color: var(--red); animation: flash-cue 1s ease-in-out infinite; }
     @keyframes flash-cue { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Kill transitions on ALL elements that update on timer ticks */
+    .cue-countdown,
+    .cue-countdown-big,
+    .cue-elapsed-label,
+    .cue-timing,
+    .cue-duration,
+    .cue-variance,
+    .cue-est-start,
+    .pill-remaining,
+    .pill-elapsed,
+    .pill-variance,
+    .pill-projected,
+    .cue-counter,
+    .show-clock,
+    #cue-cd,
+    #pill-remaining,
+    #pill-elapsed,
+    #panel-cue-cd {
+      transition: none !important;
+    }
 
     /* ── Standby / Blackout cue types ── */
     .cue-item.is-standby {
@@ -2057,10 +2079,14 @@
       consecutivePollFailures = 0;
       if (connBanner) connBanner.classList.remove('visible');
       var wasLive = liveState && liveState.isLive;
+      var prevCueIndex = liveState ? liveState.currentCueIndex : -1;
+      var prevPaused = liveState ? liveState.isPaused : false;
+      var newCueIndex = timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0);
+
       if (timer.is_live) {
         liveState = {
           isLive: true,
-          currentCueIndex: timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0),
+          currentCueIndex: newCueIndex,
           startedAt: timer.started_at || (liveState ? liveState.startedAt : Date.now()),
           currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : (liveState ? liveState.currentCueStartedAt : Date.now()),
           isPaused: timer.is_paused || false,
@@ -2070,11 +2096,28 @@
       } else {
         liveState = { isLive: false, currentCueIndex: -1 };
       }
-      renderStatusBar();
-      renderCueList();
-      renderPreviewPanel();
-      renderNextUp();
-      if (timer.is_live && !wasLive) scrollToActive();
+
+      // Determine if structural change occurred that requires full DOM rebuild
+      var liveChanged = wasLive !== (liveState && liveState.isLive);
+      var cueChanged = prevCueIndex !== (liveState ? liveState.currentCueIndex : -1);
+      var pauseChanged = prevPaused !== (liveState ? liveState.isPaused : false);
+      var needsFullRender = liveChanged || cueChanged || !wasLive;
+
+      if (needsFullRender) {
+        // Structural change: full re-render needed
+        renderStatusBar();
+        renderCueList();
+        renderPreviewPanel();
+        renderNextUp();
+        if (timer.is_live && !wasLive) scrollToActive();
+        if (cueChanged && timer.is_live) scrollToActive();
+      } else if (pauseChanged) {
+        // Pause state changed: update status bar and controls, but not full cue list
+        renderStatusBar();
+        renderControls();
+      }
+      // Otherwise: just a tick update — liveState is updated, the countdownTimer
+      // interval (every 250ms) handles all display updates via textContent.
     }
 
     function connectWebSocket() {
