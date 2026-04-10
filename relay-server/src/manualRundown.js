@@ -1465,7 +1465,8 @@ class ManualRundownStore {
    * Safe to call periodically (e.g. on init or daily).
    */
   async pruneOldRevisions() {
-    await this.ready;
+    // Note: do NOT await this.ready here — this method is called from _init()
+    // and this.ready IS the _init() promise, so awaiting it would deadlock.
     const cutoff = Date.now() - (90 * 24 * 60 * 60 * 1000); // 90 days
     await this._db.run(
       `DELETE FROM rundown_item_revisions WHERE changed_at < ?`,
