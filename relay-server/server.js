@@ -69,7 +69,7 @@ let _serverReady = false;
 app.use((req, res, next) => {
   if (_serverReady) return next();
   // Allow health endpoints, static assets, and HTML pages during startup
-  if (req.path === '/health' || req.path.startsWith('/api/health') || req.path.startsWith('/api/status') || req.path === '/health/deep') return next();
+  if (req.path.startsWith('/health') || req.path.startsWith('/api/health') || req.path.startsWith('/api/status')) return next();
   if (!req.path.startsWith('/api/')) return next();
   res.status(503).json({ error: 'Server is starting up', retryable: true });
 });
