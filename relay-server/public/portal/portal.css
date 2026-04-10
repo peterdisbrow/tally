@@ -2286,6 +2286,34 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   .rundown-toolbar-group.toolbar-primary-mobile { display: flex !important; }
   .rundown-toolbar-group.toolbar-secondary { display: none !important; }
   .rundown-toolbar-overflow { display: block; }
+
+  /* ── Mobile stacking fix ──
+     backdrop-filter on .card creates a new stacking context; later sibling
+     cards paint over the toolbar card's absolutely-positioned overflow menu.
+     Give the toolbar card explicit z-index so its overflow menu appears above
+     the timing bar and items cards beneath it. */
+  .card:has(.rundown-toolbar) {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Disable the hover-lift transform on mobile — iOS fires :hover on tap,
+     causing transform: translateY(-1px) to create a stacking context that
+     makes the toolbar card render behind subsequent sibling cards. */
+  .card:hover {
+    transform: none;
+  }
+
+  /* Timing bar: allow the Start Time / Target End row to wrap on narrow
+     screens so it doesn't overflow and visually collide with items below. */
+  #rundown-start-time,
+  #rundown-end-time {
+    flex-shrink: 1;
+    min-width: 90px;
+  }
+  #rundown-over-under {
+    min-width: auto;
+  }
 }
 
 /* ── 3.1 Mobile card layout for rundown editor items ── */
