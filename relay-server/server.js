@@ -2553,6 +2553,9 @@ require('./src/routes/health')(app, {
   listObservedChurches,
   getPreviewCacheSummary,
   messageQueues,
+  manualRundown,
+  ADMIN_API_KEY,
+  get _serverReady() { return _serverReady; },
 });
 
 // Shared auth utilities (single source of truth — also used by churchPortal.js)

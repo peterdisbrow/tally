@@ -380,4 +380,58 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
     res.status(isOutage ? 503 : 200).json(body);
   });
+
+  // ─── GET /health/rundown — diagnostic for rundown subsystem ─────────────────
+  // Checks manualRundown init, DB table existence, and query ability.
+  // Protected by admin API key.
+  app.get('/health/rundown', healthRateLimit, async (req, res) => {
+    const adminKey = req.headers['x-admin-key'] || req.query.key;
+    if (!adminKey || adminKey !== ctx.ADMIN_API_KEY) {
+      return res.status(401).json({ error: 'admin key required' });
+    }
+    const result = { serverReady: ctx._serverReady, checks: {} };
+    // Check churches Map
+    result.checks.churchesMap = { size: churches.size, ids: Array.from(churches.keys()) };
+    // Check manualRundown
+    const mr = ctx.manualRundown;
+    if (!mr) {
+      result.checks.manualRundown = { status: 'missing' };
+    } else {
+      try {
+        const readyState = await Promise.race([
+          mr.ready.then(() => 'resolved'),
+          new Promise(r => setTimeout(() => r('timeout'), 3000)),
+        ]);
+        result.checks.manualRundownReady = readyState;
+      } catch (e) {
+        result.checks.manualRundownReady = 'error: ' + e.message;
+      }
+      // Try listing plans for the first church
+      const firstChurchId = Array.from(churches.keys())[0];
+      if (firstChurchId) {
+        try {
+          const plans = await Promise.race([
+            mr.listPlans(firstChurchId),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('listPlans timeout 5s')), 5000)),
+          ]);
+          result.checks.listPlans = { status: 'ok', churchId: firstChurchId, count: plans.length };
+        } catch (e) {
+          result.checks.listPlans = { status: 'error', churchId: firstChurchId, error: e.message, stack: e.stack?.split('\n').slice(0, 5) };
+        }
+      }
+      // Check if table exists
+      if (db) {
+        try {
+          const qc = ctx.queryClient;
+          const tableCheck = await qc.query(
+            `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name = 'manual_rundown_plans'`
+          );
+          result.checks.tableExists = tableCheck[0]?.cnt > 0;
+        } catch (e) {
+          result.checks.tableExists = 'error: ' + e.message;
+        }
+      }
+    }
+    res.json(result);
+  });
 };

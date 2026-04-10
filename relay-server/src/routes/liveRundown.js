@@ -853,7 +853,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         res.json({ plans });
       } catch (e) {
-        console.error('[rundown] error:', e);
+        console.error('[rundown] GET /rundown-plans error for church', churchId, ':', e.message, e.stack);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }
