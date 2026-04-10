@@ -2124,6 +2124,7 @@
           } else if (msg.type === 'rundown_tick' && followRoomId) {
             // Patch live state from tick in follow mode
             if (liveState && liveState.timer) {
+              var wasPaused = !!liveState.isPaused;
               liveState.timer.elapsed_seconds = msg.elapsedSeconds;
               liveState.timer.remaining_seconds = msg.remainingSeconds;
               liveState.timer.is_overtime = msg.isOvertime;
@@ -2134,7 +2135,13 @@
                 liveState.timer.is_paused = msg.isPaused;
                 if (msg.isPaused) liveState.pausedElapsed = msg.elapsedSeconds || 0;
               }
-              renderStatusBar();
+              // Only re-render status bar if paused state changed — the countdown
+              // timer interval handles display updates each tick, and calling
+              // renderStatusBar() here on every tick would rebuild innerHTML every
+              // second, causing the pill-remaining element to flicker/disappear.
+              if (wasPaused !== !!liveState.isPaused) {
+                renderStatusBar();
+              }
             }
           } else if (msg.type === 'follow_room_info') {
             // Update room name display from server
@@ -3065,13 +3072,15 @@
             }
             var cueRemaining = Math.max(0, currentItem.lengthSeconds - cueElapsed);
             var isOvertime = cueElapsed > currentItem.lengthSeconds;
-            var isWarning = !isOvertime && cueRemaining <= 30;
-            var cdClass = 'cue-countdown';
+            // Preserve cue-countdown-big if render set it (current cue always has it)
+            var cdClass = 'cue-countdown cue-countdown-big';
             if (isPausedNow) cdClass += ' is-paused';
-            if (isOvertime) cdClass += ' is-overtime';
-            else if (isWarning) cdClass += ' is-warning';
+            if (isOvertime) cdClass += ' timer-flash';
+            else if (cueRemaining <= 10) cdClass += ' timer-red';
+            else if (cueRemaining <= 30) cdClass += ' timer-amber';
+            else cdClass += ' timer-green';
             cdEl.className = cdClass;
-            cdEl.textContent = isOvertime ? '-' + fmtDuration(cueElapsed - currentItem.lengthSeconds) : fmtDuration(cueRemaining);
+            cdEl.textContent = isOvertime ? '+' + fmtDuration(cueElapsed - currentItem.lengthSeconds) : fmtDuration(cueRemaining);
             var labelEl = cdEl.nextElementSibling;
             if (labelEl) labelEl.textContent = isPausedNow ? 'paused' : (isOvertime ? 'overtime' : 'remaining');
           }
