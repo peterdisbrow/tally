@@ -8280,6 +8280,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _companionActionsCache = {}; // { [itemId]: Action[] }
     var _companionActionsPlanId = null; // planId for which cache was loaded
     var _rundownPlans = [];
+    var _rundownLoadError = null;
     var _rundownSelectedPlanId = null;
     var _rundownSelectedPlan = null;
     var _rundownLiveTracking = true; // auto-scroll to active cue in editor during live mode
@@ -8400,6 +8401,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function loadRundownPage() {
       // Fetch all active sessions, then show the one for the selected room
+      console.log('[rundown] loadRundownPage, CHURCH_ID:', CHURCH_ID);
       api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state?all=1').then(function(data) {
         _rundownStatsByRoom = {};
         if (data && data.sessions && data.sessions.length > 0) {
@@ -8606,7 +8608,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function _rundownFetchPlans(attempt) {
+      console.log('[rundown] fetchPlans attempt', attempt, 'churchId:', CHURCH_ID);
       api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans').then(function(data) {
+        console.log('[rundown] fetchPlans success, plans:', (data && data.plans || []).length);
+        _rundownLoadError = null;
         _rundownPlans = (data && data.plans) || [];
         // 4.7: Auto-archive plans 24h past service date
         _rundownPlans.forEach(function(p) { _rundownAutoTransitionStatus(p); });
@@ -8614,6 +8619,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // 4.2: Show onboarding if no plans exist
         _rundownCheckFirstRunOnboarding();
       }).catch(function(err) {
+        console.error('[rundown] fetchPlans error attempt', attempt, ':', err && err.message, err);
         // Server returns 503 with retryable:true while still starting up
         if (err && err.retryable && attempt < 5) {
           var delay = Math.min(1000 * Math.pow(2, attempt), 8000);
@@ -8621,6 +8627,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           return;
         }
         _rundownPlans = [];
+        _rundownLoadError = (err && err.message) || 'Failed to load rundowns';
         renderRundownDashboard();
       });
     }
@@ -8705,6 +8712,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var plans = _rundownFilteredPlans();
 
       if (plans.length === 0 && !_rundownFilterRoom && !_rundownFilterStatus && !_rundownSearchQuery) {
+        // Show error banner instead of "Create First Rundown" when plans failed to load
+        if (_rundownLoadError) {
+          container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px;font-size:13px">'
+            + '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Failed to load rundowns</div>'
+            + '<div style="color:#8B9DAF;margin-bottom:16px">' + escapeHtml(_rundownLoadError) + '</div>'
+            + '<button onclick="_rundownLoadError=null;_rundownFetchPlans(0)" style="background:#00E676;color:#0a1610;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600">Retry</button>'
+            + '</div>';
+          return;
+        }
         var emptyHtml = '<div class="rundown-empty-state">';
         emptyHtml += '<div class="rundown-empty-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg></div>';
         emptyHtml += '<div class="rundown-empty-title">Create Your First Rundown</div>';
