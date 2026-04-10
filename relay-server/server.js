@@ -6763,14 +6763,19 @@ async function startServer() {
     console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
   }
 
-  server.listen(PORT, () => {
-    log(`Tally Relay running on port ${PORT}`);
-    log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
-    runStatusChecks().catch((e) => {
-      console.error('[StatusChecks] initial run failed:', e.message);
-    });
+  log(`Tally Relay startup complete — all services ready`);
+  log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
+  runStatusChecks().catch((e) => {
+    console.error('[StatusChecks] initial run failed:', e.message);
   });
 }
+
+// Listen IMMEDIATELY so Railway's healthcheck can connect while async
+// initialization runs. Routes and middleware are already registered; the
+// health endpoint will respond even if the DB bootstrap hasn't finished.
+server.listen(PORT, () => {
+  log(`Tally Relay listening on port ${PORT}`);
+});
 
 startServer().catch((error) => {
   logError('Startup failed', {
