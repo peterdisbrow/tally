@@ -14433,51 +14433,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }, 100);
     }
 
-    // ── 7. Plan Comparison View ─────────────────────────────────────────────
-
-    function rundownComparePlans() {
-      if (!_rundownSelectedPlan) return;
-      var currentPlan = _rundownSelectedPlan;
-      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans?includeTemplates=false').then(function(data) {
-        var plans = (data.plans || data || []).filter(function(p) { return p.id !== currentPlan.id; });
-        _showComparisonModal(currentPlan, plans);
-      }).catch(function(e) { toast('Failed: ' + e.message, true); });
-    }
-
-    function _showComparisonModal(currentPlan, otherPlans) {
-      var existing = document.getElementById('rundown-compare-modal');
-      if (existing) existing.remove();
-      var overlay = document.createElement('div');
-      overlay.id = 'rundown-compare-modal';
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
-      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:900px;width:95%;max-height:85vh;overflow-y:auto">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-      html += '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Compare Plans</div>';
-      html += '<button id="close-compare-modal" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
-      html += '<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">';
-      html += '<div style="flex:1;min-width:200px"><div style="font-size:11px;color:#556270;text-transform:uppercase;font-weight:700;margin-bottom:6px">Current</div><div style="color:#F0F2F4;font-weight:600">' + escapeHtml(currentPlan.title) + '</div></div>';
-      html += '<div style="flex:1;min-width:200px"><div style="font-size:11px;color:#556270;text-transform:uppercase;font-weight:700;margin-bottom:6px">Compare with</div>';
-      html += '<select id="compare-plan-select" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:100%;color-scheme:dark">';
-      html += '<option value="">Select a plan...</option>';
-      otherPlans.forEach(function(p) {
-        html += '<option value="' + p.id + '">' + escapeHtml(p.title) + (p.serviceDate ? ' (' + p.serviceDate + ')' : '') + '</option>';
-      });
-      html += '</select></div></div>';
-      html += '<div id="compare-results" style="color:#8B9DAF;text-align:center;padding:32px;font-size:13px">Select a plan to compare</div>';
-      html += '</div>';
-      overlay.innerHTML = html;
-      document.body.appendChild(overlay);
-      document.getElementById('close-compare-modal').addEventListener('click', function() { overlay.remove(); });
-      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-      document.getElementById('compare-plan-select').addEventListener('change', function() {
-        var planId = this.value;
-        if (!planId) { document.getElementById('compare-results').innerHTML = '<div style="color:#8B9DAF;text-align:center;padding:32px;font-size:13px">Select a plan to compare</div>'; return; }
-        api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + planId).then(function(other) {
-          _renderComparison(currentPlan, other);
-        }).catch(function(e) { toast('Failed: ' + e.message, true); });
-      });
-    }
-
     // ── Built-in Church Templates ──────────────────────────────────────────────
 
     var BUILTIN_TEMPLATES = [
@@ -14698,54 +14653,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '</div>';
 
       container.innerHTML = html;
-    }
-
-    // ── Context menu for items ──────────────────────────────────────────────
-
-    function _attachRundownContextMenu(container) {
-      container.querySelectorAll('tr[data-item-id]').forEach(function(row) {
-        if (row.classList.contains('rundown-director-notes-row') || row.classList.contains('rundown-checklist-row') || row.classList.contains('rundown-hard-start-helper')) return;
-        row.addEventListener('contextmenu', function(e) {
-          e.preventDefault();
-          _showRundownItemContextMenu(e, row.getAttribute('data-item-id'));
-        });
-      });
-    }
-
-    function _showRundownItemContextMenu(e, itemId) {
-      var existing = document.getElementById('rundown-ctx-menu');
-      if (existing) existing.remove();
-      var item = (_rundownSelectedPlan.items || []).find(function(x) { return x.id === itemId; });
-      if (!item) return;
-      var menu = document.createElement('div');
-      menu.id = 'rundown-ctx-menu';
-      menu.style.cssText = 'position:fixed;z-index:10000;background:#0d1f14;border:1px solid #0d3320;border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
-      menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
-      menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
-
-      var options = [];
-      options.push({ label: 'Duplicate', action: function() { rundownDuplicateItem(itemId); } });
-      if (item.itemType === 'section') {
-        options.push({ label: 'Duplicate Section', action: function() { rundownDuplicateSection(itemId); } });
-      }
-      options.push({ label: 'Delete', action: function() { rundownDeleteItem(itemId); }, style: 'color:#FF5252' });
-
-      options.forEach(function(opt) {
-        var div = document.createElement('div');
-        div.textContent = opt.label;
-        div.style.cssText = 'padding:8px 16px;font-size:12px;color:#F0F2F4;cursor:pointer;' + (opt.style || '');
-        div.addEventListener('mouseenter', function() { div.style.background = 'rgba(255,255,255,0.06)'; });
-        div.addEventListener('mouseleave', function() { div.style.background = 'none'; });
-        div.addEventListener('click', function() { menu.remove(); opt.action(); });
-        menu.appendChild(div);
-      });
-      document.body.appendChild(menu);
-      setTimeout(function() {
-        document.addEventListener('click', function closeCtx() {
-          menu.remove();
-          document.removeEventListener('click', closeCtx);
-        });
-      }, 0);
     }
 
     // ── Script Editor Panel ─────────────────────────────────────────────────────
@@ -17288,9 +17195,6 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownRedo':
         if (typeof _rundownRedo === 'function') _rundownRedo();
-        break;
-      case 'rundownComparePlans':
-        if (typeof rundownComparePlans === 'function') rundownComparePlans();
         break;
       case 'rundownExportPDFTech':
         if (typeof rundownExportPDF === 'function') rundownExportPDF('tech');
