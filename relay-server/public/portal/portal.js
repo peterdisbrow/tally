@@ -8435,6 +8435,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var noSession = document.getElementById('rundown-no-session');
       var delta = document.getElementById('rundown-schedule-delta');
       var newBtn = document.getElementById('btn-rundown-new');
+      var importBtn = document.getElementById('btn-rundown-import');
       var templatesModal = document.getElementById('rundown-templates-modal');
       var editor = document.getElementById('rundown-editor');
       var pageHeader = document.querySelector('#page-rundown > .page-header');
@@ -8443,6 +8444,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (noSession) noSession.style.display = 'none';
       if (delta) delta.style.display = 'none';
       if (newBtn) newBtn.style.display = 'none';
+      if (importBtn) importBtn.style.display = 'none';
       if (templatesModal) templatesModal.style.display = 'none';
       if (editor) editor.style.display = 'none';
       if (view === 'active') {
@@ -8451,6 +8453,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } else if (view === 'manager') {
         if (manager) manager.style.display = '';
         if (newBtn) newBtn.style.display = '';
+        if (importBtn) importBtn.style.display = 'inline-flex';
         if (pageHeader) pageHeader.style.display = '';
       } else if (view === 'templates') {
         if (templatesModal) templatesModal.style.display = '';
@@ -8709,7 +8712,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         emptyHtml += '<div class="rundown-empty-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg></div>';
         emptyHtml += '<div class="rundown-empty-title">Create Your First Rundown</div>';
         emptyHtml += '<div class="rundown-empty-subtitle">Build a service plan with timed items, assign team members, and run it live during your service.</div>';
-        emptyHtml += '<button class="rundown-empty-cta" data-action="rundownNew"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg> New Rundown</button>';
+        emptyHtml += '<div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-bottom:16px">';
+        emptyHtml += '<button class="rundown-empty-cta" data-action="rundownNew" style="margin-bottom:0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg> New Rundown</button>';
+        emptyHtml += '<button class="rundown-empty-cta rundown-empty-cta-secondary" data-action="rundownImportFromDocument" style="margin-bottom:0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg> Import from Document</button>';
+        emptyHtml += '</div>';
         // Show built-in templates
         emptyHtml += '<div style="font-size:12px;font-weight:700;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Or start from a template</div>';
         emptyHtml += '<div class="rundown-template-grid">';
