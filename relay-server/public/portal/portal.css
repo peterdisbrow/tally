@@ -2722,9 +2722,6 @@ body.light-theme .rundown-total-duration { background: rgba(22,163,74,0.05); col
 /* Export menu hover */
 .rundown-export-menu > div:hover { background: rgba(255,255,255,0.05) !important; }
 
-/* Compare modal table */
-#rundown-compare-modal table tr:hover { background: rgba(255,255,255,0.02) !important; }
-
 /* Light theme overrides */
 body.light-theme .rundown-selected-row { outline-color: rgba(66,165,245,0.35); background: rgba(66,165,245,0.05) !important; }
 body.light-theme #rundown-ctx-menu { background: rgba(255,255,255,0.97); border-color: var(--border-solid); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
@@ -2733,7 +2730,6 @@ body.light-theme #rundown-ctx-menu div:hover { background: rgba(0,0,0,0.04); }
 body.light-theme .rundown-export-menu { background: rgba(255,255,255,0.97) !important; border-color: var(--border-solid) !important; box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important; }
 body.light-theme .rundown-export-menu > div { color: #1a1a1a !important; }
 body.light-theme .rundown-export-menu > div:hover { background: rgba(0,0,0,0.04) !important; }
-body.light-theme #rundown-compare-modal > div { background: #fff; border-color: var(--border-solid); }
 body.light-theme .checklist-panel input[type="text"] { background: rgba(0,0,0,0.03); color: #1a1a1a; border-color: rgba(0,0,0,0.1); }
 
 /* ─── Phase 5: Calendar View ───────────────────────────────────────────── */

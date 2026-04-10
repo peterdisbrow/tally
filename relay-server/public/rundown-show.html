@@ -453,7 +453,7 @@
       background: rgba(255,255,255,0.025);
       border: 1px solid var(--border);
       cursor: pointer;
-      transition: all var(--dur-fast) ease;
+      transition: none;
       box-shadow: var(--shadow-sm);
     }
 
@@ -735,7 +735,14 @@
     #cue-cd,
     #pill-remaining,
     #pill-elapsed,
-    #panel-cue-cd {
+    #panel-cue-cd,
+    .cue-item.is-current,
+    .status-bar,
+    .status-bar *,
+    [class*="timer"],
+    [class*="countdown"],
+    [class*="elapsed"],
+    [class*="remaining"] {
       transition: none !important;
     }
 
