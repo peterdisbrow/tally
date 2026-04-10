@@ -207,8 +207,9 @@ body::before {
 .main {
   margin-left: 220px;
   flex: 1;
-  padding: 36px 40px;
-  max-width: 920px;
+  padding: 36px 48px;
+  max-width: 1440px;
+  width: 100%;
 }
 .page { display: none; }
 .page.active {
@@ -934,6 +935,16 @@ input:checked + .slider:before {
   #activity-feed-body { max-height: 200px; }
   .grid-4col > div { padding: 10px 6px !important; }
   .nav-item.active::before { display: none; }
+}
+
+/* ─── Desktop wide ────────────────────────────────────────────── */
+@media (min-width: 1200px) {
+  .main { padding: 36px 56px; }
+  .grid-4col { grid-template-columns: repeat(4,1fr); gap: 18px; }
+  .stats-row { gap: 20px; }
+}
+@media (min-width: 1600px) {
+  .main { padding: 40px 72px; }
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────── */
