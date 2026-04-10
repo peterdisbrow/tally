@@ -241,13 +241,8 @@ const createAuthMiddleware = require('./src/routes/authMiddleware');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
-if (!process.env.JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is required');
-  process.exit(1);
-}
-
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
-const JWT_SECRET    = process.env.JWT_SECRET;
+const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
 const ADMIN_SESSION_COOKIE = 'tally_admin_key';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const CHURCH_APP_TOKEN_TTL = process.env.TALLY_CHURCH_APP_TOKEN_TTL || '30d';
@@ -280,6 +275,12 @@ if (!_isDevEnv) {
     throw new Error(
       '[STARTUP] Default development admin credential detected in a non-development environment! ' +
       'Set ADMIN_API_KEY to a unique, cryptographically random value.'
+    );
+  }
+  if (!process.env.JWT_SECRET || JWT_SECRET === 'dev-jwt-secret-change-me') {
+    throw new Error(
+      '[STARTUP] JWT_SECRET is required in non-development environments and must not be the default value. ' +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
     );
   }
   if (!process.env.SESSION_SECRET) {
