@@ -6724,6 +6724,9 @@ async function startServer() {
     tallyBot?.ready ?? Promise.resolve(),
   ]);
   log('Startup phase complete: service readiness', { event: 'startup_phase_complete', phase: 'service_ready' });
+  // Open the readiness gate — churches Map and all service modules are ready.
+  // Remaining steps (maintenance, recovery) are non-critical for serving requests.
+  _serverReady = true;
   try {
     await ensureCanonicalTenantColumns(queryClient, { logger: console });
     await ensureTenantGuardrails(queryClient, { logger: console });
@@ -6775,7 +6778,6 @@ async function startServer() {
     console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
   }
 
-  _serverReady = true;
   log(`Tally Relay startup complete — all services ready`);
   log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
   runStatusChecks().catch((e) => {
