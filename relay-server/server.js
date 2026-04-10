@@ -6684,6 +6684,10 @@ async function startServer() {
   log('Startup phase: church runtime hydration', { event: 'startup_phase', phase: 'church_runtime' });
   await churchRuntimeReady;
   log('Startup phase complete: church runtime hydration', { event: 'startup_phase_complete', phase: 'church_runtime' });
+  // Open the readiness gate — churches Map is populated, DB is ready.
+  // API routes can now resolve churchId lookups. Service modules continue
+  // initializing in the background; their methods handle pre-ready calls.
+  _serverReady = true;
   await runtimeMirror.start({
     onMirroredEvent: rebroadcastMirroredRuntimeEvent,
     onRawEvent: handleRuntimeCoordinationEvent,
@@ -6724,9 +6728,6 @@ async function startServer() {
     tallyBot?.ready ?? Promise.resolve(),
   ]);
   log('Startup phase complete: service readiness', { event: 'startup_phase_complete', phase: 'service_ready' });
-  // Open the readiness gate — churches Map and all service modules are ready.
-  // Remaining steps (maintenance, recovery) are non-critical for serving requests.
-  _serverReady = true;
   try {
     await ensureCanonicalTenantColumns(queryClient, { logger: console });
     await ensureTenantGuardrails(queryClient, { logger: console });
