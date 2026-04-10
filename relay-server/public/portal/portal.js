@@ -8602,6 +8602,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
         }
       });
+      _rundownFetchPlans(0);
+    }
+
+    function _rundownFetchPlans(attempt) {
       api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans').then(function(data) {
         _rundownPlans = (data && data.plans) || [];
         // 4.7: Auto-archive plans 24h past service date
@@ -8609,7 +8613,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderRundownDashboard();
         // 4.2: Show onboarding if no plans exist
         _rundownCheckFirstRunOnboarding();
-      }).catch(function() {
+      }).catch(function(err) {
+        // Server returns 503 with retryable:true while still starting up
+        if (err && err.retryable && attempt < 5) {
+          var delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+          setTimeout(function() { _rundownFetchPlans(attempt + 1); }, delay);
+          return;
+        }
         _rundownPlans = [];
         renderRundownDashboard();
       });

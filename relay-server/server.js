@@ -62,6 +62,18 @@ if (process.env.SENTRY_DSN) {
 const app = express();
 app.set('trust proxy', 1); // Railway runs behind a single reverse proxy
 
+// ─── READINESS GATE ─────────────────────────────────────────────────────────
+// server.listen() fires before async bootstrap so Railway healthchecks pass.
+// This flag prevents API routes from serving stale/empty data during startup.
+let _serverReady = false;
+app.use((req, res, next) => {
+  if (_serverReady) return next();
+  // Allow health endpoints, static assets, and HTML pages during startup
+  if (req.path === '/health' || req.path.startsWith('/api/health') || req.path.startsWith('/api/status') || req.path === '/health/deep') return next();
+  if (!req.path.startsWith('/api/')) return next();
+  res.status(503).json({ error: 'Server is starting up', retryable: true });
+});
+
 // ─── SECURITY HEADERS ────────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
@@ -6763,6 +6775,7 @@ async function startServer() {
     console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
   }
 
+  _serverReady = true;
   log(`Tally Relay startup complete — all services ready`);
   log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
   runStatusChecks().catch((e) => {
