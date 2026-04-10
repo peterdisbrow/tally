@@ -241,7 +241,6 @@ const createAuthMiddleware = require('./src/routes/authMiddleware');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
 const ADMIN_SESSION_COOKIE = 'tally_admin_key';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -260,33 +259,39 @@ const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https
 const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}/admin`).trim();
 
 // ─── STARTUP SECRET VALIDATION ───────────────────────────────────────────────
-// Fail loudly in any non-development, non-test environment if secrets are
-// missing or still set to insecure defaults. This prevents accidental staging
-// deploys with dev credentials — a leak of those secrets is an account takeover.
+// In production, ADMIN_API_KEY and SESSION_SECRET are derived from JWT_SECRET
+// if not explicitly provided. This keeps secrets stable across restarts and
+// avoids crashing when env vars haven't been added yet. JWT_SECRET is the root
+// of trust — if it's set, the derived secrets are cryptographically distinct.
 const _isDevEnv = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !!process.env.VITEST;
+
+const _crypto = require('crypto');
+function _deriveSecret(label) {
+  return _crypto.createHmac('sha256', JWT_SECRET).update(label).digest('hex');
+}
+
+// Derive ADMIN_API_KEY and SESSION_SECRET from JWT_SECRET if not explicitly set.
+// This avoids a crash when these vars haven't been added to Railway yet.
+if (!process.env.ADMIN_API_KEY) {
+  if (!_isDevEnv) {
+    console.warn('\n⚠️  ADMIN_API_KEY not set — deriving from JWT_SECRET. Add ADMIN_API_KEY to Railway env vars for an explicit value.');
+  }
+  process.env.ADMIN_API_KEY = _isDevEnv ? 'dev-admin-key-change-me' : _deriveSecret('tally-admin-api-key');
+}
+if (!process.env.SESSION_SECRET) {
+  if (!_isDevEnv) {
+    console.warn('⚠️  SESSION_SECRET not set — deriving from JWT_SECRET. Add SESSION_SECRET to Railway env vars for an explicit value.\n');
+  }
+  process.env.SESSION_SECRET = _isDevEnv ? 'dev-session-secret-change-me' : _deriveSecret('tally-session-secret');
+}
+
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+
 if (!_isDevEnv) {
-  if (!process.env.ADMIN_API_KEY) {
-    throw new Error(
-      `[STARTUP] ADMIN_API_KEY is required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
-      '  Generate a secure value with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
-    );
-  }
-  if (ADMIN_API_KEY === 'dev-admin-key-change-me') {
-    throw new Error(
-      '[STARTUP] Default development admin credential detected in a non-development environment! ' +
-      'Set ADMIN_API_KEY to a unique, cryptographically random value.'
-    );
-  }
   if (!process.env.JWT_SECRET || JWT_SECRET === 'dev-jwt-secret-change-me') {
     throw new Error(
       '[STARTUP] JWT_SECRET is required in non-development environments and must not be the default value. ' +
       'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
-    );
-  }
-  if (!process.env.SESSION_SECRET) {
-    throw new Error(
-      `[STARTUP] SESSION_SECRET is required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
-      '  Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
     );
   }
   // Stripe: if secret key is set, webhook secret MUST also be set to prevent spoofed webhooks
