@@ -2248,7 +2248,6 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <div id="rundown-schedule-delta" style="display:none;padding:6px 14px;border-radius:8px;font-size:14px;font-weight:700;white-space:nowrap"></div>
-          <button class="btn-secondary" id="btn-rundown-multicampus" data-action="rundownOpenMulticampus" style="font-size:13px;padding:6px 14px">Multi-Campus</button>
           <button class="btn-primary" id="btn-rundown-new" data-action="rundownNew" style="display:none;font-size:13px;padding:6px 14px">New Rundown</button>
         </div>
       </div>
@@ -2282,8 +2281,6 @@
           <div style="margin-left:auto;display:flex;gap:4px" id="rundown-view-toggle">
             <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="list" style="font-size:11px;padding:4px 8px;font-weight:600" title="List view">List</button>
             <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="calendar" style="font-size:11px;padding:4px 8px" title="Calendar view">Calendar</button>
-            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="analytics" style="font-size:11px;padding:4px 8px" title="Analytics">Analytics</button>
-            <button class="btn-secondary" data-action="rundownSetDashboardView" data-view="webhooks" style="font-size:11px;padding:4px 8px" title="Webhooks">Webhooks</button>
           </div>
         </div>
 
@@ -2294,12 +2291,6 @@
 
         <!-- Calendar view (rendered by JS) -->
         <div id="rundown-calendar-view" class="rundown-calendar" style="display:none" role="region" aria-label="Rundown calendar"></div>
-
-        <!-- Analytics dashboard (rendered by JS) -->
-        <div id="rundown-analytics-view" class="rundown-analytics" style="display:none" role="region" aria-label="Rundown analytics"></div>
-
-        <!-- Webhooks management (rendered by JS) -->
-        <div id="rundown-webhooks-view" style="display:none" role="region" aria-label="Webhook management"></div>
 
         <!-- Plan editor (shown when a plan is selected) -->
         <div id="rundown-editor" style="display:none">
@@ -2358,7 +2349,6 @@
               <div class="rundown-toolbar-divider"></div>
               <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary rundown-adv" data-action="rundownSaveTemplate" style="font-size:12px;padding:5px 12px">Save as Template</button>
-                <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px" title="Compare this plan side-by-side with another">Compare</button>
                 <button class="btn-secondary" data-action="rundownImportFromDocument" style="font-size:12px;padding:5px 12px;display:inline-flex;align-items:center;gap:4px" title="Import items from a document using AI">Import</button>
                 <button class="btn-secondary" id="btn-rundown-share" data-action="rundownOpenPublicView" style="font-size:12px;padding:5px 12px" title="Open the public rundown in a new tab">Public View</button>
                 <button class="btn-secondary" id="btn-rundown-timer-display" data-action="rundownOpenTimerDisplay" style="font-size:12px;padding:5px 12px" title="Open the default countdown timer display">Timer View</button>
@@ -2372,7 +2362,6 @@
               <div class="rundown-toolbar-group toolbar-secondary">
                 <button class="btn-secondary" id="btn-rundown-undo" data-action="rundownUndo" style="font-size:12px;padding:5px 10px" title="Undo (Ctrl+Z)" disabled>Undo</button>
                 <button class="btn-secondary" id="btn-rundown-redo" data-action="rundownRedo" style="font-size:12px;padding:5px 10px" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
-                <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px" title="Compare with another plan">Compare</button>
                 <div style="position:relative;display:inline-block">
                   <button class="btn-secondary" id="btn-rundown-export" style="font-size:12px;padding:5px 12px" title="Export plan">Export</button>
                   <div class="rundown-export-menu" id="rundown-export-menu" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#0d1f14;border:1px solid #0d3320;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.5);margin-top:4px">
@@ -2387,7 +2376,6 @@
               </div>
               <div style="flex:1"></div>
               <div class="rundown-toolbar-group toolbar-secondary">
-                <button class="btn-secondary rundown-adv" data-action="rundownSyncSettings" style="font-size:12px;padding:5px 12px" title="Configure cross-room timing sync">Sync</button>
                 <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
               </div>
               <!-- Overflow menu for mobile -->
@@ -2411,7 +2399,6 @@
                   <button class="btn-secondary" data-action="rundownExportCSV" style="font-size:12px;padding:5px 12px">Export CSV</button>
                   <button class="btn-secondary" data-action="rundownImportCSV" style="font-size:12px;padding:5px 12px">Import CSV</button>
                   <button class="btn-secondary" data-action="rundownImportFromDocument" style="font-size:12px;padding:5px 12px" title="Import items from a document using AI">Import from Document</button>
-                  <button class="btn-secondary" data-action="rundownComparePlans" style="font-size:12px;padding:5px 12px">Compare</button>
                   <button class="btn-secondary" data-action="rundownDeletePlan" style="font-size:12px;padding:5px 12px;color:#FF5252;border-color:rgba(255,82,82,0.25)">Delete</button>
                 </div>
               </div>
@@ -2427,9 +2414,6 @@
             <input type="time" id="rundown-end-time" value="" placeholder="--:--" style="background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;color-scheme:dark">
             <div id="rundown-over-under" style="font-size:13px;font-weight:700;font-family:'SF Mono',SFMono-Regular,ui-monospace,monospace;min-width:80px;text-align:right"></div>
           </div>
-
-          <!-- Batch action bar (advanced only) -->
-          <div id="rundown-batch-bar" class="rundown-batch-bar rundown-adv" style="display:none;margin-bottom:12px"></div>
 
           <!-- Table container -->
           <div class="card" style="margin-bottom:12px;padding:0;overflow-x:auto">
@@ -2783,36 +2767,6 @@
             </div>
           </div>
           <div id="rundown-collaborators-list" style="display:flex;flex-direction:column;gap:10px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- SYNC SETTINGS MODAL -->
-    <div class="modal-backdrop" id="modal-rundown-sync">
-      <div class="modal" style="max-width:480px">
-        <div class="modal-header">
-          <div class="modal-title">Cross-Room Timing Sync</div>
-          <button class="modal-close" id="rundown-sync-modal-close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-        </div>
-        <div style="padding:0 20px 20px">
-          <div style="font-size:13px;color:#8B9DAF;margin-bottom:20px;line-height:1.55">When enabled, this plan's live session automatically advances whenever the selected room advances — useful for overflow rooms and satellite campuses.</div>
-          <div style="margin-bottom:16px">
-            <label style="display:block;font-size:12px;font-weight:600;color:#8B9DAF;margin-bottom:6px">Mirror cue advances from room</label>
-            <select id="sync-source-room-select" style="width:100%;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer;color-scheme:dark">
-              <option value="">Disabled (no sync)</option>
-            </select>
-          </div>
-          <div style="margin-bottom:20px" id="sync-delay-row">
-            <label style="display:block;font-size:12px;font-weight:600;color:#8B9DAF;margin-bottom:6px">Delay (seconds) <span style="color:#556270;font-weight:400">0 = instant mirror</span></label>
-            <input type="range" id="sync-delay-slider" min="0" max="10" step="1" value="0" style="width:100%;accent-color:#00E676">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#556270;margin-top:4px">
-              <span>0s</span><span id="sync-delay-label" style="color:#00E676;font-weight:700">0s</span><span>10s</span>
-            </div>
-          </div>
-          <div style="display:flex;gap:10px">
-            <button class="btn-secondary" id="sync-cancel-btn" style="flex:1">Cancel</button>
-            <button class="btn-primary" id="sync-save-btn" style="flex:1">Save Sync Settings</button>
-          </div>
         </div>
       </div>
     </div>

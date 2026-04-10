@@ -38,12 +38,6 @@ class LiveRundownManager {
     this._db = queryClient;
     this.ready = this._db ? this._init() : Promise.resolve();
 
-    // Cross-room sync: Map<sourceKey, Set<{ targetChurchId, targetRoomId, delaySeconds }>>
-    // When sourceKey session advances, all registered targets advance after their delay.
-    this._syncTargets = new Map();
-    // In-flight sync timers: Map<timerHandle, true> — tracked for cleanup
-    this._syncTimers = new Set();
-
     // Room ready-check status: Map<"churchId:roomId", { status, label, updatedAt }>
     // Persisted to DB separately but also held in memory for fast reads.
     this._roomStatus = new Map();
@@ -404,9 +398,6 @@ class LiveRundownManager {
     this._log(`[LiveRundown] Session ended for church ${churchId} room ${roomId || '(default)'}: "${session.planTitle}" (${reason})`);
     this._broadcastToRoom(churchId, roomId, { type: 'rundown_ended', ...summary });
 
-    // Clear any sync relationships for this session
-    this._clearSyncForSession(churchId, roomId);
-
     return summary;
   }
 
@@ -723,9 +714,6 @@ class LiveRundownManager {
 
     const state = this._buildState(session);
     this._broadcastToRoom(session.churchId, session.roomId, { type: 'rundown_position', ...state });
-
-    // Trigger cross-room sync advances (if any sessions mirror this one)
-    this._triggerSyncAdvances(session.churchId, session.roomId);
 
     // Trigger Companion actions for the new item (if any are configured)
     const newItem = session.items[newIndex];
@@ -1104,104 +1092,6 @@ class LiveRundownManager {
     this._broadcastToControllers(churchId, msg);
   }
 
-  // ─── CROSS-ROOM SYNC ───────────────────────────────────────────────────────
-
-  /**
-   * Register a sync relationship: when sourceKey session advances, advance
-   * targetChurchId:targetRoomId after delaySeconds.
-   *
-   * Call this when a plan session starts with a sync config, or when the TD
-   * explicitly enables sync. Replaces any existing target registration for
-   * the same (source, target) pair.
-   *
-   * @param {string} sourceChurchId
-   * @param {string} sourceRoomId
-   * @param {string} targetChurchId
-   * @param {string} targetRoomId
-   * @param {number} delaySeconds — 0–10
-   */
-  registerSyncTarget(sourceChurchId, sourceRoomId, targetChurchId, targetRoomId, delaySeconds = 0) {
-    const sourceKey = this._sessionKey(sourceChurchId, sourceRoomId);
-    if (!this._syncTargets.has(sourceKey)) this._syncTargets.set(sourceKey, new Set());
-    const targets = this._syncTargets.get(sourceKey);
-    // Remove any existing entry for the same target
-    for (const t of targets) {
-      if (t.targetChurchId === targetChurchId && t.targetRoomId === targetRoomId) {
-        targets.delete(t);
-        break;
-      }
-    }
-    targets.add({ targetChurchId, targetRoomId, delaySeconds: Math.max(0, Math.min(10, Number(delaySeconds) || 0)) });
-    this._log(`[LiveRundown] Sync registered: ${sourceChurchId}:${sourceRoomId} → ${targetChurchId}:${targetRoomId} (delay ${delaySeconds}s)`);
-  }
-
-  /**
-   * Remove a sync target for a source session.
-   */
-  unregisterSyncTarget(sourceChurchId, sourceRoomId, targetChurchId, targetRoomId) {
-    const sourceKey = this._sessionKey(sourceChurchId, sourceRoomId);
-    const targets = this._syncTargets.get(sourceKey);
-    if (!targets) return;
-    for (const t of targets) {
-      if (t.targetChurchId === targetChurchId && t.targetRoomId === targetRoomId) {
-        targets.delete(t);
-        break;
-      }
-    }
-    if (targets.size === 0) this._syncTargets.delete(sourceKey);
-  }
-
-  /**
-   * Remove all sync registrations where this session is a source or target.
-   * Called on endSession.
-   */
-  _clearSyncForSession(churchId, roomId) {
-    const key = this._sessionKey(churchId, roomId);
-    // Remove as source
-    this._syncTargets.delete(key);
-    // Remove as target from all sources
-    for (const [sourceKey, targets] of this._syncTargets) {
-      for (const t of targets) {
-        if (t.targetChurchId === churchId && t.targetRoomId === roomId) {
-          targets.delete(t);
-        }
-      }
-      if (targets.size === 0) this._syncTargets.delete(sourceKey);
-    }
-  }
-
-  /**
-   * Fire sync advances for all registered targets of a source session.
-   * Called after the source session moves to a new position.
-   *
-   * @param {string} churchId - source church
-   * @param {string} roomId - source room
-   */
-  _triggerSyncAdvances(churchId, roomId) {
-    const sourceKey = this._sessionKey(churchId, roomId);
-    const targets = this._syncTargets.get(sourceKey);
-    if (!targets || targets.size === 0) return;
-
-    for (const { targetChurchId, targetRoomId, delaySeconds } of targets) {
-      const doAdvance = () => {
-        const state = this.advance(targetChurchId, targetRoomId);
-        if (state) {
-          this._log(`[LiveRundown] Sync advance: ${targetChurchId}:${targetRoomId} (mirrored from ${churchId}:${roomId})`);
-        }
-      };
-
-      if (delaySeconds <= 0) {
-        doAdvance();
-      } else {
-        const handle = setTimeout(() => {
-          this._syncTimers.delete(handle);
-          doAdvance();
-        }, delaySeconds * 1000);
-        this._syncTimers.add(handle);
-      }
-    }
-  }
-
   // ─── ROOM READY-CHECK STATUS ──────────────────────────────────────────────
 
   /**
@@ -1271,10 +1161,6 @@ class LiveRundownManager {
     for (const churchId of this._tickTimers.keys()) {
       this._stopTick(churchId);
     }
-    for (const handle of this._syncTimers) {
-      clearTimeout(handle);
-    }
-    this._syncTimers.clear();
     this._sessions.clear();
   }
 }

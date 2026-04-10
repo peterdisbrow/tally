@@ -738,95 +738,11 @@ input:checked + .slider:before {
   word-break: break-all;
 }
 
-/* ─── ANALYTICS ────────────────────────────────────────────────── */
-.analytics-range {
-  padding: 6px 14px;
-  font-size: 12px;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: all var(--duration-fast) ease;
-}
-.analytics-range.active {
-  background: var(--primary-dim);
-  border-color: var(--primary);
-  color: var(--primary);
-}
-.a-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-  font-size: 12px;
-}
-.a-bar-label {
-  width: 100px;
-  text-align: right;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.a-bar-track {
-  flex: 1;
-  height: 20px;
-  background: rgba(0,0,0,0.25);
-  border-radius: var(--radius-xs);
-  overflow: hidden;
-}
-.a-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--primary), #66FFA0);
-  border-radius: var(--radius-xs);
-  transition: width 0.5s var(--ease-out);
-  min-width: 2px;
-}
-.a-bar-fill.yellow { background: linear-gradient(90deg, var(--warning), #FFD54F); }
-.a-bar-fill.red { background: linear-gradient(90deg, var(--danger), #FF8A80); }
-.a-bar-value {
-  width: 50px;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.a-metric-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.a-metric-item {
-  background: rgba(0,0,0,0.2);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  border: 1px solid var(--border);
-  transition: border-color var(--duration-fast) ease;
-}
-.a-metric-item:hover { border-color: var(--border-hover); }
-.a-metric-val {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--primary);
-  letter-spacing: -0.02em;
-}
-.a-metric-lbl {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  font-weight: 500;
-}
-
 /* ─── GRID UTILITIES ───────────────────────────────────────────── */
 .grid-4col { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; }
 .grid-3col { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
 .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-@media (max-width: 768px) {
-  #analytics-kpi { grid-template-columns: repeat(2, 1fr) !important; }
-  .a-metric-grid { grid-template-columns: 1fr; }
-  .a-bar-label { width: 60px; font-size: 11px; }
-}
 
 /* ─── MODAL ────────────────────────────────────────────────────── */
 .modal-backdrop {
@@ -2449,77 +2365,6 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   }
 }
 
-.rundown-batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  background: rgba(0,230,118,0.04);
-  border: 1px solid rgba(0,230,118,0.12);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-}
-
-.rundown-batch-count {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-right: 4px;
-}
-
-.rundown-batch-spacer {
-  flex: 1;
-  min-width: 6px;
-}
-
-.rundown-batch-bar button { white-space: nowrap; }
-
-.rundown-batch-check {
-  width: 28px;
-  text-align: center;
-}
-
-.rundown-batch-checkbox {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(5,10,7,0.9);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
-}
-
-.rundown-batch-checkbox:checked {
-  background: var(--primary);
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(0,230,118,0.12);
-}
-
-.rundown-batch-checkbox:checked::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: #050a07;
-}
-
-.rundown-batch-selected {
-  background: rgba(0,230,118,0.06) !important;
-  box-shadow: inset 3px 0 0 rgba(0,230,118,0.8);
-}
-
-.rundown-batch-section-selected {
-  background: rgba(0,230,118,0.06) !important;
-  border-top-color: rgba(0,230,118,0.7) !important;
-}
-
 /* 4.5: Rundown Simple Mode — hide advanced features when not in advanced mode */
 body:not(.advanced-mode) .rundown-adv { display: none !important; }
 
@@ -2537,9 +2382,6 @@ body.light-theme .rundown-status-badge.status-live { background: rgba(220,38,38,
 body.light-theme .rundown-status-badge.status-archived { background: rgba(107,114,128,0.06); color: #9ca3af; }
 body.light-theme .presence-avatar { border-color: #fff; }
 body.light-theme #rundown-presence-bar.has-editors { background: rgba(22,163,74,0.04); border-color: rgba(22,163,74,0.12); }
-body.light-theme .rundown-batch-bar { background: rgba(22,163,74,0.04); border-color: rgba(22,163,74,0.12); }
-body.light-theme .rundown-batch-checkbox { background: #fff; border-color: rgba(0,0,0,0.15); }
-body.light-theme .rundown-batch-checkbox:checked::after { background: #fff; }
 
 /* ── Phase 1 v3: Color coding, Section headers, Duration picker, Empty state, Templates, UI polish ── */
 
@@ -2923,34 +2765,6 @@ body.light-theme .checklist-panel input[type="text"] { background: rgba(0,0,0,0.
 .rundown-cal-month .rundown-cal-cell { min-height: 60px; }
 .rundown-cal-month .rundown-cal-plan { font-size: 0; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin: 1px; padding: 0; }
 
-/* ─── Phase 5: Analytics Dashboard ─────────────────────────────────────── */
-.rundown-analytics { padding: 0; }
-.analytics-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-.analytics-header h3 { font-size: 18px; font-weight: 800; color: var(--text-primary); margin: 0; letter-spacing: -0.02em; }
-.analytics-range { display: flex; gap: 4px; margin-left: auto; }
-.analytics-range button { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); border-radius: var(--radius-xs); padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all var(--duration-fast) ease; }
-.analytics-range button.active { background: var(--primary-dim); border-color: var(--primary); color: var(--primary); }
-.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-.analytics-card { background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; transition: all var(--duration-normal) ease; }
-.analytics-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
-.analytics-card h4 { font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 14px; }
-.analytics-stat { font-size: 30px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; }
-.analytics-stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
-.analytics-kpi-row { display: flex; gap: 16px; margin-bottom: 16px; }
-.analytics-kpi { flex: 1; background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px 18px; text-align: center; transition: all var(--duration-fast) ease; }
-.analytics-kpi:hover { border-color: var(--border-hover); }
-
-/* ─── Phase 5: Webhooks UI ─────────────────────────────────────────────── */
-.webhook-list { display: flex; flex-direction: column; gap: 8px; }
-.webhook-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: all var(--duration-fast) ease; }
-.webhook-row:hover { border-color: var(--border-hover); }
-.webhook-row .webhook-url { flex: 1; font-size: 13px; color: var(--text-primary); font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.webhook-row .webhook-events { font-size: 11px; color: var(--text-secondary); }
-.webhook-row .webhook-actions { display: flex; gap: 6px; }
-.webhook-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.webhook-status-dot.active { background: var(--primary); box-shadow: 0 0 6px var(--primary); }
-.webhook-status-dot.inactive { background: var(--text-muted); }
-
 /* ─── Phase 5: Accessibility ───────────────────────────────────────────── */
 .skip-link { position: absolute; top: -40px; left: 0; background: var(--primary); color: #050a07; padding: 8px 16px; z-index: 9999; font-weight: 700; text-decoration: none; border-radius: 0 0 var(--radius-sm) 0; }
 .skip-link:focus { top: 0; }
@@ -2965,7 +2779,6 @@ body.light-theme .rundown-cal-cell.today { background: rgba(22,163,74,0.03); }
 body.light-theme .rundown-cal-header { background: #f8f9fa; color: #6b7280; }
 body.light-theme .analytics-card { background: rgba(0,0,0,0.015); border-color: var(--border-solid); }
 body.light-theme .analytics-card:hover { border-color: rgba(22,163,74,0.2); }
-body.light-theme .webhook-row { background: rgba(0,0,0,0.015); border-color: var(--border-solid); }
 /* Focus-visible accessibility indicators */
 button:focus-visible,
 select:focus-visible,

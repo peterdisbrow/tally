@@ -1577,6 +1577,27 @@
       .timer-adjust-group { justify-content: center; width: 100%; }
       .btn-pause { min-width: 100%; }
     }
+    .rehearsal-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 9999;
+      background: linear-gradient(90deg, #F57C00, #FFB74D, #F57C00);
+      color: #1a1a2e;
+      text-align: center;
+      padding: 6px 16px;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 12px rgba(245,124,0,0.4);
+    }
+    body.light-theme .rehearsal-banner {
+      background: linear-gradient(90deg, #E65100, #F57C00, #E65100);
+      color: #fff;
+    }
+    body.has-rehearsal-banner { padding-top: 32px; }
   </style>
 </head>
 <body>
@@ -2581,6 +2602,15 @@
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
       app.appendChild(topbar);
+
+      // Rehearsal mode banner
+      if (plan && plan.status === 'rehearsal') {
+        var rehearsalBanner = document.createElement('div');
+        rehearsalBanner.className = 'rehearsal-banner';
+        rehearsalBanner.textContent = 'REHEARSAL MODE';
+        document.body.insertBefore(rehearsalBanner, document.body.firstChild);
+        document.body.classList.add('has-rehearsal-banner');
+      }
 
       // Bind column toggle events
       var colBtn = document.getElementById('show-col-btn');
