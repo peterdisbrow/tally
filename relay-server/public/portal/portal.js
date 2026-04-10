@@ -8436,21 +8436,133 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var delta = document.getElementById('rundown-schedule-delta');
       var newBtn = document.getElementById('btn-rundown-new');
       var templatesModal = document.getElementById('rundown-templates-modal');
+      var editor = document.getElementById('rundown-editor');
+      var pageHeader = document.querySelector('#page-rundown > .page-header');
       if (manager) manager.style.display = 'none';
       if (active) active.style.display = 'none';
       if (noSession) noSession.style.display = 'none';
       if (delta) delta.style.display = 'none';
       if (newBtn) newBtn.style.display = 'none';
       if (templatesModal) templatesModal.style.display = 'none';
+      if (editor) editor.style.display = 'none';
       if (view === 'active') {
         if (active) active.style.display = '';
+        if (pageHeader) pageHeader.style.display = '';
       } else if (view === 'manager') {
         if (manager) manager.style.display = '';
         if (newBtn) newBtn.style.display = '';
+        if (pageHeader) pageHeader.style.display = '';
       } else if (view === 'templates') {
         if (templatesModal) templatesModal.style.display = '';
         if (newBtn) newBtn.style.display = '';
+        if (pageHeader) pageHeader.style.display = '';
+      } else if (view === 'editor') {
+        if (editor) editor.style.display = '';
+        if (pageHeader) pageHeader.style.display = 'none';
       }
+    }
+
+    // ── Full-screen editor navigation ─────────────────────────────────────────
+    function rundownBackToDashboard() {
+      // Close team sidebar if open
+      var sidebar = document.getElementById('rundown-team-sidebar');
+      if (sidebar) sidebar.style.display = 'none';
+      // Unsubscribe from editing session
+      if (_rundownSubscribedPlanId) {
+        _rundownUnsubscribePlan(_rundownSubscribedPlanId);
+      }
+      _rundownSelectedPlanId = null;
+      _rundownSelectedPlan = null;
+      _rundownCloseCollaborators();
+      // Update hash without triggering popstate
+      _rundownSkipHashChange = true;
+      history.pushState({ rundownView: 'dashboard' }, '', window.location.pathname + window.location.search + '#rundown');
+      _rundownSkipHashChange = false;
+      loadRundownManager();
+    }
+
+    var _rundownSkipHashChange = false;
+
+    function _rundownOpenEditorHash(planId) {
+      _rundownSkipHashChange = true;
+      history.pushState({ rundownView: 'editor', planId: planId }, '', window.location.pathname + window.location.search + '#rundown-plan-' + planId);
+      _rundownSkipHashChange = false;
+    }
+
+    // Handle browser back/forward for editor state
+    window.addEventListener('popstate', function(e) {
+      if (_rundownSkipHashChange) return;
+      var hash = window.location.hash;
+      if (hash && hash.indexOf('#rundown-plan-') === 0) {
+        var planId = hash.replace('#rundown-plan-', '');
+        if (planId && planId !== _rundownSelectedPlanId) {
+          rundownSelectPlan(planId, 'manual');
+        }
+      } else if (hash === '#rundown' || (e.state && e.state.rundownView === 'dashboard')) {
+        if (_rundownSelectedPlanId) {
+          rundownBackToDashboard();
+        }
+      }
+    });
+
+    // On page load, check hash for restoring editor state
+    function _rundownCheckHashOnLoad() {
+      var hash = window.location.hash;
+      if (hash && hash.indexOf('#rundown-plan-') === 0) {
+        var planId = hash.replace('#rundown-plan-', '');
+        if (planId) {
+          // Navigate to rundown page and open editor
+          var navBtn = document.querySelector('[data-page="rundown"]');
+          if (navBtn) showPage('rundown', navBtn);
+          setTimeout(function() { rundownSelectPlan(planId, 'manual'); }, 200);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // ── Team panel toggle ─────────────────────────────────────────────────────
+    function rundownToggleTeamPanel() {
+      var sidebar = document.getElementById('rundown-team-sidebar');
+      if (!sidebar) return;
+      if (sidebar.style.display === 'none' || !sidebar.style.display) {
+        sidebar.style.display = '';
+        _rundownRenderTeamMembers();
+      } else {
+        sidebar.style.display = 'none';
+      }
+    }
+
+    function _rundownRenderTeamMembers() {
+      var container = document.getElementById('rundown-team-members');
+      if (!container) return;
+      var merged = _rundownMergedCollaborators();
+      if (!merged.length) {
+        container.innerHTML = '<div style="padding:12px;font-size:12px;color:#556270;text-align:center">No team members yet</div>';
+        return;
+      }
+      var html = '';
+      merged.forEach(function(entry, index) {
+        var key = entry.collaboratorKey || '';
+        var name = entry.displayName || key || 'Unnamed';
+        var isSelf = key === _rundownSessionId;
+        var role = entry.role || 'editor';
+        var status = entry.status || 'offline';
+        var isOnline = status === 'active';
+        var initials = name.split(' ').map(function(part) { return part[0] || ''; }).join('').slice(0, 2).toUpperCase() || 'TD';
+        var bgColor = RUNDOWN_PRESENCE_COLORS[index % RUNDOWN_PRESENCE_COLORS.length];
+        var roleLabel = role === 'owner' ? 'Owner' : role === 'viewer' ? 'Viewer' : 'Editor';
+        html += '<div class="rundown-team-member">';
+        html += '<div class="rundown-team-member-avatar" style="background:' + bgColor + '">' + escapeHtml(initials);
+        html += '<span class="' + (isOnline ? 'online-dot' : 'offline-dot') + '"></span>';
+        html += '</div>';
+        html += '<div class="rundown-team-member-info">';
+        html += '<div class="rundown-team-member-name">' + escapeHtml(name) + (isSelf ? ' (you)' : '') + '</div>';
+        html += '<div class="rundown-team-member-role">' + roleLabel + '</div>';
+        html += '</div>';
+        html += '</div>';
+      });
+      container.innerHTML = html;
     }
 
     // Attach filter/sort event listeners (once)
@@ -8474,6 +8586,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         _rundownUnsubscribePlan(_rundownSubscribedPlanId);
       }
       _rundownCloseCollaborators();
+      // Close team sidebar if open
+      var teamSidebar = document.getElementById('rundown-team-sidebar');
+      if (teamSidebar) teamSidebar.style.display = 'none';
       // Load rooms for filter dropdown and room name display
       fetchRoomList().then(function(rooms) {
         _rundownRoomMap = {};
@@ -9042,6 +9157,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       bar.style.display = 'flex';
       bar.classList.toggle('has-editors', activeEntries.length > 1);
       _rundownUpdateCollaboratorButtons();
+      // Also update team sidebar if visible
+      var teamSidebar = document.getElementById('rundown-team-sidebar');
+      if (teamSidebar && teamSidebar.style.display !== 'none') {
+        _rundownRenderTeamMembers();
+      }
     }
 
     function rundownCollaborators() {
@@ -9278,13 +9398,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownSelectPlan(planId, source) {
       _rundownSelectedPlanId = planId;
-      renderRundownDashboard();
+      // Switch to full-screen editor view
+      showRundownView('editor');
+      _rundownOpenEditorHash(planId);
       if (source === 'pco') {
         if (_rundownSubscribedPlanId) _rundownUnsubscribePlan(_rundownSubscribedPlanId);
         // PCO plans can be started directly but not edited
         _rundownSelectedPlan = { id: planId, source: 'pco' };
-        var editor = document.getElementById('rundown-editor');
-        if (editor) editor.style.display = '';
         var p = _rundownPlans.find(function(x) { return x.id === planId; });
         var titleEl = document.getElementById('rundown-editor-title');
         var dateEl = document.getElementById('rundown-editor-date');
@@ -9698,8 +9818,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function renderRundownEditor(plan) {
-      var editor = document.getElementById('rundown-editor');
-      if (editor) editor.style.display = '';
+      // Editor is already visible via showRundownView('editor')
       // Show edit controls for manual plans
       document.querySelectorAll('[data-action="rundownEditPlan"],[data-action="rundownAddItem"],[data-action="rundownDeletePlan"],[data-action="rundownSaveTemplate"],[data-action="rundownShare"],[data-action="rundownCollaborators"]').forEach(function(b) { b.style.display = ''; });
       var showModeBtn = document.getElementById('btn-rundown-show-mode');
@@ -9736,7 +9855,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // ── Live show mode bar ──────────────────────────────────────────────────
       var liveBar = document.getElementById('rundown-live-bar');
       if (!liveBar) {
-        var tableCard = document.querySelector('#rundown-editor > .card:last-of-type');
+        var tableCard = document.querySelector('.rundown-editor-main > .card:last-of-type');
         if (tableCard) {
           liveBar = document.createElement('div');
           liveBar.id = 'rundown-live-bar';
@@ -9745,7 +9864,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
       var hardStartBar = document.getElementById('rundown-hard-start-bar');
       if (!hardStartBar) {
-        var tableCardForHardStart = document.querySelector('#rundown-editor > .card:last-of-type');
+        var tableCardForHardStart = document.querySelector('.rundown-editor-main > .card:last-of-type');
         if (tableCardForHardStart) {
           hardStartBar = document.createElement('div');
           hardStartBar.id = 'rundown-hard-start-bar';
@@ -15997,6 +16116,15 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownSelectPlan':
         if (typeof rundownSelectPlan === 'function') rundownSelectPlan(btn.dataset.planId, btn.dataset.planSource);
         break;
+      case 'rundownBackToDashboard':
+        if (typeof rundownBackToDashboard === 'function') rundownBackToDashboard();
+        break;
+      case 'rundownToggleTeamPanel':
+        if (typeof rundownToggleTeamPanel === 'function') rundownToggleTeamPanel();
+        break;
+      case 'rundownSaveStationIdentity':
+        if (typeof rundownSaveStationIdentity === 'function') rundownSaveStationIdentity();
+        break;
       case 'rundownCollaborators':
         if (typeof rundownCollaborators === 'function') rundownCollaborators();
         break;
@@ -18198,6 +18326,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (savedTab && document.getElementById(savedTab)) switchTab(savedTab);
     }
   } catch(e) {}
+
+  // Check hash for rundown editor deep link (e.g. #rundown-plan-abc123)
+  try { _rundownCheckHashOnLoad(); } catch(e) {}
 
   // Init overview sections on first load (overview is active by default)
   initOverviewSections();
