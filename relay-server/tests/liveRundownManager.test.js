@@ -28,7 +28,7 @@ describe('LiveRundownManager manual-plan compatibility', () => {
   });
 
   it('starts on the first playable cue and preserves richer cue metadata', () => {
-    const state = manager.startSession('church-1', {
+    const state = manager.startSession('church-1', null, {
       id: 'plan-1',
       title: 'Sunday Service',
       source: 'manual',
@@ -67,7 +67,7 @@ describe('LiveRundownManager manual-plan compatibility', () => {
   });
 
   it('skips section rows for next cue timing and manual navigation', () => {
-    manager.startSession('church-1', {
+    manager.startSession('church-1', null, {
       id: 'plan-2',
       title: 'Service Flow',
       items: [
@@ -98,7 +98,7 @@ describe('LiveRundownManager manual-plan compatibility', () => {
   });
 
   it('honors per-cue auto-advance even when session-wide auto-advance is off', async () => {
-    manager.startSession('church-1', {
+    manager.startSession('church-1', null, {
       id: 'plan-3',
       title: 'Countdown',
       items: [
