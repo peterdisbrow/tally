@@ -2403,19 +2403,44 @@
 
     // ── Scroll ──
     function scrollToActive() {
+      if (!liveTracking) return;
       if (!liveState || !liveState.isLive) return;
       var el = document.querySelector('.cue-item.is-current');
       if (el) {
+        _programmaticScrolling = true;
         setTimeout(function() {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(function() { _programmaticScrolling = false; }, 700);
         }, 100);
       }
+    }
+
+    function updateTrackingBtn() {
+      var btn = document.getElementById('btn-live-tracking');
+      if (!btn) return;
+      if (liveTracking) {
+        btn.style.color = '#00E676';
+        btn.style.borderColor = 'rgba(0,230,118,0.3)';
+        btn.title = 'Live tracking ON — click or press L to disable';
+      } else {
+        btn.style.color = '';
+        btn.style.borderColor = '';
+        btn.title = 'Live tracking OFF — click or press L to re-enable and snap to current cue';
+      }
+    }
+
+    function toggleLiveTracking() {
+      liveTracking = !liveTracking;
+      updateTrackingBtn();
+      if (liveTracking) scrollToActive();
     }
 
     // ── Keyboard shortcuts ──
     // v3: Keyboard shortcuts overlay state
     var shortcutsVisible = false;
     var nextUpVisible = true;
+    var liveTracking = true;      // auto-scroll to active cue when live
+    var _programmaticScrolling = false; // true during scrollToActive to suppress wheel handler
 
     function toggleShortcutsOverlay() {
       shortcutsVisible = !shortcutsVisible;
@@ -2472,6 +2497,12 @@
         return;
       }
 
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        toggleLiveTracking();
+        return;
+      }
+
       if (isReadOnly) return; // No cue-advancing shortcuts in readonly mode
 
       // Pause/Resume toggle
@@ -2508,6 +2539,14 @@
       }
     });
 
+    // Smart scroll: disable live tracking when user manually scrolls the page
+    document.addEventListener('wheel', function() {
+      if (!_programmaticScrolling && liveTracking && liveState && liveState.isLive) {
+        liveTracking = false;
+        updateTrackingBtn();
+      }
+    }, { passive: true });
+
     // ── Render ──
     function render() {
       var app = document.getElementById('app');
@@ -2537,6 +2576,7 @@
             '</div>' +
           '</div>' : '') +
           (isReadOnly ? '<span class="pill pill-offline" style="font-size:10px;padding:3px 10px">Read Only</span>' : '') +
+          '<button class="col-toggle-btn" id="btn-live-tracking" title="' + (liveTracking ? 'Live tracking ON — click or press L to disable' : 'Live tracking OFF — click or press L to re-enable') + '" style="' + (liveTracking ? 'color:#00E676;border-color:rgba(0,230,118,0.3)' : '') + '">Tracking</button>' +
           '<button class="col-toggle-btn" id="btn-show-theme" title="Toggle light/dark theme">' + (lightTheme ? 'Dark' : 'Light') + '</button>' +
           '<div class="show-clock" id="show-clock">' + fmtClock(Date.now()) + '</div>' +
         '</div>';
@@ -2596,6 +2636,8 @@
       if (btnPrint) btnPrint.addEventListener('click', function () { printRundown(); });
       var btnShowTheme = document.getElementById('btn-show-theme');
       if (btnShowTheme) btnShowTheme.addEventListener('click', function () { toggleShowTheme(); });
+      var btnLiveTracking = document.getElementById('btn-live-tracking');
+      if (btnLiveTracking) btnLiveTracking.addEventListener('click', function () { toggleLiveTracking(); });
     }
 
     function renderStatusBar() {

@@ -8282,6 +8282,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownPlans = [];
     var _rundownSelectedPlanId = null;
     var _rundownSelectedPlan = null;
+    var _rundownLiveTracking = true; // auto-scroll to active cue in editor during live mode
     var _rundownFilterRoom = '';
     var _rundownFilterStatus = '';
     var _rundownSortBy = 'date';
@@ -10834,7 +10835,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _attachRundownContextMenu(container);
 
       // Auto-scroll active cue into view during live mode
-      if (isLive && activeCueIdx >= 0) {
+      if (isLive && activeCueIdx >= 0 && _rundownLiveTracking) {
         var activeRow = container.querySelector('.live-cue-active');
         if (activeRow) {
           activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -15803,7 +15804,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.innerHTML = html;
 
       // Auto-scroll to current item
-      if (state.currentIndex >= 0) {
+      if (state.currentIndex >= 0 && _rundownLiveTracking) {
         var currentEl = container.querySelector('[data-rundown-idx="' + state.currentIndex + '"]');
         if (currentEl) {
           currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -17061,6 +17062,23 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'rundownOutputs':
         if (typeof rundownShare === 'function') rundownShare();
+        break;
+      case 'rundownToggleLiveTracking':
+        _rundownLiveTracking = !_rundownLiveTracking;
+        (function() {
+          var btn = document.getElementById('btn-rundown-live-tracking');
+          if (btn) {
+            if (_rundownLiveTracking) {
+              btn.style.color = '#00E676';
+              btn.style.borderColor = 'rgba(0,230,118,0.3)';
+              btn.title = 'Live tracking ON — click to disable';
+            } else {
+              btn.style.color = '';
+              btn.style.borderColor = '';
+              btn.title = 'Live tracking OFF — click to re-enable';
+            }
+          }
+        })();
         break;
       case 'rundownOpenShowMode':
         if (typeof rundownOpenShowMode === 'function') rundownOpenShowMode();
