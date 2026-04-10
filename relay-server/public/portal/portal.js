@@ -8297,13 +8297,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rundownPresenceStaleAfterMs = 5 * 60 * 1000;
     var _rundownRoomMap = {}; // roomId → roomName
     // Custom columns state
-    var _rundownColumns = [];    // [{ id, name, department, sortOrder, type, options, equipmentBinding }]
+    var _rundownColumns = [];    // [{ id, name, department, sortOrder, type, options }]
     var _rundownColumnValues = {}; // { itemId_colId: value }
     var _rundownTimingCache = null; // { items, timingData }
     // Attachments state — keyed by itemId
     var _rundownAttachments = {}; // { itemId: [{ id, filename, mimetype, size }] }
-    var _rundownBatchSelection = {}; // { itemId: true }
-    var _rundownBatchAnchorId = null;
     // Phase 9: edit locks, rehearsal, revision history
     var _rundownEditLocks = {}; // { itemId: { sessionId, displayName, lockedAt } }
     var _rundownActiveRehearsalRun = null; // { id, planId, runNumber, startedAt, itemTimings }
@@ -8397,88 +8395,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         .replace(/&nbsp;/g, ' ')
         .replace(/[^a-z0-9]+/g, ' ')
         .trim();
-    }
-
-    function _getRundownBindingLabel(binding) {
-      return RUNDOWN_COLUMN_BINDING_LABELS[binding] || binding || 'No live source';
-    }
-
-    function _getRundownLiveBindingSnapshot(binding) {
-      if (!binding) return null;
-      var status = profileData && profileData.status || {};
-      var atem = status.atem && typeof status.atem === 'object' ? status.atem : {};
-      var enc = status.encoder && typeof status.encoder === 'object' ? status.encoder : {};
-      var pp = status.proPresenter || status.propresenter || {};
-      if (binding === 'atem.program_input') {
-        if (atem.programInput == null) return { label: 'No program feed', compareValues: [], tone: 'muted' };
-        var pgmLabel = atem.inputLabels && atem.inputLabels[atem.programInput] ? atem.inputLabels[atem.programInput] : '';
-        return {
-          label: 'PGM ' + friendlyInputName(atem.programInput) + (pgmLabel ? ' · ' + pgmLabel : ''),
-          compareValues: [String(atem.programInput), friendlyInputName(atem.programInput), pgmLabel],
-          tone: atem.connected ? 'good' : 'bad',
-        };
-      }
-      if (binding === 'atem.preview_input') {
-        if (atem.previewInput == null) return { label: 'No preview feed', compareValues: [], tone: 'muted' };
-        var pvwLabel = atem.inputLabels && atem.inputLabels[atem.previewInput] ? atem.inputLabels[atem.previewInput] : '';
-        return {
-          label: 'PVW ' + friendlyInputName(atem.previewInput) + (pvwLabel ? ' · ' + pvwLabel : ''),
-          compareValues: [String(atem.previewInput), friendlyInputName(atem.previewInput), pvwLabel],
-          tone: atem.connected ? 'good' : 'bad',
-        };
-      }
-      if (binding === 'propresenter.presentation') {
-        var currentSlide = pp.currentSlide;
-        var presentation = (typeof currentSlide === 'string' ? currentSlide : (currentSlide && currentSlide.presentationName)) || pp.currentPresentation || pp.presentationName || '';
-        return {
-          label: presentation || 'No presentation',
-          compareValues: presentation ? [presentation] : [],
-          tone: pp && (pp.connected || pp === true) ? 'good' : 'muted',
-        };
-      }
-      if (binding === 'encoder.status') {
-        var obsStreaming = status.streaming === true || !!(status.obs && status.obs.streaming);
-        var atemStreaming = !!(atem && atem.streaming);
-        var vmixStreaming = !!(status.vmix && status.vmix.streaming);
-        var encoderConnected = status.encoder === true || !!enc.connected;
-        var encoderLive = !!enc.live || !!enc.streaming || obsStreaming || atemStreaming || vmixStreaming;
-        var label = encoderLive ? 'Live' : (encoderConnected ? 'Connected' : 'Offline');
-        return {
-          label: label,
-          compareValues: [label],
-          tone: encoderLive ? 'good' : (encoderConnected ? 'warn' : 'bad'),
-        };
-      }
-      if (binding === 'stream.live') {
-        var isLive = !!(status.obs && status.obs.streaming) || !!(atem && atem.streaming) || !!(status.vmix && status.vmix.streaming) || !!enc.live || !!enc.streaming;
-        return {
-          label: isLive ? 'Live' : 'Off Air',
-          compareValues: isLive ? ['Live'] : ['Off Air', 'OffAir', 'Offline'],
-          tone: isLive ? 'good' : 'bad',
-        };
-      }
-      return null;
-    }
-
-    function _getRundownColumnLiveStatus(column, expectedValue) {
-      if (!column || !column.equipmentBinding) return null;
-      var snapshot = _getRundownLiveBindingSnapshot(column.equipmentBinding);
-      if (!snapshot) return null;
-      var expected = String(expectedValue || '').trim();
-      if (!expected) return {
-        matched: null,
-        label: snapshot.label,
-        tone: snapshot.tone || 'muted',
-      };
-      var normalizedExpected = _normalizeRundownCompareValue(expected);
-      var matched = (snapshot.compareValues || []).some(function(candidate) {
-        return _normalizeRundownCompareValue(candidate) === normalizedExpected;
-      });
-      return {
-        matched: matched,
-        label: snapshot.label,
-        tone: matched ? 'good' : 'bad',
-      };
     }
 
     function loadRundownPage() {
@@ -9362,9 +9278,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function rundownSelectPlan(planId, source) {
       _rundownSelectedPlanId = planId;
       renderRundownDashboard();
-      _rundownBatchSelection = {};
-      _rundownBatchAnchorId = null;
-      _updateRundownBatchBar();
       if (source === 'pco') {
         if (_rundownSubscribedPlanId) _rundownUnsubscribePlan(_rundownSubscribedPlanId);
         // PCO plans can be started directly but not edited
@@ -9688,292 +9601,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return target.getTime();
     }
 
-    function _getRundownBatchSelectedIds() {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return [];
-      return _rundownSelectedPlan.items
-        .filter(function(item) { return !!_rundownBatchSelection[item.id]; })
-        .map(function(item) { return item.id; });
-    }
-
-    function _getRundownBatchSelectedItems() {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return [];
-      return _rundownSelectedPlan.items.filter(function(item) { return !!_rundownBatchSelection[item.id]; });
-    }
-
-    function _rundownClearBatchSelection() {
-      _rundownBatchSelection = {};
-      _rundownBatchAnchorId = null;
-      _updateRundownBatchBar();
-      if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
-    }
-
-    function _rundownSetBatchSelection(itemId, selected, opts) {
-      if (!itemId) return;
-      if (selected) _rundownBatchSelection[itemId] = true;
-      else delete _rundownBatchSelection[itemId];
-      if (!opts || !opts.keepAnchor) {
-        _rundownBatchAnchorId = selected ? itemId : null;
-      }
-      _updateRundownBatchBar();
-      if (_rundownSelectedPlan) renderRundownEditorItems(_rundownSelectedPlan.items || []);
-    }
-
-    function _rundownToggleBatchSelection(itemId, opts) {
-      if (!itemId) return;
-      _rundownSetBatchSelection(itemId, !_rundownBatchSelection[itemId], opts);
-    }
-
-    function _rundownApplyBatchSelectionRange(targetItemId) {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
-      if (!_rundownBatchAnchorId) {
-        _rundownSetBatchSelection(targetItemId, true);
-        return;
-      }
-      var items = _rundownSelectedPlan.items;
-      var fromIdx = items.findIndex(function(item) { return item.id === _rundownBatchAnchorId; });
-      var toIdx = items.findIndex(function(item) { return item.id === targetItemId; });
-      if (fromIdx < 0 || toIdx < 0) {
-        _rundownSetBatchSelection(targetItemId, true);
-        return;
-      }
-      var start = Math.min(fromIdx, toIdx);
-      var end = Math.max(fromIdx, toIdx);
-      _rundownBatchSelection = {};
-      for (var i = start; i <= end; i++) {
-        _rundownBatchSelection[items[i].id] = true;
-      }
-      _rundownBatchAnchorId = targetItemId;
-      _updateRundownBatchBar();
-      renderRundownEditorItems(_rundownSelectedPlan.items || []);
-    }
-
-    function _updateRundownBatchBar() {
-      var bar = document.getElementById('rundown-batch-bar');
-      if (!bar) return;
-      if (!_rundownSelectedPlan || _rundownSelectedPlan.source === 'pco') {
-        bar.style.display = 'none';
-        bar.innerHTML = '';
-        return;
-      }
-
-      var items = _getRundownBatchSelectedItems();
-      if (!items.length) {
-        bar.style.display = 'none';
-        bar.innerHTML = '';
-        return;
-      }
-
-      var count = items.length;
-      bar.style.display = '';
-      bar.innerHTML =
-        '<span class="rundown-batch-count">' + count + ' selected</span>' +
-        '<button class="btn-secondary" data-batch-action="select-all" style="font-size:12px;padding:5px 10px">Select all</button>' +
-        '<button class="btn-secondary" data-batch-action="clear" style="font-size:12px;padding:5px 10px">Clear</button>' +
-        '<span class="rundown-batch-spacer"></span>' +
-        '<button class="btn-secondary" data-batch-action="duplicate" style="font-size:12px;padding:5px 10px">Duplicate</button>' +
-        '<button class="btn-secondary" data-batch-action="top" style="font-size:12px;padding:5px 10px">Top</button>' +
-        '<button class="btn-secondary" data-batch-action="bottom" style="font-size:12px;padding:5px 10px">Bottom</button>' +
-        '<button class="btn-secondary" data-batch-action="before" style="font-size:12px;padding:5px 10px">Before cue</button>' +
-        '<button class="btn-secondary" data-batch-action="after" style="font-size:12px;padding:5px 10px">After cue</button>' +
-        '<button class="btn-secondary" data-batch-action="delete" style="font-size:12px;padding:5px 10px;color:#FF5252">Delete</button>';
-    }
-
-    function _attachRundownBatchBarActions() {
-      var bar = document.getElementById('rundown-batch-bar');
-      if (!bar || bar._rundownBatchBound) return;
-      bar._rundownBatchBound = true;
-      bar.addEventListener('click', function(e) {
-        var btn = e.target && e.target.closest ? e.target.closest('[data-batch-action]') : null;
-        if (!btn) return;
-        e.preventDefault();
-        var action = btn.getAttribute('data-batch-action');
-        if (action === 'select-all') {
-          if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
-          _rundownBatchSelection = {};
-          _rundownSelectedPlan.items.forEach(function(item) { _rundownBatchSelection[item.id] = true; });
-          _rundownBatchAnchorId = _rundownSelectedPlan.items.length ? _rundownSelectedPlan.items[0].id : null;
-          _updateRundownBatchBar();
-          renderRundownEditorItems(_rundownSelectedPlan.items || []);
-        } else if (action === 'clear') {
-          _rundownClearBatchSelection();
-        } else if (action === 'duplicate') {
-          _rundownBatchDuplicateSelected();
-        } else if (action === 'delete') {
-          _rundownBatchDeleteSelected();
-        } else if (action === 'top' || action === 'bottom') {
-          _rundownBatchMoveSelected(action);
-        } else if (action === 'before' || action === 'after') {
-          styledPrompt(action === 'before' ? 'Move Before Item' : 'Move After Item', 'Enter item number or title', '').then(function(target) {
-            if (!target) return;
-            _rundownBatchMoveSelected(action, target);
-          });
-        }
-      });
-    }
-
-    function _rundownBatchNormalizeQuery(query) {
-      return String(query || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim();
-    }
-
-    function _rundownResolveBatchTarget(query) {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return null;
-      var items = _rundownSelectedPlan.items || [];
-      var cues = items.filter(function(item) { return item.itemType !== 'section'; });
-      var raw = String(query || '').trim();
-      if (!raw) return null;
-      if (/^\d+$/.test(raw)) {
-        var idx = parseInt(raw, 10) - 1;
-        if (idx >= 0 && idx < cues.length) return cues[idx];
-      }
-      var norm = _rundownBatchNormalizeQuery(raw);
-      if (!norm) return null;
-      var exact = cues.find(function(item) { return _rundownBatchNormalizeQuery(item.title) === norm; });
-      if (exact) return exact;
-      return cues.find(function(item) { return _rundownBatchNormalizeQuery(item.title).indexOf(norm) >= 0; }) || null;
-    }
-
-    function _rundownCloneBatchItemPayload(item) {
-      return {
-        title: item.title ? item.title + ' Copy' : 'Copy',
-        itemType: item.itemType || 'other',
-        lengthSeconds: item.lengthSeconds || 0,
-        notes: item.notes || '',
-        assignee: item.assignee || '',
-        startType: item.startType || 'soft',
-        hardStartTime: item.hardStartTime || null,
-        autoAdvance: !!item.autoAdvance,
-      };
-    }
-
-    function _rundownSetBatchPlanRefresh() {
-      return api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditor(plan);
-        var idx = _rundownPlans.findIndex(function(p) { return p.id === plan.id; });
-        if (idx >= 0) {
-          _rundownPlans[idx].itemCount = plan.items.length;
-          renderRundownDashboard();
-        }
-        return plan;
-      });
-    }
-
-    function _rundownReorderBatchItemIds(finalIds) {
-      return api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/reorder', { itemIds: finalIds }).then(function(plan) {
-        _rundownSelectedPlan = plan;
-        renderRundownEditor(plan);
-        return plan;
-      });
-    }
-
-    function _rundownBatchMoveSelected(where, targetQuery) {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
-      var items = _rundownSelectedPlan.items.slice();
-      var selectedMap = _rundownBatchSelection;
-      var selectedIds = _getRundownBatchSelectedIds();
-      if (!selectedIds.length) return;
-      var selectedSet = {};
-      selectedIds.forEach(function(id) { selectedSet[id] = true; });
-      var remainingIds = items.map(function(item) { return item.id; }).filter(function(id) { return !selectedSet[id]; });
-      var orderedSelectedIds = items.map(function(item) { return item.id; }).filter(function(id) { return !!selectedMap[id]; });
-      var finalIds = [];
-      if (where === 'top') {
-        finalIds = orderedSelectedIds.concat(remainingIds);
-      } else if (where === 'bottom') {
-        finalIds = remainingIds.concat(orderedSelectedIds);
-      } else {
-        var target = _rundownResolveBatchTarget(targetQuery);
-        if (!target) {
-          toast('Could not find that item', true);
-          return;
-        }
-        if (selectedSet[target.id]) {
-          toast('Choose an item outside the current selection', true);
-          return;
-        }
-        var base = remainingIds.slice();
-        var targetIdx = base.indexOf(target.id);
-        if (targetIdx < 0) return;
-        if (where === 'after') targetIdx += 1;
-        finalIds = base.slice(0, targetIdx).concat(orderedSelectedIds, base.slice(targetIdx));
-      }
-
-      _rundownReorderBatchItemIds(finalIds).then(function() {
-        _rundownBatchSelection = {};
-        _rundownBatchAnchorId = null;
-        _updateRundownBatchBar();
-      }).catch(function(e) {
-        toast('Failed: ' + e.message, true);
-      });
-    }
-
-    function _rundownBatchDeleteSelected() {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
-      var selectedItems = _getRundownBatchSelectedItems();
-      if (!selectedItems.length) return;
-      styledConfirm('Delete Selected Items', 'Delete ' + selectedItems.length + ' selected items from the rundown? This cannot be undone.').then(function(ok) {
-        if (!ok) return;
-        var chain = Promise.resolve();
-        selectedItems.forEach(function(item) {
-          chain = chain.then(function() {
-            return api('DELETE', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + item.id);
-          });
-        });
-        chain.then(function() {
-          _rundownBatchSelection = {};
-          _rundownBatchAnchorId = null;
-          return _rundownSetBatchPlanRefresh();
-        }).catch(function(e) { toast('Failed: ' + e.message, true); });
-      });
-    }
-
-    function _rundownBatchDuplicateSelected() {
-      if (!_rundownSelectedPlan || !_rundownSelectedPlan.items) return;
-      var selectedItems = _getRundownBatchSelectedItems();
-      if (!selectedItems.length) return;
-      var columnIds = (_rundownColumns || []).map(function(col) { return col.id; });
-      var duplicateIdMap = {};
-      var order = _rundownSelectedPlan.items.map(function(item) { return item.id; });
-      var chain = Promise.resolve();
-
-      selectedItems.forEach(function(item) {
-        chain = chain.then(function() {
-          return api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items', _rundownCloneBatchItemPayload(item)).then(function(newItem) {
-            duplicateIdMap[item.id] = newItem && newItem.id;
-            var columnChain = Promise.resolve();
-            columnIds.forEach(function(colId) {
-              var value = _rundownColumnValues[item.id + '_' + colId];
-              if (value === undefined || value === null || value === '') return;
-              columnChain = columnChain.then(function() {
-                return api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/items/' + newItem.id + '/columns/' + colId, { value: value });
-              });
-            });
-            return columnChain;
-          });
-        });
-      });
-
-      chain.then(function() {
-        var finalIds = [];
-        order.forEach(function(id) {
-          finalIds.push(id);
-          if (duplicateIdMap[id]) finalIds.push(duplicateIdMap[id]);
-        });
-        if (!finalIds.length) return _rundownSetBatchPlanRefresh();
-        return _rundownReorderBatchItemIds(finalIds).then(function() {
-          _rundownBatchSelection = {};
-          _rundownBatchAnchorId = null;
-          _updateRundownBatchBar();
-          return _rundownSetBatchPlanRefresh();
-        });
-      }).catch(function(e) {
-        toast('Failed: ' + e.message, true);
-      });
-    }
-
     function _updateRundownHardStartBar() {
       var bar = document.getElementById('rundown-hard-start-bar');
       if (!bar) return;
@@ -10214,19 +9841,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderRundownEditorItems(items) {
       var container = document.getElementById('rundown-editor-items');
       if (!container) return;
-      if (_rundownSelectedPlan && Array.isArray(_rundownSelectedPlan.items)) {
-        var prunedSelection = {};
-        _rundownSelectedPlan.items.forEach(function(item) {
-          if (_rundownBatchSelection[item.id]) prunedSelection[item.id] = true;
-        });
-        _rundownBatchSelection = prunedSelection;
-        if (_rundownBatchAnchorId && !_rundownBatchSelection[_rundownBatchAnchorId]) {
-          _rundownBatchAnchorId = null;
-        }
-      } else {
-        _rundownBatchSelection = {};
-        _rundownBatchAnchorId = null;
-      }
 
       var isLive = _liveShowState && _liveShowState.isLive;
       var activeCueIdx = isLive ? _liveShowState.currentCueIndex : -1;
@@ -10304,11 +9918,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // Build table — compute total column count
-      var colCount = 16 + _rundownColumns.length + (isLive ? 1 : 0); // selection + base + indicators + custom cols + checklist + script/ann + attachments + live timer
+      var colCount = 15 + _rundownColumns.length + (isLive ? 1 : 0); // base + indicators + custom cols + checklist + script/ann + attachments + live timer
       var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
       // Header row
       html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#556270;font-weight:700">';
-      html += '<th class="rundown-adv" style="padding:8px 4px;width:30px;text-align:center" title="Select items for batch operations"><span style="display:inline-flex;align-items:center;justify-content:center;color:#8B9DAF">Sel</span></th>';
       html += '<th style="padding:8px 4px;width:24px"></th>'; // drag
       html += '<th style="padding:8px 2px;width:28px;text-align:center" title="Item number in order">#</th>';
       html += '<th style="padding:8px 6px;text-align:left" title="The name of this service item">Title</th>';
@@ -10318,13 +9931,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       for (var ci = 0; ci < _rundownColumns.length; ci++) {
         var headerCol = _rundownColumns[ci];
         var headerType = _normalizeRundownColumnType(headerCol.type);
-        var headerBinding = headerCol.equipmentBinding ? _getRundownBindingLabel(headerCol.equipmentBinding) : '';
         html += '<th class="rundown-adv" style="padding:8px 6px;width:120px;text-align:left;position:relative" data-col-id="' + headerCol.id + '">';
         html += '<span style="display:inline-flex;align-items:center;gap:4px">';
         html += escapeHtml(headerCol.name);
         html += '<span class="rundown-col-gear" data-col-id="' + headerCol.id + '" data-col-name="' + escapeHtml(headerCol.name) + '" style="cursor:pointer;opacity:0.5;display:inline-flex" title="Configure column">' + SVG.wrench + '</span>';
         html += '</span>';
-        html += '<div style="font-size:10px;color:#556270;margin-top:2px;line-height:1.3">' + escapeHtml(RUNDOWN_COLUMN_TYPE_LABELS[headerType] || 'Text') + (headerBinding ? ' · Live: ' + escapeHtml(headerBinding) : '') + '</div>';
+        html += '<div style="font-size:10px;color:#556270;margin-top:2px;line-height:1.3">' + escapeHtml(RUNDOWN_COLUMN_TYPE_LABELS[headerType] || 'Text') + '</div>';
         html += '</th>';
       }
       // Add column button header (advanced only)
@@ -10355,7 +9967,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var t = timingData[i];
         var isCurrent = (i === activeCueIdx);
         var isPast = isLive && i < activeCueIdx;
-        var isSelected = !!_rundownBatchSelection[item.id];
 
         // Section header — full-width divider row with color band and collapse
         if (item.itemType === 'section') {
@@ -10370,12 +9981,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             sectionDuration += items[si].lengthSeconds || 0;
           }
           var sectionDurStr = sectionDuration > 0 ? Math.floor(sectionDuration / 60) + ':' + (sectionDuration % 60 < 10 ? '0' : '') + (sectionDuration % 60) : '';
-          html += '<tr data-item-id="' + item.id + '" draggable="true" class="rundown-section-header ' + (isSelected ? 'rundown-batch-section-selected' : '') + '" data-section-id="' + item.id + '" style="background:' + sectionColor + '18;border-top:3px solid ' + sectionColor + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
-          html += '<td class="rundown-batch-check rundown-adv" style="padding:6px 4px;vertical-align:middle;text-align:center">';
-          html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select section">';
-          html += '</td>';
+          html += '<tr data-item-id="' + item.id + '" draggable="true" class="rundown-section-header" data-section-id="' + item.id + '" style="background:' + sectionColor + '18;border-top:3px solid ' + sectionColor + ';border-bottom:1px solid rgba(255,255,255,0.08)">';
           html += '<td style="padding:6px 4px;cursor:grab;color:#556270" class="rundown-drag-handle">' + SVG.grip + '</td>';
-          html += '<td colspan="' + (colCount - 4) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
+          html += '<td colspan="' + (colCount - 3) + '" style="padding:8px 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#8B9DAF">';
           html += '<span class="rundown-section-chevron' + (sectionCollapsed ? ' collapsed' : '') + '" data-toggle-section="' + item.id + '" style="cursor:pointer;margin-right:6px">';
           html += '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
           html += '</span>';
@@ -10438,15 +10046,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var rowStyle = 'border-bottom:1px solid rgba(255,255,255,0.04);border-left:4px solid ' + color + ';border-radius:2px 0 0 2px;transition:background 0.15s;background:' + rowBg + ';opacity:' + rowOpacity;
         if (isLive) rowStyle += ';cursor:pointer';
         html += '<tr data-item-id="' + item.id + '" data-cue-index="' + i + '" draggable="true"'
-          + ' class="' + (isCurrent ? 'live-cue-active' : '') + (isSelected ? ' rundown-batch-selected' : '') + '"'
+          + ' class="' + (isCurrent ? 'live-cue-active' : '') + '"'
           + ' style="' + rowStyle + '"'
           + (isCurrent ? '' : ' onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'' + rowBg + '\'"')
           + (isLive ? ' data-action="liveShowGoto" data-cue-index="' + i + '"' : '') + '>';
-
-        // Selection checkbox (advanced only)
-        html += '<td class="rundown-batch-check rundown-adv" style="padding:4px 4px;text-align:center;vertical-align:middle">';
-        html += '<input type="checkbox" class="rundown-batch-checkbox" data-item-id="' + item.id + '" ' + (isSelected ? 'checked' : '') + ' aria-label="Select item">';
-        html += '</td>';
 
         // Drag handle
         html += '<td style="padding:4px 4px;cursor:grab;color:#556270;vertical-align:middle" class="rundown-drag-handle">' + SVG.grip + '</td>';
@@ -10483,15 +10086,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var colId = column.id;
           var cellVal = _rundownColumnValues[item.id + '_' + colId] || '';
           var colType = _normalizeRundownColumnType(column.type);
-          var liveStatus = isLive && isCurrent ? _getRundownColumnLiveStatus(column, cellVal) : null;
           html += '<td class="rundown-adv" style="padding:4px 6px;vertical-align:middle">';
           html += '<span class="rundown-inline-col" data-item-id="' + item.id + '" data-col-id="' + colId + '" data-col-type="' + colType + '" style="cursor:text;color:#8B9DAF;font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Click to edit">' + (cellVal ? escapeHtml(cellVal) : '<span style="color:#3A4556">--</span>') + '</span>';
-          if (liveStatus) {
-            var liveColor = liveStatus.tone === 'good' ? '#00E676' : liveStatus.tone === 'bad' ? '#FF5252' : liveStatus.tone === 'warn' ? '#FFB74D' : '#556270';
-            html += '<div style="margin-top:2px;font-size:10px;color:' + liveColor + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(liveStatus.label) + '">';
-            html += (liveStatus.matched === true ? 'Live match' : 'Live: ' + escapeHtml(liveStatus.label));
-            html += '</div>';
-          }
           html += '</td>';
         }
         // Empty cell under the add-column header (advanced only)
@@ -10588,9 +10184,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           html += '</td>';
         }
-
-        // Checklist badge
-        html += '<td style="padding:4px 2px;text-align:center;vertical-align:middle">' + _renderChecklistBadge(item) + '</td>';
 
         // Delete
         html += '<td style="padding:4px 4px;text-align:center;vertical-align:middle"><span data-action="rundownDeleteItem" data-item-id="' + item.id + '" style="cursor:pointer;color:#556270" title="Remove">' + SVG.xMark + '</span></td>';
@@ -10774,9 +10367,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Attach inline editing listeners
       _attachRundownInlineEditing(container);
-      // Attach batch selection controls
-      _attachRundownBatchEditing(container);
-      _attachRundownBatchBarActions();
       // Attach custom column inline editing
       _attachRundownColumnEditing(container);
       // Attach attachment button listeners
@@ -10802,7 +10392,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.querySelectorAll('tr[data-item-id]').forEach(function(row) {
         if (row.classList.contains('rundown-director-notes-row') || row.classList.contains('rundown-checklist-row')) return;
         row.addEventListener('click', function(e) {
-          if (e.target.closest('.rundown-inline-edit, .rundown-inline-type, .rundown-inline-col, .rundown-inline-director-note, input, select, textarea, .checklist-badge, .rundown-attachment-btn, .rundown-toggle-dir-note, .rundown-toggle-start-type, .rundown-toggle-auto, .rundown-batch-checkbox, [data-action]')) return;
+          if (e.target.closest('.rundown-inline-edit, .rundown-inline-type, .rundown-inline-col, .rundown-inline-director-note, input, select, textarea, .checklist-badge, .rundown-attachment-btn, .rundown-toggle-dir-note, .rundown-toggle-start-type, .rundown-toggle-auto, [data-action]')) return;
           var itemId = row.getAttribute('data-item-id');
           _rundownSelectedItemId = itemId;
           container.querySelectorAll('tr[data-item-id]').forEach(function(r) { r.classList.remove('rundown-selected-row'); });
@@ -10841,23 +10431,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
       _updateRundownHardStartBar();
-      _updateRundownBatchBar();
-    }
-
-    function _attachRundownBatchEditing(container) {
-      container.querySelectorAll('.rundown-batch-checkbox').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          var itemId = el.getAttribute('data-item-id');
-          if (!itemId || !_rundownSelectedPlan) return;
-          if (e.shiftKey && _rundownBatchAnchorId) {
-            _rundownApplyBatchSelectionRange(itemId);
-            return;
-          }
-          _rundownToggleBatchSelection(itemId);
-        });
-      });
     }
 
     // ── Hard/soft start and auto-advance toggle handlers ──────────────────────
@@ -11898,80 +11471,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
       menu.appendChild(configBtn);
 
-      var bindingBtn = document.createElement('div');
-      bindingBtn.textContent = 'Live Source';
-      bindingBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
-      bindingBtn.addEventListener('mouseenter', function() { bindingBtn.style.background = 'rgba(255,255,255,0.08)'; });
-      bindingBtn.addEventListener('mouseleave', function() { bindingBtn.style.background = 'none'; });
-      bindingBtn.addEventListener('click', function() {
-        menu.remove();
-        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
-        _promptRundownColumnBinding(currentColumn.equipmentBinding).then(function(nextBinding) {
-          if (nextBinding === '__cancel__') return;
-          if (nextBinding === undefined) return;
-          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
-            equipmentBinding: nextBinding,
-          }).then(function(data) {
-            _rundownColumns = data.columns || _rundownColumns;
-            renderRundownEditorItems(_rundownSelectedPlan.items || []);
-            toast(nextBinding ? 'Live source linked' : 'Live source removed');
-          }).catch(function(err) { toast('Failed: ' + err.message, true); });
-        });
-      });
-      menu.appendChild(bindingBtn);
-
-      // 10.3: Edit Permissions button
-      var permBtn = document.createElement('div');
-      permBtn.textContent = 'Edit Permissions';
-      permBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
-      permBtn.addEventListener('mouseenter', function() { permBtn.style.background = 'rgba(255,255,255,0.08)'; });
-      permBtn.addEventListener('mouseleave', function() { permBtn.style.background = 'none'; });
-      permBtn.addEventListener('click', function() {
-        menu.remove();
-        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
-        var currentRoles = Array.isArray(currentColumn.editableRoles) ? currentColumn.editableRoles.join(', ') : '';
-        styledPrompt('Column Permissions', 'Roles that can edit (comma-separated: owner, editor, viewer — leave blank for all):', currentRoles || '').then(function(val) {
-          if (val === null) return;
-          var roles = val.trim() ? val.split(',').map(function(r) { return r.trim().toLowerCase(); }).filter(function(r) { return ['owner','editor','viewer'].indexOf(r) >= 0; }) : null;
-          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
-            editableRoles: roles && roles.length ? roles : null,
-          }).then(function(data) {
-            _rundownColumns = data.columns || _rundownColumns;
-            toast(roles && roles.length ? 'Restricted to: ' + roles.join(', ') : 'Column open to all editors');
-          }).catch(function(err) { toast('Failed: ' + err.message, true); });
-        });
-      });
-      menu.appendChild(permBtn);
-
-      // 10.4: Validation Rules button
-      var validationBtn = document.createElement('div');
-      validationBtn.textContent = 'Validation Rules';
-      validationBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#F0F2F4;cursor:pointer;border-radius:4px';
-      validationBtn.addEventListener('mouseenter', function() { validationBtn.style.background = 'rgba(255,255,255,0.08)'; });
-      validationBtn.addEventListener('mouseleave', function() { validationBtn.style.background = 'none'; });
-      validationBtn.addEventListener('click', function() {
-        menu.remove();
-        var currentColumn = (_rundownColumns || []).find(function(col) { return col.id === colId; }) || {};
-        var rules = Array.isArray(currentColumn.validationRules) ? currentColumn.validationRules : [];
-        // Simple UI: describe existing rules, offer to add "required" rule
-        var ruleDesc = rules.length ? rules.map(function(r) { return r.type + (r.value ? ':' + r.value : ''); }).join(', ') : 'None';
-        styledPrompt('Validation Rules', 'Current: ' + ruleDesc + '\n\nEnter rule (e.g. "required", "match:LIVE", "not_match:TBD") or leave blank to clear:', '').then(function(val) {
-          if (val === null) return;
-          var newRules = [];
-          if (val.trim()) {
-            var parts = val.trim().split(':');
-            newRules = [{ type: parts[0].trim(), value: parts[1] ? parts[1].trim() : undefined }];
-          }
-          api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + '/columns/' + colId, {
-            validationRules: newRules,
-          }).then(function(data) {
-            _rundownColumns = data.columns || _rundownColumns;
-            toast(newRules.length ? 'Validation rule set: ' + newRules[0].type : 'Validation cleared');
-          }).catch(function(err) { toast('Failed: ' + err.message, true); });
-        });
-      });
-      menu.appendChild(validationBtn);
-
       var deleteBtn = document.createElement('div');
       deleteBtn.textContent = 'Delete';
       deleteBtn.style.cssText = 'padding:6px 10px;font-size:12px;color:#FF5252;cursor:pointer;border-radius:4px';
@@ -12504,9 +12003,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           toast('Rundown deleted');
           _rundownSelectedPlan = null;
           _rundownSelectedPlanId = null;
-          _rundownBatchSelection = {};
-          _rundownBatchAnchorId = null;
-          _updateRundownBatchBar();
           var editor = document.getElementById('rundown-editor');
           if (editor) editor.style.display = 'none';
           loadRundownManager();
@@ -13383,74 +12879,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (loadingEl) loadingEl.style.display = 'none';
         if (errorEl) { errorEl.textContent = 'Failed: ' + (e.message || 'Unknown error'); errorEl.style.display = ''; }
       });
-    }
-
-    function rundownOpenMulticampus() {
-      window.open('/rundown/multicampus', '_blank', 'noopener');
-    }
-
-    // ── Sync settings modal ──────────────────────────────────────────────────
-    function rundownSyncSettings() {
-      var plan = _rundownSelectedPlan;
-      if (!plan || plan.source === 'pco') return;
-
-      var modal = document.getElementById('modal-rundown-sync');
-      var select = document.getElementById('sync-source-room-select');
-      var slider = document.getElementById('sync-delay-slider');
-      var delayLabel = document.getElementById('sync-delay-label');
-      var saveBtn = document.getElementById('sync-save-btn');
-      var cancelBtn = document.getElementById('sync-cancel-btn');
-      var closeBtn = document.getElementById('rundown-sync-modal-close');
-      if (!modal || !select || !slider) return;
-
-      // Populate room options from _rundownRoomMap
-      var roomEntries = Object.entries(_rundownRoomMap);
-      select.innerHTML = '<option value="">Disabled (no sync)</option>';
-      roomEntries.forEach(function(entry) {
-        var roomId = entry[0], roomName = entry[1];
-        if (roomId === plan.roomId) return; // skip own room
-        var opt = document.createElement('option');
-        opt.value = roomId;
-        opt.textContent = roomName || roomId;
-        select.appendChild(opt);
-      });
-
-      // Load current sync config
-      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/sync').then(function(data) {
-        select.value = data.syncSourceRoomId || '';
-        slider.value = data.syncDelaySeconds || 0;
-        delayLabel.textContent = (data.syncDelaySeconds || 0) + 's';
-      }).catch(function() {});
-
-      slider.oninput = function() {
-        delayLabel.textContent = slider.value + 's';
-      };
-
-      function closeSync() {
-        modal.classList.remove('active');
-        slider.oninput = null;
-        saveBtn.onclick = null;
-      }
-
-      saveBtn.onclick = function() {
-        var syncSourceRoomId = select.value || null;
-        var syncDelaySeconds = Number(slider.value) || 0;
-        api('PUT', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + plan.id + '/sync', {
-          syncSourceRoomId: syncSourceRoomId,
-          syncDelaySeconds: syncDelaySeconds,
-        }).then(function() {
-          toast(syncSourceRoomId ? 'Sync enabled' : 'Sync disabled');
-          closeSync();
-        }).catch(function(e) { toast('Failed to save sync settings: ' + (e.message || ''), true); });
-      };
-
-      cancelBtn.onclick = closeSync;
-      closeBtn.onclick = closeSync;
-      modal.addEventListener('click', function onBd(e) {
-        if (e.target === modal) { closeSync(); modal.removeEventListener('click', onBd); }
-      });
-
-      modal.classList.add('active');
     }
 
     function rundownOpenShowMode() {
@@ -14689,76 +14117,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     }
 
-    // ── Plan Comparison ──────────────────────────────────────────────────────────
+    // ── Dashboard View Toggles (Calendar, Analytics) ──────────────────────────
 
-    function rundownComparePlans() {
-      if (!_rundownSelectedPlan || _rundownPlans.length < 2) { toast('Need at least 2 plans to compare', true); return; }
-      var otherPlans = _rundownPlans.filter(function(p) { return p.id !== _rundownSelectedPlan.id; });
-      var existing = document.getElementById('rundown-compare-panel');
-      if (existing) existing.remove();
-      var overlay = document.createElement('div');
-      overlay.id = 'rundown-compare-panel';
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
-      var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;overflow-y:auto">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-        + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Compare Plans</div>'
-        + '<button id="close-compare-panel" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
-        + '<div style="font-size:13px;color:#8B9DAF;margin-bottom:12px">Select a plan to compare with <strong style="color:#F0F2F4">' + escapeHtml(_rundownSelectedPlan.title) + '</strong>:</div>'
-        + '<div style="display:flex;flex-direction:column;gap:8px">';
-      otherPlans.forEach(function(p) {
-        html += '<div class="card" data-compare-plan-id="' + p.id + '" style="padding:10px 14px;cursor:pointer;border:1px solid rgba(255,255,255,0.08);transition:border-color 0.15s" onmouseenter="this.style.borderColor=\'rgba(0,230,118,0.4)\'" onmouseleave="this.style.borderColor=\'rgba(255,255,255,0.08)\'">'
-          + '<div style="font-size:14px;font-weight:600;color:#F0F2F4">' + escapeHtml(p.title) + '</div>'
-          + '<div style="font-size:12px;color:#556270;margin-top:2px">' + (p.serviceDate || '') + ' · ' + (p.itemCount || 0) + ' items</div>'
-          + '</div>';
-      });
-      html += '</div></div>';
-      overlay.innerHTML = html;
-      document.body.appendChild(overlay);
-      document.getElementById('close-compare-panel').addEventListener('click', function() { overlay.remove(); });
-      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-      overlay.querySelectorAll('[data-compare-plan-id]').forEach(function(card) {
-        card.addEventListener('click', function() {
-          var planId = card.getAttribute('data-compare-plan-id');
-          overlay.remove();
-          _rundownShowComparison(planId);
-        });
-      });
-    }
-
-    function _rundownShowComparison(otherPlanId) {
-      api('GET', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + otherPlanId).then(function(otherPlan) {
-        var current = _rundownSelectedPlan;
-        var overlay = document.createElement('div');
-        overlay.id = 'rundown-compare-panel';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
-        var maxLen = Math.max(current.items.length, otherPlan.items.length);
-        var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:900px;width:95%;max-height:85vh;overflow-y:auto">'
-          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-          + '<div style="font-size:16px;font-weight:700;color:#F0F2F4">Plan Comparison</div>'
-          + '<button id="close-compare-result" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>'
-          + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
-          + '<thead><tr><th style="padding:8px;text-align:left;color:#00E676;border-bottom:1px solid rgba(255,255,255,0.1)">' + escapeHtml(current.title) + '</th>'
-          + '<th style="padding:8px;text-align:left;color:#42A5F5;border-bottom:1px solid rgba(255,255,255,0.1)">' + escapeHtml(otherPlan.title) + '</th></tr></thead><tbody>';
-        for (var i = 0; i < maxLen; i++) {
-          var a = current.items[i];
-          var b = otherPlan.items[i];
-          var diff = a && b && a.title !== b.title;
-          html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);' + (diff ? 'background:rgba(255,167,38,0.06)' : '') + '">';
-          html += '<td style="padding:6px 8px;color:#F0F2F4">' + (a ? escapeHtml(a.title) + ' <span style="color:#556270">(' + _rundownFormatMMSS(a.lengthSeconds) + ')</span>' : '<span style="color:#3A4556">—</span>') + '</td>';
-          html += '<td style="padding:6px 8px;color:#F0F2F4">' + (b ? escapeHtml(b.title) + ' <span style="color:#556270">(' + _rundownFormatMMSS(b.lengthSeconds) + ')</span>' : '<span style="color:#3A4556">—</span>') + '</td>';
-          html += '</tr>';
-        }
-        html += '</tbody></table></div>';
-        overlay.innerHTML = html;
-        document.body.appendChild(overlay);
-        document.getElementById('close-compare-result').addEventListener('click', function() { overlay.remove(); });
-        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-      }).catch(function(e) { toast('Failed to load plan: ' + e.message, true); });
-    }
-
-    // ── Dashboard View Toggles (Calendar, Analytics, Webhooks) ──────────────────
-
-    var _rundownDashboardView = 'list'; // list | calendar | analytics | webhooks
+    var _rundownDashboardView = 'list'; // list | calendar | analytics
 
     function rundownSetDashboardView(view) {
       _rundownDashboardView = view;
@@ -14772,10 +14133,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderRundownDashboard();
       } else if (view === 'calendar') {
         _renderRundownCalendarView(dash);
-      } else if (view === 'analytics') {
-        _renderRundownAnalyticsView(dash);
-      } else if (view === 'webhooks') {
-        _renderRundownWebhooksView(dash);
       }
     }
 
@@ -14810,44 +14167,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
       html += '</div>';
       container.innerHTML = html;
-    }
-
-    function _renderRundownAnalyticsView(container) {
-      if (!container) return;
-      var plans = _rundownPlans || [];
-      var totalPlans = plans.length;
-      var byStatus = {};
-      plans.forEach(function(p) { var s = p.status || 'draft'; byStatus[s] = (byStatus[s] || 0) + 1; });
-      var html = '<div class="card" style="padding:20px">';
-      html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4;margin-bottom:16px">Rundown Analytics</div>';
-      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">';
-      html += '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:#00E676">' + totalPlans + '</div><div style="font-size:11px;color:#8B9DAF;margin-top:4px">Total Plans</div></div>';
-      Object.keys(byStatus).forEach(function(s) {
-        var c = s === 'live' ? '#00E676' : s === 'show_ready' ? '#FFB74D' : s === 'archived' ? '#556270' : '#42A5F5';
-        html += '<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:' + c + '">' + byStatus[s] + '</div><div style="font-size:11px;color:#8B9DAF;margin-top:4px;text-transform:capitalize">' + escapeHtml(s.replace('_', ' ')) + '</div></div>';
-      });
-      html += '</div></div>';
-      container.innerHTML = html;
-    }
-
-    function _renderRundownWebhooksView(container) {
-      if (!container) return;
-      var html = '<div class="card" style="padding:20px">';
-      html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4;margin-bottom:8px">Webhooks</div>';
-      html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:16px">Configure webhook URLs to receive real-time notifications when rundown events occur (cue advance, session start/end, etc.).</div>';
-      html += '<div id="rundown-webhooks-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>';
-      html += '<div style="display:flex;gap:8px;align-items:center">';
-      html += '<input type="url" id="webhook-url-input" placeholder="https://your-endpoint.com/webhook" style="flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;font-size:13px;outline:none">';
-      html += '<button class="btn-primary" id="webhook-add-btn" style="font-size:13px;padding:8px 16px">Add Webhook</button>';
-      html += '</div></div>';
-      container.innerHTML = html;
-      var addBtn = document.getElementById('webhook-add-btn');
-      if (addBtn) addBtn.addEventListener('click', function() {
-        var url = document.getElementById('webhook-url-input').value.trim();
-        if (!url) return;
-        toast('Webhook endpoint saved: ' + url);
-        document.getElementById('webhook-url-input').value = '';
-      });
     }
 
     // ── Right-click context menu ─────────────────────────────────────────────────
@@ -14919,67 +14238,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast('Failed: ' + e.message, true); });
     }
 
-    // ── Checklist indicators on items ────────────────────────────────────────────
-
-    var _rundownChecklists = {}; // { itemId: [{ text, done }] }
-
-    function _renderChecklistBadge(item) {
-      var list = _rundownChecklists[item.id];
-      if (!list || list.length === 0) return '';
-      var done = list.filter(function(c) { return c.done; }).length;
-      var badgeColor = done === list.length ? '#00E676' : '#FFB74D';
-      return '<span class="rundown-checklist-badge" data-item-id="' + item.id + '" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:10px;color:' + badgeColor + ';background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;margin-left:4px" title="Checklist: ' + done + '/' + list.length + '">'
-        + SVG.check + done + '/' + list.length + '</span>';
-    }
-
-    function rundownOpenChecklist(itemId) {
-      var list = _rundownChecklists[itemId] || [];
-      var existing = document.getElementById('rundown-checklist-panel');
-      if (existing) existing.remove();
-      var overlay = document.createElement('div');
-      overlay.id = 'rundown-checklist-panel';
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
-      function renderPanel() {
-        var html = '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:16px;padding:24px;max-width:400px;width:95%">'
-          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-          + '<div style="font-size:15px;font-weight:700;color:#F0F2F4">Checklist</div>'
-          + '<button id="close-checklist" class="btn-secondary" style="font-size:12px;padding:4px 12px">Close</button></div>';
-        list.forEach(function(c, i) {
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">';
-          html += '<input type="checkbox" class="checklist-check" data-idx="' + i + '" ' + (c.done ? 'checked' : '') + '>';
-          html += '<span style="font-size:13px;color:' + (c.done ? '#556270' : '#F0F2F4') + ';' + (c.done ? 'text-decoration:line-through' : '') + '">' + escapeHtml(c.text) + '</span>';
-          html += '</div>';
-        });
-        html += '<div style="display:flex;gap:6px;margin-top:12px">';
-        html += '<input type="text" id="checklist-new-item" placeholder="Add item..." style="flex:1;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:6px 8px;font-size:12px;outline:none">';
-        html += '<button id="checklist-add-btn" class="btn-primary" style="font-size:12px;padding:6px 12px">Add</button>';
-        html += '</div></div>';
-        overlay.innerHTML = html;
-        document.getElementById('close-checklist').addEventListener('click', function() { overlay.remove(); });
-        overlay.querySelectorAll('.checklist-check').forEach(function(cb) {
-          cb.addEventListener('change', function() {
-            list[parseInt(cb.getAttribute('data-idx'), 10)].done = cb.checked;
-            _rundownChecklists[itemId] = list;
-            renderRundownEditorItems(_rundownSelectedPlan.items || []);
-            renderPanel();
-          });
-        });
-        document.getElementById('checklist-add-btn').addEventListener('click', function() {
-          var val = document.getElementById('checklist-new-item').value.trim();
-          if (!val) return;
-          list.push({ text: val, done: false });
-          _rundownChecklists[itemId] = list;
-          renderRundownEditorItems(_rundownSelectedPlan.items || []);
-          renderPanel();
-        });
-        document.getElementById('checklist-new-item').addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') document.getElementById('checklist-add-btn').click();
-        });
-      }
-      renderPanel();
-      document.body.appendChild(overlay);
-      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-    }
+    // ── Checklist indicators on items (local-state overlay removed; using API-backed _renderChecklistPanel) ──
 
     // ── AI Document Import ──────────────────────────────────────────────────────
 
@@ -16420,24 +15679,11 @@ function rundownViewList() {
 function rundownViewCalendar() {
   _setDashboardView('calendar');
 }
-function rundownViewAnalytics() {
-  _setDashboardView('analytics');
-  renderRundownAnalytics();
-}
-function rundownViewWebhooks() {
-  _setDashboardView('webhooks');
-  renderRundownWebhooks();
-}
-
 function _setDashboardView(view) {
   var dash = document.getElementById('rundown-dashboard');
   var cal = document.getElementById('rundown-calendar-view');
-  var ana = document.getElementById('rundown-analytics-view');
-  var wh = document.getElementById('rundown-webhooks-view');
   if (dash) dash.style.display = view === 'list' ? '' : 'none';
   if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
-  if (ana) ana.style.display = view === 'analytics' ? '' : 'none';
-  if (wh) wh.style.display = view === 'webhooks' ? '' : 'none';
   document.querySelectorAll('.rundown-view-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.action === 'rundownView' + view.charAt(0).toUpperCase() + view.slice(1));
   });
@@ -16578,279 +15824,6 @@ function rundownCalCopyToDate(planId) {
   api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans', { title: plan.title + ' (copy)', serviceDate: targetDate, roomId: plan.roomId || '' }).then(function(newPlan) {
     toast('Plan copied to ' + targetDate);
     loadRundownManager();
-  }).catch(function(e) { toast(e.message, true); });
-}
-
-// ── PHASE 5: Analytics Dashboard ────────────────────────────────────────────
-var _analyticsRange = '30d';
-
-function renderRundownAnalytics() {
-  var container = document.getElementById('rundown-analytics-view');
-  if (!container) return;
-  container.innerHTML = '<div style="color:#556270;text-align:center;padding:40px;font-size:13px">Loading analytics...</div>';
-
-  api('GET', '/api/churches/' + CHURCH_ID + '/rundown-analytics?range=' + _analyticsRange).then(function(data) {
-    var html = '<div class="analytics-header">';
-    html += '<h3>Service Analytics</h3>';
-    html += '<div class="analytics-range">';
-    html += '<button data-action="rundownAnalyticsRange" data-range="30d"' + (_analyticsRange === '30d' ? ' class="active"' : '') + '>30 Days</button>';
-    html += '<button data-action="rundownAnalyticsRange" data-range="90d"' + (_analyticsRange === '90d' ? ' class="active"' : '') + '>90 Days</button>';
-    html += '<button data-action="rundownAnalyticsRange" data-range="all"' + (_analyticsRange === 'all' ? ' class="active"' : '') + '>All Time</button>';
-    html += '</div></div>';
-
-    // KPI row
-    html += '<div class="analytics-kpi-row">';
-    html += '<div class="analytics-kpi"><div class="analytics-stat">' + (data.serviceCount || 0) + '</div><div class="analytics-stat-label">Services</div></div>';
-    html += '<div class="analytics-kpi"><div class="analytics-stat">' + _fmtMs(data.avgPlannedMs) + '</div><div class="analytics-stat-label">Avg Planned</div></div>';
-    html += '<div class="analytics-kpi"><div class="analytics-stat">' + _fmtMs(data.avgActualMs) + '</div><div class="analytics-stat-label">Avg Actual</div></div>';
-    var varColor = (data.avgVarianceMs || 0) > 0 ? '#FF5252' : '#00E676';
-    html += '<div class="analytics-kpi"><div class="analytics-stat" style="color:' + varColor + '">' + _fmtMsSigned(data.avgVarianceMs) + '</div><div class="analytics-stat-label">Avg Variance</div></div>';
-    html += '</div>';
-
-    html += '<div class="analytics-grid">';
-
-    // Duration trend chart
-    html += '<div class="analytics-card"><h4>Service Duration Trend</h4>';
-    html += _buildLineChart(data.durationTrend || [], ['planned', 'actual'], { planned: '#64B5F6', actual: '#00E676' });
-    html += '</div>';
-
-    // Variance trend
-    html += '<div class="analytics-card"><h4>Variance Trend</h4>';
-    html += _buildVarianceChart(data.varianceTrend || []);
-    html += '</div>';
-
-    // Weekly service count
-    html += '<div class="analytics-card"><h4>Services Per Week</h4>';
-    html += _buildBarChart(data.weeklyServiceCounts || [], 'count', 'week');
-    html += '</div>';
-
-    // Overtime leaderboard
-    html += '<div class="analytics-card"><h4>Overtime Leaderboard</h4>';
-    if (data.overtimeLeaderboard && data.overtimeLeaderboard.length > 0) {
-      var maxOver = data.overtimeLeaderboard[0].totalOverMs || 1;
-      for (var i = 0; i < data.overtimeLeaderboard.length; i++) {
-        var item = data.overtimeLeaderboard[i];
-        var pct = Math.round((item.totalOverMs / maxOver) * 100);
-        html += '<div style="margin-bottom:6px">';
-        html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:#F0F2F4;margin-bottom:2px"><span>' + escapeHtml(item.title) + '</span><span style="color:#FF5252">+' + _fmtMs(item.totalOverMs) + ' (' + item.count + 'x)</span></div>';
-        html += '<div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:#FF5252;border-radius:3px"></div></div>';
-        html += '</div>';
-      }
-    } else {
-      html += '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No overtime data yet</div>';
-    }
-    html += '</div>';
-
-    // Item type breakdown
-    html += '<div class="analytics-card"><h4>Time by Item Type</h4>';
-    if (data.itemTypeBreakdown && data.itemTypeBreakdown.length > 0) {
-      var totalTypeMs = data.itemTypeBreakdown.reduce(function(s, t) { return s + t.ms; }, 0) || 1;
-      var typeColors = { worship: '#64B5F6', message: '#FFB74D', transition: '#CE93D8', media: '#81C784', prayer: '#F48FB1', other: '#8B9DAF' };
-      for (var i = 0; i < data.itemTypeBreakdown.length; i++) {
-        var t = data.itemTypeBreakdown[i];
-        var pct = Math.round((t.ms / totalTypeMs) * 100);
-        var col = typeColors[t.type] || '#8B9DAF';
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
-        html += '<div style="width:10px;height:10px;border-radius:2px;background:' + col + ';flex-shrink:0"></div>';
-        html += '<span style="font-size:12px;color:#F0F2F4;flex:1">' + escapeHtml(t.type) + '</span>';
-        html += '<span style="font-size:12px;color:#8B9DAF">' + pct + '% (' + _fmtMs(t.ms) + ')</span>';
-        html += '</div>';
-      }
-    } else {
-      html += '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No data yet</div>';
-    }
-    html += '</div>';
-
-    html += '</div>';
-    container.innerHTML = html;
-  }).catch(function(e) {
-    container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px;font-size:13px">Failed to load analytics: ' + escapeHtml(e.message) + '</div>';
-  });
-}
-
-function _fmtMs(ms) {
-  if (!ms) return '0m';
-  var s = Math.round(ms / 1000);
-  var m = Math.floor(s / 60);
-  var sec = s % 60;
-  if (m >= 60) return Math.floor(m/60) + 'h ' + (m%60) + 'm';
-  return m + 'm ' + sec + 's';
-}
-function _fmtMsSigned(ms) {
-  if (!ms) return '0m';
-  var sign = ms > 0 ? '+' : '-';
-  return sign + _fmtMs(Math.abs(ms));
-}
-
-function _buildLineChart(data, keys, colors) {
-  if (!data || data.length < 2) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">Not enough data</div>';
-  var w = 280, h = 120, pad = 20;
-  var allVals = [];
-  for (var i = 0; i < data.length; i++) { for (var k = 0; k < keys.length; k++) { allVals.push(data[i][keys[k]] || 0); } }
-  var minV = Math.min.apply(null, allVals), maxV = Math.max.apply(null, allVals);
-  if (maxV === minV) maxV = minV + 1;
-
-  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Line chart">';
-  for (var k = 0; k < keys.length; k++) {
-    var points = [];
-    for (var i = 0; i < data.length; i++) {
-      var x = pad + (i / (data.length - 1)) * (w - 2 * pad);
-      var y = h - pad - ((data[i][keys[k]] || 0) - minV) / (maxV - minV) * (h - 2 * pad);
-      points.push(x.toFixed(1) + ',' + y.toFixed(1));
-    }
-    svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + colors[keys[k]] + '" stroke-width="2" stroke-linejoin="round"/>';
-  }
-  svg += '</svg>';
-  // Legend
-  svg += '<div style="display:flex;gap:12px;margin-top:4px">';
-  for (var k = 0; k < keys.length; k++) {
-    svg += '<span style="font-size:10px;color:' + colors[keys[k]] + ';display:flex;align-items:center;gap:4px"><span style="width:8px;height:2px;background:' + colors[keys[k]] + ';display:inline-block"></span>' + keys[k] + '</span>';
-  }
-  svg += '</div>';
-  return svg;
-}
-
-function _buildVarianceChart(data) {
-  if (!data || data.length < 2) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">Not enough data</div>';
-  var w = 280, h = 120, pad = 20;
-  var vals = data.map(function(d) { return d.variance || 0; });
-  var maxAbs = Math.max.apply(null, vals.map(function(v) { return Math.abs(v); })) || 1;
-
-  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Variance chart">';
-  // Zero line
-  var zeroY = h / 2;
-  svg += '<line x1="' + pad + '" y1="' + zeroY + '" x2="' + (w - pad) + '" y2="' + zeroY + '" stroke="#3A4556" stroke-width="1" stroke-dasharray="4"/>';
-  var points = [];
-  for (var i = 0; i < data.length; i++) {
-    var x = pad + (i / (data.length - 1)) * (w - 2 * pad);
-    var y = zeroY - (vals[i] / maxAbs) * (h / 2 - pad);
-    points.push(x.toFixed(1) + ',' + y.toFixed(1));
-  }
-  svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="#FFB74D" stroke-width="2" stroke-linejoin="round"/>';
-  svg += '<text x="' + pad + '" y="' + (pad - 4) + '" fill="#556270" font-size="8">Over</text>';
-  svg += '<text x="' + pad + '" y="' + (h - 4) + '" fill="#556270" font-size="8">Under</text>';
-  svg += '</svg>';
-  return svg;
-}
-
-function _buildBarChart(data, valueKey, labelKey) {
-  if (!data || data.length === 0) return '<div style="color:#556270;font-size:12px;text-align:center;padding:20px">No data</div>';
-  var w = 280, h = 100, pad = 20;
-  var maxVal = Math.max.apply(null, data.map(function(d) { return d[valueKey] || 0; })) || 1;
-  var barW = Math.max(4, Math.min(20, (w - 2 * pad) / data.length - 2));
-
-  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img" aria-label="Bar chart">';
-  for (var i = 0; i < data.length; i++) {
-    var val = data[i][valueKey] || 0;
-    var barH = (val / maxVal) * (h - 2 * pad);
-    var x = pad + (i / data.length) * (w - 2 * pad);
-    svg += '<rect x="' + x.toFixed(1) + '" y="' + (h - pad - barH).toFixed(1) + '" width="' + barW + '" height="' + barH.toFixed(1) + '" fill="var(--primary)" rx="2" opacity="0.8"/>';
-  }
-  svg += '</svg>';
-  return svg;
-}
-
-function rundownAnalyticsRange(range) {
-  _analyticsRange = range;
-  renderRundownAnalytics();
-}
-
-// ── PHASE 5: Webhooks Management UI ─────────────────────────────────────────
-var _webhooksCache = [];
-
-function renderRundownWebhooks() {
-  var container = document.getElementById('rundown-webhooks-view');
-  if (!container) return;
-  container.innerHTML = '<div style="color:#556270;text-align:center;padding:40px;font-size:13px">Loading webhooks...</div>';
-
-  api('GET', '/api/churches/' + CHURCH_ID + '/webhooks').then(function(data) {
-    _webhooksCache = data.webhooks || [];
-    _renderWebhooksList(container);
-  }).catch(function(e) {
-    container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px">Failed: ' + escapeHtml(e.message) + '</div>';
-  });
-}
-
-function _renderWebhooksList(container) {
-  var html = '<div class="card" style="padding:16px;margin-bottom:16px">';
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
-  html += '<div style="font-size:15px;font-weight:700;color:#F0F2F4">Webhooks</div>';
-  html += '<button class="btn-primary" data-action="rundownWebhookAdd" style="font-size:12px;padding:5px 14px">Add Webhook</button>';
-  html += '</div>';
-
-  if (_webhooksCache.length === 0) {
-    html += '<div style="color:#556270;text-align:center;padding:30px;font-size:13px">No webhooks configured. Add one to receive notifications on rundown events.</div>';
-  } else {
-    html += '<div class="webhook-list">';
-    var eventLabels = { 'show.started': 'Show Started', 'show.ended': 'Show Ended', 'cue.advanced': 'Cue Advanced', 'plan.created': 'Plan Created', 'plan.updated': 'Plan Updated' };
-    for (var i = 0; i < _webhooksCache.length; i++) {
-      var wh = _webhooksCache[i];
-      html += '<div class="webhook-row">';
-      html += '<div class="webhook-status-dot ' + (wh.active ? 'active' : 'inactive') + '" title="' + (wh.active ? 'Active' : 'Inactive') + '"></div>';
-      html += '<div class="webhook-url">' + escapeHtml(wh.url) + '</div>';
-      html += '<div class="webhook-events">' + (wh.events || []).map(function(e) { return eventLabels[e] || e; }).join(', ') + '</div>';
-      html += '<div class="webhook-actions">';
-      html += '<button class="btn-secondary" data-action="rundownWebhookTest" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px">Test</button>';
-      html += '<button class="btn-secondary" data-action="rundownWebhookEdit" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px">Edit</button>';
-      html += '<button class="btn-secondary" data-action="rundownWebhookDelete" data-webhook-id="' + wh.id + '" style="font-size:11px;padding:3px 8px;color:#FF5252">Delete</button>';
-      html += '</div></div>';
-    }
-    html += '</div>';
-  }
-  html += '</div>';
-  container.innerHTML = html;
-}
-
-function rundownWebhookAdd() {
-  _showWebhookForm(null);
-}
-function rundownWebhookEdit(webhookId) {
-  var wh = _webhooksCache.find(function(w) { return w.id === webhookId; });
-  if (wh) _showWebhookForm(wh);
-}
-
-function _showWebhookForm(existing) {
-  var allEvents = ['show.started', 'show.ended', 'cue.advanced', 'plan.created', 'plan.updated'];
-  var eventLabels = { 'show.started': 'Show Started', 'show.ended': 'Show Ended', 'cue.advanced': 'Cue Advanced', 'plan.created': 'Plan Created', 'plan.updated': 'Plan Updated' };
-  var selectedEvents = existing ? (existing.events || []) : [];
-
-  var html = '<div style="margin-bottom:12px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:4px">Webhook URL</label>';
-  html += '<input type="url" id="webhook-form-url" value="' + escapeHtml(existing ? existing.url : '') + '" placeholder="https://example.com/webhook" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;font-size:13px;font-family:\'SF Mono\',monospace"></div>';
-  html += '<div style="margin-bottom:12px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:4px">Secret (for HMAC signing, optional)</label>';
-  html += '<input type="text" id="webhook-form-secret" value="' + escapeHtml(existing ? existing.secret : '') + '" placeholder="optional-secret" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;font-size:13px;font-family:\'SF Mono\',monospace"></div>';
-  html += '<div style="margin-bottom:8px"><label style="font-size:12px;color:#8B9DAF;display:block;margin-bottom:6px">Events</label>';
-  for (var i = 0; i < allEvents.length; i++) {
-    var checked = selectedEvents.indexOf(allEvents[i]) >= 0 ? ' checked' : '';
-    html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#F0F2F4;margin-bottom:4px;cursor:pointer"><input type="checkbox" class="webhook-event-cb" value="' + allEvents[i] + '"' + checked + '> ' + eventLabels[allEvents[i]] + '</label>';
-  }
-  html += '</div>';
-
-  showDialog(existing ? 'Edit Webhook' : 'Add Webhook', html, function() {
-    var url = (document.getElementById('webhook-form-url') || {}).value || '';
-    var secret = (document.getElementById('webhook-form-secret') || {}).value || '';
-    var events = [];
-    document.querySelectorAll('.webhook-event-cb:checked').forEach(function(cb) { events.push(cb.value); });
-    if (!url.trim()) { toast('URL is required', true); return; }
-    var method = existing ? 'PUT' : 'POST';
-    var path = '/api/churches/' + CHURCH_ID + '/webhooks' + (existing ? '/' + existing.id : '');
-    api(method, path, { url: url.trim(), events: events, secret: secret, active: true }).then(function() {
-      toast(existing ? 'Webhook updated' : 'Webhook added');
-      renderRundownWebhooks();
-    }).catch(function(e) { toast(e.message, true); });
-  });
-}
-
-function rundownWebhookTest(webhookId) {
-  api('POST', '/api/churches/' + CHURCH_ID + '/webhooks/' + webhookId + '/test').then(function(r) {
-    toast(r.ok ? 'Test delivered (HTTP ' + r.status + ')' : 'Delivery failed (HTTP ' + r.status + ')', !r.ok);
-  }).catch(function(e) { toast('Test failed: ' + e.message, true); });
-}
-
-function rundownWebhookDelete(webhookId) {
-  if (!confirm('Delete this webhook?')) return;
-  api('DELETE', '/api/churches/' + CHURCH_ID + '/webhooks/' + webhookId).then(function() {
-    toast('Webhook deleted');
-    renderRundownWebhooks();
   }).catch(function(e) { toast(e.message, true); });
 }
 
@@ -17029,12 +16002,6 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
 
       // Rundown management
-      case 'rundownOpenMulticampus':
-        if (typeof rundownOpenMulticampus === 'function') rundownOpenMulticampus();
-        break;
-      case 'rundownSyncSettings':
-        if (typeof rundownSyncSettings === 'function') rundownSyncSettings();
-        break;
       case 'setRoomReadyStatus':
         if (typeof setRoomReadyStatus === 'function') setRoomReadyStatus(btn.dataset.roomId, btn.dataset.status);
         break;
@@ -17197,9 +16164,6 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownImportFromDocument':
         if (typeof rundownImportFromDocument === 'function') rundownImportFromDocument();
         break;
-      case 'rundownComparePlans':
-        if (typeof rundownComparePlans === 'function') rundownComparePlans();
-        break;
       case 'rundownSetDashboardView':
         if (typeof rundownSetDashboardView === 'function') rundownSetDashboardView(btn.dataset.view);
         break;
@@ -17207,7 +16171,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof rundownOpenScriptEditor === 'function') rundownOpenScriptEditor(btn.dataset.itemId);
         break;
       case 'rundownOpenChecklist':
-        if (typeof rundownOpenChecklist === 'function') rundownOpenChecklist(btn.dataset.itemId);
+        // Route to API-backed checklist panel toggle
+        if (btn.dataset.itemId) {
+          _rundownChecklistExpanded[btn.dataset.itemId] = !_rundownChecklistExpanded[btn.dataset.itemId];
+          _renderChecklistPanel(btn.dataset.itemId);
+        }
         break;
       case 'rundownAddColumn':
         if (typeof rundownAddColumn === 'function') rundownAddColumn();
@@ -17286,13 +16254,6 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownViewCalendar':
         if (typeof rundownViewCalendar === 'function') rundownViewCalendar();
         break;
-      case 'rundownViewAnalytics':
-        if (typeof rundownViewAnalytics === 'function') rundownViewAnalytics();
-        break;
-      case 'rundownViewWebhooks':
-        if (typeof rundownViewWebhooks === 'function') rundownViewWebhooks();
-        break;
-
       // Phase 5: Calendar actions
       case 'rundownCalPrev':
         if (typeof rundownCalPrev === 'function') rundownCalPrev();
@@ -17315,25 +16276,6 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'rundownCalNewOnDate':
         e.stopPropagation();
         if (typeof rundownCalNewOnDate === 'function') rundownCalNewOnDate(btn.dataset.date);
-        break;
-
-      // Phase 5: Analytics
-      case 'rundownAnalyticsRange':
-        if (typeof rundownAnalyticsRange === 'function') rundownAnalyticsRange(btn.dataset.range);
-        break;
-
-      // Phase 5: Webhooks
-      case 'rundownWebhookAdd':
-        if (typeof rundownWebhookAdd === 'function') rundownWebhookAdd();
-        break;
-      case 'rundownWebhookEdit':
-        if (typeof rundownWebhookEdit === 'function') rundownWebhookEdit(btn.dataset.webhookId);
-        break;
-      case 'rundownWebhookTest':
-        if (typeof rundownWebhookTest === 'function') rundownWebhookTest(btn.dataset.webhookId);
-        break;
-      case 'rundownWebhookDelete':
-        if (typeof rundownWebhookDelete === 'function') rundownWebhookDelete(btn.dataset.webhookId);
         break;
 
       // Dashboard filter/sort (handled via input/change events, but also catch click)

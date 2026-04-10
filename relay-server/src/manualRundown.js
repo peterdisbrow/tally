@@ -428,140 +428,9 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_cw_church ON church_webhooks(church_id)
     `);
-  }
 
-  // ─── WEBHOOKS ─────────────────────────────────────────────────────────────
-
-  async listWebhooks(churchId) {
-    await this.ready;
-    return this._db.query('SELECT * FROM church_webhooks WHERE church_id = ? ORDER BY created_at DESC', [churchId]);
-  }
-
-  async getWebhook(webhookId) {
-    await this.ready;
-    return this._db.queryOne('SELECT * FROM church_webhooks WHERE id = ?', [webhookId]);
-  }
-
-  async createWebhook(churchId, { url, events, secret }) {
-    await this.ready;
-    const id = uuidv4();
-    await this._db.run(
-      'INSERT INTO church_webhooks (id, church_id, url, events, secret, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
-      [id, churchId, url, JSON.stringify(events || []), secret || '', Date.now()]
-    );
-    return this.getWebhook(id);
-  }
-
-  async updateWebhook(webhookId, { url, events, secret, active }) {
-    await this.ready;
-    const existing = await this.getWebhook(webhookId);
-    if (!existing) return null;
-    await this._db.run(
-      'UPDATE church_webhooks SET url = ?, events = ?, secret = ?, active = ? WHERE id = ?',
-      [
-        url !== undefined ? url : existing.url,
-        events !== undefined ? JSON.stringify(events) : existing.events,
-        secret !== undefined ? secret : existing.secret,
-        active !== undefined ? (active ? 1 : 0) : existing.active,
-        webhookId,
-      ]
-    );
-    return this.getWebhook(webhookId);
-  }
-
-  async deleteWebhook(webhookId) {
-    await this.ready;
-    await this._db.run('DELETE FROM church_webhooks WHERE id = ?', [webhookId]);
-  }
-
-  async getActiveWebhooksForEvent(churchId, eventType) {
-    await this.ready;
-    const rows = await this._db.query(
-      'SELECT * FROM church_webhooks WHERE church_id = ? AND active = 1',
-      [churchId]
-    );
-    return rows.filter(function(w) {
-      try { var evts = JSON.parse(w.events || '[]'); return evts.includes(eventType); }
-      catch { return false; }
-    });
-  }
-
-  // ─── ANALYTICS ────────────────────────────────────────────────────────────
-
-  async getRundownAnalytics(churchId, range) {
-    await this.ready;
-    let sinceMs = 0;
-    if (range === '30d') sinceMs = Date.now() - 30 * 86400000;
-    else if (range === '90d') sinceMs = Date.now() - 90 * 86400000;
-
-    const reports = await this._db.query(
-      'SELECT * FROM rundown_show_reports WHERE church_id = ? AND created_at >= ? ORDER BY created_at ASC',
-      [churchId, sinceMs]
-    );
-
-    const plans = await this._db.query(
-      'SELECT id, title, service_date, status FROM manual_rundown_plans WHERE church_id = ? AND is_template = 0 AND created_at >= ? ORDER BY service_date ASC',
-      [churchId, sinceMs]
-    );
-
-    // Average service duration vs planned
-    let totalPlanned = 0, totalActual = 0;
-    const durationTrend = [];
-    const varianceTrend = [];
-    const overtimeMap = {};
-    const weekCounts = {};
-    const itemTypeTime = {};
-
-    for (const r of reports) {
-      totalPlanned += r.total_planned_ms || 0;
-      totalActual += r.total_actual_ms || 0;
-      const date = new Date(r.session_started_at || r.created_at).toISOString().slice(0, 10);
-      durationTrend.push({ date, planned: r.total_planned_ms, actual: r.total_actual_ms });
-      varianceTrend.push({ date, variance: (r.total_actual_ms || 0) - (r.total_planned_ms || 0) });
-
-      // Week bucket
-      const d = new Date(r.session_started_at || r.created_at);
-      const weekStart = new Date(d); weekStart.setDate(d.getDate() - d.getDay());
-      const weekKey = weekStart.toISOString().slice(0, 10);
-      weekCounts[weekKey] = (weekCounts[weekKey] || 0) + 1;
-
-      // Item timings analysis
-      try {
-        const items = JSON.parse(r.item_timings_json || '[]');
-        for (const it of items) {
-          const over = (it.actualMs || 0) - (it.plannedMs || 0);
-          if (over > 0) {
-            const key = it.title || 'Unknown';
-            if (!overtimeMap[key]) overtimeMap[key] = { title: key, totalOverMs: 0, count: 0 };
-            overtimeMap[key].totalOverMs += over;
-            overtimeMap[key].count++;
-          }
-          const itype = it.itemType || 'other';
-          itemTypeTime[itype] = (itemTypeTime[itype] || 0) + (it.actualMs || it.plannedMs || 0);
-        }
-      } catch { /* skip */ }
-    }
-
-    const serviceCount = reports.length;
-    const avgPlanned = serviceCount > 0 ? Math.round(totalPlanned / serviceCount) : 0;
-    const avgActual = serviceCount > 0 ? Math.round(totalActual / serviceCount) : 0;
-    const avgVariance = serviceCount > 0 ? Math.round((totalActual - totalPlanned) / serviceCount) : 0;
-
-    const overtimeLeaderboard = Object.values(overtimeMap)
-      .sort((a, b) => b.totalOverMs - a.totalOverMs)
-      .slice(0, 10);
-
-    return {
-      serviceCount,
-      avgPlannedMs: avgPlanned,
-      avgActualMs: avgActual,
-      avgVarianceMs: avgVariance,
-      durationTrend,
-      varianceTrend,
-      overtimeLeaderboard,
-      weeklyServiceCounts: Object.entries(weekCounts).map(([week, count]) => ({ week, count })).sort((a, b) => a.week.localeCompare(b.week)),
-      itemTypeBreakdown: Object.entries(itemTypeTime).map(([type, ms]) => ({ type, ms })).sort((a, b) => b.ms - a.ms),
-    };
+    // Prune old revisions on startup
+    await this.pruneOldRevisions();
   }
 
   // ─── PLANS ─────────────────────────────────────────────────────────────────
@@ -719,12 +588,12 @@ class ManualRundownStore {
   }
 
   async deletePlan(planId) {
+    await this.deleteAttachmentsForPlan(planId);
     await this._db.run(
       `DELETE FROM rundown_column_values WHERE column_id IN (SELECT id FROM rundown_columns WHERE plan_id = ?)`,
       [planId]
     );
     await this._db.run(`DELETE FROM rundown_columns WHERE plan_id = ?`, [planId]);
-    await this._db.run(`DELETE FROM rundown_attachments WHERE plan_id = ?`, [planId]);
     await this._db.run(`DELETE FROM rundown_shares WHERE plan_id = ?`, [planId]);
     await this._db.run(`DELETE FROM rundown_live_state WHERE plan_id = ?`, [planId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE plan_id = ?`, [planId]);
@@ -790,8 +659,8 @@ class ManualRundownStore {
 
   async deleteItem(itemId) {
     const item = await this._db.queryOne(`SELECT plan_id FROM manual_rundown_items WHERE id = ?`, [itemId]);
+    await this.deleteAttachmentsForItem(itemId);
     await this._db.run(`DELETE FROM rundown_column_values WHERE item_id = ?`, [itemId]);
-    await this._db.run(`DELETE FROM rundown_attachments WHERE item_id = ?`, [itemId]);
     await this._db.run(`DELETE FROM manual_rundown_checklists WHERE item_id = ?`, [itemId]);
     await this._db.run(`DELETE FROM manual_rundown_items WHERE id = ?`, [itemId]);
     if (item) await this._db.run(`UPDATE manual_rundown_plans SET updated_at = ? WHERE id = ?`, [Date.now(), item.plan_id]);
@@ -924,9 +793,6 @@ class ManualRundownStore {
         sortOrder: col.sortOrder,
         type: col.type,
         options: col.options,
-        equipmentBinding: col.equipmentBinding,
-        editableRoles: col.editableRoles,
-        validationRules: col.validationRules,
       });
       colIdMap[col.id] = newCol.id;
     }
@@ -956,9 +822,6 @@ class ManualRundownStore {
       sortOrder: r.sort_order,
       type: VALID_COLUMN_TYPES.has(r.column_type) ? r.column_type : 'text',
       options: this._parseColumnOptions(r.options_json),
-      equipmentBinding: r.equipment_binding || null,
-      editableRoles: r.editable_roles ? this._parseJson(r.editable_roles, null) : null,
-      validationRules: this._parseJson(r.validation_json, []),
       createdAt: r.created_at,
     }));
   }
@@ -968,21 +831,19 @@ class ManualRundownStore {
     try { return JSON.parse(raw); } catch { return fallback; }
   }
 
-  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [], equipmentBinding = null, editableRoles = null, validationRules = [] }) {
+  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [] }) {
     const id = uuidv4();
     const now = Date.now();
     const normalizedType = VALID_COLUMN_TYPES.has(type) ? type : 'text';
     const normalizedOptions = this._normalizeColumnOptions(options, normalizedType);
-    const normalizedEditableRoles = Array.isArray(editableRoles) && editableRoles.length ? JSON.stringify(editableRoles) : null;
-    const normalizedValidation = Array.isArray(validationRules) ? JSON.stringify(validationRules) : '[]';
     if (sortOrder === undefined || sortOrder === null) {
       const max = await this._db.queryOne(`SELECT COALESCE(MAX(sort_order), -1) as mx FROM rundown_columns WHERE plan_id = ?`, [planId]);
       sortOrder = (max?.mx ?? -1) + 1;
     }
     await this._db.run(
-      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, equipment_binding, editable_roles, validation_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), equipmentBinding || null, normalizedEditableRoles, normalizedValidation, now]
+      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), now]
     );
     return {
       id,
@@ -993,14 +854,11 @@ class ManualRundownStore {
       sortOrder,
       type: normalizedType,
       options: normalizedOptions,
-      equipmentBinding: equipmentBinding || null,
-      editableRoles: editableRoles || null,
-      validationRules: validationRules || [],
       createdAt: now,
     };
   }
 
-  async updateColumn(colId, { name, sortOrder, type, options, equipmentBinding, editableRoles, validationRules }) {
+  async updateColumn(colId, { name, sortOrder, type, options }) {
     const sets = [];
     const params = [];
     if (name !== undefined) { sets.push('name = ?'); params.push(name); }
@@ -1013,18 +871,6 @@ class ManualRundownStore {
     if (options !== undefined || (normalizedType !== undefined && normalizedType !== 'dropdown')) {
       sets.push('options_json = ?');
       params.push(JSON.stringify(this._normalizeColumnOptions(options, normalizedType || 'text')));
-    }
-    if (equipmentBinding !== undefined) {
-      sets.push('equipment_binding = ?');
-      params.push(equipmentBinding || null);
-    }
-    if (editableRoles !== undefined) {
-      sets.push('editable_roles = ?');
-      params.push(Array.isArray(editableRoles) && editableRoles.length ? JSON.stringify(editableRoles) : null);
-    }
-    if (validationRules !== undefined) {
-      sets.push('validation_json = ?');
-      params.push(Array.isArray(validationRules) ? JSON.stringify(validationRules) : '[]');
     }
     if (sets.length === 0) return;
     params.push(colId);
@@ -1189,6 +1035,10 @@ class ManualRundownStore {
   async addAttachment(itemId, planId, churchId, { filename, mimetype, size, storagePath }) {
     const id = uuidv4();
     const now = Date.now();
+    const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
+    if (size > MAX_ATTACHMENT_SIZE) {
+      throw new Error('Attachment exceeds 10MB limit');
+    }
     await this._db.run(
       `INSERT INTO rundown_attachments (id, item_id, plan_id, church_id, filename, mimetype, size, storage_path, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1222,6 +1072,28 @@ class ManualRundownStore {
     if (!att) return null;
     await this._db.run(`DELETE FROM rundown_attachments WHERE id = ?`, [attachmentId]);
     return att;
+  }
+
+  /**
+   * Delete all attachments for an item, including files on disk.
+   */
+  async deleteAttachmentsForItem(itemId) {
+    const attachments = await this.getAttachments(itemId);
+    for (const att of attachments) {
+      try { require('fs').unlinkSync(att.storagePath); } catch { /* file may not exist */ }
+    }
+    await this._db.run(`DELETE FROM rundown_attachments WHERE item_id = ?`, [itemId]);
+  }
+
+  /**
+   * Delete all attachments for a plan, including files on disk.
+   */
+  async deleteAttachmentsForPlan(planId) {
+    const attachments = await this.getAttachmentsByPlan(planId);
+    for (const att of attachments) {
+      try { require('fs').unlinkSync(att.storagePath); } catch { /* file may not exist */ }
+    }
+    await this._db.run(`DELETE FROM rundown_attachments WHERE plan_id = ?`, [planId]);
   }
 
   // ─── SHARES ────────────────────────────────────────────────────────────────
@@ -1588,6 +1460,19 @@ class ManualRundownStore {
     }));
   }
 
+  /**
+   * Prune old revisions: remove any older than 90 days AND beyond 50 per item.
+   * Safe to call periodically (e.g. on init or daily).
+   */
+  async pruneOldRevisions() {
+    await this.ready;
+    const cutoff = Date.now() - (90 * 24 * 60 * 60 * 1000); // 90 days
+    await this._db.run(
+      `DELETE FROM rundown_item_revisions WHERE changed_at < ?`,
+      [cutoff]
+    );
+  }
+
   async getPlanRevisions(planId, { limit = 50 } = {}) {
     const rows = await this._db.query(
       `SELECT * FROM rundown_item_revisions WHERE plan_id = ? ORDER BY changed_at DESC LIMIT ?`,
@@ -1865,42 +1750,6 @@ class ManualRundownStore {
     await this._db.run(
       `DELETE FROM rundown_room_permissions WHERE church_id = ? AND user_key = ?`,
       [churchId, userKey]
-    );
-  }
-
-  // ─── CROSS-ROOM SYNC CONFIG ────────────────────────────────────────────────
-
-  /**
-   * Get the sync configuration for a plan.
-   * @returns {{ syncSourceRoomId: string|null, syncDelaySeconds: number }}
-   */
-  async getSyncConfig(planId) {
-    await this.ready;
-    const row = await this._db.queryOne(
-      `SELECT sync_source_room_id, sync_delay_seconds FROM manual_rundown_plans WHERE id = ?`,
-      [planId]
-    );
-    if (!row) return { syncSourceRoomId: null, syncDelaySeconds: 0 };
-    return {
-      syncSourceRoomId: row.sync_source_room_id || null,
-      syncDelaySeconds: Number(row.sync_delay_seconds) || 0,
-    };
-  }
-
-  /**
-   * Update the sync configuration for a plan.
-   * @param {string} planId
-   * @param {string|null} syncSourceRoomId — room to mirror cue advances from (null = disabled)
-   * @param {number} syncDelaySeconds — 0–10
-   */
-  async updateSyncConfig(planId, syncSourceRoomId, syncDelaySeconds = 0) {
-    await this.ready;
-    const delay = Math.max(0, Math.min(10, Number(syncDelaySeconds) || 0));
-    await this._db.run(
-      `UPDATE manual_rundown_plans
-         SET sync_source_room_id = ?, sync_delay_seconds = ?, updated_at = ?
-       WHERE id = ?`,
-      [syncSourceRoomId || null, delay, Date.now(), planId]
     );
   }
 

@@ -39,7 +39,6 @@
  */
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse = require('pdf-parse');
@@ -50,13 +49,6 @@ const VALID_RUNDOWN_COLLABORATOR_ROLES = new Set(['owner', 'editor', 'viewer']);
 const VALID_RUNDOWN_COLLABORATOR_STATUSES = new Set(['active', 'offline', 'revoked']);
 const RUNDOWN_ROLE_RANK = { viewer: 0, editor: 1, owner: 2 };
 const PRESENCE_STALE_AFTER_MS = 5 * 60 * 1000;
-const VALID_RUNDOWN_EQUIPMENT_BINDINGS = new Set([
-  'atem.program_input',
-  'atem.preview_input',
-  'propresenter.presentation',
-  'encoder.status',
-  'stream.live',
-]);
 
 function csvEscapeField(val) {
   const s = String(val == null ? '' : val);
@@ -94,13 +86,6 @@ function normalizeRundownColumnOptions(options, type) {
     : String(options || '')
       .split(',');
   return [...new Set(list.map((option) => String(option || '').trim()).filter(Boolean))];
-}
-
-function normalizeRundownEquipmentBinding(binding) {
-  if (binding === undefined) return undefined;
-  const trimmed = String(binding || '').trim();
-  if (!trimmed || trimmed === 'none') return null;
-  return trimmed;
 }
 
 function normalizeRundownCollaboratorRole(role, fallback = 'editor') {
@@ -490,15 +475,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         // Load companion actions for this plan from DB
         const companionActionsMap = loadPlanActions(churchId, planId);
         const state = liveRundown.startSession(churchId, effectiveRoomId, plan, callerName || 'TD', companionActionsMap);
-
-        // Wire cross-room sync if this plan has a sync source configured
-        if (plan.source === 'manual' && plan.syncSourceRoomId) {
-          liveRundown.registerSyncTarget(
-            churchId, plan.syncSourceRoomId,
-            churchId, effectiveRoomId,
-            plan.syncDelaySeconds || 0
-          );
-        }
 
         // Auto-update status to 'live' for manual plans
         if (plan.source === 'manual') {
@@ -906,7 +882,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           ownerKey: actor.sessionId || actor.displayName || churchId,
           ownerName: actor.displayName || (actor.role === 'viewer' ? 'Viewer' : 'Owner'),
         });
-        if (ctx._fireWebhooks) ctx._fireWebhooks(churchId, 'plan.created', { planId: plan.id, title: plan.title });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -958,7 +933,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         if (await ensureRoomWriteAccess(req, res, existing)) return;
         const plan = await manualRundown.updatePlan(req.params.planId, req.body);
         broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: plan.id, plan: { id: plan.id, title: plan.title, status: plan.status, serviceDate: plan.serviceDate, roomId: plan.roomId, updatedAt: plan.updatedAt } });
-        if (ctx._fireWebhooks) ctx._fireWebhooks(churchId, 'plan.updated', { planId: plan.id, title: plan.title });
         res.json(plan);
       } catch (e) {
         console.error('[rundown] error:', e);
@@ -1733,13 +1707,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const { name, department } = req.body;
       const type = VALID_RUNDOWN_COLUMN_TYPES.has(req.body?.type) ? req.body.type : 'text';
       const options = normalizeRundownColumnOptions(req.body?.options, type);
-      const equipmentBinding = normalizeRundownEquipmentBinding(req.body?.equipmentBinding);
-      const editableRoles = Array.isArray(req.body?.editableRoles) ? req.body.editableRoles.filter((r) => VALID_RUNDOWN_COLLABORATOR_ROLES.has(r)) : null;
-      const validationRules = Array.isArray(req.body?.validationRules) ? req.body.validationRules : [];
       if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
-      if (equipmentBinding && !VALID_RUNDOWN_EQUIPMENT_BINDINGS.has(equipmentBinding)) {
-        return res.status(400).json({ error: 'Invalid equipment binding' });
-      }
       try {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
@@ -1749,9 +1717,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           department: department || '',
           type,
           options,
-          equipmentBinding,
-          editableRoles: editableRoles && editableRoles.length ? editableRoles : null,
-          validationRules,
         });
         res.json(col);
       } catch (e) {
@@ -1793,20 +1758,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             req.body.options,
             update.type || req.body.type || 'dropdown'
           );
-        }
-        if (req.body?.equipmentBinding !== undefined) {
-          const equipmentBinding = normalizeRundownEquipmentBinding(req.body.equipmentBinding);
-          if (equipmentBinding && !VALID_RUNDOWN_EQUIPMENT_BINDINGS.has(equipmentBinding)) {
-            return res.status(400).json({ error: 'Invalid equipment binding' });
-          }
-          update.equipmentBinding = equipmentBinding;
-        }
-        if (req.body?.editableRoles !== undefined) {
-          const roles = Array.isArray(req.body.editableRoles) ? req.body.editableRoles.filter((r) => VALID_RUNDOWN_COLLABORATOR_ROLES.has(r)) : null;
-          update.editableRoles = roles && roles.length ? roles : null;
-        }
-        if (req.body?.validationRules !== undefined) {
-          update.validationRules = Array.isArray(req.body.validationRules) ? req.body.validationRules : [];
         }
         await manualRundown.updateColumn(colId, update);
         const updatedColumns = await manualRundown.getColumns(planId);
@@ -1863,15 +1814,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const columns = await manualRundown.getColumns(planId);
         const targetCol = columns.find((column) => column.id === colId);
         if (!targetCol) return res.status(404).json({ error: 'Column not found' });
-        // Phase 10.3: column-level edit permission check
-        if (Array.isArray(targetCol.editableRoles) && targetCol.editableRoles.length) {
-          const actor = getRundownActor(req);
-          const collaborator = actor.sessionId ? await manualRundown.getCollaborator(planId, actor.sessionId) : null;
-          const actorRole = collaborator?.role || 'editor';
-          if (!targetCol.editableRoles.includes(actorRole) && actorRole !== 'owner') {
-            return res.status(403).json({ error: `Column "${targetCol.name}" can only be edited by: ${targetCol.editableRoles.join(', ')}` });
-          }
-        }
         await manualRundown.setColumnValue(itemId, colId, req.body.value || '');
         res.json({ ok: true });
       } catch (e) {
@@ -1902,6 +1844,12 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const { churchId, planId, itemId } = req.params;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      // Backend size check (in addition to multer limit)
+      const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
+      if (req.file.size > MAX_ATTACHMENT_SIZE) {
+        try { require('fs').unlinkSync(req.file.path); } catch { /* cleanup */ }
+        return res.status(400).json({ error: 'File too large (max 10MB)' });
+      }
       try {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
@@ -2946,66 +2894,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
   // boundary is enforced by the session key — you can only control a session in
   // a room you have a session key for.
 
-  // ─── CROSS-ROOM SYNC CONFIG ───────────────────────────────────────────────
-
-  // GET /api/churches/:churchId/rundown-plans/:planId/sync
-  app.get(
-    '/api/churches/:churchId/rundown-plans/:planId/sync',
-    requireChurchOrAdmin,
-    async (req, res) => {
-      try {
-        const { churchId, planId } = req.params;
-        const plan = await manualRundown.getPlan(planId);
-        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
-        res.json({
-          syncSourceRoomId: plan.syncSourceRoomId || null,
-          syncDelaySeconds: plan.syncDelaySeconds || 0,
-        });
-      } catch (e) {
-        res.status(500).json({ error: safeErrorMessage(e) });
-      }
-    }
-  );
-
-  // PUT /api/churches/:churchId/rundown-plans/:planId/sync
-  app.put(
-    '/api/churches/:churchId/rundown-plans/:planId/sync',
-    requireChurchWriteOrAdmin,
-    async (req, res) => {
-      try {
-        const { churchId, planId } = req.params;
-        const plan = await manualRundown.getPlan(planId);
-        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
-
-        const syncSourceRoomId = req.body.syncSourceRoomId || null;
-        const syncDelaySeconds = Math.max(0, Math.min(10, Number(req.body.syncDelaySeconds) || 0));
-
-        await manualRundown.updateSyncConfig(planId, syncSourceRoomId, syncDelaySeconds);
-
-        // If this plan has an active session, update the sync registration immediately
-        if (syncSourceRoomId && liveRundown.hasSession(churchId, plan.roomId)) {
-          liveRundown.registerSyncTarget(
-            churchId, syncSourceRoomId,
-            churchId, plan.roomId,
-            syncDelaySeconds
-          );
-        } else if (!syncSourceRoomId) {
-          // Removing sync — unregister any existing target
-          if (plan.syncSourceRoomId) {
-            liveRundown.unregisterSyncTarget(
-              churchId, plan.syncSourceRoomId,
-              churchId, plan.roomId
-            );
-          }
-        }
-
-        res.json({ syncSourceRoomId, syncDelaySeconds });
-      } catch (e) {
-        res.status(500).json({ error: safeErrorMessage(e) });
-      }
-    }
-  );
-
   // ─── ROOM READY-CHECK STATUS ──────────────────────────────────────────────
 
   const VALID_READY_STATUSES = new Set(['ready', 'standby', 'issue']);
@@ -3491,6 +3379,22 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         if (titleIdx < 0) return res.status(400).json({ error: 'CSV must have a Title column' });
 
+        // Validate rows have enough fields
+        const malformedRows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const fields = parseCSVLine(lines[i]);
+          const title = (fields[titleIdx] || '').trim();
+          if (!title && fields.every(f => !f.trim())) continue; // skip blank lines
+          if (fields.length < headers.length) {
+            malformedRows.push(i + 1); // 1-indexed for user display
+          }
+        }
+        if (malformedRows.length > 0 && malformedRows.length > lines.length * 0.5) {
+          return res.status(400).json({
+            error: 'CSV appears malformed: ' + malformedRows.length + ' rows have fewer columns than headers. Check row(s): ' + malformedRows.slice(0, 5).join(', ') + (malformedRows.length > 5 ? '...' : '')
+          });
+        }
+
         const parsedItems = [];
         let lastSection = '';
         for (let i = 1; i < lines.length; i++) {
@@ -3510,6 +3414,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             assignee: assigneeIdx >= 0 ? (fields[assigneeIdx] || '').trim() : '',
             notes: notesIdx >= 0 ? (fields[notesIdx] || '').trim() : '',
           });
+        }
+
+        if (parsedItems.length === 0) {
+          return res.status(400).json({ error: 'No valid items found in CSV. Ensure rows have a Title value.' });
         }
 
         if (preview) return res.json({ items: parsedItems, count: parsedItems.length });
@@ -3562,153 +3470,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
-
-  // ─── PHASE 5: WEBHOOK SUPPORT ─────────────────────────────────────────────
-
-  /**
-   * Fire webhooks asynchronously for a given event.
-   * Uses HMAC-SHA256 signing with per-webhook secret.
-   * Retries 3 times with exponential backoff on failure.
-   */
-  function fireWebhooks(churchId, eventType, data) {
-    manualRundown.getActiveWebhooksForEvent(churchId, eventType).then(function(hooks) {
-      for (const hook of hooks) {
-        const payload = JSON.stringify({ event: eventType, timestamp: new Date().toISOString(), data });
-        const signature = hook.secret
-          ? crypto.createHmac('sha256', hook.secret).update(payload).digest('hex')
-          : '';
-
-        (async function deliverWithRetry() {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              const resp = await fetch(hook.url, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-Webhook-Signature': signature,
-                  'X-Webhook-Event': eventType,
-                },
-                body: payload,
-                signal: AbortSignal.timeout(10000),
-              });
-              if (resp.ok) return;
-            } catch { /* retry */ }
-            if (attempt < 2) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-          }
-        })();
-      }
-    }).catch(function() { /* non-critical */ });
-  }
-
-  // Expose fireWebhooks to caller scope (used by start/end/advance hooks)
-  ctx._fireWebhooks = fireWebhooks;
-
-  // GET /api/churches/:churchId/webhooks
-  app.get('/api/churches/:churchId/webhooks', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const rows = await manualRundown.listWebhooks(req.params.churchId);
-      res.json({ webhooks: rows.map(w => ({ ...w, events: JSON.parse(w.events || '[]'), active: !!w.active })) });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // POST /api/churches/:churchId/webhooks
-  app.post('/api/churches/:churchId/webhooks', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const { url, events, secret } = req.body;
-      if (!url) return res.status(400).json({ error: 'url is required' });
-      const hook = await manualRundown.createWebhook(req.params.churchId, { url, events: events || [], secret: secret || '' });
-      res.json({ ...hook, events: JSON.parse(hook.events || '[]'), active: !!hook.active });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // PUT /api/churches/:churchId/webhooks/:webhookId
-  app.put('/api/churches/:churchId/webhooks/:webhookId', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const existing = await manualRundown.getWebhook(req.params.webhookId);
-      if (!existing || existing.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
-      const { url, events, secret, active } = req.body;
-      const updated = await manualRundown.updateWebhook(req.params.webhookId, { url, events, secret, active });
-      res.json({ ...updated, events: JSON.parse(updated.events || '[]'), active: !!updated.active });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // DELETE /api/churches/:churchId/webhooks/:webhookId
-  app.delete('/api/churches/:churchId/webhooks/:webhookId', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const existing = await manualRundown.getWebhook(req.params.webhookId);
-      if (!existing || existing.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
-      await manualRundown.deleteWebhook(req.params.webhookId);
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // POST /api/churches/:churchId/webhooks/:webhookId/test
-  app.post('/api/churches/:churchId/webhooks/:webhookId/test', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const hook = await manualRundown.getWebhook(req.params.webhookId);
-      if (!hook || hook.church_id !== req.params.churchId) return res.status(404).json({ error: 'Webhook not found' });
-      const payload = JSON.stringify({ event: 'test', timestamp: new Date().toISOString(), data: { message: 'Test webhook from Tally' } });
-      const signature = hook.secret ? crypto.createHmac('sha256', hook.secret).update(payload).digest('hex') : '';
-      const resp = await fetch(hook.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Webhook-Signature': signature, 'X-Webhook-Event': 'test' },
-        body: payload,
-        signal: AbortSignal.timeout(10000),
-      });
-      res.json({ ok: resp.ok, status: resp.status });
-    } catch (e) {
-      res.status(500).json({ error: 'Delivery failed: ' + (e.message || 'timeout') });
-    }
-  });
-
-  // ─── PHASE 5: ANALYTICS ───────────────────────────────────────────────────
-
-  // GET /api/churches/:churchId/rundown-analytics?range=30d|90d|all
-  app.get('/api/churches/:churchId/rundown-analytics', requireChurchOrAdmin, async (req, res) => {
-    try {
-      const range = req.query.range || '30d';
-      const analytics = await manualRundown.getRundownAnalytics(req.params.churchId, range);
-      res.json(analytics);
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // ─── Wire webhook events into existing session lifecycle ──────────────────
-  // Patch: fire webhooks on show start/end/advance
-  const origStart = liveRundown.startSession.bind(liveRundown);
-  liveRundown.startSession = function(churchId, roomId, plan, callerName, companionActionsMap) {
-    const state = origStart(churchId, roomId, plan, callerName, companionActionsMap);
-    fireWebhooks(churchId, 'show.started', { planId: plan.id, title: plan.title, roomId, callerName });
-    return state;
-  };
-
-  const origEnd = liveRundown.endSession.bind(liveRundown);
-  liveRundown.endSession = function(churchId, roomId) {
-    const state = liveRundown.getState(churchId, roomId);
-    const result = origEnd(churchId, roomId);
-    if (state) {
-      fireWebhooks(churchId, 'show.ended', { planId: state.planId, title: state.planTitle, roomId });
-    }
-    return result;
-  };
-
-  const origAdvance = liveRundown.advance.bind(liveRundown);
-  liveRundown.advance = function(churchId, roomId) {
-    const state = origAdvance(churchId, roomId);
-    if (state) {
-      fireWebhooks(churchId, 'cue.advanced', { planId: state.planId, currentIndex: state.currentIndex, itemTitle: state.currentItem?.title || '' });
-    }
-    return state;
-  };
 
   // ─── AI Document Import ─────────────────────────────────────────────────────
   // POST /api/churches/:churchId/rundown-plans/import/ai
