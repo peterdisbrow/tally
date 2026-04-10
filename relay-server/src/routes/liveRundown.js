@@ -2200,6 +2200,72 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
   });
 
   /**
+   * POST /api/public/rundown/:token/live/pause
+   */
+  app.post('/api/public/rundown/:token/live/pause', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      if (liveState.isPaused) return res.json({ ...liveState, plan });
+      const updated = await manualRundown.pauseLive(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/pause error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/resume
+   */
+  app.post('/api/public/rundown/:token/live/resume', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      if (!liveState.isPaused) return res.json({ ...liveState, plan });
+      const updated = await manualRundown.resumeLive(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/resume error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
+   * POST /api/public/rundown/:token/live/add-time
+   * Body: { seconds: number } — positive adds, negative subtracts
+   */
+  app.post('/api/public/rundown/:token/live/add-time', async (req, res) => {
+    try {
+      const access = await resolveShowAccess(req, res);
+      if (!access) return;
+      const plan = access.plan;
+      const liveState = await manualRundown.getLiveState(plan.id);
+      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      const seconds = parseInt(req.body.seconds, 10);
+      if (isNaN(seconds)) return res.status(400).json({ error: 'Invalid seconds value' });
+      // Adjust the current item's duration in the plan
+      const items = plan.items || [];
+      const currentItem = items[liveState.currentCueIndex];
+      if (currentItem) {
+        currentItem.lengthSeconds = Math.max(0, (currentItem.lengthSeconds || 0) + seconds);
+        await manualRundown.updatePlan(plan.id, { items });
+      }
+      const updated = await manualRundown.getLiveState(plan.id);
+      res.json({ ...updated, plan });
+    } catch (e) {
+      console.error('[rundown] public live/add-time error:', e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  /**
    * PUT /api/public/rundown/:token/items/:itemId
    * Inline edit (title, lengthSeconds, notes only) via share token.
    */
@@ -2345,6 +2411,76 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         res.json({ ...updated, plan });
       } catch (e) {
         console.error('[rundown] live/goto error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/pause',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        if (liveState.isPaused) return res.json({ ...liveState, plan });
+        const updated = await manualRundown.pauseLive(planId);
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/pause error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/resume',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        if (!liveState.isPaused) return res.json({ ...liveState, plan });
+        const updated = await manualRundown.resumeLive(planId);
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/resume error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  app.post('/api/churches/:churchId/rundown-plans/:planId/live/add-time',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      try {
+        const plan = await manualRundown.getPlan(planId);
+        if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+        if (await ensurePlanWriteAccess(req, res, plan)) return;
+        const liveState = await manualRundown.getLiveState(planId);
+        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        const seconds = parseInt(req.body.seconds, 10);
+        if (isNaN(seconds)) return res.status(400).json({ error: 'Invalid seconds value' });
+        const items = plan.items || [];
+        const currentItem = items[liveState.currentCueIndex];
+        if (currentItem) {
+          currentItem.lengthSeconds = Math.max(0, (currentItem.lengthSeconds || 0) + seconds);
+          await manualRundown.updatePlan(planId, { items });
+        }
+        const updated = await manualRundown.getLiveState(planId);
+        res.json({ ...updated, plan });
+      } catch (e) {
+        console.error('[rundown] live/add-time error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
       }
     }

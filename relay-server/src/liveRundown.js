@@ -298,6 +298,10 @@ class LiveRundownManager {
       warningThresholdSec: 30, // seconds before end to show warning
       autoAdvance: false, // when true, PP presentation changes or timer expiry can advance
       lastAutoAdvanceAt: null, // debounce: timestamp of last auto-advance
+      // Pause state
+      isPaused: false,
+      pausedAt: null,           // timestamp when paused
+      pausedElapsed: 0,         // seconds elapsed on current item at moment of pause
       autoAdvancedFrom: null, // title of last auto-advanced item
       // Companion automation: Map<itemId, Action[]>
       companionActions,
@@ -444,7 +448,9 @@ class LiveRundownManager {
     const currentItem = session.items[session.currentIndex] || null;
     const nextItemIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
     const nextItem = nextItemIndex != null ? session.items[nextItemIndex] : null;
-    const elapsedOnItem = currentItem ? (now - session.currentItemStartedAt) / 1000 : 0;
+    const elapsedOnItem = session.isPaused
+      ? session.pausedElapsed
+      : (currentItem ? (now - session.currentItemStartedAt) / 1000 : 0);
     const duration = currentItem?.lengthSeconds || 0;
     const remaining = duration > 0 ? Math.max(0, duration - elapsedOnItem) : null;
     const isOvertime = duration > 0 && elapsedOnItem > duration;
@@ -467,6 +473,7 @@ class LiveRundownManager {
       is_overtime: isOvertime,
       is_warning: duration > 0 && remaining !== null && remaining <= session.warningThresholdSec && remaining > 0,
       is_live: true,
+      is_paused: session.isPaused || false,
       next_cue_title: nextItem?.title || null,
       next_cue_duration: nextItem?.lengthSeconds || null,
       next_cue_index: nextItemIndex,
@@ -508,6 +515,84 @@ class LiveRundownManager {
     session.autoAdvance = !!enabled;
     if (!enabled) session.autoAdvancedFrom = null;
     this._log(`[LiveRundown] Auto-advance ${session.autoAdvance ? 'enabled' : 'disabled'} for church ${churchId} room ${roomId || '(default)'}`);
+    const state = this._buildState(session);
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
+    return state;
+  }
+
+  /**
+   * Pause the current timer without ending the session.
+   * Freezes the timer at its current value; all connected clients see PAUSED state.
+   */
+  pauseSession(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
+    if (!session || session.state !== 'active' || session.isPaused) return null;
+
+    const now = Date.now();
+    session.isPaused = true;
+    session.pausedAt = now;
+    session.pausedElapsed = (now - session.currentItemStartedAt) / 1000;
+
+    this._dbUpsert(session);
+    this._log(`[LiveRundown] Session paused for church ${churchId} room ${roomId || '(default)'}`);
+
+    const state = this._buildState(session);
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
+    return state;
+  }
+
+  /**
+   * Resume from pause. Adjusts currentItemStartedAt so the timer continues
+   * from where it was frozen.
+   */
+  resumeSession(churchId, roomId) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
+    if (!session || session.state !== 'active' || !session.isPaused) return null;
+
+    const now = Date.now();
+    // Reset start time so elapsed calculation picks up where we left off
+    session.currentItemStartedAt = now - (session.pausedElapsed * 1000);
+    session.isPaused = false;
+    session.pausedAt = null;
+    session.pausedElapsed = 0;
+
+    this._dbUpsert(session);
+    this._log(`[LiveRundown] Session resumed for church ${churchId} room ${roomId || '(default)'}`);
+
+    const state = this._buildState(session);
+    this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
+    return state;
+  }
+
+  /**
+   * Add or subtract seconds from the current item's timer.
+   * Positive = add time (extend), Negative = subtract time.
+   */
+  addTime(churchId, roomId, seconds) {
+    const key = this._sessionKey(churchId, roomId);
+    const session = this._sessions.get(key);
+    if (!session || session.state !== 'active') return null;
+
+    const currentItem = session.items[session.currentIndex];
+    if (!currentItem) return null;
+
+    // Adjust the item's planned duration
+    currentItem.lengthSeconds = Math.max(0, (currentItem.lengthSeconds || 0) + seconds);
+
+    // If paused, no need to adjust startedAt
+    if (!session.isPaused) {
+      // Recalculate total planned duration
+      let total = 0;
+      for (const item of session.items) {
+        if (item.lengthSeconds > 0) total += item.lengthSeconds;
+      }
+      session.totalPlannedDuration = total;
+    }
+
+    this._log(`[LiveRundown] Timer adjusted by ${seconds > 0 ? '+' : ''}${seconds}s for church ${churchId} room ${roomId || '(default)'}`);
+
     const state = this._buildState(session);
     this._broadcastToRoom(churchId, roomId, { type: 'rundown_state', ...state });
     return state;
@@ -607,6 +692,13 @@ class LiveRundownManager {
   _moveTo(session, newIndex, autoAdvancedFrom = null) {
     const now = Date.now();
 
+    // Auto-resume if paused when moving to a new item
+    if (session.isPaused) {
+      session.isPaused = false;
+      session.pausedAt = null;
+      session.pausedElapsed = 0;
+    }
+
     // Close timing for the item we're leaving
     this._closeCurrentItemTiming(session);
 
@@ -673,7 +765,10 @@ class LiveRundownManager {
   _buildState(session) {
     const now = Date.now();
     const currentItem = session.items[session.currentIndex] || null;
-    const elapsedOnItem = (now - session.currentItemStartedAt) / 1000;
+    // When paused, use frozen elapsed value instead of live calculation
+    const elapsedOnItem = session.isPaused
+      ? session.pausedElapsed
+      : (now - session.currentItemStartedAt) / 1000;
     const remainingOnItem = currentItem?.lengthSeconds
       ? Math.max(0, currentItem.lengthSeconds - elapsedOnItem)
       : null;
@@ -716,6 +811,7 @@ class LiveRundownManager {
       effectiveAutoAdvance: session.autoAdvance || !!currentItem?.autoAdvance,
       autoAdvancedFrom: session.autoAdvancedFrom || null,
       source: session.source || null,
+      isPaused: session.isPaused || false,
       timestamp: now,
     };
   }
@@ -737,7 +833,9 @@ class LiveRundownManager {
     // Add current item's running variance (if it has a planned duration)
     const currentItem = session.items[session.currentIndex];
     if (currentItem?.lengthSeconds > 0) {
-      const elapsedOnCurrent = (now - session.currentItemStartedAt) / 1000;
+      const elapsedOnCurrent = session.isPaused
+        ? session.pausedElapsed
+        : (now - session.currentItemStartedAt) / 1000;
       if (elapsedOnCurrent > currentItem.lengthSeconds) {
         variance += elapsedOnCurrent - currentItem.lengthSeconds;
       }
@@ -915,13 +1013,16 @@ class LiveRundownManager {
       const currentItem = session.items[session.currentIndex];
       if (!currentItem) return;
 
-      const elapsedOnItem = (now - session.currentItemStartedAt) / 1000;
+      // When paused, use frozen elapsed value
+      const elapsedOnItem = session.isPaused
+        ? session.pausedElapsed
+        : (now - session.currentItemStartedAt) / 1000;
       const remainingOnItem = currentItem.lengthSeconds
         ? Math.max(0, currentItem.lengthSeconds - elapsedOnItem)
         : null;
 
-      // Auto-advance: when remaining hits 0 and auto-advance is on
-      const shouldAutoAdvance = session.autoAdvance || !!currentItem.autoAdvance;
+      // Auto-advance: when remaining hits 0 and auto-advance is on (skip if paused)
+      const shouldAutoAdvance = !session.isPaused && (session.autoAdvance || !!currentItem.autoAdvance);
       if (shouldAutoAdvance && currentItem.lengthSeconds > 0 && remainingOnItem !== null && remainingOnItem <= 0) {
         const nextIndex = this._findNextPlayableIndex(session.items, session.currentIndex);
         if (nextIndex != null) {
@@ -960,6 +1061,7 @@ class LiveRundownManager {
       tick.projectedEndTime = smartTiming.projectedEndTime;
       tick.serviceElapsed = smartTiming.serviceElapsed;
       tick.serviceRemaining = smartTiming.serviceRemaining;
+      tick.isPaused = session.isPaused || false;
 
       session._lastTick = {
         currentIndex: session.currentIndex, elapsedSeconds: elapsed,

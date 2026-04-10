@@ -217,6 +217,9 @@ class ManualRundownStore {
         started_at BIGINT,
         updated_at BIGINT NOT NULL,
         current_cue_started_at BIGINT,
+        is_paused INTEGER NOT NULL DEFAULT 0,
+        paused_at BIGINT,
+        paused_elapsed REAL NOT NULL DEFAULT 0,
         FOREIGN KEY (plan_id) REFERENCES manual_rundown_plans(id) ON DELETE CASCADE
       )
     `);
@@ -228,6 +231,11 @@ class ManualRundownStore {
       CREATE INDEX IF NOT EXISTS idx_rls_church_live
         ON rundown_live_state(church_id, is_live)
     `);
+
+    // Migration: add pause columns for existing tables
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN is_paused INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_at BIGINT`); } catch { /* already exists */ }
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_elapsed REAL NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 
     // ── Custom columns tables ──────────────────────────────────────────────
     await this._db.exec(`
@@ -1428,11 +1436,40 @@ class ManualRundownStore {
     return { ok: true };
   }
 
+  async pauseLive(planId) {
+    const state = await this.getLiveState(planId);
+    if (!state || state.isPaused) return state;
+    const now = Date.now();
+    const elapsed = (now - (state.currentCueStartedAt || now)) / 1000;
+    await this._db.run(
+      `UPDATE rundown_live_state SET is_paused = 1, paused_at = ?, paused_elapsed = ?, updated_at = ? WHERE plan_id = ? AND is_live = 1`,
+      [now, elapsed, now, planId]
+    );
+    return this.getLiveState(planId);
+  }
+
+  async resumeLive(planId) {
+    const state = await this.getLiveState(planId);
+    if (!state || !state.isPaused) return state;
+    const now = Date.now();
+    // Reset currentCueStartedAt so timer picks up where it left off
+    const newStartedAt = now - (state.pausedElapsed * 1000);
+    await this._db.run(
+      `UPDATE rundown_live_state SET is_paused = 0, paused_at = NULL, paused_elapsed = 0, current_cue_started_at = ?, updated_at = ? WHERE plan_id = ? AND is_live = 1`,
+      [newStartedAt, now, planId]
+    );
+    return this.getLiveState(planId);
+  }
+
   async updateLiveState(planId, { currentCueIndex, currentCueStartedAt }) {
     const sets = [];
     const params = [];
     if (currentCueIndex !== undefined) { sets.push('current_cue_index = ?'); params.push(currentCueIndex); }
     if (currentCueStartedAt !== undefined) { sets.push('current_cue_started_at = ?'); params.push(currentCueStartedAt); }
+    // Auto-clear pause when advancing to a new cue
+    sets.push('is_paused = 0');
+    sets.push('paused_at = NULL');
+    sets.push('paused_elapsed = 0');
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
     params.push(Date.now());
@@ -1453,6 +1490,9 @@ class ManualRundownStore {
       startedAt: row.started_at,
       updatedAt: row.updated_at,
       currentCueStartedAt: row.current_cue_started_at,
+      isPaused: !!row.is_paused,
+      pausedAt: row.paused_at || null,
+      pausedElapsed: row.paused_elapsed || 0,
     };
   }
 

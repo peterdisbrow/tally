@@ -10134,6 +10134,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '</div>'
             + '<div style="display:flex;align-items:center;gap:8px">'
             + '<button class="btn-live-back" data-action="liveShowBack" title="Previous item (Left Arrow)">' + SVG.arrowLeft + ' Back</button>'
+            + '<button class="btn-live-pause' + (_liveShowState && _liveShowState.isPaused ? ' is-paused' : '') + '" data-action="liveShowPause" title="Pause/Resume timer (P)">' + (_liveShowState && _liveShowState.isPaused ? SVG.play + ' Resume' : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause') + '</button>'
             + '<button class="btn-live-go" data-action="liveShowGo" title="Next item (Space / Right Arrow)">GO ' + SVG.arrowRight + '</button>'
             + '<button class="btn-live-end" data-action="liveShowStop" title="End Live (Esc)">End Live</button>'
             + '</div>'
@@ -15263,6 +15264,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }).catch(function(e) { toast(e.message, true); });
     }
 
+    function liveShowPause() {
+      if (!_rundownSelectedPlan || !_liveShowState) return;
+      var isPaused = _liveShowState.isPaused;
+      var endpoint = isPaused ? '/live/resume' : '/live/pause';
+      api('POST', '/api/churches/' + CHURCH_ID + '/rundown-plans/' + _rundownSelectedPlan.id + endpoint).then(function(data) {
+        _liveShowState = data;
+        _rundownSelectedPlan = data.plan || _rundownSelectedPlan;
+        renderRundownEditor(_rundownSelectedPlan);
+        toast(isPaused ? 'Resumed' : 'Paused');
+      }).catch(function(e) { toast('Failed: ' + e.message, true); });
+    }
+
     function _startLiveShowTimer() {
       _stopLiveShowTimer();
       _liveShowTimer = setInterval(function() {
@@ -15301,7 +15314,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var idx = _liveShowState.currentCueIndex;
       if (idx < 0 || idx >= items.length) return;
       var item = items[idx];
-      var elapsed = Math.floor((Date.now() - _liveShowState.currentCueStartedAt) / 1000);
+      // When paused, freeze elapsed at the stored value
+      var elapsed;
+      if (_liveShowState.isPaused) {
+        elapsed = Math.floor(_liveShowState.pausedElapsed || 0);
+      } else {
+        elapsed = Math.floor((Date.now() - _liveShowState.currentCueStartedAt) / 1000);
+      }
       var remaining = Math.max(0, (item.lengthSeconds || 0) - elapsed);
       var isOvertime = elapsed > (item.lengthSeconds || 0) && item.lengthSeconds > 0;
       var overtimeSec = isOvertime ? elapsed - item.lengthSeconds : 0;
@@ -15352,7 +15371,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var rundownPage = document.getElementById('page-rundown');
       if (!rundownPage || !rundownPage.classList.contains('active')) return;
 
-      if (e.key === ' ' || e.key === 'ArrowRight') {
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        liveShowPause();
+      } else if (e.key === ' ' || e.key === 'ArrowRight') {
         e.preventDefault();
         liveShowGo();
       } else if (e.key === 'ArrowLeft') {
@@ -15952,6 +15974,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         _rundownState.scheduleDelta = data.scheduleDelta;
         _rundownState.totalElapsed = data.totalElapsed;
+        if (data.isPaused !== undefined) _rundownState.isPaused = data.isPaused;
         if (data.autoAdvance !== undefined) _rundownState.autoAdvance = data.autoAdvance;
         if (data.autoAdvancedFrom) _rundownState.autoAdvancedFrom = data.autoAdvancedFrom;
         if (document.getElementById('page-rundown').classList.contains('active')) {
@@ -17229,6 +17252,9 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'liveShowBack':
         if (typeof liveShowBack === 'function') liveShowBack();
         break;
+      case 'liveShowPause':
+        if (typeof liveShowPause === 'function') liveShowPause();
+        break;
       case 'liveShowGoto':
         if (typeof liveShowGoto === 'function') liveShowGoto(parseInt(btn.dataset.cueIndex, 10));
         break;
@@ -17733,6 +17759,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'liveShowGoto':
         if (typeof liveShowGoto === 'function') liveShowGoto(parseInt(btn.dataset.cueIndex, 10));
+        break;
+      case 'liveShowPause':
+        if (typeof liveShowPause === 'function') liveShowPause();
         break;
       case 'printPage':
         window.print();

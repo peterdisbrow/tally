@@ -1467,6 +1467,94 @@
       border-left-width: 4px;
       border-left-style: solid;
     }
+
+    /* ── Pause button ── */
+    .btn-pause {
+      background: rgba(255,183,77,0.08);
+      color: var(--amber);
+      font-size: 14px;
+      font-weight: 700;
+      padding: 14px 28px;
+      border: 1px solid rgba(255,183,77,0.25);
+      border-radius: var(--radius-sm);
+      transition: all var(--dur-fast) ease;
+    }
+    .btn-pause:hover:not(:disabled) {
+      background: rgba(255,183,77,0.15);
+      border-color: rgba(255,183,77,0.4);
+      box-shadow: 0 0 16px rgba(255,183,77,0.15);
+    }
+    .btn-pause.is-paused {
+      background: linear-gradient(135deg, #FFB74D 0%, #FFA726 100%);
+      color: #1a1a2e;
+      border-color: #FFB74D;
+      box-shadow: 0 0 20px rgba(255,183,77,0.3);
+      animation: pulse-pause 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-pause {
+      0%, 100% { box-shadow: 0 0 20px rgba(255,183,77,0.3); }
+      50% { box-shadow: 0 0 30px rgba(255,183,77,0.5); }
+    }
+
+    /* ── Timer adjust buttons ── */
+    .timer-adjust-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-time-adj {
+      background: rgba(255,255,255,0.04);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      cursor: pointer;
+      transition: all var(--dur-fast) ease;
+      white-space: nowrap;
+    }
+    .btn-time-adj:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: var(--border-hover);
+      color: var(--text);
+    }
+    .btn-time-adj.add { color: var(--green); }
+    .btn-time-adj.sub { color: var(--red); }
+    .btn-time-adj.add:hover { border-color: rgba(0,230,118,0.3); background: var(--green-dim); }
+    .btn-time-adj.sub:hover { border-color: rgba(255,82,82,0.3); background: var(--red-bg); }
+
+    /* ── PAUSED status pill ── */
+    .pill-paused {
+      background: rgba(255,183,77,0.15);
+      color: var(--amber);
+      border: 1px solid rgba(255,183,77,0.3);
+      animation: pulse-pause 1.5s ease-in-out infinite;
+    }
+
+    /* Paused state dims the countdown */
+    .cue-countdown.is-paused {
+      opacity: 0.6;
+      animation: blink-paused 2s ease-in-out infinite;
+    }
+    @keyframes blink-paused {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Timer adjust row in controls */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+    }
+    @media (max-width: 600px) {
+      .timer-adjust-group { justify-content: center; width: 100%; }
+      .btn-pause { min-width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -1485,6 +1573,9 @@
       <h3>Keyboard Shortcuts</h3>
       <div class="shortcut-row"><span class="shortcut-label">Advance cue (GO)</span><span class="shortcut-keys"><span class="shortcut-key">Space</span><span class="shortcut-key">&rarr;</span></span></div>
       <div class="shortcut-row"><span class="shortcut-label">Go back</span><span class="shortcut-keys"><span class="shortcut-key">&larr;</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Pause / Resume</span><span class="shortcut-keys"><span class="shortcut-key">P</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Add 1 minute</span><span class="shortcut-keys"><span class="shortcut-key">+</span></span></div>
+      <div class="shortcut-row"><span class="shortcut-label">Subtract 1 minute</span><span class="shortcut-keys"><span class="shortcut-key">-</span></span></div>
       <div class="shortcut-row"><span class="shortcut-label">End show</span><span class="shortcut-keys"><span class="shortcut-key">Esc</span></span></div>
       <div class="shortcut-row"><span class="shortcut-label">Toggle Next Up panel</span><span class="shortcut-keys"><span class="shortcut-key">N</span></span></div>
       <div class="shortcut-row"><span class="shortcut-label">Toggle theme</span><span class="shortcut-keys"><span class="shortcut-key">T</span></span></div>
@@ -1757,7 +1848,12 @@
       // Remaining on current cue
       var currentItem = items[idx];
       if (currentItem && currentItem.lengthSeconds > 0) {
-        var cueElapsed = (Date.now() - (liveState.currentCueStartedAt || liveState.startedAt || Date.now())) / 1000;
+        var cueElapsed;
+        if (liveState.isPaused) {
+          cueElapsed = liveState.pausedElapsed || 0;
+        } else {
+          cueElapsed = (Date.now() - (liveState.currentCueStartedAt || liveState.startedAt || Date.now())) / 1000;
+        }
         total += Math.max(0, currentItem.lengthSeconds - cueElapsed);
       }
       // Sum future cues
@@ -1967,6 +2063,8 @@
           currentCueIndex: timer.cue_index != null ? timer.cue_index : (liveState ? liveState.currentCueIndex : 0),
           startedAt: timer.started_at || (liveState ? liveState.startedAt : Date.now()),
           currentCueStartedAt: timer.timestamp ? timer.timestamp - (timer.elapsed_seconds || 0) * 1000 : (liveState ? liveState.currentCueStartedAt : Date.now()),
+          isPaused: timer.is_paused || false,
+          pausedElapsed: timer.is_paused ? (timer.elapsed_seconds || 0) : 0,
           timer: timer
         };
       } else {
@@ -2031,6 +2129,11 @@
               liveState.timer.is_overtime = msg.isOvertime;
               liveState.timer.overtime_seconds = msg.overtimeSeconds;
               liveState.timer.is_warning = msg.isWarning;
+              if (msg.isPaused !== undefined) {
+                liveState.isPaused = msg.isPaused;
+                liveState.timer.is_paused = msg.isPaused;
+                if (msg.isPaused) liveState.pausedElapsed = msg.elapsedSeconds || 0;
+              }
               renderStatusBar();
             }
           } else if (msg.type === 'follow_room_info') {
@@ -2163,6 +2266,39 @@
         .catch(function(e) { alert('Goto failed: ' + e.message); });
     }
 
+    // ── Pause / Resume ──
+    function livePause() {
+      var isPaused = liveState && liveState.isPaused;
+      var endpoint = isPaused ? '/live/resume' : '/live/pause';
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + endpoint)
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          liveState = {
+            isLive: true,
+            currentCueIndex: data.currentCueIndex,
+            startedAt: data.startedAt || (liveState ? liveState.startedAt : Date.now()),
+            currentCueStartedAt: data.currentCueStartedAt || Date.now(),
+            isPaused: data.isPaused || false,
+            pausedElapsed: data.pausedElapsed || 0
+          };
+          renderControls();
+          renderStatusBar();
+          renderCueList();
+        })
+        .catch(function(e) { alert('Pause failed: ' + e.message); });
+    }
+
+    // ── Timer adjustment ──
+    function liveAddTime(seconds) {
+      showApi('POST', '/api/public/rundown/' + encodeURIComponent(token) + '/live/add-time', { seconds: seconds })
+        .then(function(data) {
+          if (data.plan) { items = data.plan.items || items; }
+          renderCueList();
+          renderStatusBar();
+        })
+        .catch(function(e) { alert('Adjust failed: ' + e.message); });
+    }
+
     // ── Inline edit ──
     function openEdit(itemId) {
       var item = items.find(function(it) { return it.id === itemId; });
@@ -2288,6 +2424,25 @@
 
       if (isReadOnly) return; // No cue-advancing shortcuts in readonly mode
 
+      // Pause/Resume toggle
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        if (liveState && liveState.isLive) livePause();
+        return;
+      }
+
+      // Timer adjustments: +/= adds 1 min, - subtracts 1 min
+      if ((e.key === '+' || e.key === '=') && !e.shiftKey) {
+        e.preventDefault();
+        if (liveState && liveState.isLive) liveAddTime(60);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        if (liveState && liveState.isLive) liveAddTime(-60);
+        return;
+      }
+
       if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'Enter') {
         e.preventDefault();
         if (liveState && liveState.isLive) liveGo();
@@ -2401,7 +2556,12 @@
 
       var html = '<div class="status-pills">';
       if (isLive) {
-        html += '<span class="pill pill-live">LIVE</span>';
+        var isPausedStatus = liveState && liveState.isPaused;
+        if (isPausedStatus) {
+          html += '<span class="pill pill-paused">PAUSED</span>';
+        } else {
+          html += '<span class="pill pill-live">LIVE</span>';
+        }
         // Primary: current cue + remaining (always visible)
         var cueIdx = liveState.currentCueIndex || 0;
         var nonSectionCount = items.filter(function(it) { return it.itemType !== 'section'; }).length;
@@ -2477,6 +2637,7 @@
       if (isLive) {
         var isFirst = true;
         var isLast = true;
+        var isPaused = liveState && liveState.isPaused;
         var idx = liveState.currentCueIndex || 0;
         // Check if there's a previous non-section cue
         for (var p = idx - 1; p >= 0; p--) {
@@ -2487,13 +2648,33 @@
           if (items[n] && items[n].itemType !== 'section') { isLast = false; break; }
         }
 
+        // Main control row
+        html += '<div class="controls-row">';
         html += '<button class="btn btn-stop btn-show" id="btn-stop">End Show</button>';
         html += '<button class="btn btn-back" id="btn-back"' + (isFirst ? ' disabled' : '') + '>';
         html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>';
         html += 'Back</button>';
+        // Pause/Resume button
+        html += '<button class="btn btn-pause' + (isPaused ? ' is-paused' : '') + '" id="btn-pause" title="' + (isPaused ? 'Resume timer (P)' : 'Pause timer (P)') + '">';
+        if (isPaused) {
+          html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume';
+        } else {
+          html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
+        }
+        html += '</button>';
         html += '<button class="btn btn-go" id="btn-go"' + (isLast ? ' disabled' : '') + '>GO';
         html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
         html += '</button>';
+        html += '</div>';
+        // Timer adjustment row
+        html += '<div class="controls-row">';
+        html += '<div class="timer-adjust-group">';
+        html += '<button class="btn btn-time-adj sub" id="btn-sub5" title="Subtract 5 minutes">-5m</button>';
+        html += '<button class="btn btn-time-adj sub" id="btn-sub1" title="Subtract 1 minute">-1m</button>';
+        html += '<button class="btn btn-time-adj add" id="btn-add1" title="Add 1 minute">+1m</button>';
+        html += '<button class="btn btn-time-adj add" id="btn-add5" title="Add 5 minutes">+5m</button>';
+        html += '</div>';
+        html += '</div>';
       } else {
         html += '<button class="btn btn-start btn-show" id="btn-start">';
         html += '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
@@ -2507,10 +2688,21 @@
       var btnStop = document.getElementById('btn-stop');
       var btnGo = document.getElementById('btn-go');
       var btnBack = document.getElementById('btn-back');
+      var btnPause = document.getElementById('btn-pause');
       if (btnStart) btnStart.addEventListener('click', liveStart);
       if (btnStop) btnStop.addEventListener('click', liveStop);
       if (btnGo) btnGo.addEventListener('click', liveGo);
       if (btnBack) btnBack.addEventListener('click', liveBack);
+      if (btnPause) btnPause.addEventListener('click', livePause);
+      // Timer adjustment buttons
+      var btnAdd1 = document.getElementById('btn-add1');
+      var btnAdd5 = document.getElementById('btn-add5');
+      var btnSub1 = document.getElementById('btn-sub1');
+      var btnSub5 = document.getElementById('btn-sub5');
+      if (btnAdd1) btnAdd1.addEventListener('click', function() { liveAddTime(60); });
+      if (btnAdd5) btnAdd5.addEventListener('click', function() { liveAddTime(300); });
+      if (btnSub1) btnSub1.addEventListener('click', function() { liveAddTime(-60); });
+      if (btnSub5) btnSub5.addEventListener('click', function() { liveAddTime(-300); });
     }
 
     function renderCueList() {
@@ -2624,18 +2816,25 @@
         var displayDuration = (isParent && item.stackDuration != null && !!collapsedStacks[item.id])
           ? item.stackDuration : (item.lengthSeconds || 0);
         if (isCurrent && displayDuration > 0) {
-          var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
-          var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
-          var cueRemaining = Math.max(0, displayDuration - cueElapsed);
-          var isOvertime = cueElapsed > displayDuration;
+          var isCuePaused = liveState && liveState.isPaused;
+          var cueElapsed3;
+          if (isCuePaused) {
+            cueElapsed3 = liveState.pausedElapsed || 0;
+          } else {
+            var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+            cueElapsed3 = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+          }
+          var cueRemaining = Math.max(0, displayDuration - cueElapsed3);
+          var isOvertime = cueElapsed3 > displayDuration;
           // Phase 2: Enhanced timer color transitions
           var cdClass = 'cue-countdown cue-countdown-big';
+          if (isCuePaused) cdClass += ' is-paused';
           if (isOvertime) cdClass += ' timer-flash';
           else if (cueRemaining <= 10) cdClass += ' timer-red';
           else if (cueRemaining <= 30) cdClass += ' timer-amber';
           else cdClass += ' timer-green';
-          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '+' + fmtDuration(cueElapsed - displayDuration) : fmtDuration(cueRemaining)) + '</div>';
-          html += '<div class="cue-elapsed-label">' + (isOvertime ? 'overtime' : 'remaining') + '</div>';
+          html += '<div class="' + cdClass + '" id="cue-cd">' + (isOvertime ? '+' + fmtDuration(cueElapsed3 - displayDuration) : fmtDuration(cueRemaining)) + '</div>';
+          html += '<div class="cue-elapsed-label">' + (isCuePaused ? 'paused' : isOvertime ? 'overtime' : 'remaining') + '</div>';
         } else if (isCompleted && displayDuration > 0) {
           // Phase 2: Variance badge on completed items
           html += '<div class="cue-duration">' + fmtDuration(displayDuration) + '</div>';
@@ -2849,21 +3048,32 @@
       countdownTimer = setInterval(function() {
         if (!liveState || !liveState.isLive) return;
 
+        var isPausedNow = liveState && liveState.isPaused;
+
         // Update cue countdown
         var cdEl = document.getElementById('cue-cd');
         if (cdEl) {
           var activeIdx = liveState.currentCueIndex || 0;
           var currentItem = items[activeIdx];
           if (currentItem && currentItem.lengthSeconds > 0) {
-            var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
-            var cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+            var cueElapsed;
+            if (isPausedNow) {
+              cueElapsed = liveState.pausedElapsed || 0;
+            } else {
+              var cueStartedAt = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+              cueElapsed = Math.max(0, (Date.now() - cueStartedAt) / 1000);
+            }
             var cueRemaining = Math.max(0, currentItem.lengthSeconds - cueElapsed);
             var isOvertime = cueElapsed > currentItem.lengthSeconds;
             var isWarning = !isOvertime && cueRemaining <= 30;
-            cdEl.className = 'cue-countdown' + (isOvertime ? ' is-overtime' : isWarning ? ' is-warning' : '');
+            var cdClass = 'cue-countdown';
+            if (isPausedNow) cdClass += ' is-paused';
+            if (isOvertime) cdClass += ' is-overtime';
+            else if (isWarning) cdClass += ' is-warning';
+            cdEl.className = cdClass;
             cdEl.textContent = isOvertime ? '-' + fmtDuration(cueElapsed - currentItem.lengthSeconds) : fmtDuration(cueRemaining);
             var labelEl = cdEl.nextElementSibling;
-            if (labelEl) labelEl.textContent = isOvertime ? 'overtime' : 'remaining';
+            if (labelEl) labelEl.textContent = isPausedNow ? 'paused' : (isOvertime ? 'overtime' : 'remaining');
           }
         }
 
@@ -2873,12 +3083,17 @@
           var pIdx = liveState.currentCueIndex || 0;
           var pItem = items[pIdx];
           if (pItem && pItem.lengthSeconds > 0) {
-            var pStart = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
-            var pElapsed = Math.max(0, (Date.now() - pStart) / 1000);
-            var pRemaining = Math.max(0, pItem.lengthSeconds - pElapsed);
-            var pOvertime = pElapsed > pItem.lengthSeconds;
-            panelCd.style.color = pOvertime ? 'var(--red)' : pRemaining <= 30 ? 'var(--amber)' : 'var(--green)';
-            panelCd.textContent = pOvertime ? '-' + fmtDuration(pElapsed - pItem.lengthSeconds) : fmtDuration(pRemaining);
+            var pElapsed2;
+            if (isPausedNow) {
+              pElapsed2 = liveState.pausedElapsed || 0;
+            } else {
+              var pStart = liveState.currentCueStartedAt || liveState.startedAt || Date.now();
+              pElapsed2 = Math.max(0, (Date.now() - pStart) / 1000);
+            }
+            var pRemaining = Math.max(0, pItem.lengthSeconds - pElapsed2);
+            var pOvertime = pElapsed2 > pItem.lengthSeconds;
+            panelCd.style.color = isPausedNow ? 'var(--amber)' : (pOvertime ? 'var(--red)' : pRemaining <= 30 ? 'var(--amber)' : 'var(--green)');
+            panelCd.textContent = pOvertime ? '-' + fmtDuration(pElapsed2 - pItem.lengthSeconds) : fmtDuration(pRemaining);
           }
         }
 

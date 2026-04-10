@@ -1986,6 +1986,31 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
 }
 .btn-live-end:hover { background: rgba(255,82,82,0.1); border-color: rgba(255,82,82,0.4); }
 
+/* Pause button */
+.btn-live-pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: var(--radius-sm, 10px);
+  border: 1px solid rgba(255,183,77,0.25);
+  background: rgba(255,183,77,0.06);
+  color: #FFB74D;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.btn-live-pause:hover { background: rgba(255,183,77,0.12); border-color: rgba(255,183,77,0.4); }
+.btn-live-pause.is-paused {
+  background: linear-gradient(135deg, #FFB74D 0%, #FFA726 100%);
+  color: #1a1a2e;
+  border-color: #FFB74D;
+  box-shadow: 0 0 16px rgba(255,183,77,0.3);
+}
+.btn-live-pause svg { width: 14px; height: 14px; }
+
 /* Active cue row glow */
 .live-cue-active {
   box-shadow: inset 0 0 30px rgba(0,230,118,0.05);
