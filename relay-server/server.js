@@ -13,6 +13,20 @@
  *   DATABASE_URL    Postgres / Neon connection string (requires DATABASE_DRIVER=postgres)
  */
 
+// ─── CRASH GUARD ────────────────────────────────────────────────────────────
+// Log unhandled rejections and uncaught exceptions with full detail so Railway
+// deploy logs show exactly why the process died.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled promise rejection:', reason);
+  if (reason?.stack) console.error(reason.stack);
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err.message);
+  if (err.stack) console.error(err.stack);
+  process.exit(1);
+});
+
 const express = require('express');
 const helmet = require('helmet');
 const { WebSocketServer, WebSocket } = require('ws');
@@ -240,6 +254,8 @@ const { createSharedRuntimeState } = require('./src/sharedRuntimeState');
 const createAuthMiddleware = require('./src/routes/authMiddleware');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
+
+console.log(`[boot] Modules loaded in ${Math.round(process.uptime() * 1000)}ms — NODE_ENV=${process.env.NODE_ENV || '(unset)'} DB_DRIVER=${process.env.DATABASE_DRIVER || '(unset)'}`);
 
 const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
 const ADMIN_SESSION_COOKIE = 'tally_admin_key';
