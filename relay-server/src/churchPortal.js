@@ -1379,7 +1379,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ passed, report, checks });
     } catch (e) {
       log.error('Failover drill error: ' + e.message);
-      res.status(500).json({ error: 'Drill failed: ' + e.message });
+      res.status(500).json({ error: safeErrorMessage(e, 'Failover drill failed') });
     }
   });
 

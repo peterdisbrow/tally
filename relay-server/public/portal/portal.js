@@ -1204,10 +1204,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── navigation ──────────────────────────────────────────────────────────────
     function showPage(id, el) {
+      var pageEl = document.getElementById('page-' + id);
+      if (!pageEl) { showToast('Page not available', 'error'); return; }
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-      document.getElementById('page-' + id).classList.add('active');
-      el.classList.add('active');
+      pageEl.classList.add('active');
+      if (el) el.classList.add('active');
       try { localStorage.setItem('portal_page', id); } catch(e) {}
       // Close mobile nav on page switch
       var sidebar = document.getElementById('sidebar-nav');
@@ -3098,7 +3100,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="schedule">Set up your schedule ' + SVG.arrowRight + '</a></span>';
+          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="rooms">Set up your schedule ' + SVG.arrowRight + '</a></span>';
         } else {
           body.innerHTML = html;
         }
