@@ -7430,7 +7430,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var emptyEl  = document.getElementById('net-empty-state');
       var cardEl   = document.getElementById('net-device-table-card');
       if (!bodyEl) return;
-      bodyEl.innerHTML = '<div style="color:#556270;text-align:center;padding:32px;font-size:13px">Loading\u2026</div>';
+      bodyEl.innerHTML = '<div style="text-align:center;padding:32px"><span class="net-device-seen">Loading\u2026</span></div>';
       if (emptyEl) emptyEl.style.display = 'none';
       if (cardEl) cardEl.style.display = '';
       try {
@@ -7456,7 +7456,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         renderNetworkDevices();
       } catch (e) {
-        bodyEl.innerHTML = '<div style="color:#FF5252;text-align:center;padding:32px;font-size:13px">Failed to load network data. Try refreshing.</div>';
+        bodyEl.innerHTML = '<div style="text-align:center;padding:32px">'
+          + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#FF5252" width="32" height="32" class="net-empty-icon" style="opacity:0.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>'
+          + '<div class="net-empty-title" style="font-size:14px;color:#FF5252">Failed to load network data</div>'
+          + '<div class="net-empty-desc" style="margin-bottom:0">Check your connection and try refreshing.</div>'
+          + '</div>';
       }
     }
 
@@ -7483,14 +7487,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ? _netDevices
         : _netDevices.filter(function(d) {
             var bucket = NET_TYPE_BUCKET[d.deviceType] || 'other';
-            if (_netFilter === 'av')      return bucket === 'av';
-            if (_netFilter === 'audio')   return bucket === 'audio';
-            if (_netFilter === 'network') return bucket === 'network';
-            if (_netFilter === 'other')   return bucket === 'other';
-            return true;
+            return bucket === _netFilter;
           });
       if (!devices.length) {
-        bodyEl.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">No devices match this filter.</div>';
+        var filterLabel = _netFilter.charAt(0).toUpperCase() + _netFilter.slice(1);
+        bodyEl.innerHTML = '<div style="text-align:center;padding:32px 20px">'
+          + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="32" height="32" class="net-empty-icon"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>'
+          + '<div class="net-empty-title" style="font-size:14px">No ' + _escNetText(filterLabel) + ' devices found</div>'
+          + '<div class="net-empty-desc" style="margin-bottom:0">Try selecting a different filter or run a new scan from the desktop app.</div>'
+          + '</div>';
         return;
       }
       // Sort: AV first, then alphabetically by deviceType, then by IP
@@ -7508,9 +7513,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         + '<th style="width:28px"></th>'
         + '<th>Name / IP</th>'
         + '<th>Type</th>'
-        + '<th>Vendor</th>'
-        + '<th>Protocols</th>'
-        + '<th>Last Seen</th>'
+        + '<th class="net-col-vendor">Vendor</th>'
+        + '<th class="net-col-protocols">Protocols</th>'
+        + '<th class="net-col-seen">Last Seen</th>'
         + '</tr></thead><tbody>';
       devices.forEach(function(d) {
         var color  = NET_TYPE_COLOR[d.deviceType] || '#455A64';
@@ -7519,20 +7524,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var name   = d.hostname || d.model || d.ip;
         var sub    = d.hostname ? d.ip : '';
         var protos = (d.protocols || []).slice(0, 4).map(function(p) {
-          return '<span style="display:inline-block;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.2);border-radius:4px;padding:1px 5px;font-size:10px;color:#00E676;margin:1px">' + _escNetText(p) + '</span>';
+          return '<span class="net-proto-tag">' + _escNetText(p) + '</span>';
         }).join('');
         html += '<tr>'
           + '<td style="color:' + color + ';padding-right:0">' + icon + '</td>'
           + '<td>'
-            + '<div style="font-weight:600;font-size:13px">' + _escNetText(name) + '</div>'
-            + (sub ? '<div style="font-size:11px;color:#556270">' + _escNetText(sub) + '</div>' : '')
+            + '<div class="net-device-name">' + _escNetText(name) + '</div>'
+            + (sub ? '<div class="net-device-ip">' + _escNetText(sub) + '</div>' : '')
           + '</td>'
-          + '<td><span style="color:' + color + ';font-size:12px">' + _escNetText(label) + '</span>'
-            + (d.model && d.model !== name ? '<br><span style="font-size:11px;color:#556270">' + _escNetText(d.model) + '</span>' : '')
+          + '<td><span class="net-device-type" style="color:' + color + '">' + _escNetText(label) + '</span>'
+            + (d.model && d.model !== name ? '<br><span class="net-device-model">' + _escNetText(d.model) + '</span>' : '')
           + '</td>'
-          + '<td style="font-size:12px;color:#8B9DAF">' + _escNetText(d.vendor || '') + '</td>'
-          + '<td style="white-space:nowrap">' + (protos || '<span style="color:#556270;font-size:11px">\u2014</span>') + '</td>'
-          + '<td style="font-size:11px;color:#556270;white-space:nowrap">' + _fmtRelTime(d.lastSeen) + '</td>'
+          + '<td class="net-col-vendor net-device-vendor">' + _escNetText(d.vendor || '') + '</td>'
+          + '<td class="net-col-protocols" style="white-space:nowrap">' + (protos || '<span class="net-device-seen">\u2014</span>') + '</td>'
+          + '<td class="net-col-seen net-device-seen">' + _fmtRelTime(d.lastSeen) + '</td>'
           + '</tr>';
       });
       html += '</tbody></table></div>';

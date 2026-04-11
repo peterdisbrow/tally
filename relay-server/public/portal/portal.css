@@ -1072,6 +1072,8 @@ body.light-theme .badge { font-weight: 700; }
 body.light-theme .nav-item svg { opacity: 0.6; }
 body.light-theme .nav-item.active svg { opacity: 1; }
 body.light-theme table tbody tr:hover { background: #f1f5f9; }
+body.light-theme .net-type-filter.active { background: #dcfce7; border-color: #16a34a; color: #166534; }
+body.light-theme .net-proto-tag { background: rgba(22,163,74,0.08); border-color: rgba(22,163,74,0.2); color: #166534; }
 body.light-theme [style*="font-family:ui-monospace"] { background: #f1f5f9 !important; color: var(--text-primary) !important; border-color: var(--border-solid) !important; }
 body.light-theme ::-webkit-scrollbar-track { background: #f1f5f9; }
 body.light-theme ::-webkit-scrollbar-thumb { background: #cbd5e1; }
@@ -1080,6 +1082,63 @@ body.light-theme #toast {
   background: rgba(255,255,255,0.95);
   border-color: rgba(22,163,74,0.2);
   box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+
+/* ─── NETWORK TOPOLOGY PAGE ───────────────────────────────────── */
+.net-type-filter.active {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.net-type-filter { border-radius: 100px; }
+
+.net-empty-icon {
+  display: block;
+  margin: 0 auto 16px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.net-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.net-empty-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  margin: 0 auto 20px;
+  line-height: 1.5;
+}
+
+/* Protocol tags */
+.net-proto-tag {
+  display: inline-block;
+  background: rgba(0,230,118,0.08);
+  border: 1px solid rgba(0,230,118,0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: var(--primary);
+  margin: 1px;
+}
+
+/* Device table */
+.net-device-name { font-weight: 600; font-size: 13px; }
+.net-device-ip   { font-size: 11px; color: var(--text-muted); }
+.net-device-type { font-size: 12px; }
+.net-device-model { font-size: 11px; color: var(--text-muted); }
+.net-device-vendor { font-size: 12px; color: var(--text-secondary); }
+.net-device-seen { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* Responsive: hide low-priority columns on small screens */
+@media (max-width: 768px) {
+  .net-col-vendor,
+  .net-col-protocols { display: none; }
+}
+@media (max-width: 480px) {
+  .net-col-seen { display: none; }
 }
 
 /* ─── REPORTS PAGE ─────────────────────────────────────────────── */
