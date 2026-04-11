@@ -302,7 +302,7 @@
       <!-- Smart Plugs Card (shown when plugs are discovered) -->
       <div class="card advanced-only" id="smart-plugs-card" data-section-id="smart-plugs-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0">&#128268; Smart Plugs</div>
+          <div class="card-title" style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg> Smart Plugs</div>
           <button class="btn-secondary" id="btn-refresh-plugs" data-action="refreshSmartPlugs" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
         </div>
         <div id="smart-plugs-list" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -1603,16 +1603,16 @@
       </div>
 
       <div class="card" id="net-device-table-card">
-        <div id="net-device-body" style="color:#556270;text-align:center;padding:32px;font-size:13px">
-          Loading&hellip;
+        <div id="net-device-body" style="text-align:center;padding:32px">
+          <span class="net-device-seen">Loading&hellip;</span>
         </div>
       </div>
 
       <!-- Empty state (shown when no scan data) -->
       <div id="net-empty-state" style="display:none;text-align:center;padding:48px 24px">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="#0d3320" width="48" height="48" style="margin-bottom:16px;display:block;margin-left:auto;margin-right:auto"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
-        <div style="font-size:15px;font-weight:600;color:#F0F2F4;margin-bottom:8px">No network scan yet</div>
-        <div style="font-size:13px;color:#556270;max-width:360px;margin:0 auto 20px">Open the Tally desktop app, go to the Network tab, and click <strong style="color:#B0BEC5">Scan Network</strong> to discover AV devices on your local network.</div>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" width="48" height="48" class="net-empty-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
+        <div class="net-empty-title">No network scan yet</div>
+        <div class="net-empty-desc">Open the Tally desktop app, go to the Network tab, and click <strong>Scan Network</strong> to discover AV devices on your local network.</div>
       </div>
     </div>
     <!-- /NETWORK TOPOLOGY -->
