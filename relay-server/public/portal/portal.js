@@ -1216,6 +1216,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
+      // Clean up rundown editor state when navigating away
+      if (id !== 'rundown' && typeof _rundownSelectedPlanId !== 'undefined' && _rundownSelectedPlanId) {
+        if (typeof showRundownView === 'function') showRundownView('manager');
+        if (typeof _rundownUnsubscribePlan === 'function' && _rundownSelectedPlanId) {
+          try { _rundownUnsubscribePlan(_rundownSelectedPlanId); } catch(e) {}
+        }
+        _rundownSelectedPlanId = null;
+        // Clear rundown hash so it doesn't interfere with other pages
+        if (window.location.hash && window.location.hash.indexOf('#rundown-plan-') === 0) {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+      }
       if (id === 'overview') { initOverviewSections(); loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') { loadProfile(); loadNotifications(); }
       if (id === 'rooms') { loadRooms(); }
@@ -8407,6 +8419,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function loadRundownPage() {
+      // Reset view immediately so stale editor doesn't flash on re-entry
+      showRundownView('manager');
       // Fetch all active sessions, then show the one for the selected room
       console.log('[rundown] loadRundownPage, CHURCH_ID:', CHURCH_ID);
       api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state?all=1').then(function(data) {

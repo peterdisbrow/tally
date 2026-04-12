@@ -2106,10 +2106,12 @@ body.light-theme .section-drag-placeholder { border-color: rgba(22,163,74,0.3); 
   align-items: center;
   margin-top: 12px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--duration-fast) ease;
 }
 .rundown-dash-card:hover .card-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 .rundown-dash-card .card-actions button {
   font-size: 11px;
