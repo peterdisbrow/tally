@@ -68,6 +68,7 @@ body {
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   display: flex;
+  align-items: flex-start;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -210,6 +211,7 @@ body::before {
   padding: 36px 48px;
   max-width: 1440px;
   width: 100%;
+  min-height: 100vh;
 }
 .page { display: none; }
 .page.active {

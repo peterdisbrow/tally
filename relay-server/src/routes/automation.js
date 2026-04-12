@@ -125,7 +125,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
 
   // ─── AUTOPILOT ───────────────────────────────────────────────────────────────
 
-  app.get('/api/churches/:churchId/automation', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.get('/api/churches/:churchId/automation', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     res.json({
@@ -134,7 +134,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
     });
   });
 
-  app.post('/api/churches/:churchId/automation', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.post('/api/churches/:churchId/automation', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     try {
@@ -161,7 +161,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
     }
   });
 
-  app.put('/api/churches/:churchId/automation/:ruleId', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.put('/api/churches/:churchId/automation/:ruleId', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     try {
       const rule = autoPilot.updateRule(req.params.ruleId, req.body);
       res.json(rule);
@@ -170,13 +170,13 @@ module.exports = function setupAutomationRoutes(app, ctx) {
     }
   });
 
-  app.delete('/api/churches/:churchId/automation/:ruleId', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.delete('/api/churches/:churchId/automation/:ruleId', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     const deleted = autoPilot.deleteRule(req.params.ruleId);
     if (!deleted) return res.status(404).json({ error: 'Rule not found' });
     res.json({ deleted: true });
   });
 
-  app.post('/api/churches/:churchId/automation/:ruleId/test', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.post('/api/churches/:churchId/automation/:ruleId/test', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     const rule = autoPilot.getRule(req.params.ruleId);
     if (!rule) return res.status(404).json({ error: 'Rule not found' });
     if (rule.church_id !== req.params.churchId) return res.status(403).json({ error: 'Access denied' });
@@ -188,17 +188,17 @@ module.exports = function setupAutomationRoutes(app, ctx) {
     }
   });
 
-  app.post('/api/churches/:churchId/automation/pause', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.post('/api/churches/:churchId/automation/pause', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     autoPilot.pause(req.params.churchId);
     res.json({ paused: true });
   });
 
-  app.post('/api/churches/:churchId/automation/resume', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.post('/api/churches/:churchId/automation/resume', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     autoPilot.resume(req.params.churchId);
     res.json({ paused: false });
   });
 
-  app.get('/api/churches/:churchId/command-log', requireAdmin, requireFeature('autopilot'), (req, res) => {
+  app.get('/api/churches/:churchId/command-log', requireChurchOrAdmin, requireFeature('autopilot'), (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
     const logData = autoPilot.getCommandLog(req.params.churchId, limit, offset);
