@@ -14953,21 +14953,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         '<span>Duration: ' + totalStr + '</span>' +
         '<span>' + plan.items.length + ' items</span>' +
         '</div></div>' +
-        '<button class="no-print" data-action="printPage" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
+        '<button class="no-print" onclick="window.print()" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
         '<table><thead><tr>' +
         '<th>#</th><th>Title</th><th>Type</th><th>Who</th>' +
         colHeaders +
         '<th class="mono">Duration</th><th class="mono">Start</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>' +
         '<div class="footer"><span>Printed from TallyConnect</span><span></span></div>' +
+        '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},300);});<\/script>' +
         '</body></html>';
 
-      var printWin = window.open('', '_blank');
+      var printBlob = new Blob([html], { type: 'text/html' });
+      var printUrl = URL.createObjectURL(printBlob);
+      var printWin = window.open(printUrl, '_blank');
       if (printWin) {
-        printWin.document.write(html);
-        printWin.document.close();
-        printWin.focus();
-        setTimeout(function() { printWin.print(); }, 400);
+        printWin.addEventListener('unload', function() {
+          setTimeout(function() { URL.revokeObjectURL(printUrl); }, 1000);
+        });
       }
     }
 

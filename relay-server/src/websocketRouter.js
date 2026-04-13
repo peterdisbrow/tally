@@ -291,9 +291,20 @@ function createWebSocketHandlers({
     // Deliver queued messages from while the church was offline
     drainQueue(church.churchId, ws);
 
-    // WebSocket-level ping every wsPingIntervalMs to keep alive through reverse proxies
+    // WebSocket-level ping/pong keepalive with isAlive heartbeat.
+    // If a client misses a pong response, terminate() the socket so the 'close'
+    // event fires and stale connection state is cleaned up immediately.
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     const wsPingInterval = wsPingIntervalMs > 0
-      ? setInterval(() => { if (ws.readyState === wsOpen) ws.ping(); }, wsPingIntervalMs)
+      ? setInterval(() => {
+          if (!ws.isAlive) {
+            ws.terminate(); // fires 'close', triggers full disconnect cleanup
+            return;
+          }
+          ws.isAlive = false;
+          ws.ping();
+        }, wsPingIntervalMs)
       : null;
 
     // Notify controllers and SSE dashboard
@@ -749,9 +760,20 @@ function createWebSocketHandlers({
 
     onControllerConnected(ws);
 
-    // WebSocket-level ping every wsPingIntervalMs to keep alive through reverse proxies
+    // WebSocket-level ping/pong keepalive with isAlive heartbeat.
+    // If a client misses a pong response, terminate() the socket so the 'close'
+    // event fires and stale connection state is cleaned up immediately.
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     const wsPingInterval = wsPingIntervalMs > 0
-      ? setInterval(() => { if (ws.readyState === wsOpen) ws.ping(); }, wsPingIntervalMs)
+      ? setInterval(() => {
+          if (!ws.isAlive) {
+            ws.terminate(); // fires 'close', triggers full disconnect cleanup
+            return;
+          }
+          ws.isAlive = false;
+          ws.ping();
+        }, wsPingIntervalMs)
       : null;
 
     ws.on('message', async (data) => {
