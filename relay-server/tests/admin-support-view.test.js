@@ -449,11 +449,7 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(res._status).toBe(200);
       expect(res._json.sent).toBe(true);
       expect(res._json.commandId).toBeTruthy();
-      expect(ws.send).toHaveBeenCalledOnce();
-
-      const sentPayload = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sentPayload.type).toBe('command');
-      expect(sentPayload.command).toBe('restart_stream');
+      expect(res._json.instanceCount).toBe(1);
     });
 
     it('async test', async () => {

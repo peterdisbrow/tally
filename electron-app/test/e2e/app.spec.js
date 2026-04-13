@@ -225,18 +225,20 @@ test.describe('IPC -- Equipment Management', () => {
 // SUITE 5: UI — View Routing
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('UI -- View Routing', () => {
-  test('one of the three main views is active', async () => {
+  test('one of the main views is active', async () => {
     const activeView = await page.evaluate(() => {
       const signIn = document.getElementById('sign-in');
+      const roomSelector = document.getElementById('room-selector');
       const wizard = document.getElementById('wizard');
       const dashboard = document.getElementById('dashboard');
       return {
         signIn: signIn ? signIn.classList.contains('active') : false,
+        roomSelector: roomSelector ? roomSelector.classList.contains('active') : false,
         wizard: wizard ? wizard.classList.contains('active') : false,
         dashboard: dashboard ? dashboard.classList.contains('active') : false,
       };
     });
-    const anyActive = activeView.signIn || activeView.wizard || activeView.dashboard;
+    const anyActive = activeView.signIn || activeView.roomSelector || activeView.wizard || activeView.dashboard;
     expect(anyActive).toBe(true);
   });
 
@@ -294,12 +296,13 @@ test.describe('UI -- Dashboard Structure', () => {
     await expect(page.locator('#dashboard')).toHaveCount(1);
   });
 
-  test('dashboard has STATUS, EQUIPMENT, and TALLY ENGINEER tabs', async () => {
+  test('dashboard has Dashboard, Devices, Network, and Settings tabs', async () => {
     const tabTexts = await page.locator('#dashboard .tab-btn').allTextContents();
     const normalized = tabTexts.map((t) => t.trim().toUpperCase());
-    expect(normalized).toContain('STATUS');
-    expect(normalized).toContain('EQUIPMENT');
-    expect(normalized).toContain('TALLY ENGINEER');
+    expect(normalized).toContain('DASHBOARD');
+    expect(normalized).toContain('DEVICES');
+    expect(normalized).toContain('NETWORK');
+    expect(normalized).toContain('SETTINGS');
   });
 
   test('dashboard has status chip dots for Relay, ATEM, Encoder, Companion', async () => {
@@ -310,11 +313,11 @@ test.describe('UI -- Dashboard Structure', () => {
   });
 
   test('status tab content area exists', async () => {
-    await expect(page.locator('#tab-status')).toHaveCount(1);
+    await expect(page.locator('#tab-dashboard')).toHaveCount(1);
   });
 
   test('equipment tab content area exists', async () => {
-    await expect(page.locator('#tab-equipment')).toHaveCount(1);
+    await expect(page.locator('#tab-devices')).toHaveCount(1);
   });
 
   test('engineer tab content area exists', async () => {
@@ -386,7 +389,7 @@ test.describe('UI -- Equipment Tab Structure', () => {
   });
 
   test('Save Equipment Config button exists', async () => {
-    const saveBtn = page.locator('#tab-equipment button', { hasText: 'Save Equipment Config' });
+    const saveBtn = page.locator('#tab-devices button', { hasText: 'Save Equipment Config' });
     await expect(saveBtn).toHaveCount(1);
   });
 

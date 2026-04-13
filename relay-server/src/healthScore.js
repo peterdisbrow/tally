@@ -3,6 +3,8 @@
  * uptime, alert rate, recovery rate, pre-service pass rate, and stream stability.
  */
 
+const { buildNonTestSessionClauseSync } = require('./schemaCompat');
+
 const WEIGHTS = {
   uptime:             0.30,
   alertRate:          0.20,
@@ -214,12 +216,13 @@ function _computeUptime(db, churchId, since, until, instanceName) {
       : [churchId, since];
     const untilClause = until ? ' AND started_at < ?' : '';
     const instanceClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
     if (instanceName) params.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT duration_minutes, alert_count, auto_recovered_count
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${instanceClause}`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${nonTestSessionClause}${instanceClause}`
     ).all(...params);
 
     if (!sessions.length) return null; // No sessions = no data
@@ -293,12 +296,13 @@ function _computeAlertRate(db, churchId, since, until, instanceName) {
       : [churchId, since];
     const sessionUntilClause = until ? ' AND started_at < ?' : '';
     const sessInstClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
     if (instanceName) sessionParams.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${sessInstClause}`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${nonTestSessionClause}${sessInstClause}`
     ).get(...sessionParams);
 
     const totalHours = (sessions?.total || 0) / 60;
@@ -325,12 +329,13 @@ function _computeRecoveryRate(db, churchId, since, until, instanceName) {
       : [churchId, since];
     const untilClause = until ? ' AND started_at < ?' : '';
     const instClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
     if (instanceName) params.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(alert_count) as total_alerts, SUM(auto_recovered_count) as total_recovered
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${instClause}`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${nonTestSessionClause}${instClause}`
     ).get(...params);
 
     const row = sessions;
@@ -405,12 +410,13 @@ function _computeStreamStability(db, churchId, since, until, instanceName) {
       : [churchId, since];
     const sessionUntilClause = until ? ' AND started_at < ?' : '';
     const sessInstClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
     if (instanceName) sessionParams.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total, SUM(stream_runtime_minutes) as stream_total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${sessInstClause}`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${nonTestSessionClause}${sessInstClause}`
     ).get(...sessionParams);
 
     const streamHours = (sessions?.stream_total || 0) / 60;
@@ -460,15 +466,16 @@ function _computeTrendFromDb(db, churchId) {
     const thisWeekSince = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
     const lastWeekSince = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
     const lastWeekUntil = thisWeekSince;
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
 
     const thisWeekSessions = db.prepare(
       `SELECT COUNT(*) as cnt, SUM(alert_count) as alerts, SUM(duration_minutes) as duration
-       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')`
+       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL${nonTestSessionClause}`
     ).get(churchId, thisWeekSince);
 
     const lastWeekSessions = db.prepare(
       `SELECT COUNT(*) as cnt, SUM(alert_count) as alerts, SUM(duration_minutes) as duration
-       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND started_at < ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')`
+       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND started_at < ? AND ended_at IS NOT NULL${nonTestSessionClause}`
     ).get(churchId, lastWeekSince, lastWeekUntil);
 
     if (!thisWeekSessions?.cnt || !lastWeekSessions?.cnt) return 'stable';

@@ -36,6 +36,12 @@ const jwt     = require('jsonwebtoken');
 const { createLogger } = require('./logger');
 const { hasOpenSocket, getSocketForInstance } = require('./runtimeSockets');
 const { SqliteQueryClient } = require('./db/queryClient');
+const {
+  buildNonTestSessionClauseSync,
+  buildNonTestSessionClause,
+  buildTestSessionPredicate,
+  ensureColumn,
+} = require('./schemaCompat');
 const log = createLogger('portal');
 const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./auth');
 const { createRateLimit } = require('./rateLimit');
@@ -384,6 +390,9 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
   const lastWeekStart = new Date(thisWeekStart);
   lastWeekStart.setDate(lastWeekStart.getDate() - 7);
   const lastWeekStartISO = lastWeekStart.toISOString();
+  const nonTestSessionClause = useClient
+    ? await buildNonTestSessionClause(dbOrClient)
+    : buildNonTestSessionClauseSync(dbOrClient);
 
   // ── This week sessions ────────────────────────────────────────────────
   let thisWeekSessions = { services: 0, alerts: 0, autoRecoveries: 0, totalDurationMin: 0, totalStreamMin: 0 };
@@ -396,7 +405,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
         COALESCE(SUM(duration_minutes), 0) AS totalDurationMin,
         COALESCE(SUM(stream_runtime_minutes), 0) AS totalStreamMin
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
+      WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}
     `, [churchId, thisWeekStartISO]);
     if (row) {
       thisWeekSessions = row;
@@ -413,7 +422,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
     const row = await qOne(`
       SELECT COALESCE(SUM(alert_count), 0) AS alerts
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ? AND started_at < ? AND (session_type IS NULL OR session_type != 'test')
+      WHERE church_id = ? AND started_at >= ? AND started_at < ?${nonTestSessionClause}
     `, [churchId, lastWeekStartISO, thisWeekStartISO]);
     if (row) lastWeekAlerts = row.alerts;
   } catch { /* table may not exist */ }
@@ -642,6 +651,18 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   async function qRun(sql, params = []) {
     return portalQuery.run(sql, params);
+  }
+
+  async function getNonTestSessionClause(columnRef = 'session_type') {
+    return buildNonTestSessionClause(portalQuery, columnRef);
+  }
+
+  async function getTestSessionPredicate(columnRef = 'session_type') {
+    return buildTestSessionPredicate(portalQuery, columnRef);
+  }
+
+  async function ensureSessionTypeColumn() {
+    await ensureColumn(portalQuery, 'service_sessions', 'session_type', 'TEXT');
   }
 
   function normalizeChurchRow(row) {
@@ -3004,6 +3025,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
       const session = await qOne('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?', [req.params.sessionId, req.church.churchId]);
       if (!session) return res.status(404).json({ error: 'Session not found' });
+      await ensureSessionTypeColumn();
       await qRun('UPDATE service_sessions SET session_type = ? WHERE id = ?', [type, req.params.sessionId]);
       res.json({ updated: true, session_type: type });
     } catch (e) { res.status(500).json({ error: 'Failed to update session type' }); }
@@ -3015,6 +3037,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const limit = Math.min(parseInt(req.query.limit) || 10, 50);
       const { roomId, instanceName } = getRequestedRoomContext(req, churches);
+      const testSessionPredicate = await getTestSessionPredicate('service_sessions.session_type');
       let reports;
       if (instanceName) {
         reports = await qAll(
@@ -3022,7 +3045,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                   grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                   stream_runtime_minutes, recommendations, ai_summary
            FROM post_service_reports WHERE church_id = ? AND instance_name = ?
-                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND ${testSessionPredicate})
                   ORDER BY created_at DESC LIMIT ?`,
           [req.church.churchId, instanceName, limit]
         );
@@ -3032,7 +3055,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                     grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                     stream_runtime_minutes, recommendations, ai_summary
              FROM post_service_reports WHERE church_id = ?
-                    AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                    AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND ${testSessionPredicate})
                     ORDER BY created_at DESC LIMIT ?`,
             [req.church.churchId, limit]
           );
@@ -3043,7 +3066,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                   grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                   stream_runtime_minutes, recommendations, ai_summary
            FROM post_service_reports WHERE church_id = ?
-                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND ${testSessionPredicate})
                   ORDER BY created_at DESC LIMIT ?`,
           [req.church.churchId, limit]
         );
@@ -3830,14 +3853,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (daysSince < 30) return false;
 
       let sessionCount = 0, cleanCount = 0;
+      const nonTestSessionClause = await getNonTestSessionClause();
       try {
-        const sc = await qOne('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != \'test\')', [churchId]);
+        const sc = await qOne(`SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?${nonTestSessionClause}`, [churchId]);
         sessionCount = sc?.cnt || 0;
       } catch { return false; }
       if (sessionCount < 4) return false;
 
       try {
-        const cc = await qOne("SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%' AND (session_type IS NULL OR session_type != 'test')", [churchId]);
+        const cc = await qOne(`SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'${nonTestSessionClause}`, [churchId]);
         cleanCount = cc?.cnt || 0;
       } catch { return false; }
       if (cleanCount < 2) return false;
@@ -4072,6 +4096,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
       const instanceName = resolveRoomInstance(req, churches);
+      const nonTestSessionClause = await getNonTestSessionClause();
       // Build optional room filter for session queries
       const roomFilter = instanceName ? ' AND instance_name = ?' : '';
       const sessParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
@@ -4092,7 +4117,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
             COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+          WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
         `, sessParams) || {};
       } catch { /* table may not exist yet */ }
 
@@ -4125,7 +4150,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             MAX(peak_viewers)              AS peak
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter} AND peak_viewers IS NOT NULL
+          WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter} AND peak_viewers IS NOT NULL
           GROUP BY week_key
           ORDER BY week_key ASC
         `, sessParams)).map(r => ({
@@ -4142,7 +4167,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             COUNT(*)                        AS count
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+          WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
           GROUP BY week_key
           ORDER BY week_key ASC
         `, sessParams)).map(r => ({
@@ -4231,6 +4256,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
       const instanceName = resolveRoomInstance(req, churches);
+      const nonTestSessionClause = await getNonTestSessionClause();
       const roomFilter = instanceName ? ' AND instance_name = ?' : '';
       const params = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
@@ -4241,7 +4267,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                  alert_count, auto_recovered_count, escalated_count, audio_silence_count,
                  peak_viewers, td_name, grade
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+          WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
           ORDER BY started_at DESC
         `, params);
       } catch { /* table may not exist */ }
@@ -4791,6 +4817,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
         const since = new Date(Date.now() - days * 86400000).toISOString();
         const instanceName = resolveRoomInstance(req, churches);
+        const nonTestSessionClause = await getNonTestSessionClause();
         const roomFilter = instanceName ? ' AND instance_name = ?' : '';
         const baseParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
@@ -4807,7 +4834,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
               COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+            WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
           `, baseParams) || {};
         } catch {}
 
@@ -4944,6 +4971,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         const days = Math.min(Math.max(parseInt(req.query.days) || 14, 1), 90);
         const since = new Date(Date.now() - days * 86400000).toISOString();
         const instanceName = resolveRoomInstance(req, churches);
+        const nonTestSessionClause = await getNonTestSessionClause();
         const roomFilter = instanceName ? ' AND instance_name = ?' : '';
         const baseParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
         const roomId = req.query.roomId || null;
@@ -4991,7 +5019,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           sessions = await qAll(`
             SELECT id, started_at, ended_at, duration_minutes, alert_count, auto_recovered_count, instance_name, grade
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
+            WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
             ORDER BY started_at DESC
           `, baseParams);
         } catch {}

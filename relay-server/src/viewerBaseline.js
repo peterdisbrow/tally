@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { createQueryClient } = require('./db');
+const { buildNonTestSessionClauseSync, buildNonTestSessionClause } = require('./schemaCompat');
 
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
@@ -106,12 +107,13 @@ class ViewerBaseline {
   _computeSync(churchId, serviceDay, opts = {}) {
     const weeks = opts.weeks || 6;
     const cutoff = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const nonTestSessionClause = buildNonTestSessionClauseSync(this.db);
 
     // Get sessions matching this day within the window
     const sessions = this.db.prepare(`
       SELECT id, started_at, peak_viewers
       FROM service_sessions
-      WHERE church_id = ? AND started_at > ? AND (session_type IS NULL OR session_type != 'test')
+      WHERE church_id = ? AND started_at > ?${nonTestSessionClause}
       ORDER BY started_at DESC
     `).all(churchId, cutoff);
 
@@ -238,11 +240,12 @@ class ViewerBaseline {
     const weeks = opts.weeks || 6;
     const cutoff = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
     const client = this._requireClient();
+    const nonTestSessionClause = await buildNonTestSessionClause(client);
 
     const sessions = await client.query(
       `SELECT id, started_at, peak_viewers
        FROM service_sessions
-       WHERE church_id = ? AND started_at > ? AND (session_type IS NULL OR session_type != 'test')
+       WHERE church_id = ? AND started_at > ?${nonTestSessionClause}
        ORDER BY started_at DESC`,
       [churchId, cutoff]
     );

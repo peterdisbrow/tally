@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { createQueryClient } = require('./db');
+const { getJwtSecret } = require('./jwtSecret');
 
 const EXPIRED_EVENT_SELECT = `
   churchId AS "churchId",
@@ -83,14 +84,14 @@ class EventMode {
    */
   async createEvent({ name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail }) {
     await this.ready;
-    const JWT_SECRET  = process.env.JWT_SECRET;
+    const jwtSecret   = getJwtSecret();
     const churchId    = uuidv4();
     const now         = new Date();
     const expiresAt   = new Date(now.getTime() + durationHours * 60 * 60 * 1000).toISOString();
     const registeredAt = now.toISOString();
 
     // Token valid for the full event duration
-    const token           = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: `${Math.ceil(durationHours)}h` });
+    const token           = jwt.sign({ churchId, name }, jwtSecret, { expiresIn: `${Math.ceil(durationHours)}h` });
     const registrationCode = crypto.randomBytes(3).toString('hex').toUpperCase();
 
     // Base church insert (matches stmtInsert columns already in server.js)

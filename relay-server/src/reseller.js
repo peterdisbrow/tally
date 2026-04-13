@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { createQueryClient } = require('./db');
+const { getJwtSecret } = require('./jwtSecret');
 
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
@@ -659,7 +660,7 @@ class ResellerSystem {
       if (existing) throw new Error(`A church named "${churchName}" already exists`);
 
       const churchId = uuidv4();
-      const jwtSecret = process.env.JWT_SECRET;
+      const jwtSecret = getJwtSecret();
       const token = jwt.sign({ churchId, name: churchName }, jwtSecret, { expiresIn: '365d' });
       const registeredAt = new Date().toISOString();
       const regCode = crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -682,7 +683,7 @@ class ResellerSystem {
     if (existing) throw new Error(`A church named "${churchName}" already exists`);
 
     const churchId = uuidv4();
-    const jwtSecret = process.env.JWT_SECRET;
+    const jwtSecret = getJwtSecret();
     const token = jwt.sign({ churchId, name: churchName }, jwtSecret, { expiresIn: '365d' });
     const registeredAt = new Date().toISOString();
     const regCode = crypto.randomBytes(3).toString('hex').toUpperCase();
