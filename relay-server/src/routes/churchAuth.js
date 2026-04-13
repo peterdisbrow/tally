@@ -53,7 +53,10 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     if (!password || String(password).length < 8) {
       return res.status(400).json({ error: 'password must be at least 8 characters' });
     }
-    if (!['connect', 'plus', 'pro', 'managed', 'event'].includes(planTier)) {
+    if (planTier === 'managed') {
+      return res.status(400).json({ error: 'Enterprise uses custom pricing. Contact support to get set up.' });
+    }
+    if (!['connect', 'plus', 'pro', 'event'].includes(planTier)) {
       return res.status(400).json({ error: 'invalid tier' });
     }
     if (!planInterval) {

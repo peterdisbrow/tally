@@ -55,6 +55,8 @@ async function hasColumn(client, table, column) {
 
   let present = false;
   if (client?.driver === 'postgres') {
+    validateIdentifier(table);
+    validateIdentifier(column);
     const row = await client.queryOne(`
       SELECT 1
       FROM information_schema.columns
@@ -62,7 +64,7 @@ async function hasColumn(client, table, column) {
         AND table_name = ?
         AND column_name = ?
       LIMIT 1
-    `, [validateIdentifier(table), validateIdentifier(column)]);
+    `, [table, column]);
     present = !!row;
   } else {
     const rows = await client.query(`PRAGMA table_info(${quoteIdentifier(table)})`);

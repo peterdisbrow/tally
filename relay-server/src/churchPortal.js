@@ -3362,10 +3362,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const Stripe = require('stripe');
       const stripeClient = Stripe(STRIPE_KEY);
 
-      const { tier: newTier } = req.body;
-      const VALID_TIERS = ['connect', 'plus', 'pro', 'managed'];
+      const newTier = String(req.body?.tier || '').toLowerCase();
+      if (newTier === 'managed') {
+        return res.status(400).json({ error: 'Enterprise uses custom pricing. Contact support to upgrade.' });
+      }
+      const VALID_TIERS = ['connect', 'plus', 'pro'];
       if (!newTier || !VALID_TIERS.includes(newTier)) {
-        return res.status(400).json({ error: 'Invalid tier. Must be: connect, plus, pro, or managed.' });
+        return res.status(400).json({ error: 'Invalid tier. Must be: connect, plus, or pro.' });
       }
 
       const church = req.church;

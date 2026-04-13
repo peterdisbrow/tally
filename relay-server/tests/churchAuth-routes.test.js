@@ -556,6 +556,14 @@ describe('POST /api/church/app/onboard', () => {
     expect(status).toBe(400);
   });
 
+  it('returns 400 for enterprise self-serve onboarding', async () => {
+    const { status, body } = await client.post('/api/church/app/onboard', {
+      body: { name: 'New Church', email: 'new@church.com', password: 'Pass1234!', tier: 'managed' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/custom pricing/i);
+  });
+
   it('creates church and returns 201 with token', async () => {
     const { status, body } = await client.post('/api/church/app/onboard', {
       body: { name: 'Brand New Church', email: 'brand@new.com', password: 'Pass1234!', tier: 'connect' },

@@ -450,6 +450,8 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(res._json.sent).toBe(true);
       expect(res._json.commandId).toBeTruthy();
       expect(res._json.instanceCount).toBe(1);
+      // Note: dispatch now goes through dispatchRemoteCommand rather than ws.send directly;
+      // ws.send is not called in local-only test environments without a remote dispatcher.
     });
 
     it('async test', async () => {

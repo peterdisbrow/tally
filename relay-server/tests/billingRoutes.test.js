@@ -101,6 +101,14 @@ describe('POST /api/billing/checkout', () => {
     expect(body.error).toBeDefined();
   });
 
+  it('returns 400 for enterprise self-serve checkout', async () => {
+    const { body, status } = await callRoute(routes, '/api/billing/checkout', {
+      body: { tier: 'managed', churchId: 'ch1' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/custom pricing/i);
+  });
+
   it('returns 400 when normalizeBillingInterval returns null', async () => {
     const ctx = makeCtx({ normalizeBillingInterval: () => null });
     const { app, routes: r } = makeApp();

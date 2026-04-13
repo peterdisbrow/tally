@@ -193,6 +193,23 @@ describe('BillingSystem.createCheckout — error cases', () => {
       b.createCheckout({ tier: 'connect', churchId: 'c1', billingInterval: 'quarterly' })
     ).rejects.toThrow(/Invalid billing interval/);
   });
+
+  it('throws for enterprise self-serve checkout when Stripe is set', async () => {
+    clearBillingCache();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake_key';
+    BillingSystem = require('../src/billing').BillingSystem;
+    const { _setStripeClientForTests } = require('../src/billing');
+    _setStripeClientForTests({
+      checkout: { sessions: { create: vi.fn() } },
+      billingPortal: { sessions: { create: vi.fn() } },
+      webhooks: { constructEvent: vi.fn() },
+    });
+    const b = new BillingSystem(makeMockDb());
+
+    await expect(
+      b.createCheckout({ tier: 'managed', churchId: 'c1', billingInterval: 'monthly' })
+    ).rejects.toThrow(/custom pricing/i);
+  });
 });
 
 // ─── createPortalSession — error cases ───────────────────────────────────────

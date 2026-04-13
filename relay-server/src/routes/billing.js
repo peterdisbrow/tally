@@ -11,9 +11,13 @@ module.exports = function setupBillingRoutes(app, ctx) {
   // POST /api/billing/checkout — create Stripe Checkout session
   app.post('/api/billing/checkout', requireAdmin, rateLimit(5, 60_000), async (req, res) => {
     try {
-      const { tier, churchId, email, successUrl, cancelUrl } = req.body;
-      if (!tier || !['connect', 'plus', 'pro', 'managed', 'event'].includes(tier)) {
-        return res.status(400).json({ error: 'Invalid tier. Must be connect, plus, pro, managed, or event.' });
+      const { churchId, email, successUrl, cancelUrl } = req.body;
+      const tier = String(req.body?.tier || '').toLowerCase();
+      if (tier === 'managed') {
+        return res.status(400).json({ error: 'Enterprise uses custom pricing. Contact support to get set up.' });
+      }
+      if (!tier || !['connect', 'plus', 'pro', 'event'].includes(tier)) {
+        return res.status(400).json({ error: 'Invalid tier. Must be connect, plus, pro, or event.' });
       }
       const billingInterval = normalizeBillingInterval(
         req.body?.billingInterval ?? req.body?.billingCycle,
