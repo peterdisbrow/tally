@@ -4,6 +4,7 @@
 
 const { createQueryClient } = require('./db');
 const { createLogger } = require('./logger');
+const { ensureColumnSync, ensureColumn, hasColumnSync, hasColumn } = require('./schemaCompat');
 const log = createLogger('ScheduleEngine');
 
 const SQLITE_FALLBACK_CONFIG = {
@@ -60,6 +61,10 @@ class ScheduleEngine {
     this._preServiceSent = new Map(); // churchId::dayStart → true (dedup pre-service reminders)
     this._pollTimer = null;
     this._churchConfigCache = new Map();
+    this._churchColumns = {
+      service_times: true,
+      schedule: true,
+    };
 
     if (this.db) {
       this._ensureColumnSync();
@@ -92,20 +97,36 @@ class ScheduleEngine {
   }
 
   _ensureColumnSync() {
-    try {
-      this.db.prepare("SELECT service_times FROM churches LIMIT 1").get();
-    } catch {
-      this.db.exec("ALTER TABLE churches ADD COLUMN service_times TEXT DEFAULT '[]'");
-    }
+    ensureColumnSync(this.db, 'churches', 'service_times', "TEXT DEFAULT '[]'");
+    ensureColumnSync(this.db, 'churches', 'schedule', "TEXT DEFAULT '{}'");
+    this._churchColumns.service_times = hasColumnSync(this.db, 'churches', 'service_times');
+    this._churchColumns.schedule = hasColumnSync(this.db, 'churches', 'schedule');
   }
 
   async _ensureColumn() {
     const client = this._requireClient();
-    try {
-      await client.queryOne('SELECT service_times FROM churches LIMIT 1');
-    } catch {
-      await client.exec("ALTER TABLE churches ADD COLUMN service_times TEXT DEFAULT '[]'");
-    }
+    await ensureColumn(client, 'churches', 'service_times', "TEXT DEFAULT '[]'");
+    await ensureColumn(client, 'churches', 'schedule', "TEXT DEFAULT '{}'");
+    this._churchColumns.service_times = await hasColumn(client, 'churches', 'service_times');
+    this._churchColumns.schedule = await hasColumn(client, 'churches', 'schedule');
+  }
+
+  _churchSelectColumns() {
+    return [
+      'churchId AS "churchId"',
+      this._churchColumns.service_times ? 'service_times' : "'[]' AS service_times",
+      this._churchColumns.schedule ? 'schedule' : "'' AS schedule",
+      'timezone',
+      'church_type',
+      'event_expires_at',
+    ].join(', ');
+  }
+
+  _scheduleSelectColumns() {
+    return [
+      this._churchColumns.service_times ? 'service_times' : "'[]' AS service_times",
+      this._churchColumns.schedule ? 'schedule' : "'' AS schedule",
+    ].join(', ');
   }
 
   async _all(sql, params = []) {
@@ -203,7 +224,7 @@ class ScheduleEngine {
 
   async _loadCache() {
     const rows = await this._requireClient().query(`
-      SELECT churchId AS "churchId", service_times, schedule, timezone, church_type, event_expires_at
+      SELECT ${this._churchSelectColumns()}
       FROM churches
     `);
     this._churchConfigCache.clear();
@@ -250,7 +271,7 @@ class ScheduleEngine {
       // Fall back to the schedule column (modern format used by the portal schedule page)
       return this._parseSchedule(config.scheduleRaw);
     }
-    const row = this.db.prepare("SELECT service_times, schedule FROM churches WHERE churchId = ?").get(churchId);
+    const row = this.db.prepare(`SELECT ${this._scheduleSelectColumns()} FROM churches WHERE churchId = ?`).get(churchId);
     if (!row) return [];
     const fromServiceTimes = this._parseSchedule(row.service_times);
     if (fromServiceTimes.length) return fromServiceTimes;

@@ -15,6 +15,7 @@
  */
 
 const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('./jwtSecret');
 
 const DOWNLOAD_MAC_URL = 'https://github.com/peterdisbrow/tally/releases/download/v1.0.1/Tally-signed.dmg';
 
@@ -768,9 +769,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildUnsubscribeFooter(churchId, email, type) {
-    if (!churchId || !email || !type || !process.env.JWT_SECRET) return '';
+    if (!churchId || !email || !type) return '';
     try {
-      const token = jwt.sign({ churchId, email, type }, process.env.JWT_SECRET, { expiresIn: '365d' });
+      const token = jwt.sign({ churchId, email, type }, getJwtSecret(), { expiresIn: '365d' });
       const unsubscribeUrl = `${process.env.RELAY_URL || 'https://api.tallyconnect.app'}/api/notifications/unsubscribe?token=${encodeURIComponent(token)}`;
       return `<p style="font-size:12px;color:#888;text-align:center;margin-top:32px;"><a href="${unsubscribeUrl}" style="color:#888;">Unsubscribe</a> from these emails.</p>`;
     } catch {

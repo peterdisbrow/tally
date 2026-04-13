@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const { WebSocket } = require('ws');
 const { hasOpenSocket } = require('./runtimeSockets');
+const { getJwtSecret } = require('./jwtSecret');
 const { SqliteQueryClient } = require('./db/queryClient');
 
 const COOKIE_NAME = 'tally_session';
@@ -812,7 +813,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (existing) return res.status(409).json({ error: `Church "${name}" already exists` });
     try {
       const churchId = uuidv4();
-      const jwtSecret = process.env.JWT_SECRET;
+      const jwtSecret = getJwtSecret();
       const token = jwt.sign({ churchId, name }, jwtSecret, { expiresIn: '365d' });
       const registeredAt = new Date().toISOString();
       await qRun(
@@ -866,7 +867,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     try {
-      const jwtSecret = process.env.JWT_SECRET;
+      const jwtSecret = getJwtSecret();
       const token = jwt.sign({ churchId: id, name: row.name }, jwtSecret, { expiresIn: '365d' });
       await qRun('UPDATE churches SET token=? WHERE churchId=?', [token, id]);
       const church = churches.get(id);
@@ -1094,7 +1095,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   app.get('/api/admin/billing/analytics', requireAdminSession, async (req, res) => {
     // Monthly prices by tier (cents → dollars happens client-side)
-    const TIER_MRR = { connect: 0, plus: 49, pro: 99, managed: 199, event: 0 };
+    const TIER_MRR = { connect: 79, plus: 149, pro: 199, managed: 0, event: 0 };
     const ANNUAL_DISCOUNT = 1; // annual prices are already monthly-equivalent
 
     try {

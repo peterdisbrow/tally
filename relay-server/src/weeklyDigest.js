@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createQueryClient } = require('./db');
+const { buildNonTestSessionClauseSync, buildNonTestSessionClause } = require('./schemaCompat');
 
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
@@ -381,15 +382,16 @@ class WeeklyDigest {
   _computeReliabilitySync(churchId, events, instanceName) {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const nonTestSessionClause = buildNonTestSessionClauseSync(this.db);
       let sessions;
       if (instanceName) {
         sessions = this.db.prepare(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC'
-        ).all(churchId, weekAgo.toISOString(), instanceName, 'test');
+          `SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)${nonTestSessionClause} ORDER BY started_at ASC`
+        ).all(churchId, weekAgo.toISOString(), instanceName);
       } else {
         sessions = this.db.prepare(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC'
-        ).all(churchId, weekAgo.toISOString(), 'test');
+          `SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ?${nonTestSessionClause} ORDER BY started_at ASC`
+        ).all(churchId, weekAgo.toISOString());
       }
 
       if (!sessions.length) return null;
@@ -411,16 +413,17 @@ class WeeklyDigest {
   async _computeReliabilityAsync(churchId, events, instanceName) {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const nonTestSessionClause = await buildNonTestSessionClause(this._requireClient());
       let sessions;
       if (instanceName) {
         sessions = await this._all(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC',
-          [churchId, weekAgo.toISOString(), instanceName, 'test']
+          `SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)${nonTestSessionClause} ORDER BY started_at ASC`,
+          [churchId, weekAgo.toISOString(), instanceName]
         );
       } else {
         sessions = await this._all(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC',
-          [churchId, weekAgo.toISOString(), 'test']
+          `SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ?${nonTestSessionClause} ORDER BY started_at ASC`,
+          [churchId, weekAgo.toISOString()]
         );
       }
 
@@ -554,9 +557,12 @@ class WeeklyDigest {
           const fullChurch = await this._one('SELECT * FROM churches WHERE churchId = ?', [church.churchId]);
           if (fullChurch && fullChurch.leadership_emails) {
             const leaderEmails = fullChurch.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
+            const nonTestSessionClause = this.db
+              ? buildNonTestSessionClauseSync(this.db)
+              : await buildNonTestSessionClause(this._requireClient());
             const sessionCountRow = await this._one(
-              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?)',
-              [church.churchId, weekAgo.toISOString(), 'test']
+              `SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}`,
+              [church.churchId, weekAgo.toISOString()]
             );
             const sessionCount = sessionCountRow?.cnt || 0;
             // Top alert type
@@ -641,15 +647,18 @@ class WeeklyDigest {
 
     let sessions = [];
     try {
+      const nonTestSessionClause = this.db
+        ? buildNonTestSessionClauseSync(this.db)
+        : await buildNonTestSessionClause(this._requireClient());
       if (instanceName) {
         sessions = await this._all(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?)',
-          [churchId, weekAgo.toISOString(), instanceName, 'test']
+          `SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)${nonTestSessionClause}`,
+          [churchId, weekAgo.toISOString(), instanceName]
         );
       } else {
         sessions = await this._all(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?)',
-          [churchId, weekAgo.toISOString(), 'test']
+          `SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}`,
+          [churchId, weekAgo.toISOString()]
         );
       }
     } catch {}

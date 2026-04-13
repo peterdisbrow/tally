@@ -5,6 +5,8 @@
  * or happen outside any scheduled window.
  */
 
+const { buildNonTestSessionClauseSync } = require('./schemaCompat');
+
 const LATE_START_THRESHOLD = 10;   // minutes after scheduled start
 const EARLY_END_THRESHOLD = 15;    // minutes before scheduled end
 const OVERTIME_THRESHOLD = 20;     // minutes past scheduled end
@@ -133,9 +135,10 @@ function detectDrift(db, churchId, currentSession) {
   // ── Overlap ──────────────────────────────────────────────────────────────
   // Check if there was a previous session that hadn't ended when this one started
   try {
+    const nonTestSessionClause = buildNonTestSessionClauseSync(db);
     const prevSession = db.prepare(`
       SELECT started_at, ended_at FROM service_sessions
-      WHERE church_id = ? AND id != ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
+      WHERE church_id = ? AND id != ? AND ended_at IS NOT NULL${nonTestSessionClause}
       ORDER BY started_at DESC LIMIT 1
     `).get(churchId, currentSession.sessionId || '');
 
@@ -174,13 +177,14 @@ function getServiceTimingStats(db, churchId, weeks = 4) {
   }
   const cutoff = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
   const schedule = getSchedule(db, churchId);
+  const nonTestSessionClause = buildNonTestSessionClauseSync(db);
 
   let sessions;
   try {
     sessions = db.prepare(`
       SELECT started_at, ended_at, duration_minutes
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
+      WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL${nonTestSessionClause}
       ORDER BY started_at ASC
     `).all(churchId, cutoff);
   } catch (e) {

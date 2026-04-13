@@ -13,6 +13,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./logger');
 const { createQueryClient } = require('./db');
+const { buildNonTestSessionClauseSync, buildNonTestSessionClause } = require('./schemaCompat');
 const log = createLogger('AITriage');
 
 const SQLITE_FALLBACK_CONFIG = {
@@ -462,13 +463,13 @@ class AITriageEngine {
   _loadCache() {
     if (this.db) return;
     const client = this._requireClient();
-    return Promise.all([
+    return buildNonTestSessionClause(client).then((nonTestSessionClause) => Promise.all([
       client.query('SELECT * FROM church_ai_settings').catch(() => []),
       client.query('SELECT * FROM ai_triage_events').catch(() => []),
       client.query('SELECT * FROM ai_resolutions').catch(() => []),
       client.query('SELECT * FROM churches').catch(() => []),
-      client.query("SELECT * FROM service_sessions WHERE (session_type IS NULL OR session_type != 'test')").catch(() => []),
-    ]).then(([settingsRows, eventRows, resolutionRows, churchRows, sessionRows]) => {
+      client.query(`SELECT * FROM service_sessions${nonTestSessionClause ? ` WHERE 1=1${nonTestSessionClause}` : ''}`).catch(() => []),
+    ])).then(([settingsRows, eventRows, resolutionRows, churchRows, sessionRows]) => {
       this._settingsCache.clear();
       this._eventCache = [];
       this._resolutionCache = [];
@@ -703,10 +704,11 @@ class AITriageEngine {
    */
   _inferTimeContextFromHistory(churchId) {
     try {
+      const nonTestSessionClause = this.db ? buildNonTestSessionClauseSync(this.db) : '';
       const sessions = this.db
         ? this.db.prepare(`
             SELECT started_at, ended_at FROM service_sessions
-            WHERE church_id = ? AND started_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
+            WHERE church_id = ? AND started_at IS NOT NULL${nonTestSessionClause}
             ORDER BY started_at DESC LIMIT 20
           `).all(churchId)
         : this._sessionCache

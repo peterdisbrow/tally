@@ -6582,7 +6582,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'On-call TD rotation</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 3 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="plus" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="plus" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
 
           // Pro upgrade card
@@ -6598,7 +6598,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $199/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
@@ -6613,7 +6613,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $199/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
@@ -6634,9 +6634,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Reactivation button for cancelled/expired/inactive churches
         if (['trial_expired','canceled','inactive'].includes(b.status)) {
           html += '<div style="margin-top:16px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
-          html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Reactivate Your Subscription</div>';
-          html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
-          html += '<button data-action="reactivateSubscription" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now ' + SVG.arrowRight + '</button>';
+          if (currentTier === 'managed') {
+            html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Enterprise Reactivation</div>';
+            html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Enterprise plans use custom pricing. Contact support and we\'ll get your account reactivated.</div>';
+            html += '<a href="mailto:support@tallyconnect.app?subject=Enterprise%20Reactivation" class="btn-primary" style="display:inline-block;text-decoration:none">Contact Support ' + SVG.arrowRight + '</a>';
+          } else {
+            html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Reactivate Your Subscription</div>';
+            html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
+            html += '<button data-action="reactivateSubscription" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now ' + SVG.arrowRight + '</button>';
+          }
           html += '</div>';
         }
 
@@ -6645,10 +6651,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:16px 24px">';
           html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
-            html += '<button data-action="downgradePlan" data-plan-tier="plus" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
-            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="plus" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($149/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
           }
           html += '</div>';
         }
@@ -6710,7 +6716,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       var nextTierSlug = tier === 'connect' ? 'plus' : 'pro';
       var nextTier = tier === 'connect' ? 'Plus' : 'Pro';
-      var nextPrice = tier === 'connect' ? '$99' : '$149';
+      var nextPrice = tier === 'connect' ? '$149' : '$199';
       var headline = pt(tier === 'connect' ? 'upgrade.connect.headline' : 'upgrade.plus.headline');
       var body = pt(tier === 'connect' ? 'upgrade.connect.body' : 'upgrade.plus.body');
       var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });
@@ -6731,6 +6737,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Upgrade Plan ─────────────────────────────────────────────────────────
     async function upgradePlan(tier) {
+      if (tier === 'managed') {
+        window.location.href = 'mailto:support@tallyconnect.app?subject=Enterprise%20Pricing';
+        return;
+      }
       var tierNames = { plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
       var label = tierNames[tier] || tier;
 

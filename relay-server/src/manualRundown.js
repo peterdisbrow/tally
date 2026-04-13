@@ -793,6 +793,7 @@ class ManualRundownStore {
         sortOrder: col.sortOrder,
         type: col.type,
         options: col.options,
+        equipmentBinding: col.equipmentBinding,
       });
       colIdMap[col.id] = newCol.id;
     }
@@ -822,6 +823,7 @@ class ManualRundownStore {
       sortOrder: r.sort_order,
       type: VALID_COLUMN_TYPES.has(r.column_type) ? r.column_type : 'text',
       options: this._parseColumnOptions(r.options_json),
+      equipmentBinding: r.equipment_binding || null,
       createdAt: r.created_at,
     }));
   }
@@ -831,7 +833,7 @@ class ManualRundownStore {
     try { return JSON.parse(raw); } catch { return fallback; }
   }
 
-  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [] }) {
+  async addColumn(planId, churchId, { name, department = '', sortOrder, type = 'text', options = [], equipmentBinding = null }) {
     const id = uuidv4();
     const now = Date.now();
     const normalizedType = VALID_COLUMN_TYPES.has(type) ? type : 'text';
@@ -841,9 +843,9 @@ class ManualRundownStore {
       sortOrder = (max?.mx ?? -1) + 1;
     }
     await this._db.run(
-      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), now]
+      `INSERT INTO rundown_columns (id, plan_id, church_id, name, department, sort_order, column_type, options_json, equipment_binding, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, planId, churchId, name, department || '', sortOrder, normalizedType, JSON.stringify(normalizedOptions), equipmentBinding || null, now]
     );
     return {
       id,
@@ -854,11 +856,12 @@ class ManualRundownStore {
       sortOrder,
       type: normalizedType,
       options: normalizedOptions,
+      equipmentBinding: equipmentBinding || null,
       createdAt: now,
     };
   }
 
-  async updateColumn(colId, { name, sortOrder, type, options }) {
+  async updateColumn(colId, { name, sortOrder, type, options, equipmentBinding }) {
     const sets = [];
     const params = [];
     if (name !== undefined) { sets.push('name = ?'); params.push(name); }
@@ -871,6 +874,10 @@ class ManualRundownStore {
     if (options !== undefined || (normalizedType !== undefined && normalizedType !== 'dropdown')) {
       sets.push('options_json = ?');
       params.push(JSON.stringify(this._normalizeColumnOptions(options, normalizedType || 'text')));
+    }
+    if (equipmentBinding !== undefined) {
+      sets.push('equipment_binding = ?');
+      params.push(equipmentBinding || null);
     }
     if (sets.length === 0) return;
     params.push(colId);

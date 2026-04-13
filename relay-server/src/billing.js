@@ -6,8 +6,8 @@ const { createQueryClient } = require('./db');
 /**
  * Tally Billing — Stripe Integration
  *
- * Handles subscriptions for Connect/Plus/Pro/Enterprise (monthly or annual)
- * and one-time Event mode.
+ * Handles subscriptions for Connect/Plus/Pro (monthly or annual),
+ * keeps Enterprise as an internal/custom tier, and supports one-time Event mode.
  *
  * Setup:
  *   npm install stripe  (in relay-server/)
@@ -98,6 +98,7 @@ function isDevLikeEnv() {
 function getInvalidPriceEnvKeys() {
   const missing = [];
   for (const [tier, intervals] of Object.entries(PRICES)) {
+    if (tier === 'managed') continue; // Enterprise is custom-priced, not self-serve.
     for (const [interval, priceId] of Object.entries(intervals)) {
       if (!priceId || priceId.includes('placeholder') || !priceId.startsWith('price_')) {
         const envKey = PRICE_ENV_KEYS[tier]?.[interval] || `STRIPE_PRICE_${tier.toUpperCase()}`;
@@ -536,6 +537,9 @@ class BillingSystem {
 
     const normalizedTier = this._normaliseTier(tier);
     if (!normalizedTier) throw new Error(`Invalid billing tier "${tier}"`);
+    if (normalizedTier === 'managed') {
+      throw new Error('Enterprise uses custom pricing. Contact support to get set up.');
+    }
 
     const effectiveInterval = this._normaliseBillingInterval(billingInterval, normalizedTier);
     if (!effectiveInterval || !BILLING_INTERVALS.has(effectiveInterval)) {
@@ -560,7 +564,7 @@ class BillingSystem {
     };
 
     if (!eventCheckout) {
-      // 60-day free trial for subscriptions (matches landing page promise)
+      // 30-day free trial for subscriptions
       sessionParams.subscription_data = {
         trial_period_days: TRIAL_PERIOD_DAYS,
         metadata: { churchId: churchId || '', tier: normalizedTier, billingInterval: effectiveInterval },
@@ -963,6 +967,9 @@ class BillingSystem {
     }
 
     const effectiveTier = this._normaliseTier(tier || church.billing_tier) || 'connect';
+    if (effectiveTier === 'managed') {
+      throw new Error('Enterprise uses custom pricing. Contact support to reactivate your account.');
+    }
     const effectiveInterval = this._normaliseBillingInterval(billingInterval || church.billing_interval, effectiveTier) || 'monthly';
 
     // Create a fresh checkout (no trial for reactivation)
@@ -1311,10 +1318,10 @@ class BillingSystem {
 
     // Tier-based referral credit — one free month of each party's current plan
     const TIER_MONTHLY_CENTS = {
-      connect: 4900,   // $49
-      plus:    9900,   // $99
-      pro:     14900,  // $149
-      managed: 49900,  // $499
+      connect: 7900,   // $79
+      plus:    14900,  // $149
+      pro:     19900,  // $199
+      managed: null,   // Enterprise is custom-priced
       event:   9900,   // $99
     };
 
@@ -1330,9 +1337,17 @@ class BillingSystem {
     }
 
     // Credit amounts: one free month for each party based on their own plan
-    const referrerCreditCents = TIER_MONTHLY_CENTS[referrerBilling.tier] || 4900;
-    const refereeCreditCents  = TIER_MONTHLY_CENTS[tier] || 4900;
+    const referrerCreditCents = TIER_MONTHLY_CENTS[referrerBilling.tier];
+    const refereeCreditCents  = TIER_MONTHLY_CENTS[tier];
     const now = new Date().toISOString();
+
+    if (!Number.isFinite(referrerCreditCents) || !Number.isFinite(refereeCreditCents)) {
+      await this._run(`
+        UPDATE referrals SET status = 'converted', credit_amount = 0, converted_at = ? WHERE id = ?
+      `, [now, referral.id]);
+      console.log('[Referral] Custom-priced tier detected — skipping automatic referral credit and marking for manual follow-up.');
+      return;
+    }
 
     try {
       // Credit referrer — one free month of their plan
