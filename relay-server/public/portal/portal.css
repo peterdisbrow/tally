@@ -889,6 +889,21 @@ input:checked + .slider:before {
     position: fixed; z-index: 1000; top: 0; left: 0;
     width: 220px; height: 100vh; height: 100dvh;
     overflow-y: scroll; overflow-x: hidden; overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  /* Lock body scroll when mobile sidebar is open so iOS touch events
+     don't bleed through to the content behind the sidebar. */
+  body.sidebar-nav-open {
+    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  body.sidebar-nav-open .sidebar {
+    touch-action: pan-y;
   }
   .sidebar.open { display: flex; flex-direction: column; }
   .sidebar-overlay.open { display: block; }
