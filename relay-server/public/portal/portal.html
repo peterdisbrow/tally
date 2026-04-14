@@ -764,13 +764,20 @@
         </div>
 
 
-        <!-- Video Switcher -->
+        <!-- ATEM Switchers (multi-instance) -->
         <div class="card advanced-only" style="margin-bottom:16px">
-          <div class="card-title">Video Switcher (ATEM)</div>
-          <div class="field">
-            <label><span class="tip" data-tip="Find this in your ATEM's network settings (Software Control &rsaquo; Settings &rsaquo; Network) or check your router's device list for a device named 'ATEM'.">ATEM IP Address</span></label>
-            <input type="text" id="eq-atem-ip" placeholder="192.168.1.240" pattern="^(\\d{1,3}\\.){3}\\d{1,3}$">
-          </div>
+          <div class="card-title">ATEM Switchers</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Blackmagic video switchers (UDP 9910). Up to 4 instances.</p>
+          <div id="eq-atem-list"></div>
+          <button class="btn-secondary" id="btn-add-atem" data-action="addAtemRow" style="margin-top:8px;font-size:12px">+ Add ATEM</button>
+        </div>
+
+        <!-- TriCaster Switchers (multi-instance) -->
+        <div class="card advanced-only" style="margin-bottom:16px">
+          <div class="card-title">TriCaster</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">NewTek / Vizrt video switcher (HTTP Shortcut API). Up to 2 instances.</p>
+          <div id="eq-tricaster-list"></div>
+          <button class="btn-secondary" id="btn-add-tricaster" data-action="addTricasterRow" style="margin-top:8px;font-size:12px">+ Add TriCaster</button>
         </div>
 
         <!-- OBS Studio -->
@@ -790,63 +797,60 @@
         <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Audio Mixer</div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <div class="field" style="flex:1;min-width:140px">
-              <label>Mixer Type</label>
+            <div class="field" style="flex:1;min-width:200px">
+              <label>Audio Source</label>
               <select id="eq-mixer-type">
-                <option value="">None</option>
-                <option value="behringer">Behringer X32 / M32</option>
-                <option value="allenheath">Allen &amp; Heath dLive / SQ</option>
+                <option value="">&mdash; Not configured &mdash;</option>
+                <option value="atem-auto">Auto-detect from ATEM (recommended)</option>
+                <option value="atem-direct">Force: Audio via ATEM (override)</option>
+                <option value="atem-none">Force: No ATEM audio (override)</option>
+                <option value="x32">X32 (Behringer protocol)</option>
+                <option value="behringer">Behringer X32 / X-Air</option>
+                <option value="midas">Midas M32 / M32R</option>
+                <option value="allenheath">Allen &amp; Heath SQ</option>
+                <option value="dlive">Allen &amp; Heath dLive</option>
                 <option value="avantis">Allen &amp; Heath Avantis</option>
-                <option value="yamaha">Yamaha TF / CL / QL</option>
+                <option value="yamaha">Yamaha CL / QL / TF</option>
               </select>
             </div>
-            <div class="field" style="flex:1;min-width:140px">
-              <label><span class="tip" data-tip="The IP address of your mixer on the network. Check your mixer's network settings menu or look it up in your router's device list.">Host / IP</span></label>
-              <input type="text" id="eq-mixer-host" placeholder="192.168.1.200">
+            <div class="field" id="eq-mixer-host-wrap" style="flex:1;min-width:140px">
+              <label><span class="tip" data-tip="The IP address of your mixer on the network. Check your mixer's network settings menu or look it up in your router's device list.">IP Address</span></label>
+              <input type="text" id="eq-mixer-host" placeholder="Console IP address">
             </div>
-            <div class="field" style="flex:0 0 100px">
-              <label><span class="tip" data-tip="The network port your mixer uses. Behringer X32/M32: 10023. Allen &amp; Heath dLive/SQ: 51326. Yamaha: 49280. Leave as default if unsure.">Port</span></label>
-              <input type="number" id="eq-mixer-port" placeholder="10023" min="1" max="65535">
+            <div class="field" id="eq-mixer-port-wrap" style="flex:0 0 100px">
+              <label><span class="tip" data-tip="Default ports: X32/M32=10023, A&amp;H SQ=51326, A&amp;H dLive/Avantis=51325, Yamaha CL/QL=8765, TF=49280">Port</span></label>
+              <input type="number" id="eq-mixer-port" placeholder="Auto" min="1" max="65535">
             </div>
           </div>
           <div class="field" style="margin-top:8px">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
               <input type="checkbox" id="eq-audio-via-atem" style="width:auto">
-              <span>Route audio via ATEM (use ATEM audio mix instead of standalone mixer)</span>
+              <span>Route audio via ATEM (legacy — prefer selecting an &ldquo;atem-*&rdquo; audio source above)</span>
             </label>
           </div>
         </div>
 
-        <!-- Encoder / Streaming -->
+        <!-- Streaming Encoders (multi-instance, subtype-driven) -->
         <div class="card advanced-only" style="margin-bottom:16px">
-          <div class="card-title">Encoder / Streaming</div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <div class="field" style="flex:1;min-width:140px">
-              <label>Encoder Type</label>
-              <select id="eq-encoder-type">
-                <option value="">None</option>
-                <option value="boxcast">BoxCast</option>
-                <option value="aja">AJA HELO</option>
-                <option value="teradek">Teradek</option>
-                <option value="epiphan">Epiphan</option>
-                <option value="liveu">LiveU</option>
-                <option value="vmix">vMix (built-in)</option>
-                <option value="obs">OBS (built-in)</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div class="field" style="flex:1;min-width:140px">
-              <label><span class="tip" data-tip="The IP address of your hardware encoder on the network. Find it in the encoder's web interface or your router's device list.">Host / IP</span></label>
-              <input type="text" id="eq-encoder-host" placeholder="192.168.1.100" pattern="^(\\d{1,3}\\.){3}\\d{1,3}$">
-            </div>
-            <div class="field" style="flex:0 0 100px">
-              <label>Port</label>
-              <input type="number" id="eq-encoder-port" placeholder="80" min="1" max="65535">
-            </div>
-          </div>
-          <div class="field">
-            <label>RTMP URL <span style="color:#556270">(optional)</span></label>
+          <div class="card-title">Streaming Encoders</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Hardware/software encoders for monitoring and status. Up to 4 instances.</p>
+          <div id="eq-encoder-list"></div>
+          <button class="btn-secondary" id="btn-add-encoder" data-action="addEncoderRow" style="margin-top:8px;font-size:12px">+ Add Encoder</button>
+          <div class="field" style="margin-top:12px">
+            <label>Global RTMP URL <span style="color:#556270">(optional, fallback)</span></label>
             <input type="text" id="eq-rtmp-url" placeholder="rtmp://live.example.com/stream" pattern="^rtmps?://.+">
+          </div>
+        </div>
+
+        <!-- ATEM Recording -->
+        <div class="card advanced-only" style="margin-bottom:16px">
+          <div class="card-title">ATEM Recording</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Record to USB/SSD on ATEM switchers with built-in recording.</p>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="eq-atem-auto-record" style="width:auto">
+              <span>Auto-record when stream starts</span>
+            </label>
           </div>
         </div>
 
@@ -874,6 +878,7 @@
         <!-- PTZ Cameras -->
         <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">PTZ Cameras</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Supports ONVIF and VISCA over IP (TCP/UDP). Up to 8 cameras.</p>
           <div id="eq-ptz-list"></div>
           <button class="btn-secondary" id="btn-add-ptz" data-action="addPtzRow" style="margin-top:8px;font-size:12px">+ Add Camera</button>
         </div>
@@ -881,18 +886,26 @@
         <!-- Companion -->
         <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Bitfocus Companion</div>
-          <div class="field">
-            <label>Companion URL</label>
-            <input type="url" id="eq-companion-url" placeholder="http://localhost:8000">
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Button control surface (HTTP).</p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:140px">
+              <label>IP / Host</label>
+              <input type="text" id="eq-companion-host" placeholder="localhost">
+            </div>
+            <div class="field" style="flex:0 0 100px">
+              <label>Port</label>
+              <input type="number" id="eq-companion-port" placeholder="8888" min="1" max="65535">
+            </div>
           </div>
         </div>
 
-        <!-- Presentation Software -->
+        <!-- ProPresenter -->
         <div class="card advanced-only" style="margin-bottom:16px">
-          <div class="card-title">Presentation Software</div>
+          <div class="card-title">ProPresenter</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Renewed Vision presentation (HTTP).</p>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
-              <label>ProPresenter Host</label>
+              <label>Host</label>
               <input type="text" id="eq-propresenter-host" placeholder="localhost">
             </div>
             <div class="field" style="flex:0 0 100px">
@@ -900,20 +913,42 @@
               <input type="number" id="eq-propresenter-port" placeholder="1025" min="1" max="65535">
             </div>
           </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
+        </div>
+
+        <!-- vMix -->
+        <div class="card advanced-only" style="margin-bottom:16px">
+          <div class="card-title">vMix</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Windows live production (HTTP 8088).</p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
-              <label>vMix Host</label>
-              <input type="text" id="eq-vmix-host" placeholder="localhost">
+              <label>Host</label>
+              <input type="text" id="eq-vmix-host" placeholder="localhost or 192.168.1.x">
             </div>
             <div class="field" style="flex:0 0 100px">
               <label>Port</label>
               <input type="number" id="eq-vmix-port" placeholder="8088" min="1" max="65535">
             </div>
+            <div class="field" style="flex:1;min-width:160px">
+              <label>Switcher Role</label>
+              <select id="eq-vmix-switcher-role">
+                <option value="">Not a switcher</option>
+                <option value="primary">Primary (Broadcast)</option>
+                <option value="backup">Backup</option>
+                <option value="imag">IMAG</option>
+                <option value="broadcast">Broadcast</option>
+              </select>
+            </div>
           </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
+        </div>
+
+        <!-- Resolume Arena -->
+        <div class="card advanced-only" style="margin-bottom:16px">
+          <div class="card-title">Resolume Arena</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">LED wall / video display control (HTTP 8080).</p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
-              <label>Resolume Host</label>
-              <input type="text" id="eq-resolume-host" placeholder="localhost">
+              <label>Host</label>
+              <input type="text" id="eq-resolume-host" placeholder="localhost or 192.168.1.x">
             </div>
             <div class="field" style="flex:0 0 100px">
               <label>Port</label>
@@ -925,6 +960,7 @@
         <!-- HyperDecks -->
         <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">HyperDecks</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Blackmagic recording deck (TCP 9993). Up to 8 instances.</p>
           <div id="eq-hyperdeck-list"></div>
           <button class="btn-secondary" id="btn-add-hyperdeck" data-action="addHyperdeckRow" style="margin-top:8px;font-size:12px">+ Add HyperDeck</button>
         </div>
@@ -932,8 +968,17 @@
         <!-- VideoHubs -->
         <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">VideoHubs</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Blackmagic SDI/HDMI router (TCP 9990). Up to 4 instances.</p>
           <div id="eq-videohub-list"></div>
           <button class="btn-secondary" id="btn-add-videohub" data-action="addVideohubRow" style="margin-top:8px;font-size:12px">+ Add VideoHub</button>
+        </div>
+
+        <!-- Smart Plugs -->
+        <div class="card advanced-only" style="margin-bottom:16px">
+          <div class="card-title">Smart Plugs</div>
+          <p style="font-size:12px;color:#8B9DAF;margin:0 0 10px">Shelly WiFi smart plug &mdash; power monitoring and control (HTTP). Up to 8 plugs.</p>
+          <div id="eq-smart-plug-list"></div>
+          <button class="btn-secondary" id="btn-add-smart-plug" data-action="addSmartPlugRow" style="margin-top:8px;font-size:12px">+ Add Smart Plug</button>
         </div>
 
 

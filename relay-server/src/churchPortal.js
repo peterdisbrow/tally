@@ -1467,14 +1467,43 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
 
       // Basic validation
-      if (equipment.atemIp && !/^[\d.]+$/.test(equipment.atemIp)) {
+      const isIp = (s) => typeof s === 'string' && /^[\d.]+$/.test(s);
+      const isPort = (n) => typeof n === 'number' && n >= 1 && n <= 65535;
+      if (equipment.atemIp && !isIp(equipment.atemIp)) {
         return res.status(400).json({ error: 'Invalid ATEM IP format' });
       }
-      if (equipment.mixer?.port && (equipment.mixer.port < 1 || equipment.mixer.port > 65535)) {
+      if (Array.isArray(equipment.atems)) {
+        for (const a of equipment.atems) {
+          if (a && a.ip && !isIp(a.ip)) {
+            return res.status(400).json({ error: 'Invalid ATEM IP format: ' + a.ip });
+          }
+        }
+      }
+      if (Array.isArray(equipment.tricaster)) {
+        for (const t of equipment.tricaster) {
+          if (t && t.port !== undefined && t.port !== null && t.port !== '' && !isPort(Number(t.port))) {
+            return res.status(400).json({ error: 'TriCaster port must be between 1 and 65535' });
+          }
+        }
+      }
+      if (equipment.mixer?.port && !isPort(equipment.mixer.port)) {
         return res.status(400).json({ error: 'Mixer port must be between 1 and 65535' });
       }
-      if (equipment.encoderPort && (equipment.encoderPort < 1 || equipment.encoderPort > 65535)) {
+      if (equipment.encoderPort && !isPort(equipment.encoderPort)) {
         return res.status(400).json({ error: 'Encoder port must be between 1 and 65535' });
+      }
+      if (Array.isArray(equipment.encoders)) {
+        for (const e of equipment.encoders) {
+          if (e && e.port !== undefined && e.port !== null && e.port !== '') {
+            const p = Number(e.port);
+            if (!Number.isNaN(p) && !isPort(p)) {
+              return res.status(400).json({ error: 'Encoder port must be between 1 and 65535' });
+            }
+          }
+        }
+      }
+      if (equipment.companion?.port && !isPort(equipment.companion.port)) {
+        return res.status(400).json({ error: 'Companion port must be between 1 and 65535' });
       }
 
       // Use the room_id from the request (passed from the GET), or find the most

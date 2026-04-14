@@ -3616,57 +3616,194 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _equipmentLoaded = false;
     var _equipmentRoomId = null; // tracks which room_id the equipment belongs to
 
+    // Encoder subtype definitions — mirror electron-app/src/device-registry.js
+    var ENCODER_OPTIONS = [
+      { value: '', label: 'Not configured' },
+      { value: 'blackmagic', label: 'Blackmagic Web Presenter / Streaming Encoder' },
+      { value: 'obs', label: 'OBS Studio' },
+      { value: 'vmix', label: 'vMix' },
+      { value: 'atem-streaming', label: 'ATEM Mini (built-in streaming)' },
+      { value: 'ecamm', label: 'Ecamm Live (Mac)' },
+      { value: 'aja', label: 'AJA HELO' },
+      { value: 'epiphan', label: 'Epiphan Pearl' },
+      { value: 'teradek', label: 'Teradek Cube / VidiU' },
+      { value: 'tricaster', label: 'TriCaster' },
+      { value: 'birddog', label: 'BirdDog' },
+      { value: 'yolobox', label: 'YoloBox' },
+      { value: 'youtube-live', label: 'YouTube Live (CDN destination)' },
+      { value: 'facebook-live', label: 'Facebook Live (CDN destination)' },
+      { value: 'vimeo-live', label: 'Vimeo Live (CDN destination)' },
+      { value: 'tally-encoder', label: 'Tally Encoder' },
+      { value: 'custom', label: 'Custom Encoder' },
+    ];
+    var ENCODER_API_TYPES = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'tally-encoder', 'custom'];
+    var ENCODER_RTMP_TYPES = ['yolobox', 'youtube-live', 'facebook-live', 'vimeo-live'];
+    var ENCODER_DEFAULTS = {
+      obs:              { host: 'localhost', port: '4455', pw: true,  note: 'OBS WebSocket v5 \u2014 GetStats, StartStream, StopStream' },
+      vmix:             { host: 'localhost', port: '8088',             note: 'vMix HTTP API \u2014 streaming, recording, status' },
+      blackmagic:       { host: '',          port: '80',               note: 'REST API v1 \u2014 streaming status, start/stop, platform config, bitrate' },
+      aja:              { host: '',          port: '80',  pw: true,    note: 'REST API \u2014 start/stop stream/record, profiles, inputs, temperature' },
+      epiphan:          { host: '',          port: '80',  pw: true,    note: 'REST API v2 \u2014 channels, publishers, recorders, layouts, system status' },
+      teradek:          { host: '',          port: '80',  pw: true,    note: 'CGI API \u2014 broadcast start/stop, recording, bitrate, battery, video input' },
+      tricaster:        { host: '',          port: '5951', pw: true,   note: 'Shortcut API \u2014 stream/record transport and production state' },
+      birddog:          { host: '',          port: '8080', source: true, note: 'BirdDog API + optional NDI source monitoring' },
+      'tally-encoder':  { host: '',          port: '7070',             note: 'Tally Encoder API \u2014 streams to relay server' },
+      custom:           { host: '',          port: '80',  statusUrl: true, note: 'Custom HTTP status endpoint' },
+    };
+    var ENCODER_DISPLAY_NAMES = {
+      obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+      aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
+      yolobox: 'YoloBox', 'youtube-live': 'YouTube Live', 'facebook-live': 'Facebook Live', 'vimeo-live': 'Vimeo Live',
+      'tally-encoder': 'Tally Encoder', custom: 'Custom', 'atem-streaming': 'ATEM Mini',
+    };
+
+    function _normalizeAtems(eq) {
+      // Back-compat: older portal saved `atemIp` as a string. Convert to array form.
+      if (Array.isArray(eq.atems) && eq.atems.length) return eq.atems;
+      if (eq.atemIp) return [{ ip: eq.atemIp, role: 'primary', name: '' }];
+      return [];
+    }
+    function _normalizeEncoders(eq) {
+      // Back-compat: older portal saved `encoderType/encoderHost/encoderPort` as top-level scalars.
+      if (Array.isArray(eq.encoders) && eq.encoders.length) return eq.encoders;
+      if (eq.encoderType || eq.encoderHost) {
+        return [{
+          encoderType: eq.encoderType || '',
+          host: eq.encoderHost || '',
+          port: eq.encoderPort ? String(eq.encoderPort) : '',
+          password: eq.encoderPassword || '',
+          label: eq.encoderLabel || '',
+          statusUrl: eq.encoderStatusUrl || '',
+          source: eq.encoderSource || '',
+        }];
+      }
+      return [];
+    }
+
     function _populateEquipmentForm(eq, updatedAt) {
-      document.getElementById('eq-atem-ip').value = eq.atemIp || '';
+      // ATEM switchers (multi-instance)
+      renderEquipmentList('atem', _normalizeAtems(eq));
+      // TriCaster switchers (multi-instance)
+      renderEquipmentList('tricaster', eq.tricaster || []);
+      // Encoder instances (multi-instance)
+      renderEquipmentList('encoder', _normalizeEncoders(eq));
+
       document.getElementById('eq-obs-url').value = eq.obsUrl || '';
       document.getElementById('eq-obs-password').value = eq.obsPassword || '';
+
       var mixer = eq.mixer || {};
       document.getElementById('eq-mixer-type').value = mixer.type || '';
       document.getElementById('eq-mixer-host').value = mixer.host || '';
       document.getElementById('eq-mixer-port').value = mixer.port || '';
       document.getElementById('eq-audio-via-atem').checked = !!eq.audioViaAtem;
-      document.getElementById('eq-encoder-type').value = eq.encoderType || '';
-      document.getElementById('eq-encoder-host').value = eq.encoderHost || '';
-      document.getElementById('eq-encoder-port').value = eq.encoderPort || '';
+      _wireMixerVisibility();
+      _updateMixerFieldsVisibility();
+
       document.getElementById('eq-rtmp-url').value = eq.rtmpUrl || '';
-      document.getElementById('eq-companion-url').value = eq.companionUrl || '';
-      var pp = eq.proPresenter || {};
+
+      // ATEM recording
+      var atemRec = eq['atem-recording'] || (eq.atemAutoRecord !== undefined ? { autoRecord: !!eq.atemAutoRecord } : {});
+      document.getElementById('eq-atem-auto-record').checked = !!atemRec.autoRecord;
+
+      // Companion — support both new host/port and legacy companionUrl
+      var comp = eq.companion || {};
+      var compHost = comp.host || '';
+      var compPort = comp.port || '';
+      if (!compHost && eq.companionUrl) {
+        try {
+          var u = new URL(eq.companionUrl);
+          compHost = u.hostname || '';
+          compPort = u.port || '';
+        } catch (_) { /* leave blank */ }
+      }
+      document.getElementById('eq-companion-host').value = compHost;
+      document.getElementById('eq-companion-port').value = compPort;
+
+      var pp = eq.proPresenter || eq.propresenter || {};
       document.getElementById('eq-propresenter-host').value = pp.host || '';
       document.getElementById('eq-propresenter-port').value = pp.port || '';
+
       var vmix = eq.vmix || {};
       document.getElementById('eq-vmix-host').value = vmix.host || '';
       document.getElementById('eq-vmix-port').value = vmix.port || '';
+      document.getElementById('eq-vmix-switcher-role').value = vmix.switcherRole || eq.vmixSwitcherRole || '';
+
       var res = eq.resolume || {};
       document.getElementById('eq-resolume-host').value = res.host || '';
       document.getElementById('eq-resolume-port').value = res.port || '';
+
       renderEquipmentList('ptz', eq.ptz || []);
       renderEquipmentList('hyperdeck', eq.hyperdecks || []);
       renderEquipmentList('videohub', eq.videoHubs || []);
+      renderEquipmentList('smart-plug', eq['smart-plug'] || eq.smartPlugs || []);
+
       var status = document.getElementById('equipment-save-status');
       if (status) status.textContent = updatedAt ? 'Last saved: ' + new Date(updatedAt).toLocaleString() : '';
       _updateEquipmentSimpleSummary(eq);
+    }
+
+    function _updateMixerFieldsVisibility() {
+      var sel = document.getElementById('eq-mixer-type');
+      if (!sel) return;
+      var type = sel.value;
+      var isAtem = (type === 'atem-auto' || type === 'atem-direct' || type === 'atem-none');
+      var hostWrap = document.getElementById('eq-mixer-host-wrap');
+      var portWrap = document.getElementById('eq-mixer-port-wrap');
+      if (hostWrap) hostWrap.style.display = isAtem ? 'none' : '';
+      if (portWrap) portWrap.style.display = isAtem ? 'none' : '';
+    }
+    function _wireMixerVisibility() {
+      var sel = document.getElementById('eq-mixer-type');
+      if (!sel || sel._wired) return;
+      sel.addEventListener('change', _updateMixerFieldsVisibility);
+      sel._wired = true;
     }
 
     function _updateEquipmentSimpleSummary(eq) {
       var list = document.getElementById('eq-simple-summary-list');
       if (!list) return;
       var items = [];
-      if (eq.atemIp) items.push({ name: 'Video Switcher', detail: 'ATEM', icon: SVG.tv });
+      var atems = _normalizeAtems(eq);
+      if (atems.length) {
+        items.push({
+          name: 'ATEM Switcher' + (atems.length > 1 ? 's' : ''),
+          detail: atems.map(function(a) { return (a.name || 'ATEM') + (a.ip ? ' (' + a.ip + ')' : ''); }).join(', '),
+          icon: SVG.tv,
+        });
+      }
+      var tri = eq.tricaster || [];
+      if (tri.length) {
+        items.push({
+          name: 'TriCaster' + (tri.length > 1 ? 's' : ''),
+          detail: tri.map(function(t) { return (t.name || 'TriCaster') + (t.host ? ' (' + t.host + ')' : ''); }).join(', '),
+          icon: SVG.tv,
+        });
+      }
       if (eq.obsUrl) items.push({ name: 'OBS Studio', detail: 'Recording / Streaming', icon: SVG.clapperboard });
       var mx = eq.mixer || {};
       if (mx.type) {
-        var mxNames = { behringer: 'Behringer X32 / M32', allenheath: 'Allen & Heath dLive / SQ', avantis: 'Allen & Heath Avantis', yamaha: 'Yamaha TF / CL / QL' };
+        var mxNames = {
+          'atem-auto': 'Auto-detect from ATEM', 'atem-direct': 'Forced: ATEM audio', 'atem-none': 'Forced: No ATEM audio',
+          x32: 'X32 (Behringer)', behringer: 'Behringer X32 / X-Air', midas: 'Midas M32 / M32R',
+          allenheath: 'Allen & Heath SQ', dlive: 'Allen & Heath dLive', avantis: 'Allen & Heath Avantis',
+          yamaha: 'Yamaha CL / QL / TF',
+        };
         items.push({ name: 'Audio Mixer', detail: mxNames[mx.type] || mx.type, icon: SVG.mixer });
       }
       if (eq.audioViaAtem) items.push({ name: 'Audio via ATEM', detail: 'Using ATEM audio mix', icon: SVG.speaker });
-      if (eq.encoderType) {
-        var encNames = { boxcast: 'BoxCast', aja: 'AJA HELO', teradek: 'Teradek', epiphan: 'Epiphan', liveu: 'LiveU', vmix: 'vMix', obs: 'OBS', other: 'Other' };
-        items.push({ name: 'Encoder', detail: encNames[eq.encoderType] || eq.encoderType, icon: SVG.satellite });
+      var encoders = _normalizeEncoders(eq);
+      if (encoders.length) {
+        items.push({
+          name: 'Encoder' + (encoders.length > 1 ? 's' : ''),
+          detail: encoders.map(function(e) { return ENCODER_DISPLAY_NAMES[e.encoderType] || e.encoderType || 'Unknown'; }).join(', '),
+          icon: SVG.satellite,
+        });
       }
       var ptz = eq.ptz || [];
       if (ptz.length) items.push({ name: 'PTZ Camera' + (ptz.length > 1 ? 's' : ''), detail: ptz.map(function(c) { return c.name || 'Unnamed'; }).join(', '), icon: SVG.camera });
-      if (eq.companionUrl) items.push({ name: 'Companion', detail: 'Bitfocus Companion', icon: SVG.shuffle });
-      var pp = eq.proPresenter || {};
+      var comp = eq.companion || {};
+      if (comp.host || eq.companionUrl) items.push({ name: 'Companion', detail: 'Bitfocus Companion', icon: SVG.shuffle });
+      var pp = eq.proPresenter || eq.propresenter || {};
       if (pp.host) items.push({ name: 'ProPresenter', detail: 'Presentation software', icon: SVG.monitor });
       var vmix = eq.vmix || {};
       if (vmix.host) items.push({ name: 'vMix', detail: 'Production software', icon: SVG.monitor });
@@ -3676,6 +3813,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (hd.length) items.push({ name: 'HyperDeck' + (hd.length > 1 ? 's' : ''), detail: hd.length + ' unit' + (hd.length > 1 ? 's' : ''), icon: SVG.record });
       var vh = eq.videoHubs || [];
       if (vh.length) items.push({ name: 'VideoHub' + (vh.length > 1 ? 's' : ''), detail: vh.length + ' unit' + (vh.length > 1 ? 's' : ''), icon: SVG.shuffle });
+      var sp = eq['smart-plug'] || eq.smartPlugs || [];
+      if (sp.length) items.push({ name: 'Smart Plug' + (sp.length > 1 ? 's' : ''), detail: sp.map(function(p) { return p.name || p.ip || 'Plug'; }).join(', '), icon: SVG.shuffle });
+      var atemRec = eq['atem-recording'] || {};
+      if (atemRec.autoRecord || eq.atemAutoRecord) items.push({ name: 'ATEM Recording', detail: 'Auto-record on stream start', icon: SVG.record });
 
       if (!items.length) {
         list.innerHTML = '<div style="text-align:center;padding:16px;color:#556270">No equipment configured yet. Switch to <strong style="color:#8B9DAF">Advanced</strong> mode to set up your equipment.</div>';
@@ -3765,49 +3906,236 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       addEquipmentRowHtml(type, {});
     }
 
+    var _REMOVE_BTN_HTML = '<button class="btn-secondary" data-action="removeParent" style="flex:0 0 auto;padding:4px 8px;font-size:11px" title="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+
+    function _roleSelectHtml(selected, cls, includeNotSwitcher) {
+      var opts = [
+        { value: 'primary', label: 'Primary (Broadcast)' },
+        { value: 'backup', label: 'Backup' },
+        { value: 'imag', label: 'IMAG' },
+        { value: 'broadcast', label: 'Broadcast' },
+        { value: 'recording', label: 'Recording' },
+      ];
+      var html = '<select class="' + cls + '" style="flex:0 0 170px">';
+      if (includeNotSwitcher) html += '<option value=""' + (!selected ? ' selected' : '') + '>Not a switcher</option>';
+      for (var i = 0; i < opts.length; i++) {
+        var o = opts[i];
+        html += '<option value="' + o.value + '"' + (selected === o.value ? ' selected' : '') + '>' + o.label + '</option>';
+      }
+      html += '</select>';
+      return html;
+    }
+
+    function _ptzProtocolSelectHtml(selected) {
+      var opts = [
+        { value: 'auto', label: 'Auto' },
+        { value: 'ptzoptics-visca', label: 'PTZOptics VISCA TCP' },
+        { value: 'ptzoptics-onvif', label: 'PTZOptics ONVIF' },
+        { value: 'onvif', label: 'ONVIF' },
+        { value: 'visca-tcp', label: 'VISCA TCP' },
+        { value: 'visca-udp', label: 'VISCA UDP' },
+        { value: 'sony-visca-udp', label: 'Sony VISCA UDP' },
+        // Legacy values (keep for back-compat)
+        { value: 'visca', label: 'VISCA (legacy)' },
+        { value: 'visca-over-ip', label: 'VISCA/IP (legacy)' },
+      ];
+      var html = '<select class="eq-ptz-protocol" style="flex:0 0 170px">';
+      for (var i = 0; i < opts.length; i++) {
+        var o = opts[i];
+        html += '<option value="' + o.value + '"' + (selected === o.value ? ' selected' : '') + '>' + o.label + '</option>';
+      }
+      html += '</select>';
+      return html;
+    }
+
     function addEquipmentRowHtml(type, item) {
       var container = document.getElementById('eq-' + type + '-list');
+      if (!container) return;
       var row = document.createElement('div');
       row.className = 'eq-device-row';
-      row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px';
-      if (type === 'ptz') {
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
+
+      if (type === 'atem') {
         row.innerHTML =
-          '<input type="text" class="eq-ptz-name" placeholder="Camera name" value="' + _escAttr(item.name || '') + '" style="flex:1">' +
-          '<input type="text" class="eq-ptz-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
-          '<select class="eq-ptz-protocol" style="flex:0 0 120px">' +
-            '<option value="visca"' + (item.protocol === 'visca' ? ' selected' : '') + '>VISCA</option>' +
-            '<option value="visca-over-ip"' + (item.protocol === 'visca-over-ip' ? ' selected' : '') + '>VISCA/IP</option>' +
-            '<option value="onvif"' + (item.protocol === 'onvif' ? ' selected' : '') + '>ONVIF</option>' +
-          '</select>' +
-          '<input type="number" class="eq-ptz-port" placeholder="Port" value="' + (item.port || '') + '" style="flex:0 0 80px" min="1" max="65535">' +
-          '<button class="btn-secondary" data-action="removeParent" style="flex:0 0 auto;padding:4px 8px;font-size:11px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
-      } else {
-        // HyperDeck or VideoHub — just name + IP
+          '<input type="text" class="eq-atem-ip" placeholder="192.168.1.10" value="' + _escAttr(item.ip || '') + '" style="flex:1;min-width:140px">' +
+          _roleSelectHtml(item.role || 'primary', 'eq-atem-role', false) +
+          '<input type="text" class="eq-atem-name" placeholder="Label (e.g. Broadcast ATEM)" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:140px">' +
+          _REMOVE_BTN_HTML;
+      } else if (type === 'tricaster') {
         row.innerHTML =
-          '<input type="text" class="eq-' + type + '-name" placeholder="Name" value="' + _escAttr(item.name || item.label || '') + '" style="flex:1">' +
-          '<input type="text" class="eq-' + type + '-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
-          '<button class="btn-secondary" data-action="removeParent" style="flex:0 0 auto;padding:4px 8px;font-size:11px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+          '<input type="text" class="eq-tricaster-host" placeholder="192.168.1.10" value="' + _escAttr(item.host || item.ip || '') + '" style="flex:1;min-width:140px">' +
+          '<input type="number" class="eq-tricaster-port" placeholder="80" value="' + _escAttr(item.port || '') + '" min="1" max="65535" style="flex:0 0 80px">' +
+          _roleSelectHtml(item.role || 'primary', 'eq-tricaster-role', false) +
+          '<input type="text" class="eq-tricaster-name" placeholder="Label (e.g. Main TriCaster)" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:140px">' +
+          _REMOVE_BTN_HTML;
+      } else if (type === 'ptz') {
+        row.innerHTML =
+          '<input type="text" class="eq-ptz-name" placeholder="Camera name" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:120px">' +
+          '<input type="text" class="eq-ptz-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1;min-width:120px">' +
+          _ptzProtocolSelectHtml(item.protocol || 'auto') +
+          '<input type="number" class="eq-ptz-port" placeholder="Port" value="' + _escAttr(item.port || '') + '" style="flex:0 0 80px" min="1" max="65535">' +
+          '<input type="text" class="eq-ptz-username" placeholder="User" value="' + _escAttr(item.username || '') + '" style="flex:0 0 100px">' +
+          '<input type="password" class="eq-ptz-password" placeholder="Pass" value="' + _escAttr(item.password || '') + '" style="flex:0 0 100px">' +
+          _REMOVE_BTN_HTML;
+      } else if (type === 'encoder') {
+        row.innerHTML = _renderEncoderRowInner(item);
+      } else if (type === 'hyperdeck') {
+        // HyperDeck has only IP in electron app, but we keep a name field for parity convenience.
+        row.innerHTML =
+          '<input type="text" class="eq-hyperdeck-name" placeholder="Name (optional)" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:140px">' +
+          '<input type="text" class="eq-hyperdeck-ip" placeholder="192.168.1.20" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1;min-width:140px">' +
+          _REMOVE_BTN_HTML;
+      } else if (type === 'videohub') {
+        row.innerHTML =
+          '<input type="text" class="eq-videohub-name" placeholder="Name (optional)" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:140px">' +
+          '<input type="text" class="eq-videohub-ip" placeholder="192.168.1.50" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1;min-width:140px">' +
+          _REMOVE_BTN_HTML;
+      } else if (type === 'smart-plug') {
+        row.innerHTML =
+          '<input type="text" class="eq-smart-plug-name" placeholder="e.g. Projector Power" value="' + _escAttr(item.name || '') + '" style="flex:1;min-width:140px">' +
+          '<input type="text" class="eq-smart-plug-ip" placeholder="192.168.1.100" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1;min-width:140px">' +
+          _REMOVE_BTN_HTML;
       }
+
       container.appendChild(row);
+
+      // Wire up encoder dynamic re-render via container-level delegation (attached once)
+      if (type === 'encoder' && !container._encoderDelegated) {
+        container._encoderDelegated = true;
+        container.addEventListener('change', function(ev) {
+          var t = ev.target;
+          if (!t || !t.classList || !t.classList.contains('eq-encoder-type')) return;
+          var r = t.closest('.eq-device-row');
+          if (!r) return;
+          var current = _collectEncoderRow(r);
+          current.encoderType = t.value;
+          r.innerHTML = _renderEncoderRowInner(current);
+        });
+      }
+    }
+
+    function _renderEncoderRowInner(item) {
+      item = item || {};
+      var type = item.encoderType || '';
+      var optsHtml = '';
+      for (var i = 0; i < ENCODER_OPTIONS.length; i++) {
+        var o = ENCODER_OPTIONS[i];
+        optsHtml += '<option value="' + _escAttr(o.value) + '"' + (type === o.value ? ' selected' : '') + '>' + o.label + '</option>';
+      }
+
+      var html = '<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:260px;padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.02)">';
+      html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+      html += '<select class="eq-encoder-type" style="flex:1;min-width:200px">' + optsHtml + '</select>';
+      html += _REMOVE_BTN_HTML;
+      html += '</div>';
+
+      if (!type) {
+        html += '<div style="font-size:11px;color:#556270">No encoder selected. Choose a type above to configure.</div>';
+      } else if (type === 'atem-streaming') {
+        html += '<div style="font-size:11px;color:#8B9DAF">The ATEM Mini handles streaming through its built-in encoder. Stream status is monitored via the ATEM connection &mdash; no separate configuration needed.</div>';
+      } else if (type === 'ecamm') {
+        html += '<div style="font-size:11px;color:#8B9DAF">Ecamm Live runs locally on Mac. Uses HTTP remote control API (port auto-detected via Bonjour, fallback 65194).</div>';
+      } else if (ENCODER_API_TYPES.indexOf(type) !== -1) {
+        var d = ENCODER_DEFAULTS[type] || { host: '', port: '' };
+        var h = item.host || d.host || '';
+        var p = item.port || d.port || '';
+        if (d.note) html += '<div style="font-size:11px;color:#556270">' + d.note + '</div>';
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        html += '<input type="text" class="eq-encoder-host" placeholder="' + _escAttr(d.host || 'IP address') + '" value="' + _escAttr(h) + '" style="flex:1;min-width:140px">';
+        html += '<input type="text" class="eq-encoder-port" placeholder="' + _escAttr(d.port || 'Port') + '" value="' + _escAttr(p) + '" style="flex:0 0 90px">';
+        html += '</div>';
+        if (d.pw) {
+          html += '<input type="password" class="eq-encoder-password" placeholder="Password (optional)" value="' + _escAttr(item.password || '') + '">';
+        }
+        if (d.statusUrl) {
+          html += '<input type="text" class="eq-encoder-status-url" placeholder="Status endpoint path (e.g. /status)" value="' + _escAttr(item.statusUrl || '/status') + '">';
+          html += '<input type="text" class="eq-encoder-label" placeholder="Device label (optional)" value="' + _escAttr(item.label || '') + '">';
+        } else if (d.source) {
+          html += '<input type="text" class="eq-encoder-source" placeholder="NDI source name (optional)" value="' + _escAttr(item.source || '') + '">';
+          html += '<input type="text" class="eq-encoder-label" placeholder="Device label (optional)" value="' + _escAttr(item.label || '') + '">';
+        } else {
+          html += '<input type="text" class="eq-encoder-label" placeholder="Device label (optional)" value="' + _escAttr(item.label || '') + '">';
+        }
+      } else if (ENCODER_RTMP_TYPES.indexOf(type) !== -1) {
+        html += '<div style="font-size:11px;color:#8B9DAF">This device streams directly to your CDN. No public control API &mdash; optional host/port enables reachability checks.</div>';
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        html += '<input type="text" class="eq-encoder-host" placeholder="Device IP (optional)" value="' + _escAttr(item.host || '') + '" style="flex:1;min-width:140px">';
+        html += '<input type="text" class="eq-encoder-port" placeholder="80" value="' + _escAttr(item.port || '80') + '" style="flex:0 0 90px">';
+        html += '</div>';
+        html += '<input type="text" class="eq-encoder-label" placeholder="Device label (optional)" value="' + _escAttr(item.label || '') + '">';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    function _collectEncoderRow(row) {
+      var q = function(sel) { var el = row.querySelector(sel); return el ? el.value.trim() : ''; };
+      return {
+        encoderType: q('.eq-encoder-type'),
+        host: q('.eq-encoder-host'),
+        port: q('.eq-encoder-port'),
+        password: q('.eq-encoder-password'),
+        label: q('.eq-encoder-label'),
+        statusUrl: q('.eq-encoder-status-url'),
+        source: q('.eq-encoder-source'),
+      };
     }
 
     function _escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
     function collectEquipmentList(type) {
       var container = document.getElementById('eq-' + type + '-list');
+      if (!container) return [];
       var rows = container.querySelectorAll('.eq-device-row');
       var result = [];
       rows.forEach(function(row) {
-        if (type === 'ptz') {
-          var name = row.querySelector('.eq-ptz-name').value.trim();
-          var ip = row.querySelector('.eq-ptz-ip').value.trim();
+        if (type === 'atem') {
+          var ip = row.querySelector('.eq-atem-ip').value.trim();
+          var role = row.querySelector('.eq-atem-role').value;
+          var name = row.querySelector('.eq-atem-name').value.trim();
+          if (ip) result.push({ ip: ip, role: role || 'primary', name: name });
+        } else if (type === 'tricaster') {
+          var host = row.querySelector('.eq-tricaster-host').value.trim();
+          var portVal = parseInt(row.querySelector('.eq-tricaster-port').value, 10) || undefined;
+          var troleEl = row.querySelector('.eq-tricaster-role');
+          var tnameEl = row.querySelector('.eq-tricaster-name');
+          if (host) result.push({
+            host: host,
+            port: portVal,
+            role: troleEl ? troleEl.value : 'primary',
+            name: tnameEl ? tnameEl.value.trim() : '',
+          });
+        } else if (type === 'ptz') {
+          var pname = row.querySelector('.eq-ptz-name').value.trim();
+          var pip = row.querySelector('.eq-ptz-ip').value.trim();
           var protocol = row.querySelector('.eq-ptz-protocol').value;
-          var port = parseInt(row.querySelector('.eq-ptz-port').value, 10) || 0;
-          if (ip) result.push({ name: name, ip: ip, protocol: protocol, port: port || undefined });
+          var pport = parseInt(row.querySelector('.eq-ptz-port').value, 10) || 0;
+          var user = row.querySelector('.eq-ptz-username').value.trim();
+          var pass = row.querySelector('.eq-ptz-password').value;
+          if (pip) {
+            var entry = { name: pname, ip: pip, protocol: protocol, port: pport || undefined };
+            if (user) entry.username = user;
+            if (pass) entry.password = pass;
+            result.push(entry);
+          }
+        } else if (type === 'encoder') {
+          var enc = _collectEncoderRow(row);
+          // Normalize port to number if possible
+          if (enc.port && /^\d+$/.test(enc.port)) enc.port = parseInt(enc.port, 10);
+          // Drop empty fields to keep the stored object small
+          Object.keys(enc).forEach(function(k) { if (enc[k] === '' || enc[k] === undefined) delete enc[k]; });
+          if (enc.encoderType) result.push(enc);
         } else {
-          var n = row.querySelector('.eq-' + type + '-name').value.trim();
+          // hyperdeck, videohub, smart-plug
+          var nameEl = row.querySelector('.eq-' + type + '-name');
+          var n = nameEl ? nameEl.value.trim() : '';
           var addr = row.querySelector('.eq-' + type + '-ip').value.trim();
-          if (addr) result.push({ name: n, ip: addr });
+          if (addr) {
+            var obj = { ip: addr };
+            if (n) obj.name = n;
+            result.push(obj);
+          }
         }
       });
       return result;
@@ -3820,16 +4148,33 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       status.textContent = 'Saving…';
       status.style.color = '#556270';
       try {
+        var atems = collectEquipmentList('atem');
+        var encoders = collectEquipmentList('encoder');
+        var compHost = document.getElementById('eq-companion-host').value.trim();
+        var compPort = parseInt(document.getElementById('eq-companion-port').value, 10) || undefined;
         var equipment = {
-          atemIp: document.getElementById('eq-atem-ip').value.trim(),
+          // ATEM switchers — new multi-instance format
+          atems: atems,
+          // Back-compat: keep atemIp as first ATEM's IP so older consumers still work
+          atemIp: atems.length ? atems[0].ip : '',
+          // TriCaster switchers (multi-instance)
+          tricaster: collectEquipmentList('tricaster'),
           obsUrl: document.getElementById('eq-obs-url').value.trim(),
           obsPassword: document.getElementById('eq-obs-password').value.trim(),
-          companionUrl: document.getElementById('eq-companion-url').value.trim(),
+          companion: (compHost || compPort) ? { host: compHost, port: compPort } : undefined,
+          // Back-compat: keep companionUrl for older consumers
+          companionUrl: compHost ? ('http://' + compHost + (compPort ? ':' + compPort : '')) : '',
           audioViaAtem: document.getElementById('eq-audio-via-atem').checked,
           rtmpUrl: document.getElementById('eq-rtmp-url').value.trim(),
-          encoderType: document.getElementById('eq-encoder-type').value,
-          encoderHost: document.getElementById('eq-encoder-host').value.trim(),
-          encoderPort: parseInt(document.getElementById('eq-encoder-port').value, 10) || undefined,
+          // Encoder instances — new multi-instance format
+          encoders: encoders,
+          // Back-compat: keep scalar encoder fields from first instance
+          encoderType: encoders.length ? (encoders[0].encoderType || '') : '',
+          encoderHost: encoders.length ? (encoders[0].host || '') : '',
+          encoderPort: encoders.length && encoders[0].port ? parseInt(encoders[0].port, 10) || undefined : undefined,
+          // ATEM recording
+          'atem-recording': { autoRecord: document.getElementById('eq-atem-auto-record').checked },
+          atemAutoRecord: document.getElementById('eq-atem-auto-record').checked,
           mixer: {
             type: document.getElementById('eq-mixer-type').value,
             host: document.getElementById('eq-mixer-host').value.trim(),
@@ -3842,7 +4187,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           vmix: {
             host: document.getElementById('eq-vmix-host').value.trim(),
             port: parseInt(document.getElementById('eq-vmix-port').value, 10) || undefined,
+            switcherRole: document.getElementById('eq-vmix-switcher-role').value,
           },
+          vmixSwitcherRole: document.getElementById('eq-vmix-switcher-role').value,
           resolume: {
             host: document.getElementById('eq-resolume-host').value.trim(),
             port: parseInt(document.getElementById('eq-resolume-port').value, 10) || undefined,
@@ -3850,16 +4197,32 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           ptz: collectEquipmentList('ptz'),
           hyperdecks: collectEquipmentList('hyperdeck'),
           videoHubs: collectEquipmentList('videohub'),
+          'smart-plug': collectEquipmentList('smart-plug'),
         };
 
-        // Clean up empty nested objects
+        // Clean up empty nested objects / arrays
+        if (!atems.length) { equipment.atems = undefined; equipment.atemIp = undefined; }
+        if (!equipment.tricaster.length) equipment.tricaster = undefined;
+        if (!encoders.length) {
+          equipment.encoders = undefined;
+          equipment.encoderType = undefined;
+          equipment.encoderHost = undefined;
+          equipment.encoderPort = undefined;
+        }
+        if (!equipment.companion) { equipment.companionUrl = undefined; }
         if (!equipment.mixer.type && !equipment.mixer.host) equipment.mixer = undefined;
         if (!equipment.proPresenter.host) equipment.proPresenter = undefined;
-        if (!equipment.vmix.host) equipment.vmix = undefined;
+        if (!equipment.vmix.host && !equipment.vmix.switcherRole) equipment.vmix = undefined;
+        if (!equipment.vmixSwitcherRole) equipment.vmixSwitcherRole = undefined;
         if (!equipment.resolume.host) equipment.resolume = undefined;
         if (!equipment.ptz.length) equipment.ptz = undefined;
         if (!equipment.hyperdecks.length) equipment.hyperdecks = undefined;
         if (!equipment.videoHubs.length) equipment.videoHubs = undefined;
+        if (!equipment['smart-plug'].length) equipment['smart-plug'] = undefined;
+        if (!equipment['atem-recording'].autoRecord) {
+          equipment['atem-recording'] = undefined;
+          equipment.atemAutoRecord = undefined;
+        }
 
         var d = await api('PUT', '/api/church/config/equipment', { equipment: equipment, roomId: _equipmentRoomId });
         status.textContent = 'Saved! ' + new Date(d.updatedAt).toLocaleString();
@@ -16582,6 +16945,18 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'addVideohubRow':
         if (typeof addEquipmentRow === 'function') addEquipmentRow('videohub');
+        break;
+      case 'addAtemRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('atem');
+        break;
+      case 'addTricasterRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('tricaster');
+        break;
+      case 'addEncoderRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('encoder');
+        break;
+      case 'addSmartPlugRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('smart-plug');
         break;
 
       // Tally Engineer
