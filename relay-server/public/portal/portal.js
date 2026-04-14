@@ -1027,6 +1027,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       var open = sidebar.classList.toggle('open');
       overlay.classList.toggle('open', open);
+      // Lock body scroll on iOS so touch events on the sidebar don't
+      // bleed through to the content behind it.
+      document.body.classList.toggle('sidebar-nav-open', open);
     }
 
     // ── Overview Sections: Collapse + Drag-and-Drop ────────────────────────────
@@ -1216,6 +1219,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
+      document.body.classList.remove('sidebar-nav-open');
       // Clean up rundown editor state when navigating away
       if (id !== 'rundown' && typeof _rundownSelectedPlanId !== 'undefined' && _rundownSelectedPlanId) {
         if (typeof showRundownView === 'function') showRundownView('manager');
