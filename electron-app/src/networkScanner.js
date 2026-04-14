@@ -264,6 +264,73 @@ function extractBirdDogSource(resp) {
   return m ? m[1].trim() : '';
 }
 
+// BirdDog product-line fingerprinting — distinguishes PTZ cameras from
+// encoders and decoders so the portal/equipment UI can bucket them correctly.
+const BIRDDOG_PTZ_PATTERNS = [
+  /\bP\s?(?:\d{2,3}K?|4K)\b/i,         // P100, P200, P240, P400, P4K
+  /\bX[1-9](?:\s*(?:Ultra|Auto))?\b/i, // X1, X1 Ultra, X5 Ultra, X1 Auto
+  /\bMaki\b/i,                         // Maki, Maki Ultra, Maki Mini
+  /\bCam\s?4K\b/i,                     // Cam4K
+  /\bEyes\s?4K\b/i,                    // Eyes 4K
+  /\bEagleEye\b/i,                     // EagleEye Mini
+  /\bMiniPTZ\b/i,
+  /\bPTZ\b/i,
+];
+const BIRDDOG_ENCODER_PATTERNS = [
+  /\bStudio\s*NDI\b/i,
+  /\bFlex\s*4K\s*In\b/i,
+  /\bA\s?[123]\d{2}\b/i,               // A200, A300
+  /\b4K\s*(?:Quad|HDMI|SDI)\b/i,
+  /\b1\.?5G\s*BiDirectional\b/i,
+];
+const BIRDDOG_DECODER_PATTERNS = [
+  /\bFlex\s*4K\s*Out\b/i,
+  /\bPlay\b/i,
+];
+
+function extractBirdDogModel(resp) {
+  const data = resp && typeof resp.data === 'object' ? resp.data : null;
+  if (data) {
+    const keys = ['Model', 'model', 'ProductName', 'productName', 'HWVersion', 'hwVersion', 'FormFactor', 'formFactor'];
+    for (const k of keys) {
+      const v = data[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  const body = String(resp?.body || '');
+  const m = body.match(/\b(?:Model|ProductName|HWVersion|FormFactor)\b\s*["':=]+\s*["']?([A-Za-z0-9][\w\s.\-/]{1,60})/i);
+  return m ? m[1].trim().replace(/["'].*$/, '') : null;
+}
+
+/**
+ * Given a set of BirdDog HTTP responses, decide whether the device is a PTZ
+ * camera, an encoder (fixed source-side box), a decoder (receive-side box),
+ * or unknown. Returns one of: 'ptz' | 'encoder' | 'decoder' | 'unknown'.
+ */
+function classifyBirdDogKind({ decodeResp, aboutResp, versionResp, listResp }) {
+  // Decoder check first — /decodestatus is unique to decoders.
+  if (decodeResp && decodeResp.success && decodeResp.data && typeof decodeResp.data === 'object') {
+    const keys = Object.keys(decodeResp.data);
+    if (keys.some((k) => /^ch\d+source$/i.test(k) || /^decode/i.test(k))) {
+      return 'decoder';
+    }
+  }
+  const blobParts = [];
+  for (const resp of [aboutResp, versionResp, listResp, decodeResp]) {
+    if (!resp) continue;
+    if (resp.data && typeof resp.data === 'object') blobParts.push(JSON.stringify(resp.data));
+    if (resp.body) blobParts.push(String(resp.body));
+  }
+  const blob = blobParts.join(' ');
+  if (!blob) return 'unknown';
+
+  for (const re of BIRDDOG_PTZ_PATTERNS) if (re.test(blob)) return 'ptz';
+  for (const re of BIRDDOG_DECODER_PATTERNS) if (re.test(blob)) return 'decoder';
+  for (const re of BIRDDOG_ENCODER_PATTERNS) if (re.test(blob)) return 'encoder';
+  if (/\bMini\b/i.test(blob) && !/\bMaki\s*Mini\b/i.test(blob) && !/\bMiniPTZ\b/i.test(blob)) return 'encoder';
+  return 'unknown';
+}
+
 /**
  * Fingerprint a Blackmagic Web Presenter by hitting its REST API v1.
  * Returns { match: true, productName } if the device responds with valid
@@ -532,9 +599,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         const decodeResp = await tryHttpGet(`http://127.0.0.1:${check.port}/decodestatus?ChNum=1`, 2000);
         const aboutResp = !isLikelyBirdDog(decodeResp) ? await tryHttpGet(`http://127.0.0.1:${check.port}/about`, 2000) : null;
         if (isLikelyBirdDog(decodeResp) || isLikelyBirdDog(aboutResp)) {
-          const source = extractBirdDogSource(isLikelyBirdDog(decodeResp) ? decodeResp : aboutResp);
-          results.birddog.push({ ip: '127.0.0.1', port: check.port, source: source || null });
-          onProgress(6, 'Found BirdDog endpoint on localhost (found)');
+          const bestResp = isLikelyBirdDog(decodeResp) ? decodeResp : aboutResp;
+          const source = extractBirdDogSource(bestResp);
+          const kind = classifyBirdDogKind({ decodeResp, aboutResp, versionResp: null, listResp: null });
+          const model = extractBirdDogModel(aboutResp) || extractBirdDogModel(decodeResp);
+          results.birddog.push({ ip: '127.0.0.1', port: check.port, source: source || null, kind, model: model || null });
+          onProgress(6, `Found BirdDog ${kind} on localhost (found)`);
         }
       } else if (check.type === 'hyperdeck') {
         // Validate with HyperDeck protocol — real HyperDecks respond with "500 connection info"
@@ -680,8 +750,13 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               if (matched) {
                 const bestResp = isLikelyBirdDog(decodeResp) ? decodeResp : (aboutResp || versionResp || listResp);
                 const source = extractBirdDogSource(bestResp);
-                results.birddog.push({ ip, port, source: source || null });
-                onProgress(null, `Found BirdDog endpoint at ${ip}:${port} (found)`);
+                const kind = classifyBirdDogKind({ decodeResp, aboutResp, versionResp, listResp });
+                const model = extractBirdDogModel(aboutResp)
+                  || extractBirdDogModel(versionResp)
+                  || extractBirdDogModel(listResp)
+                  || extractBirdDogModel(decodeResp);
+                results.birddog.push({ ip, port, source: source || null, kind, model: model || null });
+                onProgress(null, `Found BirdDog ${kind} at ${ip}:${port} (found)`);
               }
             } else if ((type === 'tricaster-control' || type === 'tricaster-http') && !results.tricaster.find((d) => d.ip === ip && d.port === port)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);

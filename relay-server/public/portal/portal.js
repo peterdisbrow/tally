@@ -7392,7 +7392,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _netFilter  = 'all'; // current type filter
 
     var NET_TYPE_LABEL = {
-      switcher: 'Switcher', recorder: 'Recorder', camera: 'Camera',
+      switcher: 'Switcher', recorder: 'Recorder', router: 'Video Router',
+      camera: 'Camera', encoder: 'Encoder',
       'ndi-source': 'NDI Source', 'ndi-converter': 'NDI Converter',
       presentation: 'ProPresenter', 'audio-mixer': 'Audio Mixer',
       'audio-network': 'Dante Audio', lighting: 'Lighting',
@@ -7404,7 +7405,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // Which broad filter bucket each deviceType belongs to
     var NET_TYPE_BUCKET = {
-      switcher: 'av', recorder: 'av', camera: 'av',
+      switcher: 'av', recorder: 'av', router: 'av',
+      camera: 'av', encoder: 'av',
       'ndi-source': 'av', 'ndi-converter': 'av', presentation: 'av',
       'audio-mixer': 'audio', 'audio-network': 'audio',
       lighting: 'other', controller: 'other', software: 'other',
@@ -7414,12 +7416,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     };
 
     var NET_TYPE_COLOR = {
-      switcher: '#00E676', recorder: '#64B5F6', camera: '#FFB74D',
+      switcher: '#00E676', recorder: '#64B5F6', router: '#7986CB',
+      camera: '#FFB74D', encoder: '#81C784',
       'ndi-source': '#E040FB', 'ndi-converter': '#CE93D8',
       presentation: '#4FC3F7', 'audio-mixer': '#F48FB1',
       'audio-network': '#FF8A65', lighting: '#FFF176',
       controller: '#A5D6A7', infrastructure: '#546E7A',
       software: '#80CBC4', computer: '#90A4AE',
+      mobile: '#90A4AE', printer: '#90A4AE', 'smart-plug': '#FFD54F',
       unknown: '#455A64',
     };
 
@@ -7437,7 +7441,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var comp = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0H3"/></svg>';
       var ques = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg>';
       return {
-        switcher: film, recorder: hdd, camera: cam,
+        switcher: film, recorder: hdd, router: srv,
+        camera: cam, encoder: hdd,
         'ndi-source': wifi, 'ndi-converter': wifi,
         presentation: pres, 'audio-mixer': slid, 'audio-network': slid,
         lighting: bolt, controller: ctrl, software: comp,
