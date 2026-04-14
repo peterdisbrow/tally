@@ -3752,40 +3752,76 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
 
   try {
     if (intentType === 'media') {
-      // Direct image upload to ATEM media player
+      // Direct image upload to ATEM media pool → media player
       if (!attachment?.data) {
         postSystemChatMessage(churchId, '⚠️ Please attach an image to upload to the ATEM media player.');
         return;
       }
 
-      // Parse which media player slot (mp1=index 0, mp2=index 1)
+      // Read current media pool state: we need the actual player count for
+      // this switcher (some ATEMs have 4 media players, not 2) and the list
+      // of occupied vs empty still slots so we don't overwrite existing stills.
+      const poolResult = await executeChurchCommandWithResult(churchId, 'atem.getStillPool', {});
+      if (!poolResult.ok) {
+        postSystemChatMessage(churchId, `❌ Could not read ATEM media pool state: ${poolResult.error}`);
+        return;
+      }
+      const slots = Array.isArray(poolResult.result?.slots) ? poolResult.result.slots : [];
+      const playerCount = Math.max(1, parseInt(poolResult.result?.playerCount, 10) || 0);
+
+      // Parse which media player to target (mp1..mpN), bounded by the
+      // switcher's actual player count rather than hard-coding MP1/MP2.
       const lower = (rawMessage || '').toLowerCase();
-      let mpIndex = 0; // default to MP1
-      if (/mp\s*2|media\s*player\s*2/.test(lower)) mpIndex = 1;
+      let mpIndex = 0; // default MP1
+      const mpMatch = lower.match(/(?:mp|media\s*player)\s*(\d+)/);
+      if (mpMatch) {
+        const requested = parseInt(mpMatch[1], 10) - 1;
+        if (requested >= 0 && requested < playerCount) {
+          mpIndex = requested;
+        } else {
+          postSystemChatMessage(churchId, `⚠️ This switcher only has ${playerCount} media player${playerCount === 1 ? '' : 's'}; using MP1.`);
+        }
+      }
 
-      postSystemChatMessage(churchId, `📤 Uploading image to ATEM media player ${mpIndex + 1}...`);
+      // Auto-pick the first empty still slot. If every slot is occupied,
+      // fall back to slot 0 and warn the operator about the overwrite.
+      let stillSlot = slots.findIndex(s => s && !s.isUsed);
+      let overwriteWarning = null;
+      if (stillSlot === -1) {
+        stillSlot = 0;
+        if (slots.length > 0) {
+          const existingName = slots[0]?.fileName;
+          overwriteWarning = existingName
+            ? `⚠️ Media pool is full — overwriting slot 1 ("${existingName}").`
+            : '⚠️ Media pool is full — overwriting slot 1.';
+        }
+      }
+      if (overwriteWarning) postSystemChatMessage(churchId, overwriteWarning);
 
-      // Step 1: Upload still to media pool
+      postSystemChatMessage(churchId, `📤 Uploading image to media pool slot ${stillSlot + 1} → MP${mpIndex + 1}...`);
+
+      // Step 1: Upload still to the chosen media pool slot
       const uploadResult = await executeChurchCommandWithResult(churchId, 'atem.uploadStill', {
-        index: mpIndex, data: attachment.data, name: attachment.fileName || 'Still', mimeType,
+        index: stillSlot, data: attachment.data, name: attachment.fileName || 'Still', mimeType,
       });
       if (!uploadResult.ok) {
         postSystemChatMessage(churchId, `❌ Upload failed: ${uploadResult.error}`);
         return;
       }
-      postSystemChatMessage(churchId, `✅ Image uploaded to media pool slot ${mpIndex + 1}`);
+      postSystemChatMessage(churchId, `✅ Image uploaded to media pool slot ${stillSlot + 1}`);
 
-      // Step 2: Set media player source to the uploaded still
+      // Step 2: Point the chosen media player at the slot we just wrote
       const mpResult = await executeChurchCommandWithResult(churchId, 'atem.setMediaPlayer', {
-        player: mpIndex, sourceType: 'still', stillIndex: mpIndex,
+        player: mpIndex, sourceType: 'still', stillIndex: stillSlot,
       });
       if (mpResult.ok) {
-        postSystemChatMessage(churchId, `✅ Media player ${mpIndex + 1} set to still ${mpIndex + 1}`);
+        postSystemChatMessage(churchId, `✅ Media player ${mpIndex + 1} set to still ${stillSlot + 1}`);
       }
 
-      // Step 3: Route to aux/program/preview if requested
-      // ATEM media players are typically on inputs 3010 (MP1) and 3020 (MP2)
-      const mpInputNumber = mpIndex === 0 ? 3010 : 3020;
+      // Step 3: Route to aux/program/preview if requested.
+      // ATEM media player inputs start at 3010 and step by 10 per player
+      // (MP1=3010, MP2=3020, MP3=3030, MP4=3040).
+      const mpInputNumber = 3010 + (mpIndex * 10);
       const followUpCommands = [];
 
       if (/\b(aux|aux\s*\d*)\b/.test(lower)) {

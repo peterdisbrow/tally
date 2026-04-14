@@ -408,6 +408,23 @@ async function atemClearStill(agent, params) {
   return `Media pool still slot ${parseInt(index) + 1} cleared`;
 }
 
+async function atemGetStillPool(agent) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  const state = agent.atem.state;
+  if (!state) throw new Error('ATEM state not available');
+  const stills = state.media?.stillPool || [];
+  const players = state.media?.players || [];
+  return {
+    playerCount: players.length,
+    slots: stills.map((s, i) => ({
+      index: i,
+      isUsed: !!s?.isUsed,
+      fileName: s?.fileName || '',
+      hash: s?.hash || '',
+    })),
+  };
+}
+
 // ─── ATEM: ADDITIONAL VIDEO SWITCHING ────────────────────────────────────────
 
 async function atemSetFadeToBlackRate(agent, params) {
@@ -1520,6 +1537,7 @@ module.exports = {
   'atem.setMediaPlayer': atemSetMediaPlayer,
   'atem.captureStill': atemCaptureStill,
   'atem.clearStill': atemClearStill,
+  'atem.getStillPool': atemGetStillPool,
 
   // Companion parity: monitoring feedbacks
   'atem.getFadeToBlackStatus': atemGetFadeToBlackStatus,
