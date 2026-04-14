@@ -2644,6 +2644,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       'mixer.unmute', 'mixer.mute', 'mixer.recallScene',
       'atem.runMacro', 'obs.setScene', 'vmix.function', 'vmix.setProgram',
       'shelly.turnOn', 'shelly.turnOff', 'shelly.toggle', 'shelly.powerCycle', 'shelly.status',
+      'videohub.route',
     ]);
 
     if (!ALLOWED_APP_COMMANDS.has(command)) {

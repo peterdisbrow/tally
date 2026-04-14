@@ -50,6 +50,10 @@ const AV_PORTS = [
   { port: 8765,  proto: 'udp', type: 'mixer-yamaha',    protocol: 'Yamaha CL/QL',      packet: OSC_YAMAHA,   deviceType: 'audio-mixer' },
 
   // Other AV
+  // BirdDog: port 8080 is very common — the `birddog` fingerprint step below
+  // probes /about for model info to distinguish PTZ cameras (P-series, Maki,
+  // X-series, EagleEye, etc.) from fixed encoders/decoders (Mini, Studio NDI,
+  // Flex, A200/A300) and sets deviceType / protocol accordingly.
   { port: 8080,  proto: 'tcp', type: 'birddog',     protocol: 'BirdDog NDI',   deviceType: 'ndi-converter' },
   { port: 7070,  proto: 'tcp', type: 'tally-encoder', protocol: 'Tally Encoder', deviceType: 'encoder' },
   { port: 80,    proto: 'tcp', type: 'http',         protocol: 'HTTP',          deviceType: 'unknown' },
@@ -154,6 +158,95 @@ function videohubBanner(ip, port, timeout) {
   });
 }
 
+// ─── BirdDog model classification ───────────────────────────────────────────
+//
+// BirdDog Corp ships three broad product lines on the same web UI (port 8080):
+//   • PTZ cameras (P-series, X-series, Maki, Cam4K, Eyes4K, EagleEye, MiniPTZ)
+//   • Encoders / converters (Mini HDMI-to-NDI, Studio NDI, Flex 4K In, A200/A300,
+//     4K Quad / 4K HDMI / 4K SDI)
+//   • Decoders (Flex 4K Out, Play, standalone receivers — respond to /decodestatus)
+//
+// We match the `Model` / `ProductName` / body content from /about against
+// these patterns. When uncertain, we fall back to 'unknown' and the caller
+// keeps the existing ndi-converter default.
+
+const BIRDDOG_PTZ_PATTERNS = [
+  /\bP\s?(?:\d{2,3}K?|4K)\b/i,    // P100, P200, P240, P400, P4K
+  /\bX[1-9](?:\s*(?:Ultra|Auto))?\b/i, // X1, X1 Ultra, X5 Ultra, X1 Auto
+  /\bMaki\b/i,                    // Maki, Maki Ultra, Maki Mini
+  /\bCam\s?4K\b/i,                // Cam4K
+  /\bEyes\s?4K\b/i,               // Eyes 4K
+  /\bEagleEye\b/i,                // EagleEye Mini
+  /\bMiniPTZ\b/i,                 // MiniPTZ (explicit PTZ variant of Mini)
+  /\bPTZ\b/i,                     // generic PTZ in model name
+];
+
+const BIRDDOG_ENCODER_PATTERNS = [
+  /\bStudio\s*NDI\b/i,            // Studio NDI, Studio NDI 4K
+  /\bFlex\s*4K\s*In\b/i,          // Flex 4K In
+  /\bA\s?[123]\d{2}\b/i,          // A200, A300 series
+  /\b4K\s*(?:Quad|HDMI|SDI)\b/i,  // 4K Quad, 4K HDMI, 4K SDI encoders/converters
+  /\b1\.?5G\s*BiDirectional\b/i,  // 1.5G BiDirectional
+];
+
+const BIRDDOG_DECODER_PATTERNS = [
+  /\bFlex\s*4K\s*Out\b/i,         // Flex 4K Out
+  /\bPlay\b/i,                    // BirdDog Play
+];
+
+function extractBirdDogModel(data, body) {
+  if (data && typeof data === 'object') {
+    const keys = ['Model', 'model', 'ProductName', 'productName', 'HWVersion', 'hwVersion', 'FormFactor', 'formFactor'];
+    for (const k of keys) {
+      const v = data[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  // Heuristic: pull a "Model": "X" or "model"=X line out of a raw HTML/text body
+  const bodyStr = String(body || '');
+  const m = bodyStr.match(/\b(?:Model|ProductName|HWVersion|FormFactor)\b\s*["':=]+\s*["']?([A-Za-z0-9][\w\s.\-/]{1,60})/i);
+  return m ? m[1].trim().replace(/["'].*$/, '') : null;
+}
+
+function classifyBirdDogKind(aboutData, aboutBody, decodeResp) {
+  // Decoder check first — /decodestatus is unique to decoders/receivers.
+  if (decodeResp?.data && typeof decodeResp.data === 'object') {
+    const keys = Object.keys(decodeResp.data);
+    if (keys.some((k) => /^ch\d+source$/i.test(k) || /^decode/i.test(k))) {
+      return 'decoder';
+    }
+  }
+
+  // Build a searchable blob from /about response (fields + full body).
+  const blobParts = [];
+  if (aboutData && typeof aboutData === 'object') {
+    blobParts.push(JSON.stringify(aboutData));
+  }
+  if (aboutBody) blobParts.push(String(aboutBody));
+  const blob = blobParts.join(' ');
+
+  if (!blob) return 'unknown';
+
+  // Order matters: check PTZ first, then encoder, then decoder patterns.
+  // PTZ models like "Maki Mini" must match before the generic "Mini" encoder
+  // pattern — but since we match Maki first (PTZ list), we're safe.
+  for (const re of BIRDDOG_PTZ_PATTERNS) {
+    if (re.test(blob)) return 'ptz';
+  }
+  for (const re of BIRDDOG_DECODER_PATTERNS) {
+    if (re.test(blob)) return 'decoder';
+  }
+  for (const re of BIRDDOG_ENCODER_PATTERNS) {
+    if (re.test(blob)) return 'encoder';
+  }
+  // Standalone "Mini" (without Maki/PTZ prefix) is the BirdDog Mini encoder.
+  if (/\bMini\b/i.test(blob) && !/\bMaki\s*Mini\b/i.test(blob) && !/\bMiniPTZ\b/i.test(blob)) {
+    return 'encoder';
+  }
+
+  return 'unknown';
+}
+
 function httpGet(url, timeout) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout }, (res) => {
@@ -236,10 +329,48 @@ async function scanHost(ip, timeout = 500) {
     }
 
     if (def.type === 'birddog') {
-      // BirdDog fingerprint — port 8080 is very common
-      const resp = await httpGet(`http://${ip}:${def.port}/about`, 2000);
-      const body = String(resp?.body || '').toLowerCase();
-      if (!body.includes('birddog')) return null;
+      // BirdDog fingerprint — port 8080 is very common, so require positive
+      // identification AND classify the product kind (PTZ camera vs encoder
+      // vs decoder) so the portal shows it in the right bucket.
+      const aboutResp = await httpGet(`http://${ip}:${def.port}/about`, 2000);
+      const aboutBody = String(aboutResp?.body || '').toLowerCase();
+      const aboutData = aboutResp?.data && typeof aboutResp.data === 'object' ? aboutResp.data : null;
+
+      let matched = aboutBody.includes('birddog');
+      if (!matched && aboutData) {
+        matched = JSON.stringify(aboutData).toLowerCase().includes('birddog');
+      }
+
+      // Some BirdDog decoders return limited /about; also accept a valid
+      // /decodestatus response as positive identification.
+      let decodeResp = null;
+      if (!matched) {
+        decodeResp = await httpGet(`http://${ip}:${def.port}/decodestatus?ChNum=1`, 2000);
+        if (decodeResp?.data && typeof decodeResp.data === 'object') {
+          const keys = Object.keys(decodeResp.data);
+          if (keys.some((k) => /^ch\d+source$/i.test(k) || /^decode/i.test(k))) {
+            matched = true;
+          }
+        }
+      }
+
+      if (!matched) return null;
+
+      const kind = classifyBirdDogKind(aboutData, aboutBody, decodeResp);
+      const model = extractBirdDogModel(aboutData, aboutBody);
+      if (model) hit.model = model;
+      hit.details.birddogKind = kind;
+      if (kind === 'ptz') {
+        hit.deviceType = 'camera';
+        hit.protocol = 'BirdDog NDI PTZ';
+      } else if (kind === 'encoder') {
+        hit.deviceType = 'encoder';
+        hit.protocol = 'BirdDog NDI';
+      } else if (kind === 'decoder') {
+        hit.deviceType = 'ndi-converter';
+        hit.protocol = 'BirdDog NDI';
+      }
+      // Unknown kind keeps default (ndi-converter / BirdDog NDI).
     }
 
     if (def.type === 'propresenter') {
