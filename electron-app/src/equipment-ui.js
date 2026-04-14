@@ -500,8 +500,16 @@ function closeScanPanel() {
 // ─── SCAN INTEGRATION ───────────────────────────────────────────────────────
 
 function addFromScan(scanType, data) {
-  const deviceId = SCAN_TO_DEVICE[scanType];
+  let deviceId = SCAN_TO_DEVICE[scanType];
   if (!deviceId) return;
+
+  // BirdDog scan hits default to 'encoder', but PTZ cameras (P-series, Maki,
+  // X-series, EagleEye, etc.) should land in the PTZ device bucket instead.
+  // The scanner tags each hit with data.kind; only redirect when the kind is
+  // clearly 'ptz' so decoders / unknowns stay in the encoder bucket.
+  if (scanType === 'birddog' && data?.kind === 'ptz') {
+    deviceId = 'ptz';
+  }
 
   const def = DEVICE_REGISTRY[deviceId];
   if (!def) return;
@@ -521,9 +529,18 @@ function addFromScan(scanType, data) {
     if (deviceState[deviceId].length >= (def.maxInstances || 99)) return;
     const entry = {};
     for (const field of def.fields) entry[field.key] = '';
-    if (deviceId === 'ptz') entry.profileToken = '';
+    if (deviceId === 'ptz') {
+      entry.profileToken = '';
+      // BirdDog PTZ cameras speak VISCA over IP (UDP 52381 by default).
+      // Default to VISCA UDP and pre-fill the name from the scan metadata.
+      if (scanType === 'birddog') {
+        entry.protocol = 'visca-udp';
+        entry.port = '52381';
+      }
+    }
     entry.ip = data.ip || '';
-    if (data.name) entry.name = data.name;
+    const scanName = data.name || data.source || data.model;
+    if (scanName) entry.name = scanName;
     deviceState[deviceId].push(entry);
   } else if (deviceId === 'mixer') {
     deviceState.mixer.host = data.ip || '';
