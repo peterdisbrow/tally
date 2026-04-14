@@ -2195,18 +2195,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── VideoHub Routing Card ───────────────────────────────────────────────
+    // Tracks per-output pending selections so background status refreshes don't
+    // clobber an operator mid-selection. Keyed by output index (string).
+    var _vhPending = {};           // { [outIdx]: pendingInputIdx }
+    var _vhInFlight = {};          // { [outIdx]: true } while command is en route
+    var _vhHubIndex = 0;           // which hub we currently render (first connected)
+
     function updateVideoHubRoutingCard(status) {
       var card = document.getElementById('videohub-detail-card');
       if (!card) return;
 
+      // Cache latest status so stage/confirm/cancel handlers can re-render
+      // immediately without waiting for the next refresh tick.
+      window._lastStatus = status;
+
       var hubs = Array.isArray(status.videoHubs) ? status.videoHubs : [];
       // Find first connected hub with routes
       var hub = null;
+      var hubIdx = 0;
       for (var i = 0; i < hubs.length; i++) {
-        if (hubs[i] && hubs[i].connected && hubs[i].routes) { hub = hubs[i]; break; }
+        if (hubs[i] && hubs[i].connected && hubs[i].routes) { hub = hubs[i]; hubIdx = i; break; }
       }
       if (!hub) { card.style.display = 'none'; return; }
       card.style.display = '';
+      _vhHubIndex = hubIdx;
 
       var nameEl = document.getElementById('vh-name-label');
       if (nameEl) nameEl.textContent = hub.name || (hub.inputCount + '×' + hub.outputCount);
@@ -2217,27 +2229,139 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var routes = hub.routes || {};
       var inputLabels = hub.inputLabels || {};
       var outputLabels = hub.outputLabels || {};
-      var keys = Object.keys(routes);
+      var outKeys = Object.keys(routes);
 
-      if (keys.length === 0) {
+      if (outKeys.length === 0) {
         tbody.innerHTML = '<tr><td colspan="3" style="color:#556270;text-align:center;padding:12px">No routes configured</td></tr>';
         return;
       }
 
       // Sort numerically
-      keys.sort(function(a, b) { return parseInt(a) - parseInt(b); });
+      outKeys.sort(function(a, b) { return parseInt(a) - parseInt(b); });
 
-      tbody.innerHTML = keys.map(function(outIdx) {
-        var inIdx = routes[outIdx];
-        var outName = outputLabels[outIdx] || ('Output ' + (parseInt(outIdx) + 1));
-        var inName = inputLabels[inIdx] || ('Input ' + (parseInt(inIdx) + 1));
-        return '<tr>'
-          + '<td style="font-weight:500;color:#F0F2F4">' + escapeHtml(outName) + '</td>'
+      // Build the full list of selectable inputs from inputLabels (falling back to
+      // any input indices currently referenced by routes). Sorted numerically.
+      var inputKeySet = {};
+      Object.keys(inputLabels).forEach(function(k) { inputKeySet[k] = true; });
+      outKeys.forEach(function(k) { inputKeySet[String(routes[k])] = true; });
+      var inputKeys = Object.keys(inputKeySet).sort(function(a, b) { return parseInt(a) - parseInt(b); });
+
+      function inputName(idx) {
+        return inputLabels[idx] || ('Input ' + (parseInt(idx) + 1));
+      }
+      function outputName(idx) {
+        return outputLabels[idx] || ('Output ' + (parseInt(idx) + 1));
+      }
+
+      // Render each row. We only re-render rows whose current-route value
+      // changed from the previous render OR that aren't currently being edited,
+      // to avoid clobbering an open <select> or a mid-confirm row.
+      // Simpler approach: rebuild innerHTML but preserve pending state via
+      // _vhPending / _vhInFlight, and skip rows that are currently focused.
+      var focusedOut = null;
+      var active = document.activeElement;
+      if (active && active.getAttribute && active.getAttribute('data-vh-out')) {
+        focusedOut = active.getAttribute('data-vh-out');
+      }
+
+      var rowsHtml = outKeys.map(function(outIdx) {
+        var currentIn = routes[outIdx];
+        var pendingIn = _vhPending[outIdx];
+        var isInFlight = !!_vhInFlight[outIdx];
+        // If we have a pending selection that still differs from live state,
+        // keep it displayed. Once live state catches up, clear the pending.
+        if (pendingIn != null && String(pendingIn) === String(currentIn)) {
+          delete _vhPending[outIdx];
+          pendingIn = undefined;
+        }
+        var selectedIn = pendingIn != null ? pendingIn : currentIn;
+        var hasPending = pendingIn != null;
+
+        var options = inputKeys.map(function(inIdx) {
+          var sel = String(inIdx) === String(selectedIn) ? ' selected' : '';
+          return '<option value="' + escapeHtml(inIdx) + '"' + sel + '>'
+            + escapeHtml(inIdx + ' — ' + inputName(inIdx))
+            + '</option>';
+        }).join('');
+
+        var confirmCell;
+        if (isInFlight) {
+          confirmCell = '<span style="color:#8B9DAF;font-size:12px">Routing…</span>';
+        } else if (hasPending) {
+          confirmCell =
+            '<button type="button" class="btn btn-primary" style="padding:4px 10px;font-size:12px;margin-right:4px" '
+              + 'onclick="confirmVideoHubRoute(\'' + escapeHtml(outIdx) + '\')">Confirm</button>'
+            + '<button type="button" class="btn" style="padding:4px 10px;font-size:12px" '
+              + 'onclick="cancelVideoHubRoute(\'' + escapeHtml(outIdx) + '\')">Cancel</button>';
+        } else {
+          confirmCell = '';
+        }
+
+        var selectDisabled = isInFlight ? ' disabled' : '';
+        return '<tr data-vh-row="' + escapeHtml(outIdx) + '">'
+          + '<td style="font-weight:500;color:#F0F2F4">' + escapeHtml(outputName(outIdx)) + '</td>'
           + '<td style="text-align:center;color:#00E676;font-size:16px">&#x2190;</td>'
-          + '<td style="color:#8B9DAF">' + escapeHtml(inName) + '</td>'
-          + '</tr>';
+          + '<td>'
+            + '<select data-vh-out="' + escapeHtml(outIdx) + '" '
+              + 'onchange="stageVideoHubRoute(\'' + escapeHtml(outIdx) + '\', this.value)"'
+              + selectDisabled
+              + ' style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:4px 8px;font-size:13px;min-width:160px">'
+              + options
+            + '</select>'
+            + ' <span style="display:inline-block;margin-left:8px">' + confirmCell + '</span>'
+          + '</td>'
+        + '</tr>';
       }).join('');
+
+      tbody.innerHTML = rowsHtml;
+
+      // Restore focus if a select was focused before re-render.
+      if (focusedOut) {
+        var restore = tbody.querySelector('select[data-vh-out="' + focusedOut + '"]');
+        if (restore) { try { restore.focus(); } catch(e) { /* ignore */ } }
+      }
     }
+
+    // Stage a dropdown change — set pending state and re-render so the
+    // Confirm/Cancel buttons appear. Does NOT fire the route command yet.
+    window.stageVideoHubRoute = function(outIdx, inIdx) {
+      if (inIdx === '' || inIdx == null) return;
+      _vhPending[String(outIdx)] = String(inIdx);
+      // Re-render using the last known status so the confirm row appears immediately.
+      if (window._lastStatus) updateVideoHubRoutingCard(window._lastStatus);
+    };
+
+    window.cancelVideoHubRoute = function(outIdx) {
+      delete _vhPending[String(outIdx)];
+      if (window._lastStatus) updateVideoHubRoutingCard(window._lastStatus);
+    };
+
+    window.confirmVideoHubRoute = async function(outIdx) {
+      var key = String(outIdx);
+      var pending = _vhPending[key];
+      if (pending == null) return;
+      _vhInFlight[key] = true;
+      if (window._lastStatus) updateVideoHubRoutingCard(window._lastStatus);
+      try {
+        await api('POST', '/api/church/app/send-command', {
+          command: 'videohub.route',
+          params: {
+            hubIndex: _vhHubIndex,
+            output: Number(outIdx),
+            input: Number(pending),
+          },
+        });
+        toast('Route sent — waiting for hub to confirm…');
+        // Leave _vhPending set until the next status refresh shows the live
+        // route matching it (handled in updateVideoHubRoutingCard).
+      } catch (e) {
+        delete _vhPending[key];
+        toast('Route failed: ' + (e.message || 'unknown error'), true);
+      } finally {
+        delete _vhInFlight[key];
+        if (window._lastStatus) updateVideoHubRoutingCard(window._lastStatus);
+      }
+    };
 
     var _streamStartedAt = null;
     function updateStreamStats(status, enc) {
