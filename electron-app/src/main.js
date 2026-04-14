@@ -1851,30 +1851,47 @@ ipcMain.handle('deep-scan-network', async (event, options = {}) => {
     const results = await scanner.scan(options);
     _activeDeepScan = null;
 
-    // Sync results to relay server if authenticated
+    // Sync results to relay server if authenticated.
+    // NOTE: previously this gated on `config.relayUrl` which is never set
+    // (the saved key is `config.relay`), so the PUT silently never fired and
+    // the portal's Network tab stayed empty for every scan — including scans
+    // run from a room context. Now uses the same relayHttpUrl() helper as the
+    // rest of the app, and actually awaits the response so failures are logged.
     try {
       const config = loadConfig();
-      if (config.token && config.relayUrl) {
-        const url = config.relayUrl.replace(/^ws/, 'http') + '/api/church/app/network-topology';
-        const https = require('https');
-        const http = require('http');
-        const mod = url.startsWith('https') ? https : http;
+      if (config.token) {
+        const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL).replace(/\/+$/, '');
+        const url = `${relayHttp}/api/church/app/network-topology`;
         const body = JSON.stringify({
           roomId: config.roomId || null,
           devices: results.devices,
           scanTime: results.scanTime,
         });
-        const req = mod.request(url, {
+        const resp = await fetch(url, {
           method: 'PUT',
-          headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-          timeout: 5000,
+          headers: {
+            'Authorization': `Bearer ${config.token}`,
+            'Content-Type': 'application/json',
+          },
+          body,
+          signal: AbortSignal.timeout(15000),
         });
-        req.on('error', () => {});
-        req.write(body);
-        req.end();
+        if (!resp.ok) {
+          const errBody = await resp.text().catch(() => '');
+          console.warn(`[NetworkTopology] Upload failed (${resp.status}): ${errBody.slice(0, 200)}`);
+          appendAppLog('SYSTEM', `Network scan upload failed: HTTP ${resp.status}`);
+        } else {
+          const roomLabel = config.roomName || config.roomId || 'default';
+          console.log(`[NetworkTopology] Uploaded ${results.devices.length} devices (room=${roomLabel})`);
+          appendAppLog('SYSTEM', `Network scan uploaded: ${results.devices.length} devices (room=${roomLabel})`);
+        }
+      } else {
+        console.log('[NetworkTopology] Skipping upload — not signed in');
       }
-    } catch {
-      // Non-critical — don't fail the scan if relay sync fails
+    } catch (e) {
+      // Non-critical — don't fail the scan if relay sync fails, but log loudly
+      console.warn('[NetworkTopology] Upload error:', e.message);
+      appendAppLog('SYSTEM', `Network scan upload error: ${e.message}`);
     }
 
     return results;

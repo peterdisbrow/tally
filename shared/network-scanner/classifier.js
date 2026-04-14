@@ -136,11 +136,16 @@ function classify(device) {
   if (protocols.includes('TriCaster')) {
     return { ...DEVICE_TYPES['switcher'], deviceType: 'switcher', confidence: 'high' };
   }
-  if (protocols.includes('NDI')) {
-    return { ...DEVICE_TYPES['ndi-source'], deviceType: 'ndi-source', confidence: 'high' };
+  // BirdDog checks must come before the generic NDI rule — BirdDog devices
+  // advertise NDI via mDNS, so we'd otherwise misclassify a PTZ as ndi-source.
+  if (protocols.includes('BirdDog NDI PTZ')) {
+    return { ...DEVICE_TYPES['camera'], deviceType: 'camera', confidence: 'high' };
   }
   if (protocols.includes('BirdDog NDI')) {
     return { ...DEVICE_TYPES['ndi-converter'], deviceType: 'ndi-converter', confidence: 'high' };
+  }
+  if (protocols.includes('NDI')) {
+    return { ...DEVICE_TYPES['ndi-source'], deviceType: 'ndi-source', confidence: 'high' };
   }
   if (protocols.includes('Dante') || protocols.includes('Dante Audio')) {
     return { ...DEVICE_TYPES['audio-network'], deviceType: 'audio-network', confidence: 'high' };
