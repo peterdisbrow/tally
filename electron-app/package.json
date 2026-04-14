@@ -1,6 +1,6 @@
 {
   "name": "tally-connect",
-  "version": "1.1.60",
+  "version": "1.1.61",
   "description": "Tally Connect — Remote monitoring for church production teams",
   "main": "src/main.js",
   "scripts": {
