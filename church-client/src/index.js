@@ -1026,9 +1026,9 @@ class ChurchAVAgent {
         this._lastPongTime = Date.now();
         break;
       case 'failover_state':
-        this.log('Received failover state update from relay');
+        console.log('Received failover state update from relay');
         // Forward to any listeners (the electron app parses stdout)
-        this.log(`[SignalFailover] STATE_UPDATE: ${JSON.stringify(msg)}`);
+        console.log(`[SignalFailover] STATE_UPDATE: ${JSON.stringify(msg)}`);
         break;
       case 'encoder_metrics':
         // Relay pushes RTMP ingest metrics (e.g., from nginx-rtmp stats or Tally Encoder)
@@ -1071,13 +1071,13 @@ class ChurchAVAgent {
         break;
       }
       case 'config_update': {
-        this.log(`Config update from portal: ${msg.section} (room: ${msg.roomId || 'global'})`);
+        console.log(`Config update from portal: ${msg.section} (room: ${msg.roomId || 'global'})`);
         // Forward to electron app — it decides whether to apply based on current room
         console.log(`[CONFIG_UPDATE] ${JSON.stringify({ section: msg.section, data: msg.data, roomId: msg.roomId || null })}`);
         break;
       }
       case 'room_deleted': {
-        this.log(`Room deleted by portal: ${msg.roomName || msg.roomId}`);
+        console.log(`Room deleted by portal: ${msg.roomName || msg.roomId}`);
         console.log(`[ROOM_DELETED] ${JSON.stringify({ roomId: msg.roomId, roomName: msg.roomName })}`);
         break;
       }

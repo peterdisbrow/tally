@@ -37,12 +37,21 @@ class VideoHub extends EventEmitter {
       this.socket = new net.Socket();
       let resolved = false;
 
+      // Bounded connect window — cleared once 'connect' fires so we don't
+      // treat normal protocol idleness as a disconnect. The Videohub text
+      // protocol is fire-and-forget after the initial handshake, so it is
+      // normal for the socket to sit quiet for minutes at a time.
       this.socket.setTimeout(5000);
 
       this.socket.on('connect', () => {
         this.connected = true;
         this._reconnectDelay = 2000;
         this._reconnecting = false;
+        // Disable the idle timeout now that we're connected. Without this,
+        // setTimeout(5000) fires every ~5s of silence → socket.destroy() →
+        // close → reconnect, producing a tight connect/disconnect loop.
+        this.socket.setTimeout(0);
+        try { this.socket.setKeepAlive(true, 30_000); } catch { /* ignore */ }
         console.log(`✅ Video Hub "${this.name}" connected (${this.ip}:${this.port})`);
         this.emit('connected');
         if (!resolved) { resolved = true; resolve(); }
