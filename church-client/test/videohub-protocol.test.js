@@ -148,6 +148,45 @@ describe('VideoHub._parseBuffer() — VIDEO OUTPUT ROUTING block', () => {
   });
 });
 
+describe('VideoHub._parseBuffer() — stateChanged emission', () => {
+  // Regression: 'connected' fires on TCP connect before handshake data
+  // arrives, so consumers that snapshot on 'connected' saw empty state.
+  // stateChanged must fire after each block that mutates internal state
+  // so consumers can re-snapshot once routes/labels are populated.
+  it('emits stateChanged after INPUT LABELS block', () => {
+    const hub = new VideoHub({ ip: '10.0.0.1' });
+    hub.connected = true;
+    hub.socket = { write: () => {} };
+    let count = 0;
+    hub.on('stateChanged', () => { count++; });
+    hub._buffer = 'INPUT LABELS:\n0 Camera 1\n\n';
+    hub._parseBuffer();
+    assert.equal(count, 1, 'stateChanged should emit once after INPUT LABELS');
+  });
+
+  it('emits stateChanged after OUTPUT LABELS block', () => {
+    const hub = new VideoHub({ ip: '10.0.0.1' });
+    hub.connected = true;
+    hub.socket = { write: () => {} };
+    let count = 0;
+    hub.on('stateChanged', () => { count++; });
+    hub._buffer = 'OUTPUT LABELS:\n0 Monitor A\n\n';
+    hub._parseBuffer();
+    assert.equal(count, 1, 'stateChanged should emit once after OUTPUT LABELS');
+  });
+
+  it('emits stateChanged after VIDEO OUTPUT ROUTING block (initial population)', () => {
+    const hub = new VideoHub({ ip: '10.0.0.1' });
+    hub.connected = true;
+    hub.socket = { write: () => {} };
+    let count = 0;
+    hub.on('stateChanged', () => { count++; });
+    hub._buffer = 'VIDEO OUTPUT ROUTING:\n0 1\n1 2\n\n';
+    hub._parseBuffer();
+    assert.equal(count, 1, 'stateChanged should emit after initial route population (no routeChanged would fire)');
+  });
+});
+
 describe('VideoHub._parseBuffer() — ACK and NAK', () => {
   it('resolves pending callbacks on ACK', () => {
     const hub = new VideoHub({ ip: '10.0.0.1' });

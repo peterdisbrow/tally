@@ -806,6 +806,12 @@ function startAgent() {
   agentStatus.proPresenter = config.proPresenter?.host
     ? { connected: false, running: false, host: config.proPresenter.host, port: config.proPresenter.port || 1025 }
     : null;
+  // Initialize mixer like other configurable devices. When unconfigured,
+  // setting it to null hides the status pill; when configured, we start in
+  // a disconnected state and let relay SSE deliver the real status.
+  agentStatus.mixer = config.mixer?.host
+    ? { connected: false, type: config.mixer.type || '', model: null, mainMuted: false }
+    : null;
 
   const nodeLabel = useElectronAsNode ? `${nodeBinary} (ELECTRON_RUN_AS_NODE)` : nodeBinary;
   appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, node=${nodeLabel}, script=${clientPaths.script})`);
@@ -901,19 +907,11 @@ function startAgent() {
       agentStatus.vmix.connected = false;
       statusChanged = true;
     }
-    // Mixer connected: "✅ <type> console connected"
-    const mixerConnMatch = text.match(/(\w+) console connected/i);
-    if (mixerConnMatch) {
-      if (!agentStatus.mixer || typeof agentStatus.mixer !== 'object') agentStatus.mixer = {};
-      agentStatus.mixer.connected = true;
-      agentStatus.mixer.type = mixerConnMatch[1];
-      statusChanged = true;
-    }
-    if (text.includes('console not reachable')) {
-      if (!agentStatus.mixer || typeof agentStatus.mixer !== 'object') agentStatus.mixer = {};
-      agentStatus.mixer.connected = false;
-      statusChanged = true;
-    }
+    // Mixer connection state comes from relay SSE (_mergeRelayStatus).
+    // Stdout parsing was removed because `text.includes('console not reachable')`
+    // could clobber an already-correct `connected:true` with a stale/reused log
+    // buffer, making the desktop app show "not connected" even when the church
+    // client had already reported a healthy mixer to the relay.
     // Parse device identity log lines from church-client
     const encoderIdMatch = text.match(/Encoder identity:\s*(.+)/i);
     if (encoderIdMatch) {

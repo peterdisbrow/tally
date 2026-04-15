@@ -2082,8 +2082,18 @@ class ChurchAVAgent {
         this._updateVideoHubStatus();
         this.sendStatus();
       });
+      // stateChanged fires after the protocol parser fills _routes /
+      // _inputLabels / _outputLabels. Without this, the snapshot taken on
+      // 'connected' (which fires before the handshake data arrives) has
+      // empty routes and never refreshes, so the portal sees a connected
+      // hub with no routing information.
+      hub.on('stateChanged', () => {
+        this._updateVideoHubStatus();
+        this.sendStatus();
+      });
       hub.on('routeChanged', (info) => {
         console.log(`📺 Route changed: ${info.inputLabel} → ${info.outputLabel}`);
+        this._updateVideoHubStatus();
         this.sendStatus();
       });
       this.videoHubs.push(hub);
@@ -2404,9 +2414,12 @@ class ChurchAVAgent {
     this.mixer = new MixerBridge(mixerConfig);
     await this.mixer.connect();
 
-    const online = await this.mixer.isOnline();
+    // Always fetch status — even offline, the driver returns its model name
+    // (e.g. 'SQ') so the UI can show the identity immediately instead of
+    // waiting for the first successful 30s poll to populate it.
+    const status = await this.mixer.getStatus();
+    const online = !!status.online;
     if (online) {
-      const status = await this.mixer.getStatus();
       this.status.mixer = {
         connected: true,
         type: mixerConfig.type,
@@ -2422,7 +2435,7 @@ class ChurchAVAgent {
       if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
-      this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false, mainFader: null, scene: null };
+      this.status.mixer = { connected: false, type: mixerConfig.type, model: status.model || null, mainMuted: false, mainFader: null, scene: null };
     }
     // Push initial connected state — connectRelay() fires sendStatus() before
     // connectMixer() runs (default: connected:false), so this corrects it.

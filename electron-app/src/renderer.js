@@ -2470,11 +2470,19 @@ function updateStatusUI(status) {
   else setStatusValue('val-id-resolume', '—', false);
 
   const mixerData2 = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
-  const mixerIdentity = mixerData2.model
-    ? `${String(mixerData2.type || 'Mixer').toUpperCase()} ${mixerData2.model}`
-    : '';
-  if (mixerIdentity) setStatusValue('val-id-mixer', mixerIdentity, getStatusActive(mixerData2));
-  else setStatusValue('val-id-mixer', '—', false);
+  const mixerActive2 = getStatusActive(mixerData2);
+  let mixerIdentity;
+  if (mixerData2.model) {
+    mixerIdentity = `${String(mixerData2.type || 'Mixer').toUpperCase()} ${mixerData2.model}`;
+  } else if (mixerData2.type) {
+    // Show the console type even before the model is known — prevents the row
+    // from looking "not connected" while connected:true is already in the status.
+    mixerIdentity = String(mixerData2.type).toUpperCase();
+  } else {
+    mixerIdentity = '';
+  }
+  if (mixerIdentity) setStatusValue('val-id-mixer', mixerIdentity, mixerActive2);
+  else setStatusValue('val-id-mixer', '—', mixerActive2);
 
   const companionData = status.companion && typeof status.companion === 'object' ? status.companion : {};
   const companionIdentity = companionData.endpoint ? String(companionData.endpoint) : '';

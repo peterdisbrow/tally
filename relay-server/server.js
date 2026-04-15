@@ -2083,27 +2083,36 @@ chatEngine.setBroadcasters({
   notifyTelegram: (churchId, savedMsg) => {
     if (!tallyBot) return;
     const sourceIcon = { app: '💻', dashboard: '🌐', telegram: '📱' }[savedMsg.source] || '💬';
-    const text = `${sourceIcon} *${savedMsg.sender_name}*:\n${savedMsg.message}`;
-    // Notify TD(s) for this church
-    queryClient.query(
-      'SELECT telegram_chat_id AS "telegram_chat_id" FROM church_tds WHERE church_id = ? AND active = 1',
-      [churchId],
-    ).then((tds) => {
-      for (const td of tds) {
-        if (td.telegram_chat_id && savedMsg.source !== 'telegram') {
-          tallyBot.sendMessage(td.telegram_chat_id, text).catch(e => log('[Chat] Telegram notify failed for TD ' + td.telegram_chat_id + ': ' + e.message));
+    // Look up room name (if scoped) so the prefix can disambiguate alerts when
+    // multiple rooms (e.g. LCC, Blair Chapel) are active under one church.
+    const roomLookup = savedMsg.room_id
+      ? queryClient.queryOne('SELECT name FROM rooms WHERE id = ?', [savedMsg.room_id]).catch(() => null)
+      : Promise.resolve(null);
+    roomLookup.then((roomRow) => {
+      const roomSuffix = roomRow?.name ? ` / ${roomRow.name}` : '';
+      const text = `${sourceIcon} *${savedMsg.sender_name}*${roomSuffix ? ` (${roomRow.name})` : ''}:\n${savedMsg.message}`;
+      // Notify TD(s) for this church
+      queryClient.query(
+        'SELECT telegram_chat_id AS "telegram_chat_id" FROM church_tds WHERE church_id = ? AND active = 1',
+        [churchId],
+      ).then((tds) => {
+        for (const td of tds) {
+          if (td.telegram_chat_id && savedMsg.source !== 'telegram') {
+            tallyBot.sendMessage(td.telegram_chat_id, text).catch(e => log('[Chat] Telegram notify failed for TD ' + td.telegram_chat_id + ': ' + e.message));
+          }
         }
+      }).catch(() => {});
+      // Notify admin if message is from a TD
+      if (savedMsg.sender_role === 'td' && tallyBot.adminChatId) {
+        queryClient.queryOne('SELECT name FROM churches WHERE churchId = ?', [churchId])
+          .then((churchRow) => {
+            const churchLabel = churchRow?.name || churchId;
+            const adminText = `${sourceIcon} *${savedMsg.sender_name}* (${churchLabel}${roomSuffix}):\n${savedMsg.message}`;
+            return tallyBot.sendMessage(tallyBot.adminChatId, adminText);
+          })
+          .catch(e => log('[Chat] Admin Telegram notify failed: ' + e.message));
       }
-    }).catch(() => {});
-    // Notify admin if message is from a TD
-    if (savedMsg.sender_role === 'td' && tallyBot.adminChatId) {
-      queryClient.queryOne('SELECT name FROM churches WHERE churchId = ?', [churchId])
-        .then((churchRow) => {
-          const adminText = `${sourceIcon} *${savedMsg.sender_name}* (${churchRow?.name || churchId}):\n${savedMsg.message}`;
-          return tallyBot.sendMessage(tallyBot.adminChatId, adminText);
-        })
-        .catch(e => log('[Chat] Admin Telegram notify failed: ' + e.message));
-    }
+    });
   },
 });
 
