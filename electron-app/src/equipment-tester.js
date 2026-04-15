@@ -133,8 +133,26 @@ function runLocalCommand(command, args, timeoutMs = 5000) {
 
 // ─── Main test dispatcher ─────────────────────────────────────────────────────
 
+/**
+ * Normalize a host string for probing.
+ *
+ * `localhost` goes through Node's DNS resolver, which on modern Windows
+ * (and sometimes macOS) returns `::1` (IPv6) first. Most AV apps — vMix,
+ * OBS, ProPresenter, Companion, Resolume — bind to IPv4 only, so probing
+ * via `localhost` fails with ECONNREFUSED even though the service is running.
+ *
+ * Forcing `127.0.0.1` bypasses DNS and eliminates the false "cannot reach".
+ */
+function normalizeHost(host) {
+  if (!host) return host;
+  const h = String(host).trim().toLowerCase();
+  if (h === 'localhost' || h === '::1' || h === '[::1]') return '127.0.0.1';
+  return host;
+}
+
 async function testEquipmentConnection(params) {
-  const { type, ip, port, password, url } = params;
+  const { type, port, password, url } = params;
+  const ip = normalizeHost(params.ip);
   try {
     switch (type) {
       case 'atem': {
@@ -200,8 +218,11 @@ async function testEquipmentConnection(params) {
       }
       case 'vmix': {
         const resp = await _tryHttpGet(`http://${ip}:${port || 8088}/api/?Function=GetShortXML`, 3000);
-        if (resp.success && resp.data) {
-          const editionM = resp.data.match ? resp.data.match(/<edition>([^<]+)<\/edition>/i) : null;
+        // vMix returns XML, not JSON — tryHttpGet leaves resp.data null in that
+        // case, so check resp.body for the edition tag instead of resp.data.
+        const body = resp && resp.success ? String(resp.body || '') : '';
+        if (body && /<edition>/i.test(body)) {
+          const editionM = body.match(/<edition>([^<]+)<\/edition>/i);
           const edition = editionM ? editionM[1] : 'vMix';
           return { success: true, details: `${edition} is running` };
         }
@@ -214,14 +235,28 @@ async function testEquipmentConnection(params) {
       }
       case 'mixer': {
         const mixerType = params.mixerType || 'behringer';
-        const defaultPort = mixerType === 'allenheath' ? 51326
-          : mixerType === 'yamaha' ? 8765
-          : 10023; // behringer / midas
+        // Allen & Heath SQ / dLive / Avantis control via TCP MIDI on port 51325.
+        // The SQ series does NOT expose native OSC — it only speaks MIDI-over-TCP
+        // (same protocol MixPad uses). Probing /sq/alive over UDP/51326 always
+        // times out even when the console is perfectly reachable, which is what
+        // the real driver at church-client/src/mixers/allenheath.js proves: it
+        // connects via TcpMidi on port 51325, not OSC. A plain TCP connect to
+        // 51325 matches what the driver will do and reliably confirms reachability.
+        if (mixerType === 'allenheath' || mixerType === 'dlive' || mixerType === 'avantis') {
+          const targetPort = port || 51325;
+          const result = await tryTcpConnectLocal(ip, targetPort, 3000);
+          const ok = !!result.success;
+          return {
+            success: ok,
+            details: ok
+              ? `${mixerType} console reachable at ${ip}:${targetPort} (TCP MIDI)`
+              : `Cannot reach ${mixerType} console at ${ip}:${targetPort} — check IP and power`,
+          };
+        }
+        const defaultPort = mixerType === 'yamaha' ? 8765 : 10023; // behringer / midas
         const targetPort = port || defaultPort;
-        // All supported mixers use OSC over UDP — send the appropriate query and wait for response
-        const packet = mixerType === 'allenheath' ? OSC_SQ_ALIVE_PACKET
-          : mixerType === 'yamaha' ? OSC_YAMAHA_STATE_PACKET
-          : OSC_INFO_PACKET;
+        // Behringer / Midas / Yamaha use OSC over UDP — send the appropriate query and wait for response
+        const packet = mixerType === 'yamaha' ? OSC_YAMAHA_STATE_PACKET : OSC_INFO_PACKET;
         const ok = await tryUdpProbeLocal(ip, targetPort, packet, 3000);
         return {
           success: ok,
