@@ -145,6 +145,11 @@ class VideoHub extends EventEmitter {
           if (m) this._inputLabels.set(parseInt(m[1]), m[2]);
         }
         this._resolvePending('INPUT LABELS');
+        // Signal that internal state changed so listeners can resnapshot.
+        // The 'connected' event fires on TCP connect — BEFORE protocol data
+        // arrives — so consumers that snapshot on 'connected' see empty maps.
+        // stateChanged fires once per block after the parser fills state.
+        this.emit('stateChanged');
         break;
 
       case 'OUTPUT LABELS':
@@ -153,6 +158,7 @@ class VideoHub extends EventEmitter {
           if (m) this._outputLabels.set(parseInt(m[1]), m[2]);
         }
         this._resolvePending('OUTPUT LABELS');
+        this.emit('stateChanged');
         break;
 
       case 'VIDEO OUTPUT ROUTING':
@@ -169,6 +175,7 @@ class VideoHub extends EventEmitter {
           }
         }
         this._resolvePending('VIDEO OUTPUT ROUTING');
+        this.emit('stateChanged');
         break;
 
       case 'VIDEO OUTPUT LOCKS':

@@ -2082,8 +2082,18 @@ class ChurchAVAgent {
         this._updateVideoHubStatus();
         this.sendStatus();
       });
+      // stateChanged fires after the protocol parser fills _routes /
+      // _inputLabels / _outputLabels. Without this, the snapshot taken on
+      // 'connected' (which fires before the handshake data arrives) has
+      // empty routes and never refreshes, so the portal sees a connected
+      // hub with no routing information.
+      hub.on('stateChanged', () => {
+        this._updateVideoHubStatus();
+        this.sendStatus();
+      });
       hub.on('routeChanged', (info) => {
         console.log(`📺 Route changed: ${info.inputLabel} → ${info.outputLabel}`);
+        this._updateVideoHubStatus();
         this.sendStatus();
       });
       this.videoHubs.push(hub);
