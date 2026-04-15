@@ -699,9 +699,10 @@
     <!-- ── SIMPLE MODE ── -->
     <div id="equip-simple-mode">
       <div class="section-label" style="margin: 12px 0 8px;">YOUR DEVICES</div>
-      <div id="simple-device-list"><div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div></div>
+      <div id="simple-device-list"><div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Tap <strong>Find My AV Equipment</strong> below to get started.</div></div>
 
-      <button class="scan-btn" style="width:100%; margin:12px 0;" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Scan Network</button>
+      <button class="scan-btn" id="scan-btn-simple" style="width:100%; margin:12px 0 4px;" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Find My AV Equipment</button>
+      <div style="color:var(--muted); font-size:11px; line-height:1.5; padding:0 4px 12px;">Looks for ATEM, OBS, Companion, mixers, and other supported AV gear on your network &mdash; then lets you add them to your setup with one click.</div>
 
       <div class="section-label" style="margin:16px 0 8px;">STREAM PLATFORMS <span style="font-size:9px; color:var(--dim); font-weight:400; font-family:var(--mono); text-transform:none;">— auto-fetch keys &amp; monitor live status</span></div>
       <!-- YouTube OAuth (Simple) -->
@@ -751,14 +752,15 @@
     <!-- A. Active Devices Summary (chip bar) -->
     <div class="equip-active-summary" id="equip-active-summary"></div>
 
-    <!-- B. Scan Network (prominent, at top) -->
+    <!-- B. Find My AV Equipment (prominent, at top) -->
     <div class="equip-scan-bar">
       <div class="scan-form-row">
         <label for="scan-nic">Interface</label>
         <select id="scan-nic"></select>
       </div>
-      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Scan Network</button>
+      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Find My AV Equipment</button>
     </div>
+    <div style="color:var(--muted); font-size:11px; line-height:1.5; margin:-4px 0 10px;">Scans your network for ATEM, OBS, Companion, mixers, and other supported AV gear, then lets you add each one with a single click. For a full map of every device on your network, use the <strong>Network</strong> tab.</div>
     <div class="equip-scan-panel" id="equip-scan-panel" style="display:none;">
       <div class="scan-progress" id="scan-progress">
         <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-fill"></div></div>
@@ -1329,13 +1331,14 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;">
           <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/>
         </svg>
-        Scan Network
+        Scan Entire Network
       </button>
       <button class="btn btn-small" id="net-abort-btn" onclick="abortDeepScan()" style="display:none;">Abort</button>
       <span id="net-scan-status" style="font-size:11px; color:var(--muted);"></span>
       <span style="flex:1;"></span>
       <span id="net-device-count" style="font-size:11px; color:var(--muted);"></span>
     </div>
+    <div style="padding:6px 16px 0; color:var(--muted); font-size:11px; line-height:1.5;">Maps <strong>every</strong> device on your network (cameras, switches, computers, AV gear) for troubleshooting. Slower than the Equipment tab scan &mdash; takes ~30&ndash;60&nbsp;seconds. To just find and add AV equipment, use the <strong>Equipment</strong> tab instead.</div>
 
     <!-- Progress bar -->
     <div id="net-progress-wrap" style="display:none; padding:8px 16px;">
@@ -1363,7 +1366,7 @@
           <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/><path d="M12 2c-4 4-4 16 0 20"/><path d="M12 2c4 4 4 16 0 20"/>
         </svg>
         <div style="font-size:13px; margin-bottom:6px;">No network scan yet</div>
-        <div style="font-size:11px;">Click <strong>Scan Network</strong> to discover AV devices on your network</div>
+        <div style="font-size:11px;">Click <strong>Scan Entire Network</strong> to map every device on your network</div>
       </div>
       <div id="net-devices" style="display:none;"></div>
     </div>

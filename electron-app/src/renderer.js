@@ -4735,7 +4735,7 @@ async function startNetworkScan() {
   const resultsEl = document.getElementById('scan-results');
 
   btn.disabled = true;
-  btn.textContent = '\u{1F50D} Scanning\u2026';
+  btn.textContent = '\u{1F50D} Searching for AV gear\u2026';
   if (panel) panel.style.display = '';
   progress.style.display = 'block';
   resultsEl.innerHTML = '';
@@ -4818,7 +4818,7 @@ async function startNetworkScan() {
   } finally {
     if (typeof off === 'function') off();
     btn.disabled = false;
-    btn.textContent = '\u{1F50D} Scan Network';
+    btn.textContent = '\u{1F50D} Find My AV Equipment';
   }
 }
 
@@ -5371,7 +5371,7 @@ async function startDeepScan() {
   const statusEl = document.getElementById('net-scan-status');
 
   scanBtn.disabled = true;
-  scanBtn.textContent = 'Scanning...';
+  scanBtn.textContent = 'Scanning entire network…';
   abortBtn.style.display = '';
   progressWrap.style.display = '';
   progressBar.style.width = '0%';
@@ -5393,7 +5393,7 @@ async function startDeepScan() {
   } finally {
     _netScanning = false;
     scanBtn.disabled = false;
-    scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Network';
+    scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Entire Network';
     abortBtn.style.display = 'none';
     progressWrap.style.display = 'none';
   }
@@ -5404,7 +5404,7 @@ function abortDeepScan() {
   _netScanning = false;
   const scanBtn = document.getElementById('net-scan-btn');
   scanBtn.disabled = false;
-  scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Network';
+  scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Entire Network';
   document.getElementById('net-abort-btn').style.display = 'none';
   document.getElementById('net-scan-status').textContent = 'Scan aborted';
 }
