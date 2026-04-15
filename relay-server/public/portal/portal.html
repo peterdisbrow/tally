@@ -461,27 +461,14 @@
       <!-- Multi-Switcher Cards (dynamic) -->
       <div id="switchers-cards-container"></div>
 
-      <!-- Audio Health Card -->
+      <!-- Audio Health Card (body rendered dynamically per mixer type) -->
       <div class="card advanced-only" id="audio-health-card" data-section-id="audio-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg> Audio Health</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio mixer health — shows fields that the connected mixer actually reports" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg> Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px"></span>
         </div>
-        <div class="grid-3col" style="margin-bottom:14px">
-          <div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.mute">Mute</div>
-            <div style="font-size:18px;font-weight:700" id="audio-mute-status">—</div>
-          </div>
-          <div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.silence">Silence</div>
-            <div style="font-size:18px;font-weight:700" id="audio-silence-status">—</div>
-          </div>
-          <div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.monitoring">Monitoring</div>
-            <div style="font-size:18px;font-weight:700" id="audio-monitoring-status">—</div>
-          </div>
-        </div>
-        <div id="audio-detail-row" style="font-size:12px;color:#6B7280;display:flex;gap:16px;flex-wrap:wrap"></div>
+        <div id="audio-health-body"></div>
+        <div id="audio-detail-row" style="font-size:12px;color:#6B7280;display:flex;gap:16px;flex-wrap:wrap;margin-top:14px"></div>
       </div>
 
       <!-- System Health Check Card (legacy placeholder — real card is at top of overview) -->

@@ -2407,14 +2407,22 @@ class ChurchAVAgent {
     const online = await this.mixer.isOnline();
     if (online) {
       const status = await this.mixer.getStatus();
-      this.status.mixer = { connected: true, type: mixerConfig.type, model: status.model || null, firmware: status.firmware || null, mainMuted: status.mainMuted };
+      this.status.mixer = {
+        connected: true,
+        type: mixerConfig.type,
+        model: status.model || null,
+        firmware: status.firmware || null,
+        mainMuted: status.mainMuted,
+        mainFader: (status.mainFader != null) ? status.mainFader : null,
+        scene: (status.scene != null) ? status.scene : null,
+      };
       const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${status.model ? ` ${status.model}` : ''}`;
       this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
       console.log(`✅ ${mixerConfig.type} console connected`);
       if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
-      this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false };
+      this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false, mainFader: null, scene: null };
     }
     // Push initial connected state — connectRelay() fires sendStatus() before
     // connectMixer() runs (default: connected:false), so this corrects it.
@@ -2435,6 +2443,8 @@ class ChurchAVAgent {
           model: status.model || this.status.mixer.model || null,
           firmware: status.firmware || this.status.mixer.firmware || null,
           mainMuted: status.mainMuted,
+          mainFader: (status.mainFader != null) ? status.mainFader : (this.status.mixer.mainFader ?? null),
+          scene: (status.scene != null) ? status.scene : (this.status.mixer.scene ?? null),
         };
         const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${this.status.mixer.model ? ` ${this.status.mixer.model}` : ''}`;
         this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);

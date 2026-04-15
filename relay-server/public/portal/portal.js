@@ -2836,6 +2836,41 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function _escHtml(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
     // ── Audio Health Card ────────────────────────────────────────────────────
+    //
+    // Adapter-aware: different mixer brands expose different data, so we only
+    // render tiles for fields the connected mixer actually reports. SQ-series
+    // (allenheath over MIDI-over-TCP) reports mainMuted / mainFader / scene
+    // but no silence detection or firmware. ATEM embedded audio reports
+    // silence + monitoring from internal meters. X32/Avantis/Yamaha etc. get
+    // the richer layout.
+    var AUDIO_CHECK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    function _audioTile(label, valueHtml, color) {
+      return '<div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">' +
+        '<div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">' + _escHtml(label) + '</div>' +
+        '<div style="font-size:18px;font-weight:700;color:' + (color || '#F0F2F4') + '">' + valueHtml + '</div>' +
+      '</div>';
+    }
+
+    function _mixerBrandLabel(mixer) {
+      if (!mixer) return 'Audio Mixer';
+      var t = String(mixer.type || '').toLowerCase();
+      var m = mixer.model || '';
+      if (t === 'allenheath') return m ? ('Allen & Heath ' + m) : 'Allen & Heath';
+      if (t === 'avantis')    return m ? ('Allen & Heath ' + m) : 'Allen & Heath Avantis';
+      if (t === 'dlive')      return m ? ('Allen & Heath ' + m) : 'Allen & Heath dLive';
+      if (t === 'x32' || t === 'behringer') return m ? ('Behringer ' + m) : 'Behringer X32';
+      if (t === 'midas')      return m ? ('Midas ' + m) : 'Midas M32';
+      if (t === 'yamaha')     return m ? ('Yamaha ' + m) : 'Yamaha';
+      return m || mixer.name || mixer.type || 'Audio Mixer';
+    }
+
+    // Mixers that communicate via MIDI-over-TCP (no silence-detection, no firmware)
+    function _isMidiTcpMixer(type) {
+      var t = String(type || '').toLowerCase();
+      return t === 'allenheath' || t === 'avantis' || t === 'dlive';
+    }
+
     function updateAudioHealthCard(status, audioViaAtem) {
       var card = document.getElementById('audio-health-card');
       if (!card) return;
@@ -2847,36 +2882,73 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       var srcEl = document.getElementById('audio-source-label');
       if (srcEl) {
-        var src = audioViaAtem ? 'ATEM Audio' : (mixer.name || mixer.type || 'Audio Mixer');
-        srcEl.textContent = src;
+        srcEl.textContent = audioViaAtem ? 'ATEM Embedded Audio' : _mixerBrandLabel(mixer);
       }
 
-      var muteEl = document.getElementById('audio-mute-status');
-      if (muteEl) {
-        if (mixer.mainMuted) { muteEl.textContent = 'MUTED'; muteEl.style.color = '#FF5252'; }
-        else { muteEl.textContent = 'OK'; muteEl.style.color = '#00E676'; }
-      }
-
-      var silEl = document.getElementById('audio-silence-status');
-      if (silEl) {
-        if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#eab308'; }
-        else { silEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Signal'; silEl.style.color = '#00E676'; }
-      }
-
-      var monEl = document.getElementById('audio-monitoring-status');
-      if (monEl) {
-        if (audio.monitoring) { monEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Active'; monEl.style.color = '#00E676'; }
-        else { monEl.textContent = '— Off'; monEl.style.color = '#8B9DAF'; }
-      }
-
+      var body = document.getElementById('audio-health-body');
       var detailRow = document.getElementById('audio-detail-row');
-      if (detailRow) {
-        var parts = [];
-        if (mixer.firmware) parts.push('Firmware: ' + mixer.firmware);
-        if (audio.lastLevel != null) parts.push('Level: ' + audio.lastLevel + ' dB');
+      if (!body) return;
+
+      var tiles = [];
+      var details = [];
+      var isMidiTcp = !audioViaAtem && _isMidiTcpMixer(mixer.type);
+
+      if (audioViaAtem) {
+        // ATEM embedded audio: no mixer, just silence + monitoring from ATEM meters
+        var muteHtml = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' OK');
+        tiles.push(_audioTile('Master', muteHtml, mixer.mainMuted ? '#FF5252' : '#00E676'));
+        var silHtml = audio.silenceDetected ? 'Silence' : (AUDIO_CHECK_SVG + ' Signal');
+        tiles.push(_audioTile('Silence', silHtml, audio.silenceDetected ? '#eab308' : '#00E676'));
+        var monHtml = audio.monitoring ? (AUDIO_CHECK_SVG + ' Active') : '— Off';
+        tiles.push(_audioTile('Monitoring', monHtml, audio.monitoring ? '#00E676' : '#8B9DAF'));
+
         var atemSrcs = status.atem && status.atem.atemAudioSources;
-        if (Array.isArray(atemSrcs) && atemSrcs.length) parts.push('Port: ' + atemSrcs[0].portType);
-        detailRow.innerHTML = parts.map(function(p) { return '<span>' + p + '</span>'; }).join('');
+        if (Array.isArray(atemSrcs) && atemSrcs.length) details.push('Source: ' + atemSrcs[0].portType);
+        if (audio.lastLevel != null) details.push('Level: ' + audio.lastLevel + ' dB');
+      } else if (isMidiTcp) {
+        // SQ / Avantis / dLive — MIDI-over-TCP: only master mute, main LR fader,
+        // scene number, and connection status are available. No silence, no
+        // firmware, no meter levels over this protocol.
+        var statusHtml = mixer.connected ? (AUDIO_CHECK_SVG + ' Connected') : 'Offline';
+        tiles.push(_audioTile('Console', statusHtml, mixer.connected ? '#00E676' : '#FF5252'));
+
+        var mMuteHtml = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' Unmuted');
+        tiles.push(_audioTile('Main LR', mMuteHtml, mixer.mainMuted ? '#FF5252' : '#00E676'));
+
+        if (mixer.mainFader != null) {
+          var pct = Math.round(mixer.mainFader * 100);
+          tiles.push(_audioTile('Main Fader', pct + '%'));
+        }
+
+        if (mixer.scene != null) {
+          tiles.push(_audioTile('Scene', String(mixer.scene)));
+        }
+
+        // Silence/monitoring cannot be reported by these consoles over MIDI,
+        // so they're intentionally omitted. Surface the fact briefly in details.
+        if (audio.monitoring) details.push('Monitoring: ATEM meters (console has no meter feed)');
+      } else {
+        // X32 / Behringer / Midas / Yamaha — OSC-based mixers expose richer data
+        var xMute = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' OK');
+        tiles.push(_audioTile('Master Mute', xMute, mixer.mainMuted ? '#FF5252' : '#00E676'));
+
+        var xSil = audio.silenceDetected ? 'Silence' : (AUDIO_CHECK_SVG + ' Signal');
+        tiles.push(_audioTile('Silence', xSil, audio.silenceDetected ? '#eab308' : '#00E676'));
+
+        var xMon = audio.monitoring ? (AUDIO_CHECK_SVG + ' Active') : '— Off';
+        tiles.push(_audioTile('Monitoring', xMon, audio.monitoring ? '#00E676' : '#8B9DAF'));
+
+        if (mixer.firmware) details.push('Firmware: ' + mixer.firmware);
+        if (audio.lastLevel != null) details.push('Level: ' + audio.lastLevel + ' dB');
+      }
+
+      // Pick grid column count from tile count (2, 3, or 4)
+      var n = tiles.length;
+      var gridClass = n === 4 ? 'grid-4col' : (n === 2 ? 'grid-2col' : 'grid-3col');
+      body.innerHTML = '<div class="' + gridClass + '" style="gap:12px">' + tiles.join('') + '</div>';
+
+      if (detailRow) {
+        detailRow.innerHTML = details.map(function(p) { return '<span>' + _escHtml(p) + '</span>'; }).join('');
       }
     }
 
