@@ -2414,9 +2414,12 @@ class ChurchAVAgent {
     this.mixer = new MixerBridge(mixerConfig);
     await this.mixer.connect();
 
-    const online = await this.mixer.isOnline();
+    // Always fetch status — even offline, the driver returns its model name
+    // (e.g. 'SQ') so the UI can show the identity immediately instead of
+    // waiting for the first successful 30s poll to populate it.
+    const status = await this.mixer.getStatus();
+    const online = !!status.online;
     if (online) {
-      const status = await this.mixer.getStatus();
       this.status.mixer = { connected: true, type: mixerConfig.type, model: status.model || null, firmware: status.firmware || null, mainMuted: status.mainMuted };
       const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${status.model ? ` ${status.model}` : ''}`;
       this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
@@ -2424,7 +2427,7 @@ class ChurchAVAgent {
       if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
-      this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false };
+      this.status.mixer = { connected: false, type: mixerConfig.type, model: status.model || null, mainMuted: false };
     }
     // Push initial connected state — connectRelay() fires sendStatus() before
     // connectMixer() runs (default: connected:false), so this corrects it.
