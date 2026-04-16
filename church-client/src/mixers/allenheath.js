@@ -350,6 +350,7 @@ class AllenHeathMixer {
     const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
     this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
+    this._state.mutes[`input:${n}`] = true;
   }
 
   async unmuteChannel(ch) {
@@ -357,16 +358,19 @@ class AllenHeathMixer {
     const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
     this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+    this._state.mutes[`input:${n}`] = false;
   }
 
   async muteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
     this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x01));
+    this._state.mutes['lr:0'] = true;
   }
 
   async unmuteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
     this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x00));
+    this._state.mutes['lr:0'] = false;
   }
 
   // ─── DCA / MUTE GROUP CONTROL ──────────────────────────────────────────────
@@ -379,6 +383,7 @@ class AllenHeathMixer {
     const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
     this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
+    this._state.mutes[`dca:${n}`] = true;
   }
 
   async unmuteDca(dca) {
@@ -386,6 +391,7 @@ class AllenHeathMixer {
     const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
     this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+    this._state.mutes[`dca:${n}`] = false;
   }
 
   /**
@@ -539,11 +545,13 @@ class AllenHeathMixer {
 
   async recallScene(n) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const { bankMsg, pgmMsg } = buildSceneRecall(this.midiCh, parseInt(n));
+    const sceneNum = Math.max(1, Math.min(SQ_COUNTS.scenes, parseInt(n)));
+    const { bankMsg, pgmMsg } = buildSceneRecall(this.midiCh, sceneNum);
     this._send(bankMsg);
     // 200ms delay between bank select and program change (SQ requirement)
     await new Promise(r => setTimeout(r, 200));
     this._send(pgmMsg);
+    this._state.scene = sceneNum;
   }
 
   async saveScene(n, name) {

@@ -1162,6 +1162,27 @@ class ChurchAVAgent {
 
     this.sendToRelay({ type: 'command_result', id, command, result, error });
 
+    // Push updated mixer status immediately after any successful mixer command so
+    // the portal overview reflects the change without waiting for the 30s poll.
+    if (!error && command.startsWith('mixer.') && this.mixer) {
+      (async () => {
+        try {
+          const s = await this.mixer.getStatus();
+          const mc = this.config.mixer || {};
+          this.status.mixer = {
+            connected: s.online,
+            type: mc.type,
+            model: s.model || this.status.mixer?.model || null,
+            firmware: s.firmware || this.status.mixer?.firmware || null,
+            mainMuted: s.mainMuted,
+            mainFader: s.mainFader != null ? s.mainFader : (this.status.mixer?.mainFader ?? null),
+            scene: s.scene != null ? s.scene : (this.status.mixer?.scene ?? null),
+          };
+          this.sendStatus();
+        } catch { /* best-effort — 30s poll will catch it */ }
+      })();
+    }
+
     // Track recent commands for diagnostic bundles
     this._recentCommands.push({ command, params, error: error || null, timestamp: Date.now() });
     while (this._recentCommands.length > 20) this._recentCommands.shift();
