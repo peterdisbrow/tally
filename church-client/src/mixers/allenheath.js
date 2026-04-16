@@ -240,6 +240,17 @@ class AllenHeathMixer {
   }
 
   /**
+   * Send MIDI bytes and throw if the write fails (dead/stale socket).
+   * @param {number[]} bytes
+   */
+  _send(bytes) {
+    if (!this._tcp.send(bytes)) {
+      this._online = false;
+      throw new Error(`${this.model} send failed — connection lost`);
+    }
+  }
+
+  /**
    * @param {{ host: string, port?: number, model?: string, midiChannel?: number }} opts
    *   model: 'SQ' | 'SQ5' | 'SQ6' | 'SQ7' (default 'SQ')
    *   midiChannel: 0–15 (default 0 = MIDI channel 1)
@@ -338,24 +349,24 @@ class AllenHeathMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async unmuteChannel(ch) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
 
   async muteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x01));
+    this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x01));
   }
 
   async unmuteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x00));
+    this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x00));
   }
 
   // ─── DCA / MUTE GROUP CONTROL ──────────────────────────────────────────────
@@ -367,14 +378,14 @@ class AllenHeathMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async unmuteDca(dca) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
 
   /**
@@ -386,7 +397,7 @@ class AllenHeathMixer {
     const addr = nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, n);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   /**
@@ -396,14 +407,14 @@ class AllenHeathMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(mg);
     const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async deactivateMuteGroup(mg) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = AllenHeathMixer._idx(mg);
     const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
 
   // ─── FADER CONTROL ─────────────────────────────────────────────────────────
@@ -417,7 +428,7 @@ class AllenHeathMixer {
     const addr = nrpn2D(SEND_LEVEL.inputToLr.msb, SEND_LEVEL.inputToLr.lsb, 1, n, 0);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   /**
@@ -448,7 +459,7 @@ class AllenHeathMixer {
     const addr = nrpn2D(SEND_LEVEL.inputToMix.msb, SEND_LEVEL.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   /**
@@ -464,7 +475,7 @@ class AllenHeathMixer {
     const addr = nrpn2D(SEND_LEVEL.inputToFxSend.msb, SEND_LEVEL.inputToFxSend.lsb, SQ_COUNTS.fxSends, src, snk);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   /**
@@ -476,7 +487,7 @@ class AllenHeathMixer {
     const addr = nrpn1D(OUTPUT_LEVEL.mix.msb, OUTPUT_LEVEL.mix.lsb, n);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   // ─── ROUTING ASSIGNS ───────────────────────────────────────────────────────
@@ -489,7 +500,7 @@ class AllenHeathMixer {
     const src = AllenHeathMixer._idx(inputCh);
     const snk = AllenHeathMixer._idx(mixBus);
     const addr = nrpn2D(SEND_ASSIGN.inputToMix.msb, SEND_ASSIGN.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
   }
 
   /**
@@ -500,7 +511,7 @@ class AllenHeathMixer {
     const src = AllenHeathMixer._idx(inputCh);
     const snk = AllenHeathMixer._idx(group);
     const addr = nrpn2D(SEND_ASSIGN.inputToGroup.msb, SEND_ASSIGN.inputToGroup.lsb, SQ_COUNTS.groups, src, snk);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
   }
 
   // ─── PAN ───────────────────────────────────────────────────────────────────
@@ -521,7 +532,7 @@ class AllenHeathMixer {
     const addr = nrpn2D(SEND_PAN.inputToLr.msb, SEND_PAN.inputToLr.lsb, 1, n, 0);
     const data = normalToPanData(normalized);
     const { vc, vf } = dataToVcVf(data);
-    this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }
 
   // ─── SCENE RECALL ──────────────────────────────────────────────────────────
@@ -529,10 +540,10 @@ class AllenHeathMixer {
   async recallScene(n) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const { bankMsg, pgmMsg } = buildSceneRecall(this.midiCh, parseInt(n));
-    this._tcp.send(bankMsg);
+    this._send(bankMsg);
     // 200ms delay between bank select and program change (SQ requirement)
     await new Promise(r => setTimeout(r, 200));
-    this._tcp.send(pgmMsg);
+    this._send(pgmMsg);
   }
 
   async saveScene(n, name) {
@@ -552,9 +563,9 @@ class AllenHeathMixer {
   async pressSoftKey(key) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const idx = AllenHeathMixer._idx(key);
-    this._tcp.send(buildSoftKey(this.midiCh, idx, true));
+    this._send(buildSoftKey(this.midiCh, idx, true));
     await new Promise(r => setTimeout(r, 100));
-    this._tcp.send(buildSoftKey(this.midiCh, idx, false));
+    this._send(buildSoftKey(this.midiCh, idx, false));
   }
 
   // ─── CHANNEL PROCESSING (OSC — MIDI can't do these) ────────────────────────

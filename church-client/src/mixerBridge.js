@@ -39,7 +39,7 @@ class MixerBridge extends EventEmitter {
     this._mixer = this._create(config);
   }
 
-  _create({ type, host, port, model }) {
+  _create({ type, host, port, model, midiChannel }) {
     const t = (type || '').toLowerCase();
     switch (t) {
       case 'behringer':
@@ -49,12 +49,12 @@ class MixerBridge extends EventEmitter {
         // Midas M32 uses identical OSC protocol to Behringer X32
         return new BehringerMixer({ host, port: port || 10023, model: model || 'M32' });
       case 'allenheath':
-        return new AllenHeathMixer({ host, port: port || 51326, model: model || 'SQ' });
+        return new AllenHeathMixer({ host, port: port || 51326, model: model || 'SQ', midiChannel });
       case 'avantis':
-        return new AvantisMixer({ host, port: port || 51325, model: model || 'Avantis' });
+        return new AvantisMixer({ host, port: port || 51325, model: model || 'Avantis', midiChannel });
       case 'dlive':
         // dLive uses identical TCP MIDI protocol to Avantis (128 inputs vs 64)
-        return new AvantisMixer({ host, port: port || 51325, model: model || 'dLive' });
+        return new AvantisMixer({ host, port: port || 51325, model: model || 'dLive', midiChannel });
       case 'yamaha':
         return new YamahaMixer({ host, port, model: model || 'CL' });
       default:

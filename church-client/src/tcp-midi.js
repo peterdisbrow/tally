@@ -170,6 +170,8 @@ class TcpMidi extends EventEmitter {
 
       this._socket.connect(this.port, this.host, () => {
         this._socket.setTimeout(0);
+        this._socket.setNoDelay(true);          // Disable Nagle — send MIDI bytes immediately
+        this._socket.setKeepAlive(true, 10000); // Detect dead connections within ~10s
         this._online = true;
         this._reconnectDelay = RECONNECT_BASE_MS;
         this._parser.reset();
@@ -254,13 +256,18 @@ class TcpMidi extends EventEmitter {
   /**
    * Send raw MIDI bytes over the TCP socket.
    * @param {number[]|Uint8Array|Buffer} bytes
+   * @returns {boolean} true if written successfully
    */
   send(bytes) {
-    if (!this._socket || this._socket.destroyed) return false;
+    if (!this._socket || this._socket.destroyed || !this._socket.writable) {
+      this._online = false;
+      return false;
+    }
     try {
       this._socket.write(Buffer.from(bytes));
       return true;
     } catch {
+      this._online = false;
       return false;
     }
   }
