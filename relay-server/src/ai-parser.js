@@ -8,6 +8,7 @@
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
 const { buildCommandPrompt, TALLY_ENGINEER_IDENTITY, TALLY_ENGINEER_KNOWLEDGE } = require('./tally-engineer');
 const { buildContext } = require('./tally-context');
+const { decodeHtmlEntities } = require('./escapeHtml');
 
 // ─── AI USAGE LOGGING ────────────────────────────────────────────────────────
 
@@ -1021,7 +1022,7 @@ MEMORY & PERSONALITY:
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callAnthropic(messages, timeout = 15000, systemPrompt = '', model = 'claude-haiku-4-5-20251001') {
+async function callAnthropic(messages, timeout = 20000, systemPrompt = '', model = 'claude-haiku-4-5-20251001') {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
@@ -1034,8 +1035,10 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '', model
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+    // Separate fetch from response handling so we can retry on network/timeout errors
+    let resp;
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1051,13 +1054,25 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '', model
         }),
         signal: controller.signal,
       });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      // Retry on timeout (AbortError) or transient network failure (TypeError)
+      if (attempt < MAX_RETRIES && (fetchErr.name === 'AbortError' || fetchErr.name === 'TypeError')) {
+        console.warn(`[ai-parser] Fetch failed (${fetchErr.name}), retry ${attempt + 1}/${MAX_RETRIES} in ${RETRY_DELAYS[attempt]}ms`);
+        await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      throw fetchErr;
+    }
+
+    try {
+      clearTimeout(timeoutId);
 
       if (!resp.ok) {
         const body = await resp.text();
         const status = resp.status;
         // Retry on 429 (rate-limited) or 529 (overloaded) — not on 4xx auth/validation errors
         if ((status === 429 || status === 529) && attempt < MAX_RETRIES) {
-          clearTimeout(timeoutId);
           console.warn(`[ai-parser] API ${status}, retry ${attempt + 1}/${MAX_RETRIES} in ${RETRY_DELAYS[attempt]}ms`);
           await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
           continue;
@@ -1070,7 +1085,9 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '', model
 
       if (!raw) throw new Error('Anthropic returned empty response');
       const latencyMs = Date.now() - callStartMs;
-      return { text: raw, usage: data.usage || null, latencyMs };
+      // Decode any HTML entities the AI may have returned (e.g. &quot;) so they
+      // don't get double-encoded by the portal's escapeHtml and show literally.
+      return { text: decodeHtmlEntities(raw), usage: data.usage || null, latencyMs };
 
     } finally {
       clearTimeout(timeoutId);

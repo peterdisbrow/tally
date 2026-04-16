@@ -253,7 +253,7 @@ const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
 const { setupHowToPortal } = require('./src/howToPortal');
 const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
-const { escapeHtml } = require('./src/escapeHtml');
+const { escapeHtml, decodeHtmlEntities } = require('./src/escapeHtml');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus, closeRedisRateLimitClient } = require('./src/rateLimit');
 const { createWebSocketHandlers } = require('./src/websocketRouter');
@@ -3571,7 +3571,7 @@ async function callDiagnosticAI(churchId, question, roomCtx = {}) {
     }
 
     const data = await aiRes.json();
-    const reply = data?.content?.[0]?.text || 'No response.';
+    const reply = decodeHtmlEntities(data?.content?.[0]?.text || 'No response.');
 
     if (data?.usage) {
       logAiUsage({
@@ -3631,7 +3631,7 @@ async function _callHaikuDiagnosticFallback(churchId, question, conversationHist
     if (!aiRes.ok) return 'Sorry, I could not process that question right now. Try again in a moment.';
 
     const data = await aiRes.json();
-    const reply = data?.content?.[0]?.text || 'No response.';
+    const reply = decodeHtmlEntities(data?.content?.[0]?.text || 'No response.');
 
     if (data?.usage) {
       logAiUsage({
