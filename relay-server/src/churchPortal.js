@@ -2684,9 +2684,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     const runtime = churches.get(churchId);
     const openSockets = [];
     if (runtime?.sockets?.size) {
-      // If TD is room-scoped, only send to the socket for that room
-      if (req.tdRoomId && runtime.roomInstanceMap) {
-        const instName = runtime.roomInstanceMap[req.tdRoomId];
+      // Scope to a specific room instance when a roomId is known (TD JWT or query param)
+      const targetRoomId = req.tdRoomId || req.query.roomId || null;
+      if (targetRoomId && runtime.roomInstanceMap) {
+        const instName = runtime.roomInstanceMap[targetRoomId];
         if (instName) {
           const sock = runtime.sockets.get(instName);
           if (sock && sock.readyState === 1) openSockets.push(sock);

@@ -65,6 +65,12 @@ class VideoHub extends EventEmitter {
       this.socket.on('close', () => {
         const wasConnected = this.connected;
         this.connected = false;
+        // Reject any in-flight callbacks immediately so they don't get falsely
+        // resolved by the reconnect handshake's VIDEO OUTPUT ROUTING push.
+        const stale = this._pendingCallbacks.splice(0);
+        for (const cb of stale) {
+          try { cb.reject?.(new Error('VideoHub connection lost')); } catch { /* ignore */ }
+        }
         if (wasConnected) {
           console.warn(`⚠️  Video Hub "${this.name}" disconnected`);
           this.emit('disconnected');
@@ -227,7 +233,7 @@ class VideoHub extends EventEmitter {
   }
 
   _resolvePending(blockType, isError = false) {
-    const idx = this._pendingCallbacks.findIndex(p => p.blockType === blockType || p.blockType === 'ACK');
+    const idx = this._pendingCallbacks.findIndex(p => p.blockType === blockType);
     if (idx !== -1) {
       const cb = this._pendingCallbacks.splice(idx, 1)[0];
       if (isError) cb.reject?.(new Error('NAK'));

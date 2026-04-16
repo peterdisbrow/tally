@@ -2347,7 +2347,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _vhInFlight[key] = true;
       if (window._lastStatus) updateVideoHubRoutingCard(window._lastStatus);
       try {
-        await api('POST', '/api/church/app/send-command', {
+        await api('POST', '/api/church/app/send-command' + roomParam(), {
           command: 'videohub.route',
           params: {
             hubIndex: _vhHubIndex,
