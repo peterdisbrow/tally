@@ -2303,8 +2303,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         var selectDisabled = isInFlight ? ' disabled' : '';
         return '<tr data-vh-row="' + escapeHtml(outIdx) + '">'
-          + '<td style="font-weight:500;color:#F0F2F4">' + escapeHtml(outputName(outIdx)) + '</td>'
-          + '<td style="text-align:center;color:#00E676;font-size:16px">&#x2190;</td>'
           + '<td>'
             + '<select data-vh-out="' + escapeHtml(outIdx) + '" '
               + 'onchange="stageVideoHubRoute(\'' + escapeHtml(outIdx) + '\', this.value)"'
@@ -2314,6 +2312,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '</select>'
             + ' <span style="display:inline-block;margin-left:8px">' + confirmCell + '</span>'
           + '</td>'
+          + '<td style="text-align:center;color:#00E676;font-size:16px">&#x2192;</td>'
+          + '<td style="font-weight:500;color:#F0F2F4">' + escapeHtml(outputName(outIdx)) + '</td>'
         + '</tr>';
       }).join('');
 
