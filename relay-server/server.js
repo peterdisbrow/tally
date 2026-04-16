@@ -108,6 +108,7 @@ app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal'), { maxAge: '1h', setHeaders(res, filePath) { if (/\.(css|js|png|jpg|svg|woff2?)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=3600'); } }));
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin'), { maxAge: '1h' }));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools'), { maxAge: '1h' }));
+app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/'));
 
 // Public rundown view — no auth required
 app.get('/rundown/view/:token', (_req, res) => {
