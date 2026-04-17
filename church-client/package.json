@@ -10,7 +10,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "node --test test/*.test.js",
-    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test test/*.test.js"
+    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test test/*.test.js",
+    "test:integration": "node --test --test-reporter=spec tests/integration/device-connections.test.js"
   },
   "dependencies": {
     "atem-connection": "^3.9.0",
