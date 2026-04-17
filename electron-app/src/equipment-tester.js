@@ -157,7 +157,7 @@ async function testEquipmentConnection(params) {
     switch (type) {
       case 'atem': {
         // ATEM uses UDP on port 9910 — send SYN handshake and wait for response
-        const ok = await tryUdpProbeLocal(ip, port || 9910, ATEM_SYN_PACKET, 2000);
+        const ok = await _tryUdpProbe(ip, port || 9910, ATEM_SYN_PACKET, 2000);
         return { success: ok, details: ok ? 'ATEM reachable (UDP handshake OK)' : 'Cannot reach ATEM — check IP and that it is powered on' };
       }
       case 'companion': {
@@ -244,10 +244,9 @@ async function testEquipmentConnection(params) {
         // 51325 matches what the driver will do and reliably confirms reachability.
         if (mixerType === 'allenheath' || mixerType === 'dlive' || mixerType === 'avantis') {
           const targetPort = port || 51325;
-          const result = await tryTcpConnectLocal(ip, targetPort, 3000);
-          const ok = !!result.success;
+          const ok = await _tryTcpConnect(ip, targetPort, 3000);
           return {
-            success: ok,
+            success: !!ok,
             details: ok
               ? `${mixerType} console reachable at ${ip}:${targetPort} (TCP MIDI)`
               : `Cannot reach ${mixerType} console at ${ip}:${targetPort} — check IP and power`,

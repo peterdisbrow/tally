@@ -223,7 +223,7 @@ class VideoHub extends EventEmitter {
 
       case 'NAK':
         console.warn(`Video Hub "${this.name}" NAK received`);
-        this._resolvePending('NAK', true);
+        this._resolvePending('ACK', true);
         break;
 
       default:

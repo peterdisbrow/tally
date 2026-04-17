@@ -419,6 +419,7 @@ describe('TcpMidi.send() — no socket', () => {
     const written = [];
     t._socket = {
       destroyed: false,
+      writable: true,
       write: (buf) => { written.push(buf); return true; },
     };
     const result = t.send([0x90, 60, 100]);
@@ -430,6 +431,7 @@ describe('TcpMidi.send() — no socket', () => {
     const t = new TcpMidi({ host: '10.0.0.1', port: 9000 });
     t._socket = {
       destroyed: false,
+      writable: true,
       write: () => { throw new Error('write error'); },
     };
     const result = t.send([0x90, 60, 100]);

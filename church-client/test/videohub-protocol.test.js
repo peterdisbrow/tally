@@ -258,6 +258,40 @@ describe('VideoHub._parseBuffer() — multiple blocks in buffer', () => {
     // Buffer still contains the partial block
     assert.ok(hub._buffer.includes('INPUT LABELS'));
   });
+
+  it('processes block correctly when data arrives in two TCP chunks (split packet)', () => {
+    const hub = new VideoHub({ ip: '10.0.0.1' });
+    hub.connected = true;
+    hub.socket = { write: () => {} };
+
+    // Simulate first chunk — no double newline yet
+    hub._buffer += 'INPUT LABELS:\n0 Camera 1\n';
+    hub._parseBuffer();
+    assert.equal(hub._inputLabels.size, 0, 'should not parse until double-newline arrives');
+
+    // Simulate second chunk — completes the block
+    hub._buffer += '1 Camera 2\n\n';
+    hub._parseBuffer();
+    assert.equal(hub._inputLabels.get(0), 'Camera 1', 'first label parsed after second chunk');
+    assert.equal(hub._inputLabels.get(1), 'Camera 2', 'second label parsed after second chunk');
+  });
+
+  it('handles a ROUTING block split across two chunks', () => {
+    const hub = new VideoHub({ ip: '10.0.0.1' });
+    hub.connected = true;
+    hub.socket = { write: () => {} };
+
+    // First chunk — missing the closing double-newline
+    hub._buffer += 'VIDEO OUTPUT ROUTING:\n0 3\n1 2\n';
+    hub._parseBuffer();
+    assert.equal(hub._routes.size, 0, 'routes not parsed until block is complete');
+
+    // Second chunk — closes the block
+    hub._buffer += '\n';
+    hub._parseBuffer();
+    assert.equal(hub._routes.get(0), 3);
+    assert.equal(hub._routes.get(1), 2);
+  });
 });
 
 // ─── disconnect() ─────────────────────────────────────────────────────────────
