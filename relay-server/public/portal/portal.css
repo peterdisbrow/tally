@@ -890,14 +890,16 @@ input:checked + .slider:before {
   .hamburger { display: flex; }
   .sidebar {
     display: none;
-    position: fixed; z-index: 1000; top: 0; left: 0;
-    width: 220px; height: 100vh; height: 100dvh;
+    position: fixed; z-index: 1000;
+    top: 0; left: 0; bottom: 0;
+    width: 220px;
     overflow-y: scroll; overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .sidebar.open { display: flex; flex-direction: column; }
+  .sidebar.open ~ #sticky-help-nudge { display: none !important; }
   .sidebar-overlay.open { display: block; }
   .sidebar .sidebar-footer { margin-top: 16px; }
   .sidebar-settings-toggle {
