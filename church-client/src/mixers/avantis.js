@@ -222,10 +222,10 @@ class AvantisMixer {
       online,
       model: this.model,
       firmware: '',
-      mainFader: this._state.faders['input:main'] != null
-        ? midiLevelToNormal(this._state.faders['input:main'])
+      mainFader: this._state.faders['mix:0'] != null
+        ? midiLevelToNormal(this._state.faders['mix:0'])
         : 0,
-      mainMuted: this._state.mutes['input:main'] || false,
+      mainMuted: this._state.mutes['mix:0'] || false,
       scene: this._state.scene,
     };
   }
