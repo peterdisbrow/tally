@@ -258,6 +258,7 @@ class AvantisMixer {
     const n = Math.max(0, parseInt(ch) - 1);
     const val = normalToMidiLevel(parseFloat(level));
     this._tcp.send(buildNrpn(this._chInput, n, NRPN.FADER, val));
+    this._state.faders[`input:${n}`] = val;
   }
 
   /**
@@ -282,6 +283,7 @@ class AvantisMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(ch) - 1);
     this._tcp.send(buildNoteOn(this._chInput, n, 0x7F)); // velocity ≥ 64 = mute
+    this._state.mutes[`input:${n}`] = true;
   }
 
   /**
@@ -291,6 +293,7 @@ class AvantisMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(ch) - 1);
     this._tcp.send(buildNoteOn(this._chInput, n, 0x00)); // velocity ≤ 63 = unmute
+    this._state.mutes[`input:${n}`] = false;
   }
 
   // ─── MASTER CONTROL ────────────────────────────────────────────────────────
@@ -302,11 +305,13 @@ class AvantisMixer {
   async muteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
     this._tcp.send(buildNoteOn(this._chMix, 0, 0x7F));
+    this._state.mutes['mix:0'] = true;
   }
 
   async unmuteMaster() {
     if (!this._online) throw new Error(`${this.model} not connected`);
     this._tcp.send(buildNoteOn(this._chMix, 0, 0x00));
+    this._state.mutes['mix:0'] = false;
   }
 
   // ─── DCA CONTROL ───────────────────────────────────────────────────────────
@@ -319,12 +324,14 @@ class AvantisMixer {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(dca) - 1);
     this._tcp.send(buildNoteOn(this._chDca, n, 0x7F));
+    this._state.mutes[`dca:${n}`] = true;
   }
 
   async unmuteDca(dca) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(dca) - 1);
     this._tcp.send(buildNoteOn(this._chDca, n, 0x00));
+    this._state.mutes[`dca:${n}`] = false;
   }
 
   /**
@@ -335,6 +342,7 @@ class AvantisMixer {
     const n = Math.max(0, parseInt(dca) - 1);
     const val = normalToMidiLevel(parseFloat(level));
     this._tcp.send(buildNrpn(this._chDca, n, NRPN.FADER, val));
+    this._state.faders[`dca:${n}`] = val;
   }
 
   // ─── SCENE RECALL ──────────────────────────────────────────────────────────
@@ -344,7 +352,9 @@ class AvantisMixer {
    */
   async recallScene(n) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildSceneRecall(this.base, parseInt(n)));
+    const sceneNum = Math.max(1, Math.min(500, parseInt(n)));
+    this._tcp.send(buildSceneRecall(this.base, sceneNum));
+    this._state.scene = sceneNum;
   }
 
   /** Scene save is not available via TCP MIDI. */

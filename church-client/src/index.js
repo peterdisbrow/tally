@@ -1183,6 +1183,26 @@ class ChurchAVAgent {
       })();
     }
 
+    // Push updated vMix status immediately after any successful vmix command so
+    // the portal reflects the change without waiting for the 30s poll.
+    if (!error && command.startsWith('vmix.') && this.vmix) {
+      (async () => {
+        try {
+          const s = await this.vmix.getStatus();
+          if (s) {
+            this.status.vmix = {
+              connected: s.running,
+              streaming: s.streaming || false,
+              recording: s.recording || false,
+              edition: s.edition || this.status.vmix?.edition || null,
+              version: s.version || this.status.vmix?.version || null,
+            };
+            this.sendStatus();
+          }
+        } catch { /* best-effort — 30s poll will catch it */ }
+      })();
+    }
+
     // Track recent commands for diagnostic bundles
     this._recentCommands.push({ command, params, error: error || null, timestamp: Date.now() });
     while (this._recentCommands.length > 20) this._recentCommands.shift();
