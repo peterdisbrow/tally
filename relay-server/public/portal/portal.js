@@ -1027,10 +1027,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       var open = sidebar.classList.toggle('open');
       overlay.classList.toggle('open', open);
-      // Lock body scroll on iOS so touch events on the sidebar don't
-      // bleed through to the content behind it.
-      document.body.classList.toggle('sidebar-nav-open', open);
     }
+
+    // ── iOS sidebar touch-scroll fix ────────────────────────────────────────────
+    // iOS Safari ignores overflow-y:scroll on position:fixed elements and lets
+    // touch events bleed through to the body.  Intercept touchmove on the sidebar
+    // to manually scroll it and prevent the body from moving.
+    (function initSidebarTouchScroll() {
+      var sidebar = document.getElementById('sidebar-nav');
+      if (!sidebar) return;
+      sidebar.addEventListener('touchstart', function(e) {
+        sidebar._startY = e.touches[0].clientY;
+      }, { passive: true });
+      sidebar.addEventListener('touchmove', function(e) {
+        var delta = sidebar._startY - e.touches[0].clientY;
+        sidebar._startY = e.touches[0].clientY;
+        var atTop    = sidebar.scrollTop === 0 && delta < 0;
+        var atBottom = sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight && delta > 0;
+        // At scroll boundaries, still block so body doesn't move
+        if (atTop || atBottom) {
+          e.preventDefault();
+          return;
+        }
+        sidebar.scrollTop += delta;
+        e.stopPropagation();
+        e.preventDefault();
+      }, { passive: false });
+      // Also block touchmove on the overlay so dragging it doesn't scroll the body
+      var overlay = document.getElementById('sidebar-overlay');
+      if (overlay) {
+        overlay.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+      }
+    })();
 
     // ── Overview Sections: Collapse + Drag-and-Drop ────────────────────────────
     var _sectionDragSrc = null;
@@ -1219,7 +1247,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
-      document.body.classList.remove('sidebar-nav-open');
       // Clean up rundown editor state when navigating away
       if (id !== 'rundown' && typeof _rundownSelectedPlanId !== 'undefined' && _rundownSelectedPlanId) {
         if (typeof showRundownView === 'function') showRundownView('manager');
