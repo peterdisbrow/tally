@@ -1356,7 +1356,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       t.textContent = msg;
       t.className = isError ? 'error' : '';
       t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), 3000);
+      // Errors stay visible longer so they're not missed
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => t.classList.remove('show'), isError ? 8000 : 3000);
     }
 
     // ── API ───────────────────────────────────────────────────────────────────
@@ -16351,6 +16353,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 handleRundownCollaboration(data);
               } else {
                 handleRundownSSE(data);
+              }
+            } else if (data.type === 'command_result' && data.error) {
+              // A command sent to the church-client failed — surface it immediately.
+              var dev = data.command ? data.command.split('.')[0] : '';
+              var label = dev ? (dev.charAt(0).toUpperCase() + dev.slice(1) + ' command') : 'Command';
+              toast(label + ' failed: ' + data.error, true);
+              // Mark the connection as "Degraded" (yellow) if it was showing Connected.
+              // This catches the SQ7 case where TCP stays open but sends fail.
+              var dot4 = document.getElementById('stat-status-dot');
+              var txt4 = document.getElementById('stat-status-text');
+              if (dot4 && txt4 && txt4.textContent === 'Connected') {
+                dot4.style.background = '#F59E0B';
+                txt4.textContent = 'Degraded';
+                clearTimeout(window._degradedResetTimer);
+                window._degradedResetTimer = setTimeout(function() {
+                  if (txt4.textContent === 'Degraded') {
+                    dot4.style.background = '#00E676';
+                    txt4.textContent = 'Connected';
+                  }
+                }, 30000);
               }
             } else if (data.type === 'disconnected') {
               var dot2 = document.getElementById('stat-status-dot');

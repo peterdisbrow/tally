@@ -4847,6 +4847,16 @@ const _wsHandlers = createWebSocketHandlers({
       result: cmdResultMsg.result,
       error: cmdResultMsg.error,
     });
+    // Push command errors to the portal SSE stream so operators see them immediately.
+    // Successful results are not forwarded (the next status_update will reflect the change).
+    if (cmdResultMsg.error) {
+      broadcastToPortal(church.churchId, {
+        type: 'command_result',
+        command: cmdResultMsg.command,
+        error: cmdResultMsg.error,
+        messageId: cmdResultMsg.id || cmdResultMsg.messageId,
+      });
+    }
     totalMessagesRelayed++;
   },
   onChurchMessage(church, msg) {

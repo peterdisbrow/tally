@@ -3572,6 +3572,10 @@ api.onLog((text) => {
   if (rawLog) {
     const line = document.createElement('div');
     line.textContent = t;
+    // Highlight error lines in red so they're immediately visible
+    if (/❌|error:|Error:|failed:|Failed:|Command error|WARN|warn/i.test(t)) {
+      line.style.color = '#FF5252';
+    }
     rawLog.appendChild(line);
     // Cap at 500 lines to avoid memory growth
     while (rawLog.children.length > 500) rawLog.removeChild(rawLog.firstChild);
