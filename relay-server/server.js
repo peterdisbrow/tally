@@ -108,7 +108,7 @@ app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal'), { maxAge: '1h', setHeaders(res, filePath) { if (/\.(css|js|png|jpg|svg|woff2?)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=3600'); } }));
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin'), { maxAge: '1h' }));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools'), { maxAge: '1h' }));
-app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/'));
+app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/clock'));
 
 // Public rundown view — no auth required
 app.get('/rundown/view/:token', (_req, res) => {
@@ -4440,6 +4440,12 @@ function setAdminSession(res, key) {
 
 app.get(['/dashboard', '/dashboard/*'], (req, res) => {
   res.redirect(302, '/admin');
+});
+
+// SPA fallback: serve index.html for any /tools/clock/* route that isn't a static file
+app.get('/tools/clock/*', (_req, res) => {
+  const indexPath = require('path').join(__dirname, 'public/tools/clock/index.html');
+  res.sendFile(indexPath);
 });
 
 // SPA fallback: serve index.html for any /admin/* route that isn't a static file
