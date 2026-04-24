@@ -20,3 +20,6 @@ mockup-*.html
 TallyPortalMockup.jsx
 relay-server/public/portal/mockup*
 CODEX-*.md
+.~lock*#
+.claude/worktrees/
+*/.claude/worktrees/
