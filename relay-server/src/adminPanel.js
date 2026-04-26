@@ -345,7 +345,9 @@ async function loadStats() {
     document.getElementById('s-online').textContent = d.onlineCount||0;
     document.getElementById('s-alerts').textContent = d.alertCount||0;
     document.getElementById('s-limit').textContent = (d.churchCount||0) + ' / ' + (d.church_limit||0);
-  } catch {}
+  } catch (err) {
+    console.error('[admin loadStats] error:', err);
+  }
 }
 
 async function loadFleet() {
@@ -1470,10 +1472,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     try {
       await qRun('UPDATE rooms SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), roomId]);
-      try { await qRun('DELETE FROM room_equipment WHERE room_id = ?', [roomId]); } catch {}
-      try { await qRun('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?', [room.campus_id, roomId]); } catch {}
-      try { await qRun('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?', [roomId]); } catch {}
-      try { await qRun('DELETE FROM td_room_assignments WHERE room_id = ?', [roomId]); } catch {}
+      try { await qRun('DELETE FROM room_equipment WHERE room_id = ?', [roomId]); } catch (err) { console.error('[admin DELETE /api/admin/rooms/:roomId] cleanup room_equipment error:', err); }
+      try { await qRun('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?', [room.campus_id, roomId]); } catch (err) { console.error('[admin DELETE /api/admin/rooms/:roomId] cleanup alerts error:', err); }
+      try { await qRun('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?', [roomId]); } catch (err) { console.error('[admin DELETE /api/admin/rooms/:roomId] clear churches.room_id error:', err); }
+      try { await qRun('DELETE FROM td_room_assignments WHERE room_id = ?', [roomId]); } catch (err) { console.error('[admin DELETE /api/admin/rooms/:roomId] cleanup td_room_assignments error:', err); }
 
       // Clean up runtime state
       const runtime = churches.get(room.campus_id);
@@ -1503,7 +1505,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[admin GET /api/admin/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       const savedRoles = equipment._roles || null;
       const autoRoles = autoDetectRoles(equipment);
@@ -1539,7 +1541,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[admin PUT /api/admin/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       equipment._roles = roles;
       const now = new Date().toISOString();
@@ -1570,7 +1572,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const row = await qOne('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?', [roomId]);
       if (!row) return res.json({ equipment: {}, updatedAt: null });
       let equipment = {};
-      try { equipment = JSON.parse(row.equipment); } catch { }
+      try { equipment = JSON.parse(row.equipment); } catch (err) { console.debug('[admin GET /api/admin/rooms/:roomId/equipment] equipment JSON parse error:', err?.message); }
       res.json({ equipment, updatedAt: row.updated_at });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
