@@ -3189,6 +3189,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const colValues = await manualRundown.getColumnValues(plan.id);
         const checklists = await manualRundown.getChecklistsForPlan(plan.id);
 
+        // Pull latest post-show report — used to render actual durations alongside planned.
+        let latestReport = null;
+        try {
+          const reports = await manualRundown.getShowReports(plan.id);
+          latestReport = (reports || [])[0] || null;
+        } catch { /* reports unavailable */ }
+        const actualByItemId = {};
+        if (latestReport && Array.isArray(latestReport.itemTimings)) {
+          for (const t of latestReport.itemTimings) {
+            if (t && t.itemId) actualByItemId[t.itemId] = t;
+          }
+        }
+
         const church = churches.get(req.params.churchId);
         const churchName = church?.name || church?.churchName || 'Church';
 
@@ -3213,6 +3226,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const headerParts = [churchName];
         if (plan.serviceDate) headerParts.push(plan.serviceDate);
         headerParts.push('Format: ' + format.charAt(0).toUpperCase() + format.slice(1));
+        if (latestReport) headerParts.push('Includes post-show actuals');
         doc.text(headerParts.join('  |  '), { align: 'center' });
         doc.moveDown(0.5);
         doc.moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
@@ -3220,7 +3234,6 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         const items = plan.items || [];
         let totalSeconds = 0;
-        let runningTime = '09:00';
 
         // Filter items based on format
         const filteredItems = items.filter(item => {
@@ -3242,6 +3255,17 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           cvMap[v.itemId + '_' + v.columnId] = v.value;
         });
 
+        // Column header row — only when actuals present, since planned-only is shown via the duration cell.
+        if (latestReport) {
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#999999');
+          doc.text('PLANNED', 410, doc.y, { width: 50, align: 'right', continued: false });
+          doc.moveUp(1);
+          doc.text('ACTUAL', 470, doc.y, { width: 55, align: 'right', continued: false });
+          doc.moveUp(1);
+          doc.text('VAR', 530, doc.y, { width: 40, align: 'right' });
+          doc.moveDown(0.3);
+        }
+
         let rowNum = 0;
         for (const item of filteredItems) {
           if (doc.y > 680) { doc.addPage(); }
@@ -3261,14 +3285,41 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           totalSeconds += dur;
           const durStr = Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0');
 
-          // Row: number, color dot, title, type, duration
+          // Row: number, color dot, title, type, planned (and actual+variance when present)
           const y = doc.y;
           doc.fontSize(9).font('Helvetica').fillColor('#999999').text(String(rowNum), 40, y, { width: 20 });
           doc.circle(68, y + 5, 4).fill(color);
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(item.title, 78, y, { width: 200 });
-          doc.fontSize(9).font('Helvetica').fillColor('#666666').text(item.itemType, 285, y, { width: 60 });
-          if (item.assignee) doc.text(item.assignee, 350, y, { width: 80 });
-          doc.font('Helvetica').text(durStr, 440, y, { width: 50, align: 'right' });
+          // Hard start time prefix when set, e.g. "[09:30 hard] Welcome"
+          let titleText = item.title;
+          if (item.startType === 'hard' && item.hardStartTime) {
+            titleText = '[' + item.hardStartTime + ' hard] ' + titleText;
+          }
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(titleText, 78, y, { width: 220 });
+          doc.fontSize(9).font('Helvetica').fillColor('#666666').text(item.itemType, 305, y, { width: 50 });
+          if (item.assignee) doc.text(item.assignee, 358, y, { width: 50 });
+
+          if (latestReport) {
+            const timing = actualByItemId[item.id] || null;
+            // Planned in cell at 410; actual at 470; variance at 530
+            doc.fontSize(9).font('Helvetica').fillColor('#444444').text(durStr, 410, y, { width: 50, align: 'right' });
+            if (timing && timing.actualDuration != null) {
+              const aSec = Math.max(0, Math.round(Number(timing.actualDuration) / 1000));
+              const aStr = Math.floor(aSec / 60) + ':' + String(aSec % 60).padStart(2, '0');
+              const varMs = Number(timing.variance || 0);
+              const varSec = Math.round(varMs / 1000);
+              const varSign = varSec > 0 ? '+' : varSec < 0 ? '-' : '';
+              const varAbs = Math.abs(varSec);
+              const varStr = varSign + Math.floor(varAbs / 60) + ':' + String(varAbs % 60).padStart(2, '0');
+              const varColor = varSec > 0 ? '#cc3333' : varSec < 0 ? '#0f8a4d' : '#666666';
+              doc.fillColor('#444444').text(aStr, 470, y, { width: 55, align: 'right' });
+              doc.fillColor(varColor).text(varStr, 530, y, { width: 40, align: 'right' });
+            } else {
+              doc.fillColor('#aaaaaa').text('—', 470, y, { width: 55, align: 'right' });
+              doc.text('—', 530, y, { width: 40, align: 'right' });
+            }
+          } else {
+            doc.font('Helvetica').fillColor('#444444').text(durStr, 440, y, { width: 50, align: 'right' });
+          }
           doc.moveDown(0.3);
 
           // Notes
@@ -3315,10 +3366,29 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         doc.moveDown(1);
         const totalH = Math.floor(totalSeconds / 3600);
         const totalM = Math.floor((totalSeconds % 3600) / 60);
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(
-          'Total Duration: ' + (totalH > 0 ? totalH + 'h ' : '') + totalM + 'm',
-          { align: 'right' }
-        );
+        const plannedTotal = (totalH > 0 ? totalH + 'h ' : '') + totalM + 'm';
+        if (latestReport) {
+          const aSec = Math.max(0, Math.round(Number(latestReport.totalActualMs || 0) / 1000));
+          const aH = Math.floor(aSec / 3600);
+          const aM = Math.floor((aSec % 3600) / 60);
+          const actualTotal = (aH > 0 ? aH + 'h ' : '') + aM + 'm';
+          const varMs = Number(latestReport.totalActualMs || 0) - Number(latestReport.totalPlannedMs || (totalSeconds * 1000));
+          const varSec = Math.round(varMs / 1000);
+          const varSign = varSec > 0 ? '+' : varSec < 0 ? '-' : '';
+          const varAbs = Math.abs(varSec);
+          const varH = Math.floor(varAbs / 3600);
+          const varM = Math.floor((varAbs % 3600) / 60);
+          const varTotal = varSign + (varH > 0 ? varH + 'h ' : '') + varM + 'm';
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(
+            'Planned: ' + plannedTotal + '   Actual: ' + actualTotal + '   Variance: ' + varTotal,
+            { align: 'right' }
+          );
+        } else {
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text(
+            'Total Duration: ' + plannedTotal,
+            { align: 'right' }
+          );
+        }
 
         doc.end();
       } catch (e) {
@@ -3327,6 +3397,105 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       }
     }
   );
+
+  /**
+   * GET /api/public/rundown-report/:token/pdf
+   * Public PDF download for a post-show timing report. Same auth model as
+   * the JSON endpoint above — anyone with the share token can fetch it.
+   */
+  app.get('/api/public/rundown-report/:token/pdf', async (req, res) => {
+    try {
+      const report = await manualRundown.getShowReportByToken(req.params.token);
+      if (!report) return res.status(404).json({ error: 'Report not found' });
+      const plan = await manualRundown.getPlan(report.planId);
+      const planTitle = plan?.title || report.report?.planTitle || 'Show Report';
+      const serviceDate = plan?.serviceDate || report.report?.serviceDate || null;
+
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({ size: 'LETTER', margin: 40, bufferPages: true });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(planTitle) + ' - report.pdf"');
+      doc.pipe(res);
+
+      const fmt = (ms) => {
+        if (ms == null) return '--:--';
+        const neg = ms < 0;
+        const total = Math.max(0, Math.round(Math.abs(ms) / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const str = h > 0
+          ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+          : m + ':' + String(s).padStart(2, '0');
+        return neg ? '-' + str : str;
+      };
+
+      // Header
+      doc.fontSize(18).font('Helvetica-Bold').fillColor('#111111').text(planTitle, { align: 'center' });
+      doc.moveDown(0.2);
+      doc.fontSize(10).font('Helvetica').fillColor('#666666');
+      const headerParts = ['Show Timing Report'];
+      if (serviceDate) headerParts.push(serviceDate);
+      else if (report.sessionStartedAt) headerParts.push(new Date(report.sessionStartedAt).toLocaleDateString());
+      doc.text(headerParts.join('  |  '), { align: 'center' });
+      doc.moveDown(0.5);
+      doc.moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
+      doc.moveDown(0.5);
+
+      // Summary cards (text only — pdfkit-friendly)
+      const totalVariance = (Number(report.totalActualMs || 0) - Number(report.totalPlannedMs || 0));
+      const overtimeCount = report.report?.overtimeItemCount || 0;
+      const summaryY = doc.y;
+      const cardW = 130;
+      const drawCard = (x, label, value, color) => {
+        doc.rect(x, summaryY, cardW, 50).strokeColor('#cccccc').lineWidth(0.5).stroke();
+        doc.fontSize(8).font('Helvetica').fillColor('#888888').text(label, x + 8, summaryY + 8, { width: cardW - 16 });
+        doc.fontSize(14).font('Helvetica-Bold').fillColor(color || '#111111').text(value, x + 8, summaryY + 22, { width: cardW - 16 });
+      };
+      drawCard(40, 'PLANNED', fmt(report.totalPlannedMs), '#111111');
+      drawCard(180, 'ACTUAL', fmt(report.totalActualMs), '#111111');
+      const varColor = totalVariance > 0 ? '#cc3333' : totalVariance < 0 ? '#0f8a4d' : '#111111';
+      drawCard(320, 'VARIANCE', (totalVariance > 0 ? '+' : '') + fmt(totalVariance), varColor);
+      drawCard(460, 'ITEMS OVER', String(overtimeCount), overtimeCount > 0 ? '#cc3333' : '#111111');
+      doc.y = summaryY + 60;
+      doc.moveDown(0.5);
+
+      // Table header
+      const items = (report.report?.items && report.report.items.length ? report.report.items : report.itemTimings) || [];
+      doc.fontSize(8).font('Helvetica-Bold').fillColor('#888888');
+      let y = doc.y;
+      doc.text('#', 40, y, { width: 18 });
+      doc.text('ITEM', 62, y, { width: 250 });
+      doc.text('PLANNED', 320, y, { width: 60, align: 'right' });
+      doc.text('ACTUAL', 388, y, { width: 60, align: 'right' });
+      doc.text('VARIANCE', 456, y, { width: 80, align: 'right' });
+      doc.moveDown(0.5);
+      doc.moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#dddddd').lineWidth(0.5).stroke();
+      doc.moveDown(0.3);
+
+      items.forEach((t, i) => {
+        if (doc.y > 720) { doc.addPage(); }
+        const variance = Number(t.variance || 0);
+        const isOver = variance > 0;
+        const rowY = doc.y;
+        doc.fontSize(9).font('Helvetica').fillColor('#666666').text(String(i + 1), 40, rowY, { width: 18 });
+        doc.fillColor('#111111').text(t.title || ('Item ' + (i + 1)), 62, rowY, { width: 250 });
+        doc.fillColor('#444444').text(fmt(t.plannedDuration), 320, rowY, { width: 60, align: 'right' });
+        doc.text(fmt(t.actualDuration), 388, rowY, { width: 60, align: 'right' });
+        doc.fillColor(isOver ? '#cc3333' : variance < 0 ? '#0f8a4d' : '#666666')
+           .text((variance > 0 ? '+' : '') + fmt(variance), 456, rowY, { width: 80, align: 'right' });
+        doc.moveDown(0.6);
+      });
+
+      doc.moveDown(0.5);
+      doc.fontSize(8).fillColor('#888888').text('Generated by TallyConnect', { align: 'center' });
+
+      doc.end();
+    } catch (e) {
+      console.error('[rundown] post-show PDF export error:', e);
+      if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
+    }
+  });
 
   // ─── 3. CSV EXPORT / IMPORT ──────────────────────────────────────────────
 
