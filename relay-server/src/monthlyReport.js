@@ -111,7 +111,7 @@ class MonthlyReport {
         'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?',
         [churchId, startDate, endDate]
       );
-    } catch { /* alerts table may not exist */ }
+    } catch (err) { /* alerts table may not exist */ console.debug("[monthlyReport] intentional swallow:", err); }
 
     // ── Compute metrics ───────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ class MonthlyReport {
         'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
         [churchId]
       );
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[monthlyReport] intentional swallow:", err); }
 
     if (botToken) {
       const targets = new Set(tds.map(td => String(td.telegram_chat_id)).filter(Boolean));
@@ -250,7 +250,7 @@ class MonthlyReport {
               'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?',
               [churchId, startDate, endDate]
             );
-          } catch { /* alerts table may not exist */ }
+          } catch (err) { /* alerts table may not exist */ console.debug("[monthlyReport] intentional swallow:", err); }
 
           const uniqueDates = new Set(events.map(e => e.timestamp.slice(0, 10)));
           const autoRecovered = events.filter(e => e.auto_resolved).length;

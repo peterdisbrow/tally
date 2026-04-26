@@ -393,7 +393,7 @@ class PlanningCenter {
     // Create index if not exists
     try {
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_pc_plans_church_date ON pc_plans(church_id, sort_date)`);
-    } catch { /* index may already exist */ }
+    } catch (err) { /* index may already exist */ console.debug("[planningCenter] intentional swallow:", err); }
   }
 
   async _ensurePcPlansTable() {
@@ -416,7 +416,7 @@ class PlanningCenter {
 
     try {
       await this._exec(`CREATE INDEX IF NOT EXISTS idx_pc_plans_church_date ON pc_plans(church_id, sort_date)`);
-    } catch { /* index may already exist */ }
+    } catch (err) { /* index may already exist */ console.debug("[planningCenter] intentional swallow:", err); }
   }
 
   // ─── OAUTH 2.0 FLOW ──────────────────────────────────────────────────────────
@@ -562,7 +562,7 @@ class PlanningCenter {
           orgName = meData.data?.attributes?.organization_name ||
                     meData.data?.attributes?.name || null;
         }
-      } catch { /* non-fatal */ }
+      } catch (err) { /* non-fatal */ console.debug("[planningCenter] intentional swallow:", err); }
 
       if (orgName) {
         await this._persistChurchUpdate(
@@ -608,7 +608,7 @@ class PlanningCenter {
             signal: AbortSignal.timeout(5000),
           });
         }
-      } catch { /* best effort revoke */ }
+      } catch (err) { /* best effort revoke */ console.debug("[planningCenter] intentional swallow:", err); }
     }
 
     // Clear all OAuth columns
@@ -1083,7 +1083,7 @@ class PlanningCenter {
     // Support both new multi-type array and legacy single type
     let serviceTypeIds = [];
     if (church.pc_service_type_ids) {
-      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch { /* ignore */ }
+      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch (err) { /* ignore */ console.debug("[planningCenter] intentional swallow:", err); }
     }
     if (!serviceTypeIds.length && church.pc_service_type_id) {
       serviceTypeIds = [church.pc_service_type_id];
@@ -1185,7 +1185,7 @@ class PlanningCenter {
     // Support multi-service-type
     let serviceTypeIds = [];
     if (church.pc_service_type_ids) {
-      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch { /* ignore */ }
+      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch (err) { /* ignore */ console.debug("[planningCenter] intentional swallow:", err); }
     }
     if (!serviceTypeIds.length && church.pc_service_type_id) {
       serviceTypeIds = [church.pc_service_type_id];
@@ -1596,7 +1596,7 @@ class PlanningCenter {
     // Parse service type IDs
     let serviceTypeIds = [];
     if (church.pc_service_type_ids) {
-      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch { /* ignore */ }
+      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch (err) { /* ignore */ console.debug("[planningCenter] intentional swallow:", err); }
     }
     if (!serviceTypeIds.length && church.pc_service_type_id) {
       serviceTypeIds = [church.pc_service_type_id];
@@ -1628,7 +1628,7 @@ class PlanningCenter {
           }
         }
       }
-    } catch { /* ignore parse errors */ }
+    } catch (err) { /* ignore parse errors */ console.debug("[planningCenter] intentional swallow:", err); }
 
     // Get cached plan count
     const todayStart = new Date();
@@ -1917,7 +1917,7 @@ class PlanningCenter {
 
     let serviceTypeIds = [];
     if (church.pc_service_type_ids) {
-      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch { /* ignore */ }
+      try { serviceTypeIds = JSON.parse(church.pc_service_type_ids); } catch (err) { /* ignore */ console.debug("[planningCenter] intentional swallow:", err); }
     }
     if (!serviceTypeIds.length && church.pc_service_type_id) {
       serviceTypeIds = [church.pc_service_type_id];
@@ -1936,7 +1936,7 @@ class PlanningCenter {
         const stResp = await this._pcFetch(stUrl, auth.headers);
         const stData = await stResp.json();
         serviceTypeName = stData.data?.attributes?.name || 'Unknown';
-      } catch { /* non-fatal */ }
+      } catch (err) { /* non-fatal */ console.debug("[planningCenter] intentional swallow:", err); }
 
       // Fetch future plans
       const url = `${PC_API_BASE}/service_types/${stId}/plans?filter=future&per_page=25&order=sort_date`;
@@ -2048,7 +2048,7 @@ class PlanningCenter {
       try {
         const ids = JSON.parse(church.pc_service_type_ids);
         if (ids.length > 0) return ids[0];
-      } catch { /* ignore */ }
+      } catch (err) { /* ignore */ console.debug("[planningCenter] intentional swallow:", err); }
     }
     return church.pc_service_type_id || null;
   }

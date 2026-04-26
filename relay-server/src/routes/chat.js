@@ -183,7 +183,7 @@ module.exports = function setupChatRoutes(app, ctx) {
             role: m.sender_role === 'system' ? 'ai' : 'user',
             text: m.message,
           }));
-      } catch { /* non-fatal */ }
+      } catch (err) { /* non-fatal */ console.debug("[chat] intentional swallow:", err); }
 
       res.json({
         state: session.state,

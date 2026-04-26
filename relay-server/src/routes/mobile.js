@@ -64,7 +64,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
       rooms = await qAll(
         'SELECT id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC'
       , [church.churchId]);
-    } catch { /* no rooms table yet */ }
+    } catch (err) { /* no rooms table yet */ console.debug("[mobile] intentional swallow:", err); }
 
     // Runtime connection status
     const runtime = getObservedChurch(church.churchId);
@@ -164,7 +164,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
           connected: _isRoomConnected(runtime, room.id),
           status: _getRoomStatus(runtime, room.id),
         }));
-      } catch { /* no rooms */ }
+      } catch (err) { /* no rooms */ console.debug("[mobile] intentional swallow:", err); }
 
       // Recent alerts (last 10)
       let recentAlerts = [];
@@ -180,7 +180,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
           acknowledgedAt: a.acknowledged_at,
           roomId: a.room_id,
         }));
-      } catch { /* no alerts table */ }
+      } catch (err) { /* no alerts table */ console.debug("[mobile] intentional swallow:", err); }
 
       // Active session info
       let activeSession = null;
@@ -202,7 +202,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
             incidents: incidentCount,
           };
         }
-      } catch { /* no sessions table */ }
+      } catch (err) { /* no sessions table */ console.debug("[mobile] intentional swallow:", err); }
 
       // Health score (if available)
       let healthScore = null;
@@ -212,7 +212,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
           [churchId],
         );
         if (report) healthScore = report.score;
-      } catch { /* no health score cache */ }
+      } catch (err) { /* no health score cache */ console.debug("[mobile] intentional swallow:", err); }
 
       // Upcoming service (from schedule engine)
       let upcomingService = null;
@@ -228,7 +228,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
               };
             }
           }
-        } catch { /* schedule engine not available */ }
+        } catch (err) { /* schedule engine not available */ console.debug("[mobile] intentional swallow:", err); }
       }
 
       // Push device count

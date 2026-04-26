@@ -156,7 +156,7 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
 
     // Notify dashboard SSE if status changed or on first reading
     if (newStatus !== prevStatus || prevStatus === null) {
-      try { notifyUpdate(churchId); } catch { /* ignore */ }
+      try { notifyUpdate(churchId); } catch (err) { /* ignore */ console.debug("[syncMonitor] intentional swallow:", err); }
     }
   }
 

@@ -159,7 +159,7 @@ class IncidentSummarizer {
     try {
       this.db.prepare('SELECT summary_tiers FROM churches LIMIT 1').get();
     } catch {
-      try { this.db.exec("ALTER TABLE churches ADD COLUMN summary_tiers TEXT DEFAULT '{}'"); } catch { /* already exists */ }
+      try { this.db.exec("ALTER TABLE churches ADD COLUMN summary_tiers TEXT DEFAULT '{}'"); } catch (err) { /* already exists */ console.debug("[incidentSummarizer] intentional swallow:", err); }
     }
   }
 
@@ -172,7 +172,7 @@ class IncidentSummarizer {
     } catch {
       try {
         await client.exec("ALTER TABLE churches ADD COLUMN summary_tiers TEXT DEFAULT '{}'");
-      } catch { /* already exists */ }
+      } catch (err) { /* already exists */ console.debug("[incidentSummarizer] intentional swallow:", err); }
     }
   }
 

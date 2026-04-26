@@ -333,7 +333,7 @@ class AutoRecovery {
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         for (const sock of openSockets) {
-          try { sock.removeListener('message', handler); } catch { /* ignore */ }
+          try { sock.removeListener('message', handler); } catch (err) { /* ignore */ console.debug("[autoRecovery] intentional swallow:", err); }
         }
       };
 
@@ -351,7 +351,7 @@ class AutoRecovery {
             if (msg.error) reject(new Error(msg.error));
             else resolve(msg.result);
           }
-        } catch { /* ignore parse errors */ }
+        } catch (err) { /* ignore parse errors */ console.debug("[autoRecovery] intentional swallow:", err); }
       };
 
       const payload = JSON.stringify({ type: 'command', command, params, id });

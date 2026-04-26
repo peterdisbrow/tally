@@ -78,7 +78,7 @@ class SignalFailover {
     if (!row) return null;
 
     let action = null;
-    try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch { /* invalid JSON */ }
+    try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch (err) { /* invalid JSON */ console.debug("[signalFailover] intentional swallow:", err); }
 
     return {
       churchId: row.churchId || row.church_id || null,
@@ -249,7 +249,7 @@ class SignalFailover {
       if (!row || !row.failover_enabled) return null;
 
       let action = null;
-      try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch { /* invalid JSON */ }
+      try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch (err) { /* invalid JSON */ console.debug("[signalFailover] intentional swallow:", err); }
       if (!action) return null; // must have a configured action
 
       return {

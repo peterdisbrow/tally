@@ -305,7 +305,7 @@ class ScheduleEngine {
           return new Date(row.event_expires_at) > new Date();
         }
       }
-    } catch { /* column may not exist yet on very first run */ }
+    } catch (err) { /* column may not exist yet on very first run */ console.debug("[scheduleEngine] intentional swallow:", err); }
 
     const schedule = this.getSchedule(churchId);
     if (!schedule.length) return false;

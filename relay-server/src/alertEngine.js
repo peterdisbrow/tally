@@ -377,10 +377,10 @@ class AlertEngine {
     catch { this.db.exec('ALTER TABLE alerts ADD COLUMN session_id TEXT'); }
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM alerts LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN instance_name TEXT'); } catch (err) { /* already exists */ console.debug("[alertEngine] intentional swallow:", err); } }
     // Migration: add room_id for multi-room scoping
     try { this.db.prepare('SELECT room_id FROM alerts LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN room_id TEXT'); } catch (err) { /* already exists */ console.debug("[alertEngine] intentional swallow:", err); } }
   }
 
   async _ensureAlertsTable() {

@@ -76,7 +76,7 @@ class GuestTdMode {
     `);
     try {
       await this.client.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[guestTdMode] intentional swallow:", err); }
     try {
       await this.client.run(`
         UPDATE guest_tokens

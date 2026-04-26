@@ -410,7 +410,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
     if (row) {
       thisWeekSessions = row;
     }
-  } catch { /* table may not exist */ }
+  } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
   const uptimePercent = thisWeekSessions.totalDurationMin > 0
     ? Math.round(Math.min(100, (thisWeekSessions.totalStreamMin / thisWeekSessions.totalDurationMin) * 100) * 10) / 10
@@ -425,7 +425,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
       WHERE church_id = ? AND started_at >= ? AND started_at < ?${nonTestSessionClause}
     `, [churchId, lastWeekStartISO, thisWeekStartISO]);
     if (row) lastWeekAlerts = row.alerts;
-  } catch { /* table may not exist */ }
+  } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
   const alertDiff = thisWeekSessions.alerts - lastWeekAlerts;
   let alertsTrending = 'stable';
@@ -505,7 +505,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
     const row = await qOne('SELECT schedule FROM churches WHERE churchId = ?', [churchId]);
     const sched = (row && row.schedule) ? JSON.parse(row.schedule) : {};
     nextService = _findNextService(sched, now);
-  } catch { /* no schedule */ }
+  } catch (err) { /* no schedule */ console.debug("[churchPortal] intentional swallow:", err); }
 
   return {
     thisWeek: {
@@ -774,7 +774,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           if (!eq.videoHubs?.length) delete filtered.videoHubs;
           statusObj = filtered;
         }
-      } catch { /* If equipment config can't be read, show unfiltered status */ }
+      } catch (err) { /* If equipment config can't be read, show unfiltered status */ console.debug("[churchPortal] intentional swallow:", err); }
     }
 
     return {
@@ -820,7 +820,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN leadership_emails TEXT DEFAULT ''",
   ];
   for (const m of migrations) {
-    try { db.exec(m); } catch { /* already exists */ }
+    try { db.exec(m); } catch (err) { /* already exists */ console.debug("[churchPortal] intentional swallow:", err); }
   }
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_churches_parent_church_id ON churches(parent_church_id)'); } catch (err) { /* index may already exist */ console.debug('[portal migrations] create index:', err?.message); }
 
@@ -838,7 +838,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'",
   ];
   for (const m of _portalMigrations) {
-    try { db.exec(m); } catch { /* column already exists */ }
+    try { db.exec(m); } catch (err) { /* column already exists */ console.debug("[churchPortal] intentional swallow:", err); }
   }
 
   // ── TD ↔ Room assignments (many-to-many) ──────────────────────────────────
@@ -880,8 +880,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       expiresAt  TEXT
     )
   `);
-  try { db.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT'); } catch { /* already exists */ }
-  try { db.exec('UPDATE guest_tokens SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch { /* ignore */ }
+  try { db.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT'); } catch (err) { /* already exists */ console.debug("[churchPortal] intentional swallow:", err); }
+  try { db.exec('UPDATE guest_tokens SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch (err) { /* ignore */ console.debug("[churchPortal] intentional swallow:", err); }
 
   // Support triage/ticket tables (created in relay too; repeated here for module resilience)
   db.exec(`
@@ -1218,7 +1218,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       , [req.church.churchId]);
       if (!row) return res.status(404).json({ error: 'Church not found' });
       let action = null;
-      try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch { /* invalid JSON */ }
+      try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch (err) { /* invalid JSON */ console.debug("[churchPortal] intentional swallow:", err); }
       res.json({
         enabled: !!row.failover_enabled,
         blackThresholdS: row.failover_black_threshold_s || 5,
@@ -1444,7 +1444,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       let roomId = null;
       let updatedAt = null;
       if (row) {
-        try { equipment = JSON.parse(row.equipment); } catch { /* corrupt */ }
+        try { equipment = JSON.parse(row.equipment); } catch (err) { /* corrupt */ console.debug("[churchPortal] intentional swallow:", err); }
         roomId = row.room_id;
         updatedAt = row.updated_at;
       }
@@ -2289,7 +2289,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           const checks = JSON.parse(row.checks_json || '[]');
           const filtered = await filterChecksByRoomEquipment(checks, roomId, req.church.churchId, portalQuery);
           row = { ...row, checks_json: JSON.stringify(filtered) };
-        } catch { /* return unfiltered */ }
+        } catch (err) { /* return unfiltered */ console.debug("[churchPortal] intentional swallow:", err); }
       }
       res.json(row);
     } catch (e) {
@@ -2852,7 +2852,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           auto_resolved: !!e.auto_resolved,
           diagnosis: DIAGNOSIS_TEMPLATES[e.event_type] || null,
         }));
-      } catch { /* service_events table may not exist */ }
+      } catch (err) { /* service_events table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
       res.json({ active: true, ...session, events });
     } catch (e) {
@@ -3741,58 +3741,58 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       // Billing
       try {
         exportData.billing = await qOne('SELECT tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end, created_at FROM billing_customers WHERE church_id = ?', [churchId]) || null;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Sessions
       try {
         exportData.sessions = await qAll('SELECT * FROM session_recaps WHERE church_id = ? ORDER BY started_at DESC LIMIT 500', [churchId]);
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Events
       try {
         exportData.events = await qAll('SELECT * FROM service_events WHERE church_id = ? ORDER BY timestamp DESC LIMIT 1000', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Alerts
       try {
         exportData.alerts = await qAll('SELECT * FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 500', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Support tickets
       try {
         exportData.tickets = await qAll('SELECT * FROM support_tickets WHERE church_id = ? ORDER BY created_at DESC', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // TDs
       try {
         exportData.tds = await qAll('SELECT * FROM church_tds WHERE church_id = ?', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // TD Room Assignments
       try {
         exportData.tdRoomAssignments = await qAll('SELECT * FROM td_room_assignments WHERE church_id = ?', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Schedule
       try {
         const sched = await qOne('SELECT service_times FROM churches WHERE churchId = ?', [churchId]);
         if (sched && sched.service_times) exportData.schedule = JSON.parse(sched.service_times);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Reviews
       try {
         exportData.reviews = await qAll('SELECT * FROM church_reviews WHERE church_id = ?', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Referrals (as referrer or referred)
       try {
         exportData.referrals = await qAll('SELECT * FROM referrals WHERE referrer_id = ? OR referred_id = ?', [churchId, churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Emails sent
       try {
         exportData.emailsSent = await qAll('SELECT email_type, recipient, sent_at FROM email_sends WHERE church_id = ?', [churchId]);
-      } catch { /* */ }
+      } catch (err) { /* */ console.debug("[churchPortal] intentional swallow:", err); }
 
       res.setHeader('Content-Disposition', `attachment; filename="tally-data-export-${churchId.substring(0, 8)}.json"`);
       res.setHeader('Content-Type', 'application/json');
@@ -3859,7 +3859,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       for (const { table, column } of tablesToClean) {
         try {
           await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [churchId]);
-        } catch { /* table doesn't exist — fine */ }
+        } catch (err) { /* table doesn't exist — fine */ console.debug("[churchPortal] intentional swallow:", err); }
       }
 
       // Remove from runtime
@@ -4042,7 +4042,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         totalCredits = referrals
           .filter(r => r.status === 'credited')
           .reduce((sum, r) => sum + (r.credit_amount || 0), 0);
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
       const totalCredited = referrals.filter(r => r.status === 'credited').length;
       const maxCredits = 5;
@@ -4159,7 +4159,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           FROM service_sessions
           WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
         `, sessParams) || {};
-      } catch { /* table may not exist yet */ }
+      } catch (err) { /* table may not exist yet */ console.debug("[churchPortal] intentional swallow:", err); }
 
       const totalSessions = sessAgg.total_sessions || 0;
       const totalAlerts = sessAgg.total_alerts || 0;
@@ -4320,7 +4320,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
           ORDER BY started_at DESC
         `, params);
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[churchPortal] intentional swallow:", err); }
 
       const header = 'Date,End,Duration (min),Stream Ran,Stream Minutes,Alerts,Auto-Recovered,Escalated,Audio Silence,Peak Viewers,TD,Grade';
       const rows = sessions.map(s => [
@@ -4379,7 +4379,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           ORDER BY ss.started_at DESC
           LIMIT 100
         `, audParams);
-      } catch { /* table may not exist yet */ }
+      } catch (err) { /* table may not exist yet */ console.debug("[churchPortal] intentional swallow:", err); }
 
       // Weekly platform trends
       const vsRoomFilter = instanceName ? ' AND instance_name = ?' : '';
@@ -4670,7 +4670,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             try {
               const jsonMatch = text.match(/\{[\s\S]*\}/);
               if (jsonMatch) aiAnalysis = JSON.parse(jsonMatch[0]);
-            } catch { /* parse failed, use raw text */ }
+            } catch (err) { /* parse failed, use raw text */ console.debug("[churchPortal] intentional swallow:", err); }
           }
         } catch (e) {
           log.warn('[Triage] AI analysis failed: ' + e.message);

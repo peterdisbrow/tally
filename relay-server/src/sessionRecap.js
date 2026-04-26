@@ -133,13 +133,13 @@ class SessionRecap {
     `);
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM service_sessions LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN instance_name TEXT'); } catch (err) { /* already exists */ console.debug("[sessionRecap] intentional swallow:", err); } }
     // Migration: add room_id for room-based filtering
     try { this.db.prepare('SELECT room_id FROM service_sessions LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT'); } catch (err) { /* already exists */ console.debug("[sessionRecap] intentional swallow:", err); } }
     // Migration: add session_type for test/service classification
     try { this.db.prepare('SELECT session_type FROM service_sessions LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN session_type TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN session_type TEXT'); } catch (err) { /* already exists */ console.debug("[sessionRecap] intentional swallow:", err); } }
   }
 
   async _ensureTable() {
@@ -346,7 +346,7 @@ class SessionRecap {
         const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
         roomId = row?.room_id || null;
       }
-    } catch { /* non-fatal */ }
+    } catch (err) { /* non-fatal */ console.debug("[sessionRecap] intentional swallow:", err); }
 
     this.db.prepare(
       'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?)'
@@ -393,7 +393,7 @@ class SessionRecap {
         const row = await this._one('SELECT room_id FROM churches WHERE churchId = ?', [churchId]);
         roomId = row?.room_id || null;
       }
-    } catch { /* non-fatal */ }
+    } catch (err) { /* non-fatal */ console.debug("[sessionRecap] intentional swallow:", err); }
 
     await this._run(
       'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -884,7 +884,7 @@ class SessionRecap {
           if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
           if (parts.length) viewersLine += ` (${parts.join(', ')})`;
         }
-      } catch { /* viewer_snapshots table may not exist */ }
+      } catch (err) { /* viewer_snapshots table may not exist */ console.debug("[sessionRecap] intentional swallow:", err); }
     }
     return viewersLine;
   }
@@ -906,7 +906,7 @@ class SessionRecap {
           if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
           if (parts.length) viewersLine += ` (${parts.join(', ')})`;
         }
-      } catch { /* viewer_snapshots table may not exist */ }
+      } catch (err) { /* viewer_snapshots table may not exist */ console.debug("[sessionRecap] intentional swallow:", err); }
     }
     return viewersLine;
   }

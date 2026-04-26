@@ -95,7 +95,7 @@ class CircuitBreaker {
     if (wasHalfOpen) {
       this._setState(STATE.CLOSED);
       if (this._onClose) {
-        try { this._onClose(); } catch { /* ignore errors in onClose callback */ }
+        try { this._onClose(); } catch (err) { /* ignore errors in onClose callback */ console.debug("[circuitBreaker] intentional swallow:", err); }
       }
     }
   }

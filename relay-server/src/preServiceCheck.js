@@ -151,13 +151,13 @@ class PreServiceCheck {
     this.db.exec(CREATE_PRESERVICE_CHECK_RESULTS_SQL);
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[preServiceCheck] intentional swallow:", err); }
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM preservice_check_results LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN instance_name TEXT'); } catch (err) { /* already exists */ console.debug("[preServiceCheck] intentional swallow:", err); } }
     // Migration: add room_id for room-based filtering
     try { this.db.prepare('SELECT room_id FROM preservice_check_results LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT'); } catch (err) { /* already exists */ console.debug("[preServiceCheck] intentional swallow:", err); } }
   }
 
   async _ensureTable() {
@@ -165,7 +165,7 @@ class PreServiceCheck {
     await client.exec(CREATE_PRESERVICE_CHECK_RESULTS_SQL);
     try {
       await client.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[preServiceCheck] intentional swallow:", err); }
 
     try {
       await client.queryOne('SELECT instance_name FROM preservice_check_results LIMIT 1');
@@ -427,7 +427,7 @@ class PreServiceCheck {
           [church.churchId]
         );
       }
-    } catch { /* table may not exist yet */ }
+    } catch (err) { /* table may not exist yet */ console.debug("[preServiceCheck] intentional swallow:", err); }
 
     const chatIds = tds.map(td => td.telegram_chat_id).filter(Boolean);
     if (!chatIds.length) return;

@@ -76,7 +76,7 @@ class ChurchDocuments {
     `);
     try {
       await client.exec('CREATE INDEX IF NOT EXISTS idx_docs_church ON church_documents(church_id, active)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[churchDocuments] intentional swallow:", err); }
   }
 
   /**

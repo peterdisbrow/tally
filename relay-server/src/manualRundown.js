@@ -63,7 +63,7 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ALTER COLUMN created_at TYPE BIGINT`);
       await this._db.exec(`ALTER TABLE manual_rundown_plans ALTER COLUMN updated_at TYPE BIGINT`);
-    } catch { /* already BIGINT, or SQLite (which ignores column types) — safe to ignore */ }
+    } catch (err) { /* already BIGINT, or SQLite (which ignores column types) — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mrp_church
         ON manual_rundown_plans(church_id, is_template, service_date)
@@ -86,26 +86,26 @@ class ManualRundownStore {
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN created_at TYPE BIGINT`);
       await this._db.exec(`ALTER TABLE manual_rundown_items ALTER COLUMN updated_at TYPE BIGINT`);
-    } catch { /* already BIGINT, or SQLite — safe to ignore */ }
+    } catch (err) { /* already BIGINT, or SQLite — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     // Add assignee column (migration for existing tables)
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN assignee TEXT DEFAULT ''`);
-    } catch { /* column already exists — safe to ignore */ }
+    } catch (err) { /* column already exists — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     // Add status column: draft, rehearsal, show_ready, live, archived
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'`);
-    } catch { /* column already exists — safe to ignore */ }
+    } catch (err) { /* column already exists — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     // Add room_id column: links plan to a specific room
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
-    } catch { /* column already exists — safe to ignore */ }
+    } catch (err) { /* column already exists — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     // Cross-room sync: when this plan is live, mirror advances from another room
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN sync_source_room_id TEXT`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN sync_delay_seconds INTEGER NOT NULL DEFAULT 0`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Room ready-check status table
     await this._db.exec(`
       CREATE TABLE IF NOT EXISTS room_ready_status (
@@ -133,25 +133,25 @@ class ManualRundownStore {
     // Add live-cueing columns: start_type, hard_start_time, auto_advance
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN start_type TEXT NOT NULL DEFAULT 'soft'`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN hard_start_time TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN auto_advance INTEGER NOT NULL DEFAULT 0`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 10.1: parent_id for cue stacks / nested items
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN parent_id TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 4: script field for teleprompter content (separate from notes)
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN script TEXT DEFAULT ''`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 4: announcement JSON for rich announcement cards
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN announcement TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 4: Lyrics library table
     await this._db.exec(`
       CREATE TABLE IF NOT EXISTS church_lyrics_library (
@@ -171,10 +171,10 @@ class ManualRundownStore {
     // Add share_token column for public timer/share links
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN share_token TEXT`);
-    } catch { /* column already exists — safe to ignore */ }
+    } catch (err) { /* column already exists — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mrp_share_token ON manual_rundown_plans(share_token) WHERE share_token IS NOT NULL`);
-    } catch { /* index already exists or SQLite partial index limitation — safe to ignore */ }
+    } catch (err) { /* index already exists or SQLite partial index limitation — safe to ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_mri_plan
         ON manual_rundown_items(plan_id, sort_order)
@@ -233,9 +233,9 @@ class ManualRundownStore {
     `);
 
     // Migration: add pause columns for existing tables
-    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN is_paused INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
-    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_at BIGINT`); } catch { /* already exists */ }
-    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_elapsed REAL NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN is_paused INTEGER NOT NULL DEFAULT 0`); } catch (err) { /* already exists */ console.debug("[manualRundown] intentional swallow:", err); }
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_at BIGINT`); } catch (err) { /* already exists */ console.debug("[manualRundown] intentional swallow:", err); }
+    try { await this._db.exec(`ALTER TABLE rundown_live_state ADD COLUMN paused_elapsed REAL NOT NULL DEFAULT 0`); } catch (err) { /* already exists */ console.debug("[manualRundown] intentional swallow:", err); }
 
     // ── Custom columns tables ──────────────────────────────────────────────
     await this._db.exec(`
@@ -251,21 +251,21 @@ class ManualRundownStore {
     `);
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN column_type TEXT NOT NULL DEFAULT 'text'`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN equipment_binding TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 10.3: column-level edit permissions (JSON array of allowed roles, null = all editors)
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN editable_roles TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     // Phase 10.4: conditional formatting / validation rules (JSON array of rule objects)
     try {
       await this._db.exec(`ALTER TABLE rundown_columns ADD COLUMN validation_json TEXT NOT NULL DEFAULT '[]'`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_rc_plan ON rundown_columns(plan_id, sort_order)
     `);
@@ -312,25 +312,25 @@ class ManualRundownStore {
     // ── Phase 11 (v3): color column on items ─────────────────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN color TEXT DEFAULT ''`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
 
     // ── Phase 9: director_notes column on items ─────────────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN director_notes TEXT DEFAULT ''`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
 
     // ── Color column on items ──────────────────────────────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_items ADD COLUMN color TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
 
     // ── Phase 9: locked_by / locked_at columns on plans ─────────────────────
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_by TEXT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
     try {
       await this._db.exec(`ALTER TABLE manual_rundown_plans ADD COLUMN locked_at BIGINT DEFAULT NULL`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[manualRundown] intentional swallow:", err); }
 
     // ── Phase 9: item revision history ──────────────────────────────────────
     await this._db.exec(`
@@ -1087,7 +1087,7 @@ class ManualRundownStore {
   async deleteAttachmentsForItem(itemId) {
     const attachments = await this.getAttachments(itemId);
     for (const att of attachments) {
-      try { require('fs').unlinkSync(att.storagePath); } catch { /* file may not exist */ }
+      try { require('fs').unlinkSync(att.storagePath); } catch (err) { /* file may not exist */ console.debug("[manualRundown] intentional swallow:", err); }
     }
     await this._db.run(`DELETE FROM rundown_attachments WHERE item_id = ?`, [itemId]);
   }
@@ -1098,7 +1098,7 @@ class ManualRundownStore {
   async deleteAttachmentsForPlan(planId) {
     const attachments = await this.getAttachmentsByPlan(planId);
     for (const att of attachments) {
-      try { require('fs').unlinkSync(att.storagePath); } catch { /* file may not exist */ }
+      try { require('fs').unlinkSync(att.storagePath); } catch (err) { /* file may not exist */ console.debug("[manualRundown] intentional swallow:", err); }
     }
     await this._db.run(`DELETE FROM rundown_attachments WHERE plan_id = ?`, [planId]);
   }
@@ -1234,7 +1234,7 @@ class ManualRundownStore {
   _toItem(row) {
     let announcement = null;
     if (row.announcement) {
-      try { announcement = JSON.parse(row.announcement); } catch { /* ignore */ }
+      try { announcement = JSON.parse(row.announcement); } catch (err) { /* ignore */ console.debug("[manualRundown] intentional swallow:", err); }
     }
     return {
       id: row.id,

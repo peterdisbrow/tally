@@ -431,7 +431,7 @@ async function processOnboardingMessage(db, churchId, message, scanResults, chat
           content: m.message,
         });
       }
-    } catch { /* chatEngine may not have getMessages — non-fatal */ }
+    } catch (err) { /* chatEngine may not have getMessages — non-fatal */ console.debug("[onboardingChat] intentional swallow:", err); }
   }
 
   // Add current message
@@ -591,7 +591,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
               `, [id, churchId, td.name, td.role || 'TD', td.email || null, td.phone || null, new Date().toISOString()]);
               added++;
-            } catch { /* duplicate or missing table — non-fatal */ }
+            } catch (err) { /* duplicate or missing table — non-fatal */ console.debug("[onboardingChat] intentional swallow:", err); }
           }
           return { ok: true, message: `${added} team member${added !== 1 ? 's' : ''} added` };
         }
@@ -704,7 +704,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(id, churchId, td.name, td.role || 'TD', td.email || null, td.phone || null, new Date().toISOString());
           added++;
-        } catch { /* duplicate or missing table — non-fatal */ }
+        } catch (err) { /* duplicate or missing table — non-fatal */ console.debug("[onboardingChat] intentional swallow:", err); }
       }
       return { ok: true, message: `${added} team member${added !== 1 ? 's' : ''} added` };
     }

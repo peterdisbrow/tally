@@ -187,10 +187,10 @@ class PushNotificationService {
 
     // Unique constraint: one token per church (prevents duplicate registrations)
     try { this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_devices_token ON mobile_devices(device_token)'); }
-    catch { /* already exists */ }
+    catch (err) { /* already exists */ console.debug("[pushNotifications] intentional swallow:", err); }
 
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_mobile_devices_church ON mobile_devices(church_id)'); }
-    catch { /* already exists */ }
+    catch (err) { /* already exists */ console.debug("[pushNotifications] intentional swallow:", err); }
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS mobile_notification_prefs (
@@ -230,10 +230,10 @@ class PushNotificationService {
     `);
 
     try { await client.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_devices_token ON mobile_devices(device_token)'); }
-    catch { /* already exists */ }
+    catch (err) { /* already exists */ console.debug("[pushNotifications] intentional swallow:", err); }
 
     try { await client.exec('CREATE INDEX IF NOT EXISTS idx_mobile_devices_church ON mobile_devices(church_id)'); }
-    catch { /* already exists */ }
+    catch (err) { /* already exists */ console.debug("[pushNotifications] intentional swallow:", err); }
 
     await client.exec(`
       CREATE TABLE IF NOT EXISTS mobile_notification_prefs (

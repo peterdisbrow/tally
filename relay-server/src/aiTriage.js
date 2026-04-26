@@ -245,7 +245,7 @@ class AITriageEngine {
       )
     `);
     try { this.db.prepare('SELECT church_id FROM ai_triage_events LIMIT 1').get(); }
-    catch { /* table just created */ }
+    catch (err) { /* table just created */ console.debug("[aiTriage] intentional swallow:", err); }
 
     // Create index for fast church+time queries
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_triage_church_time ON ai_triage_events (church_id, created_at)`);
@@ -605,7 +605,7 @@ class AITriageEngine {
           return { context: TIME_CONTEXT.IN_SERVICE, details: { reason: 'event_mode' } };
         }
       }
-    } catch { /* column may not exist */ }
+    } catch (err) { /* column may not exist */ console.debug("[aiTriage] intentional swallow:", err); }
 
     const schedule = this.scheduleEngine.getSchedule(churchId);
     if (!schedule.length) {

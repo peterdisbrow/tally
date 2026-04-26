@@ -27,7 +27,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
 
       const cleanup = () => {
         for (const sock of openSockets) {
-          try { sock.removeListener('message', handler); } catch { /* ignore */ }
+          try { sock.removeListener('message', handler); } catch (err) { /* ignore */ console.debug("[automation] intentional swallow:", err); }
         }
       };
 
@@ -45,7 +45,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
             if (msg.error) reject(new Error(msg.error));
             else resolve(msg.result);
           }
-        } catch { /* ignore */ }
+        } catch (err) { /* ignore */ console.debug("[automation] intentional swallow:", err); }
       };
 
       // Listen on all sockets and send to all

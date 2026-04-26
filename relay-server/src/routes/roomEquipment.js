@@ -100,7 +100,7 @@ function setupRoomEquipmentRoutes(app, ctx) {
       }
 
       let equipment = {};
-      try { equipment = JSON.parse(row.equipment); } catch { /* corrupt — return empty */ }
+      try { equipment = JSON.parse(row.equipment); } catch (err) { /* corrupt — return empty */ console.debug("[roomEquipment] intentional swallow:", err); }
       res.json({ equipment, updatedAt: row.updated_at });
     } catch (e) {
       log(`[roomEquipment] GET error: ${e.message}`);

@@ -12,7 +12,7 @@ function readLeads() {
     if (fs.existsSync(LEADS_FILE)) {
       return JSON.parse(fs.readFileSync(LEADS_FILE, 'utf8'));
     }
-  } catch { /* ignore corrupt file */ }
+  } catch (err) { /* ignore corrupt file */ console.debug("[streamingConfigLeads] intentional swallow:", err); }
   return [];
 }
 

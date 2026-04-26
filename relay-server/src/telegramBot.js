@@ -675,7 +675,7 @@ class TallyBot {
       // Ensure registration_code column on churches
       try {
         this.db.exec(`ALTER TABLE churches ADD COLUMN registration_code TEXT`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
 
       // Generate codes for churches that don't have one
       const churchesWithoutCode = this.db.prepare('SELECT churchId FROM churches WHERE registration_code IS NULL').all();
@@ -694,12 +694,12 @@ class TallyBot {
       // Add access_level column if it doesn't exist (viewer / operator / admin)
       try {
         this.db.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
 
       // Add default_room_id column for multi-room targeting
       try {
         this.db.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
 
       this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
       this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
@@ -784,13 +784,13 @@ class TallyBot {
       `);
       try {
         await this.queryClient.exec(`ALTER TABLE churches ADD COLUMN registration_code TEXT`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
       try {
         await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
       try {
         await this.queryClient.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
-      } catch { /* column already exists */ }
+      } catch (err) { /* column already exists */ console.debug("[telegramBot] intentional swallow:", err); }
     }
 
     const churchesWithoutCode = await this._queryAll('SELECT churchId FROM churches WHERE registration_code IS NULL OR registration_code = ?', ['']);
@@ -1730,7 +1730,7 @@ class TallyBot {
         const _eq = JSON.parse(_eqRow.equipment);
         _equipRoles = _eq._roles || null;
       }
-    } catch { /* non-fatal */ }
+    } catch (err) { /* non-fatal */ console.debug("[telegramBot] intentional swallow:", err); }
     const smartResult = smartParse(text, liveStatus, _equipRoles);
 
     if (smartResult) {
@@ -1784,7 +1784,7 @@ class TallyBot {
         if (!macros.length) return this.sendMessage(chatId, bt('macro.list.empty', locale), { parse_mode: 'Markdown' });
         const list = macros.map(m => `• \`/${m.name}\` — ${m.description || 'no description'}`).join('\n');
         return this.sendMessage(chatId, bt('macro.list.header', locale) + list, { parse_mode: 'Markdown' });
-      } catch { /* fall through */ }
+      } catch (err) { /* fall through */ console.debug("[telegramBot] intentional swallow:", err); }
     }
 
     // Run macro by name (/command with no args — look up in macros table)
@@ -1853,7 +1853,7 @@ class TallyBot {
         configuredDevices = getConfiguredDeviceTypes(equipment);
         equipmentRoles = equipment._roles || null;
       }
-    } catch { /* non-fatal */ }
+    } catch (err) { /* non-fatal */ console.debug("[telegramBot] intentional swallow:", err); }
 
     const ctx = {
       churchId: church.churchId,

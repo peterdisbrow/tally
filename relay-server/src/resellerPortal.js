@@ -1263,7 +1263,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
             return res.redirect('/reseller-portal');
           }
         }
-      } catch { /* invalid token, show sales page */ }
+      } catch (err) { /* invalid token, show sales page */ console.debug("[resellerPortal] intentional swallow:", err); }
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(buildResellerSalesPageHtml());

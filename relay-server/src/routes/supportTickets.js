@@ -218,8 +218,8 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       created_at TEXT NOT NULL
     )
   `);
-  try { db.exec('ALTER TABLE diagnostic_bundles ADD COLUMN church_id TEXT'); } catch { /* already exists */ }
-  try { db.exec('UPDATE diagnostic_bundles SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch { /* ignore */ }
+  try { db.exec('ALTER TABLE diagnostic_bundles ADD COLUMN church_id TEXT'); } catch (err) { /* already exists */ console.debug("[supportTickets] intentional swallow:", err); }
+  try { db.exec('UPDATE diagnostic_bundles SET church_id = churchId WHERE church_id IS NULL AND churchId IS NOT NULL'); } catch (err) { /* ignore */ console.debug("[supportTickets] intentional swallow:", err); }
 
   app.post('/api/church/:churchId/diagnostic-bundle', requireSupportAccess, async (req, res) => {
     const churchId = req.params.churchId || resolveSupportChurchId(req);
@@ -250,7 +250,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       const bundleData = await new Promise((resolve, reject) => {
         const cleanup = () => {
           for (const sock of openSockets) {
-            try { sock.removeListener('message', handler); } catch { /* ignore */ }
+            try { sock.removeListener('message', handler); } catch (err) { /* ignore */ console.debug("[supportTickets] intentional swallow:", err); }
           }
         };
 
@@ -268,7 +268,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
               if (msg.error) reject(new Error(msg.error));
               else resolve(msg.result);
             }
-          } catch { /* ignore parse errors */ }
+          } catch (err) { /* ignore parse errors */ console.debug("[supportTickets] intentional swallow:", err); }
         };
 
         const payload = JSON.stringify({

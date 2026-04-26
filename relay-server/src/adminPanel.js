@@ -684,7 +684,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
           return next();
         }
-      } catch { /* fall through to 401 */ }
+      } catch (err) { /* fall through to 401 */ console.debug("[adminPanel] intentional swallow:", err); }
     }
 
     const isApi = req.path.startsWith('/api/');
@@ -737,26 +737,26 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       activeAlerts = (await qOne(
         "SELECT COUNT(*) AS cnt FROM alerts WHERE datetime(created_at) > datetime('now','-24 hours')"
       ))?.cnt || 0;
-    } catch { /* alerts table may not exist */ }
+    } catch (err) { /* alerts table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     let openTickets = 0;
     try {
       openTickets = (await qOne(
         "SELECT COUNT(*) AS cnt FROM support_tickets WHERE status IN ('open','in_progress')"
       ))?.cnt || 0;
-    } catch { /* support_tickets table may not exist */ }
+    } catch (err) { /* support_tickets table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     let mrr = 0;
     try {
       mrr = (await qOne(
         "SELECT COALESCE(SUM(amount),0) AS total FROM billing WHERE status='active'"
       ))?.total || 0;
-    } catch { /* billing table may not exist */ }
+    } catch (err) { /* billing table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     // Trend: previous 24h alerts (24-48h ago)
     let prevAlerts = 0;
     try {
       prevAlerts = (await qOne(
         "SELECT COUNT(*) AS cnt FROM alerts WHERE datetime(created_at) > datetime('now','-48 hours') AND datetime(created_at) <= datetime('now','-24 hours')"
       ))?.cnt || 0;
-    } catch { /* alerts table may not exist */ }
+    } catch (err) { /* alerts table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // Trend: online count 24h ago approximation (use 7-day avg of churches connected at any point)
     let prevOnline = null;
@@ -766,7 +766,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         "SELECT COUNT(DISTINCT church_id) AS cnt FROM service_sessions WHERE datetime(started_at) > datetime('now','-48 hours') AND datetime(started_at) <= datetime('now','-24 hours') AND (session_type IS NULL OR session_type != 'test')"
       ))?.cnt;
       if (prevOnlineCount !== undefined) prevOnline = prevOnlineCount;
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     res.json({ totalChurches, onlineNow, totalResellers, activeAlerts, openTickets, mrr, prevAlerts, prevOnline });
   });
@@ -804,7 +804,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       );
       const roomCounts = new Map(counts.map(r => [r.campus_id, r.cnt]));
       for (const item of list) item.roomCount = roomCounts.get(item.churchId) || 0;
-    } catch { /* rooms table may not exist */ }
+    } catch (err) { /* rooms table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     res.json({ churches: list, total, page, limit, pages: Math.ceil(total / limit) });
   });
 
@@ -924,7 +924,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       for (const { table, column } of ALLOWED_CASCADE_DELETES) {
         try {
           await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [id]);
-        } catch { /* table may not exist */ }
+        } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
       }
       await qRun('DELETE FROM churches WHERE churchId = ?', [id]);
     } catch (e) {
@@ -1280,7 +1280,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       funnel.telegram = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_telegram_registered_at IS NOT NULL"))?.cnt || 0;
       funnel.failover_tested = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_failover_tested_at IS NOT NULL"))?.cnt || 0;
       funnel.team_invited = (await qOne("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_team_invited_at IS NOT NULL"))?.cnt || 0;
-    } catch { /* onboarding columns may not exist */ }
+    } catch (err) { /* onboarding columns may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // Stuck churches: connected app but no ATEM in 7+ days
     let stuck = [];
@@ -1333,7 +1333,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           daysStuck: daysSince,
         };
       });
-    } catch { /* columns may not exist */ }
+    } catch (err) { /* columns may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     res.json({ funnel, stuck });
   });
@@ -1375,7 +1375,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name',
         [churchId],
       );
-    } catch { /* rooms table may not exist */ }
+    } catch (err) { /* rooms table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     const runtime = getObservedChurch(churchId);
     const roomInstanceMap = runtime?.roomInstanceMap || {};
     res.json({ rooms, roomInstanceMap });
@@ -1704,7 +1704,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
                 cancel_at_period_end, stripe_customer_id, stripe_subscription_id, created_at
          FROM billing_customers WHERE church_id = ? LIMIT 1`
       , [churchId]) || null;
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Onboarding milestones ──
     const onboarding = {
@@ -1772,7 +1772,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           duration: Math.floor((Date.now() - startTime) / 1000),
         };
       }
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     const streamActive = !!deviceStatus.streaming || !!deviceStatus.obs?.streaming;
 
@@ -1789,7 +1789,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     let healthScore = { score: 100, breakdown: {}, trend: 'stable' };
     try {
       healthScore = getHealthScore(churchId);
-    } catch { /* tables may not exist */ }
+    } catch (err) { /* tables may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Recent Alerts (last 20) ──
     let recentAlerts = [];
@@ -1806,7 +1806,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         timestamp: row.created_at,
         resolved: !!row.resolved,
       }));
-    } catch { /* alerts table may not exist */ }
+    } catch (err) { /* alerts table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Recent Sessions (last 5) ──
     let recentSessions = [];
@@ -1824,7 +1824,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         alerts: row.alert_count || 0,
         grade: row.grade || null,
       }));
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Recent Tickets (last 5) ──
     let recentTickets = [];
@@ -1834,7 +1834,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
          FROM support_tickets WHERE church_id = ?
          ORDER BY created_at DESC LIMIT 5`
       , [churchId]);
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Last Diagnostic Bundle ──
     let lastDiagnosticBundle = null;
@@ -1845,7 +1845,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (bundle) {
         lastDiagnosticBundle = { timestamp: bundle.created_at, summary: bundle.summary || null };
       }
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // ── Chat History (last 20 messages) ──
       let chatHistory = [];
@@ -1858,7 +1858,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           , [churchId]);
           chatHistory = chatHistory.reverse();
       }
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Config summary ──
     let config = { autoRecovery: false, failover: false, failoverAction: null, autoPilotRulesCount: 0 };
@@ -1866,17 +1866,17 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       config.autoRecovery = churchRow.auto_recovery_enabled === 1 || churchRow.auto_recovery_enabled === '1';
       config.failover = churchRow.failover_enabled === 1 || churchRow.failover_enabled === '1';
       config.failoverAction = churchRow.failover_action || null;
-    } catch { /* column may not exist */ }
+    } catch (err) { /* column may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
     try {
       const apCount = await qOne('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?', [churchId]);
       config.autoPilotRulesCount = apCount?.cnt || 0;
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── TDs ──
     let tds = [];
     try {
       tds = await qAll('SELECT id, name, email, access_level, created_at FROM church_tds WHERE church_id = ?', [churchId]);
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // ── Rooms + per-instance status ──
     let rooms = [];
@@ -1884,7 +1884,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       rooms = await qAll(
         'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
       , [churchId]);
-    } catch { /* rooms table may not exist */ }
+    } catch (err) { /* rooms table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     // Build per-instance status map for multi-room support
     const instanceStatusMap = {};
@@ -1935,7 +1935,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       for (const row of eqRows) {
         try { roomEquipment[row.room_id] = JSON.parse(row.equipment); } catch { roomEquipment[row.room_id] = {}; }
       }
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
     res.json({
       church,
@@ -2091,7 +2091,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       try {
         const hs = getHealthScore(row.churchId);
         score = hs.score;
-      } catch { /* tables may not exist */ }
+      } catch (err) { /* tables may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // Active alerts count
       let activeAlerts = 0;
@@ -2099,7 +2099,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         activeAlerts = (await qOne(
           "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0"
         , [row.churchId]))?.cnt || 0;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // Has unresolved critical alerts
       let hasCriticalAlerts = false;
@@ -2108,7 +2108,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0 AND severity = 'critical'"
         , [row.churchId]);
         hasCriticalAlerts = (crit?.cnt || 0) > 0;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // Open support tickets
       let hasOpenTickets = false;
@@ -2117,7 +2117,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           "SELECT COUNT(*) as cnt FROM support_tickets WHERE church_id = ? AND status IN ('open','in_progress')"
         , [row.churchId]);
         hasOpenTickets = (ot?.cnt || 0) > 0;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // Last session
       let lastSession = null;
@@ -2126,7 +2126,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
           "SELECT started_at FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test') ORDER BY started_at DESC LIMIT 1"
         , [row.churchId]);
         lastSession = ls?.started_at || null;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[adminPanel] intentional swallow:", err); }
 
       // Offline duration check
       const offlineTooLong = !online && runtime?.lastSeen

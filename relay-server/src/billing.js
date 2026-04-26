@@ -909,7 +909,7 @@ class BillingSystem {
         "UPDATE billing_disputes SET status = ?, resolved_at = ? WHERE stripe_dispute_id = ?",
         [dispute.status || 'closed', now, dispute.id]
       );
-    } catch { /* table might not exist */ }
+    } catch (err) { /* table might not exist */ console.debug("[billing] intentional swallow:", err); }
 
     // If won, restore to active. If lost, keep as inactive.
     if (dispute.status === 'won') {
@@ -1294,7 +1294,7 @@ class BillingSystem {
           return;
         }
       }
-    } catch { /* not critical */ }
+    } catch (err) { /* not critical */ console.debug("[billing] intentional swallow:", err); }
 
     // Cap at 5 free months per referrer
     const MAX_REFERRAL_CREDITS = 5;
@@ -1305,7 +1305,7 @@ class BillingSystem {
         [referral.referrer_id]
       );
       creditedCount = row?.cnt || 0;
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[billing] intentional swallow:", err); }
 
     if (creditedCount >= MAX_REFERRAL_CREDITS) {
       const now = new Date().toISOString();
