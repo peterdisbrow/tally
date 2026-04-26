@@ -187,6 +187,60 @@ export async function gotoManualLive(churchId: string, planId: string, index: nu
   return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/goto/${index}`, { method: 'POST' });
 }
 
+export interface ManualRundownItemInput {
+  title: string;
+  itemType?: string;
+  lengthSeconds?: number;
+  notes?: string;
+  assignee?: string;
+  startType?: 'soft' | 'hard';
+  hardStartTime?: string | null;
+}
+
+export async function createManualRundownItem(
+  churchId: string,
+  planId: string,
+  input: ManualRundownItemInput,
+): Promise<ManualRundownItem> {
+  return api<ManualRundownItem>(`/api/churches/${churchId}/rundown-plans/${planId}/items`, {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function updateManualRundownItem(
+  churchId: string,
+  planId: string,
+  itemId: string,
+  input: Partial<ManualRundownItemInput>,
+): Promise<ManualRundownPlan> {
+  return api<ManualRundownPlan>(`/api/churches/${churchId}/rundown-plans/${planId}/items/${itemId}`, {
+    method: 'PUT',
+    body: input,
+  });
+}
+
+export async function deleteManualRundownItem(
+  churchId: string,
+  planId: string,
+  itemId: string,
+): Promise<ManualRundownPlan> {
+  return api<ManualRundownPlan>(`/api/churches/${churchId}/rundown-plans/${planId}/items/${itemId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function reorderManualRundownItems(
+  churchId: string,
+  planId: string,
+  itemIds: string[],
+): Promise<ManualRundownPlan> {
+  return api<ManualRundownPlan>(`/api/churches/${churchId}/rundown-plans/${planId}/reorder`, {
+    method: 'PUT',
+    body: { itemIds },
+  });
+}
+
 export function computeManualTimings(items: ManualRundownItem[] = [], startTime = DEFAULT_MANUAL_START_TIME): ManualTimingEntry[] {
   const timing: ManualTimingEntry[] = [];
   let currentTime = startTime || DEFAULT_MANUAL_START_TIME;

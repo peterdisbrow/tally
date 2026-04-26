@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Accept Rundown Invite - TallyConnect</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#060D08;color:#F0F2F4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding:20px;display:flex;align-items:center;justify-content:center}
+  .card{max-width:480px;width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;text-align:center}
+  h1{font-size:22px;font-weight:800;margin-bottom:12px}
+  p{font-size:14px;color:#8B9DAF;line-height:1.6;margin-bottom:16px}
+  .btn{display:inline-block;margin-top:16px;padding:12px 28px;background:#00E676;color:#060D08;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none}
+  .btn-secondary{background:rgba(255,255,255,0.06);color:#F0F2F4;border:1px solid rgba(255,255,255,0.16);margin-left:8px}
+  .ok{color:#00E676}
+  .err{color:#FF5252}
+  .muted{color:#556270;font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <h1>Loading invite…</h1>
+  <p>Hang tight while we check your invite.</p>
+</div>
+<script>
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('token');
+  var plan = params.get('plan');
+  var card = document.getElementById('card');
+
+  function render(html) { card.innerHTML = html; }
+
+  if (!token) {
+    render('<h1 class="err">Missing invite token</h1><p>This link is incomplete. Ask the inviter to send you a fresh link.</p>');
+    return;
+  }
+
+  function acceptInvite() {
+    var authToken = null;
+    try { authToken = localStorage.getItem('tally_portal_token') || localStorage.getItem('authToken'); } catch (e) { /* no storage */ }
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
+    fetch('/api/rundown-invites/' + encodeURIComponent(token) + '/accept', {
+      method: 'POST',
+      headers: headers,
+      credentials: 'include',
+    }).then(function(r) {
+      if (r.status === 401 || r.status === 403) {
+        render('<h1>Sign in to accept</h1>'
+          + '<p>You need to be signed in to your church portal to join this rundown. Sign in, then come back to this link.</p>'
+          + '<a class="btn" href="/portal/login?next=' + encodeURIComponent(window.location.pathname + window.location.search) + '">Sign in</a>'
+          + '<p class="muted">Once signed in, refresh this page to accept the invite.</p>');
+        return null;
+      }
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t || 'Failed to accept invite'); });
+      return r.json();
+    }).then(function(data) {
+      if (!data) return;
+      var planLink = '/portal#/rundown' + (plan ? '?plan=' + encodeURIComponent(plan) : '');
+      render('<h1 class="ok">You’re in!</h1>'
+        + '<p>You’ve been added as a <strong>' + (data.collaborator && data.collaborator.role || 'collaborator') + '</strong> on this rundown.</p>'
+        + '<a class="btn" href="' + planLink + '">Open the rundown</a>');
+    }).catch(function(err) {
+      render('<h1 class="err">Could not accept invite</h1>'
+        + '<p>' + (err && err.message ? err.message.replace(/</g, '&lt;') : 'Unknown error') + '</p>'
+        + '<p class="muted">If the invite was revoked or already used, ask the inviter to send a new one.</p>');
+    });
+  }
+
+  acceptInvite();
+})();
+</script>
+</body>
+</html>
