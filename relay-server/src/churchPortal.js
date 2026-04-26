@@ -822,7 +822,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
   }
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_churches_parent_church_id ON churches(parent_church_id)'); } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_churches_parent_church_id ON churches(parent_church_id)'); } catch (err) { /* index may already exist */ console.debug('[portal migrations] create index:', err?.message); }
 
   // Ensure portal-specific columns exist on church_tds (table created by telegramBot)
   const _portalMigrations = [
@@ -1087,7 +1087,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     let roomCount = 0;
     try {
       roomCount = await getRoomCount(req.church.churchId) || 0;
-    } catch {}
+    } catch (err) {
+      console.error('[portal home] getRoomCount error:', err);
+    }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(buildChurchPortalHtml(req.church, { roomCount }));
   });
@@ -1099,11 +1101,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const tdsRows = await qAll('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC', [c.churchId]);
       tds = tdsRows.map(td => { const { password_hash, ...s } = td; s.has_password = !!password_hash; return s; });
-    } catch {}
+    } catch (err) {
+      console.error('[GET /api/church/me] load TDs error:', err);
+    }
     const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, ...safe } = c;
 
     let notifications = {};
-    try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
+    try { notifications = JSON.parse(c.notifications || '{}'); } catch (err) { console.debug('[GET /api/church/me] notifications JSON parse error:', err?.message); }
     const liveStatus = await resolvePortalLiveStatus(c, req);
 
     const response = {
@@ -1356,7 +1360,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Check 2: failover action is set
       let action = null;
-      try { action = row && row.failover_action ? JSON.parse(row.failover_action) : null; } catch {}
+      try { action = row && row.failover_action ? JSON.parse(row.failover_action) : null; } catch (err) { console.debug('[failover drill] failover_action JSON parse error:', err?.message); }
       if (!action) issues.push('No failover action configured. Select an ATEM input, VideoHub route, or backup encoder above.');
       checks.push({ name: 'Failover action configured', passed: !!action });
 
@@ -1395,7 +1399,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           new Date().toISOString(),
           churchId,
         ]);
-      } catch {}
+      } catch (err) {
+        console.error('[failover drill] record drill run time error:', err);
+      }
 
       res.json({ passed, report, checks });
     } catch (e) {
@@ -1705,7 +1711,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[GET /api/church/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       const { ROLE_DEFINITIONS, autoDetectRoles } = require('./routes/roomEquipment');
       const savedRoles = equipment._roles || null;
@@ -1746,7 +1752,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[PUT /api/church/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       equipment._roles = roles;
       const now = new Date().toISOString();
@@ -2332,7 +2338,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!row) return res.json({ results: [], message: 'No check results' });
 
       let checks = [];
-      try { checks = JSON.parse(row.checks_json || '[]'); } catch {}
+      try { checks = JSON.parse(row.checks_json || '[]'); } catch (err) { console.debug('[preservice auto-fix] checks_json JSON parse error:', err?.message); }
 
       // Map of check names to fix commands
       const FIX_MAP = {
@@ -4191,7 +4197,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           label: r.week_key,
           peak: r.peak || 0
         }));
-      } catch {}
+      } catch (err) {
+        console.error('[analytics summary] viewer trend query error:', err);
+      }
 
       // ── Weekly session counts ───────────────────────────────────────
       let weeklySessions = [];
@@ -4208,7 +4216,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           label: r.week_key,
           count: r.count
         }));
-      } catch {}
+      } catch (err) {
+        console.error('[analytics summary] weekly sessions query error:', err);
+      }
 
       // ── Top event types ─────────────────────────────────────────────
       let topEventTypes = [];
@@ -4221,7 +4231,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           ORDER BY count DESC
           LIMIT 8
         `, [churchId, since]);
-      } catch {}
+      } catch (err) {
+        console.error('[analytics summary] top event types query error:', err);
+      }
 
       // ── Equipment disconnects ───────────────────────────────────────
       let equipDisconnects = [];
@@ -4236,7 +4248,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           GROUP BY event_type
           ORDER BY count DESC
         `, [churchId, since]);
-      } catch {}
+      } catch (err) {
+        console.error('[analytics summary] equipment disconnects query error:', err);
+      }
 
       // ── Equipment auto-resolve rates ────────────────────────────────
       let equipAutoResolve = [];
@@ -4255,7 +4269,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           device: r.device,
           rate: r.total > 0 ? (r.auto_count / r.total) * 100 : 0
         }));
-      } catch {}
+      } catch (err) {
+        console.error('[analytics summary] equipment auto-resolve rates query error:', err);
+      }
 
       res.json({
         days,
@@ -4384,7 +4400,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           GROUP BY week_key
           ORDER BY week_key ASC
         `, vsParams);
-      } catch {}
+      } catch (err) {
+        console.error('[viewer stats] weekly trend query error:', err);
+      }
 
       // Platform summary
       let platformSummary = {};
@@ -4404,7 +4422,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           WHERE church_id = ? AND captured_at >= ?${vsRoomFilter}
         `, vsParams);
         if (row) platformSummary = row;
-      } catch {}
+      } catch (err) {
+        console.error('[viewer stats] platform summary query error:', err);
+      }
 
       // Recent snapshots (last 2 hours for live view)
       const recentSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
@@ -4418,7 +4438,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           ORDER BY captured_at ASC
           LIMIT 120
         `, recentParams);
-      } catch {}
+      } catch (err) {
+        console.error('[viewer stats] recent snapshots query error:', err);
+      }
 
       res.json({
         days,
@@ -4475,7 +4497,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         ORDER BY created_at ASC
       `, [ticket.id]);
       let diagnostics = {};
-      try { diagnostics = JSON.parse(ticket.diagnostics_json || '{}'); } catch {}
+      try { diagnostics = JSON.parse(ticket.diagnostics_json || '{}'); } catch (err) { console.debug('[support ticket detail] diagnostics_json JSON parse error:', err?.message); }
       res.json({ ...ticket, diagnostics, updates });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -4870,7 +4892,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             FROM service_sessions
             WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
           `, baseParams) || {};
-        } catch {}
+        } catch (err) {
+          console.error('[reports weekly-summary] sessions agg query error:', err);
+        }
 
         // Events detected/resolved
         let eventAgg = {};
@@ -4883,7 +4907,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             FROM service_events
             WHERE church_id = ? AND timestamp >= ?${roomFilter}
           `, baseParams) || {};
-        } catch {}
+        } catch (err) {
+          console.error('[reports weekly-summary] events agg query error:', err);
+        }
 
         // Device uptime from post_service_reports
         let deviceUptime = [];
@@ -4901,14 +4927,16 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             const key = r.instance_name || 'Default';
             if (!byDevice[key]) byDevice[key] = { uptimes: [], healthData: [] };
             byDevice[key].uptimes.push(r.uptime_pct || 0);
-            try { byDevice[key].healthData.push(JSON.parse(r.device_health || '{}')); } catch {}
+            try { byDevice[key].healthData.push(JSON.parse(r.device_health || '{}')); } catch (err) { console.debug('[reports weekly-summary] device_health JSON parse error:', err?.message); }
           }
           deviceUptime = Object.entries(byDevice).map(([name, data]) => ({
             device: name,
             avgUptime: data.uptimes.length ? (data.uptimes.reduce((a, b) => a + b, 0) / data.uptimes.length).toFixed(1) : null,
             sessions: data.uptimes.length
           }));
-        } catch {}
+        } catch (err) {
+          console.error('[reports weekly-summary] device uptime query error:', err);
+        }
 
         const totalSessions = sessAgg.total_sessions || 0;
         const totalAlerts = sessAgg.total_alerts || 0;
@@ -4963,7 +4991,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         try {
           const countRow = await qOne(`SELECT COUNT(*) AS cnt FROM ai_triage_events t ${where}`, params);
           total = countRow?.cnt || 0;
-        } catch {}
+        } catch (err) {
+          console.error('[reports event-history] count query error:', err);
+        }
 
         // Fetch page
         let events = [];
@@ -4976,7 +5006,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             ORDER BY t.created_at DESC
             LIMIT ? OFFSET ?
           `, [...params, limit, offset]);
-        } catch {}
+        } catch (err) {
+          console.error('[reports event-history] page query error:', err);
+        }
 
         res.json({
           events: events.map(e => ({
@@ -5020,11 +5052,11 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           } else {
             const church = await qOne('SELECT service_times, schedule, timezone FROM churches WHERE churchId = ?', [churchId]);
             if (church?.service_times) {
-              try { serviceTimes = JSON.parse(church.service_times); } catch {}
+              try { serviceTimes = JSON.parse(church.service_times); } catch (err) { console.debug('[reports service-windows] service_times JSON parse error:', err?.message); }
             }
             // Fall back to schedule column (modern format from portal schedule page)
             if ((!serviceTimes || !serviceTimes.length) && church?.schedule) {
-              try { serviceTimes = JSON.parse(church.schedule); } catch {}
+              try { serviceTimes = JSON.parse(church.schedule); } catch (err) { console.debug('[reports service-windows] schedule JSON parse error:', err?.message); }
             }
             // Normalize modern object format to legacy array
             if (serviceTimes && !Array.isArray(serviceTimes) && typeof serviceTimes === 'object') {
@@ -5045,7 +5077,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               serviceTimes = normalized;
             }
           }
-        } catch {}
+        } catch (err) {
+          console.error('[reports service-windows] service times load error:', err);
+        }
 
         // Get sessions in range
         let sessions = [];
@@ -5056,7 +5090,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             WHERE church_id = ? AND started_at >= ?${nonTestSessionClause}${roomFilter}
             ORDER BY started_at DESC
           `, baseParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports service-windows] sessions query error:', err);
+        }
 
         // Get events in range with time context
         let eventsByContext = { pre_service: 0, in_service: 0, off_hours: 0 };
@@ -5072,7 +5108,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               eventsByContext[r.time_context] = r.cnt;
             }
           }
-        } catch {}
+        } catch (err) {
+          console.error('[reports service-windows] events by context query error:', err);
+        }
 
         res.json({
           serviceWindows: serviceTimes,
@@ -5120,7 +5158,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             GROUP BY alert_type
             ORDER BY cnt DESC
           `, triageParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports device-health] current alerts query error:', err);
+        }
 
         // Previous period for trend comparison
         let previousAlerts = [];
@@ -5132,7 +5172,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             WHERE church_id = ? AND created_at >= ? AND created_at < ?${triageRoomFilter}
             GROUP BY alert_type
           `, prevParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports device-health] previous alerts query error:', err);
+        }
         const prevMap = {};
         for (const p of previousAlerts) prevMap[p.alert_type] = p.cnt;
 
@@ -5150,7 +5192,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             WHERE r.church_id = ? AND r.created_at >= ?${roomId ? ' AND t.room_id = ?' : ''}
             GROUP BY t.alert_type
           `, triageParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports device-health] reconnect stats query error:', err);
+        }
         const reconnMap = {};
         for (const r of reconnStats) reconnMap[r.alert_type] = r;
 
@@ -5162,7 +5206,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             FROM post_service_reports
             WHERE church_id = ? AND created_at >= ?${roomFilter}
           `, baseParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports device-health] device uptimes query error:', err);
+        }
         const uptimeByDevice = {};
         for (const d of deviceUptimes) {
           const key = d.instance_name || 'Default';
@@ -5218,7 +5264,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         let aiSettings = {};
         try {
           aiSettings = await qOne('SELECT * FROM church_ai_settings WHERE church_id = ?', [churchId]) || {};
-        } catch {}
+        } catch (err) {
+          console.error('[reports ai-activity] ai settings query error:', err);
+        }
 
         // Auto-fix actions
         let actions = [];
@@ -5231,7 +5279,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             ORDER BY r.created_at DESC
             LIMIT ? OFFSET ?
           `, [...triageParams, limit, offset]);
-        } catch {}
+        } catch (err) {
+          console.error('[reports ai-activity] actions query error:', err);
+        }
 
         let totalActions = 0;
         try {
@@ -5242,7 +5292,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             WHERE r.church_id = ? AND r.created_at >= ?${triageRoomFilter}
           `, triageCountParams);
           totalActions = cnt?.cnt || 0;
-        } catch {}
+        } catch (err) {
+          console.error('[reports ai-activity] total actions count error:', err);
+        }
 
         // Summary stats
         let summary = {};
@@ -5257,7 +5309,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             JOIN ai_triage_events t ON t.id = r.event_id
             WHERE r.church_id = ? AND r.created_at >= ?${triageRoomFilter}
           `, triageParams) || {};
-        } catch {}
+        } catch (err) {
+          console.error('[reports ai-activity] summary stats query error:', err);
+        }
 
         // Pending issues (triage events with no resolution)
         let pending = [];
@@ -5270,7 +5324,9 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
             ORDER BY t.triage_score DESC
             LIMIT 10
           `, triageParams);
-        } catch {}
+        } catch (err) {
+          console.error('[reports ai-activity] pending issues query error:', err);
+        }
 
         const effectiveAiMode = aiSettings.ai_mode || 'recommend_only';
         res.json({
