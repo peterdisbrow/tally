@@ -173,8 +173,8 @@ class PreServiceRundown {
       )
       `);
 
-      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch {}
-      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
+      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch (err) { /* index may already exist */ console.debug('[preservice migrations] create idx_preservice_rundowns_church:', err?.message); }
+      try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch (err) { /* index may already exist */ console.debug('[preservice migrations] create idx_escalation_contacts_church:', err?.message); }
       return;
     }
 
@@ -227,8 +227,8 @@ class PreServiceRundown {
       )
     `);
 
-      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch {}
-      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
+      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_preservice_rundowns_church ON preservice_rundowns(church_id, created_at DESC)'); } catch (err) { /* index may already exist */ console.debug('[preservice migrations pg] create idx_preservice_rundowns_church:', err?.message); }
+      try { await client.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch (err) { /* index may already exist */ console.debug('[preservice migrations pg] create idx_escalation_contacts_church:', err?.message); }
 
       try {
         const rundownRows = await client.query(`
@@ -242,14 +242,18 @@ class PreServiceRundown {
           if (this._latestRundowns.has(key)) continue;
           this._setRundown(this._hydrateRundownRow(row));
         }
-      } catch {}
+      } catch (err) {
+        console.error('[preservice cache hydrate] rundowns query error:', err);
+      }
 
       try {
         const contacts = await client.query(
           'SELECT * FROM escalation_contacts WHERE active = 1 ORDER BY role, name',
         );
         this._replaceEscalationContactsCache(contacts);
-      } catch {}
+      } catch (err) {
+        console.error('[preservice cache hydrate] escalation contacts query error:', err);
+      }
     })();
   }
 
@@ -281,8 +285,8 @@ class PreServiceRundown {
   _hydrateRundownRow(row) {
     let checks = {};
     let historical = {};
-    try { checks = JSON.parse(row.checks_json || '{}'); } catch {}
-    try { historical = JSON.parse(row.historical_json || '{}'); } catch {}
+    try { checks = JSON.parse(row.checks_json || '{}'); } catch (err) { console.debug('[preservice hydrate] checks_json JSON parse error:', err?.message); }
+    try { historical = JSON.parse(row.historical_json || '{}'); } catch (err) { console.debug('[preservice hydrate] historical_json JSON parse error:', err?.message); }
 
     return {
       ...row,
@@ -565,7 +569,9 @@ class PreServiceRundown {
         // Update DB
         try {
           await this._run('UPDATE preservice_rundowns SET ai_summary = ? WHERE id = ?', [summary, rundown.id]);
-        } catch {}
+        } catch (err) {
+          console.error('[preservice AI summary] save summary error:', err);
+        }
       }
 
       return summary;
@@ -717,7 +723,9 @@ class PreServiceRundown {
           detail: 'Token present',
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error('[preservice OAuth checks] token query error:', err);
+    }
 
     // If no stream platforms configured
     if (items.length === 0) {
@@ -894,7 +902,9 @@ class PreServiceRundown {
           else break;
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error('[preservice historical] recent sessions query error:', err);
+    }
 
     // Recurring issues from church memory
     const recurringIssues = [];
@@ -905,7 +915,9 @@ class PreServiceRundown {
           recurringIssues.push(issue.summary || issue);
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error('[preservice historical] church memory briefing error:', err);
+    }
 
     // Viewer baseline
     let viewerBaseline = { expectedPeak: 0, expectedAtMinute10: 0, platformSplit: {}, trendPct: 0, sampleCount: 0 };
@@ -913,7 +925,9 @@ class PreServiceRundown {
       if (this.viewerBaseline) {
         viewerBaseline = await this.viewerBaseline.getBaseline(churchId, serviceDay);
       }
-    } catch {}
+    } catch (err) {
+      console.error('[preservice historical] viewer baseline error:', err);
+    }
 
     return {
       lastWeekGrade,
@@ -1150,7 +1164,9 @@ class PreServiceRundown {
       } else if (!row?.escalation_enabled) {
         return; // Escalation disabled for this church
       }
-    } catch {}
+    } catch (err) {
+      console.error('[preservice escalation] load timing config error:', err);
+    }
 
     // Schedule escalation checks every minute
     const timer = setInterval(() => {
@@ -1271,7 +1287,9 @@ class PreServiceRundown {
         name: 'tally_service_ready',
         value,
       }).catch(() => {});
-    } catch {}
+    } catch (err) {
+      console.error('[preservice setCompanionVariable] error:', err);
+    }
   }
 
   // ─── ENHANCED TELEGRAM NOTIFICATION ──────────────────────────────────────────

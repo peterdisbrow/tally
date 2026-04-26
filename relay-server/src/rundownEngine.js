@@ -280,12 +280,12 @@ class RundownEngine {
     const roomCols = { instance_name: 'TEXT', room_id: 'TEXT' };
     for (const [col, def] of Object.entries(roomCols)) {
       try { this.db.prepare(`SELECT ${col} FROM rundowns LIMIT 1`).get(); }
-      catch { try { this.db.exec(`ALTER TABLE rundowns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { this.db.exec(`ALTER TABLE rundowns ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[rundownEngine] intentional swallow:", err); } }
       try { this.db.prepare(`SELECT ${col} FROM active_rundowns LIMIT 1`).get(); }
-      catch { try { this.db.exec(`ALTER TABLE active_rundowns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { this.db.exec(`ALTER TABLE active_rundowns ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[rundownEngine] intentional swallow:", err); } }
     }
 
-    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_rundowns_church ON rundowns(church_id)'); } catch {}
+    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_rundowns_church ON rundowns(church_id)'); } catch (err) { /* index may already exist */ console.debug('[rundownEngine migrations] create idx_rundowns_church:', err?.message); }
   }
 
   async _ensureTable() {
@@ -351,7 +351,7 @@ class RundownEngine {
       }
     }
 
-    try { await client.exec('CREATE INDEX IF NOT EXISTS idx_rundowns_church ON rundowns(church_id)'); } catch {}
+    try { await client.exec('CREATE INDEX IF NOT EXISTS idx_rundowns_church ON rundowns(church_id)'); } catch (err) { /* index may already exist */ console.debug('[rundownEngine migrations pg] create idx_rundowns_church:', err?.message); }
   }
 
   // ─── CRUD ──────────────────────────────────────────────────────────────────

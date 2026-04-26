@@ -167,7 +167,7 @@ function sanitizeHtml(html) {
 // ── File upload configuration ────────────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '../../uploads/rundown');
 // Ensure upload directory exists
-try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* exists */ }
+try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (err) { /* exists */ console.debug("[liveRundown] intentional swallow:", err); }
 
 const ALLOWED_MIMETYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp',
@@ -374,7 +374,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       ).all(churchId, planId);
       const map = {};
       for (const row of rows) {
-        try { map[row.item_id] = JSON.parse(row.actions_json); } catch { /* skip malformed */ }
+        try { map[row.item_id] = JSON.parse(row.actions_json); } catch (err) { /* skip malformed */ console.debug("[liveRundown] intentional swallow:", err); }
       }
       return map;
     } catch {
@@ -486,7 +486,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             await manualRundown.lockPlan(planId, lockedBy);
             broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live', lockedBy, lockedAt: Date.now() } });
             broadcastRundownEvent(churchId, 'rundown_plan_locked', { planId, lockedBy, lockedAt: Date.now() });
-          } catch { /* non-critical */ }
+          } catch (err) { /* non-critical */ console.debug("[liveRundown] intentional swallow:", err); }
         }
 
         res.json(state);
@@ -630,7 +630,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
               console.error('[rundown] post-show report generation warning:', reportErr.message);
             }
           }
-        } catch { /* non-critical */ }
+        } catch (err) { /* non-critical */ console.debug("[liveRundown] intentional swallow:", err); }
       }
 
       res.json(summary);
@@ -820,7 +820,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             isTemplate: false,
             roomId: '',
           }));
-        } catch { /* PCO not available — fine */ }
+        } catch (err) { /* PCO not available — fine */ console.debug("[liveRundown] intentional swallow:", err); }
 
         // Combine: manual first, then PCO
         let plans = [
@@ -963,8 +963,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         for (const attachment of attachments) {
           try {
             fs.unlinkSync(path.join(UPLOAD_DIR, attachment.storagePath));
-          } catch {
+          } catch (err) {
             // File cleanup is best-effort.
+            console.debug('[rundown deletePlan] attachment cleanup error:', err?.message);
           }
         }
         res.json({ ok: true });
@@ -1414,8 +1415,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         for (const attachment of attachments) {
           try {
             fs.unlinkSync(path.join(UPLOAD_DIR, attachment.storagePath));
-          } catch {
+          } catch (err) {
             // File cleanup is best-effort.
+            console.debug('[rundown deleteItem] attachment cleanup error:', err?.message);
           }
         }
         const updated = await manualRundown.getPlan(req.params.planId);
@@ -1847,7 +1849,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       // Backend size check (in addition to multer limit)
       const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
       if (req.file.size > MAX_ATTACHMENT_SIZE) {
-        try { require('fs').unlinkSync(req.file.path); } catch { /* cleanup */ }
+        try { require('fs').unlinkSync(req.file.path); } catch (err) { /* cleanup */ console.debug("[liveRundown] intentional swallow:", err); }
         return res.status(400).json({ error: 'File too large (max 10MB)' });
       }
       try {
@@ -1915,7 +1917,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const att = await manualRundown.deleteAttachment(req.params.attachmentId);
         if (!att) return res.status(404).json({ error: 'Attachment not found' });
         // Try to clean up the file
-        try { fs.unlinkSync(path.join(UPLOAD_DIR, att.storagePath)); } catch { /* file already gone */ }
+        try { fs.unlinkSync(path.join(UPLOAD_DIR, att.storagePath)); } catch (err) { /* file already gone */ console.debug("[liveRundown] intentional swallow:", err); }
         res.json({ ok: true });
       } catch (e) {
         console.error('[rundown] error:', e);

@@ -185,7 +185,7 @@ module.exports = function registerAiTriageRoutes(app, ctx) {
     try {
       const stats = await Promise.resolve(aiTriageEngine.getStats({ days: 1 }));
       res.write(`event: stats\ndata: ${JSON.stringify(stats)}\n\n`);
-    } catch { /* ignore */ }
+    } catch (err) { /* ignore */ console.debug("[aiTriage] intentional swallow:", err); }
 
     const keepAlive = setInterval(() => {
       res.write(': ping\n\n');

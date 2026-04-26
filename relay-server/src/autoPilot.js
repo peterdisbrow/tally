@@ -411,14 +411,14 @@ class AutoPilot {
     const ruleCols = { instance_name: 'TEXT', room_id: 'TEXT' };
     for (const [col, def] of Object.entries(ruleCols)) {
       try { this.db.prepare(`SELECT ${col} FROM automation_rules LIMIT 1`).get(); }
-      catch { try { this.db.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { this.db.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[autoPilot] intentional swallow:", err); } }
     }
 
     // Migration: add room scoping columns to command_log
     const cmdLogCols = { instance_name: 'TEXT', room_id: 'TEXT' };
     for (const [col, def] of Object.entries(cmdLogCols)) {
       try { this.db.prepare(`SELECT ${col} FROM command_log LIMIT 1`).get(); }
-      catch { try { this.db.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { this.db.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[autoPilot] intentional swallow:", err); } }
     }
 
     // Persisted per-session dedup so relay restarts don't re-fire rules in
@@ -475,13 +475,13 @@ class AutoPilot {
     const ruleCols = { instance_name: 'TEXT', room_id: 'TEXT' };
     for (const [col, def] of Object.entries(ruleCols)) {
       try { await client.queryOne(`SELECT ${col} FROM automation_rules LIMIT 1`); }
-      catch { try { await client.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { await client.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[autoPilot] intentional swallow:", err); } }
     }
 
     const cmdLogCols = { instance_name: 'TEXT', room_id: 'TEXT' };
     for (const [col, def] of Object.entries(cmdLogCols)) {
       try { await client.queryOne(`SELECT ${col} FROM command_log LIMIT 1`); }
-      catch { try { await client.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      catch { try { await client.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch (err) { /* already exists */ console.debug("[autoPilot] intentional swallow:", err); } }
     }
 
     await client.exec(`
@@ -1085,7 +1085,7 @@ class AutoPilot {
       if (this.db) {
         try {
           this.db.prepare('DELETE FROM autopilot_session_fires WHERE session_id = ?').run(sessionId);
-        } catch { /* non-fatal */ }
+        } catch (err) { /* non-fatal */ console.debug("[autoPilot] intentional swallow:", err); }
       } else {
         this._queueWrite(this._requireClient().run(
           'DELETE FROM autopilot_session_fires WHERE session_id = ?',
@@ -1158,8 +1158,9 @@ class AutoPilot {
         this._firedThisSession.get(sessionId).add(ruleId);
         return true;
       }
-    } catch {
+    } catch (err) {
       // DB error — fall through and allow the rule to fire (fail open)
+      console.error('[autoPilot _hasFiredThisSession] db lookup error (failing open):', err);
     }
     return false;
   }
@@ -1179,8 +1180,9 @@ class AutoPilot {
         this.db.prepare(
           'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
         ).run(sessionId, ruleId, churchId, new Date().toISOString());
-      } catch {
+      } catch (err) {
         // Non-fatal — in-memory cache still prevents double-fires within the same process
+        console.error('[autoPilot _markFiredThisSession] persist fire error (in-memory still tracked):', err);
       }
     } else {
       this._queueWrite(this._requireClient().run(

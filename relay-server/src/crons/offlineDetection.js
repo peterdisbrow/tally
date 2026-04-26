@@ -43,7 +43,7 @@ module.exports = function setupOfflineDetection(ctx) {
         const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).formatToParts(new Date());
         const hourPart = parts.find(p => p.type === 'hour');
         if (hourPart) return parseInt(hourPart.value, 10);
-      } catch { /* invalid timezone — fall through */ }
+      } catch (err) { /* invalid timezone — fall through */ console.debug("[offlineDetection] intentional swallow:", err); }
     }
     return new Date().getHours(); // fallback: server local time
   }

@@ -19,8 +19,9 @@ function parseEncryptionKey(raw) {
     try {
       const asBase64 = Buffer.from(value, 'base64');
       if (asBase64.length === 32) return asBase64;
-    } catch {
+    } catch (err) {
       // fall through to hash-based derivation
+      console.debug('[dbBackup deriveKey] base64 decode error:', err?.message);
     }
   }
 

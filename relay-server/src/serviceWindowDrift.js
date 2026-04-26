@@ -156,8 +156,9 @@ function detectDrift(db, churchId, currentSession) {
         });
       }
     }
-  } catch {
+  } catch (err) {
     // service_sessions table may not exist in test contexts — skip overlap check
+    console.debug('[serviceWindowDrift] overlap check error:', err?.message);
   }
 
   return { drifts };

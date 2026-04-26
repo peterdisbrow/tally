@@ -210,7 +210,7 @@ class StreamPlatformOAuth {
           const chData = await chResp.json();
           channelName = chData.items?.[0]?.snippet?.title || '';
         }
-      } catch { /* non-fatal */ }
+      } catch (err) { /* non-fatal */ console.debug("[streamPlatformOAuth] intentional swallow:", err); }
       // Fallback: Google userinfo (doesn't require YouTube Data API)
       if (!channelName) {
         try {
@@ -222,7 +222,7 @@ class StreamPlatformOAuth {
             const uData = await uResp.json();
             channelName = uData.name || uData.email || '';
           }
-        } catch { /* non-fatal */ }
+        } catch (err) { /* non-fatal */ console.debug("[streamPlatformOAuth] intentional swallow:", err); }
       }
       if (channelName) {
         await this._run('UPDATE churches SET yt_channel_name = ? WHERE churchId = ?', [channelName, churchId]);
@@ -416,7 +416,7 @@ class StreamPlatformOAuth {
           signal: AbortSignal.timeout(5000),
         });
         if (meResp.ok) { const me = await meResp.json(); userName = me.name || userName; }
-      } catch { /* ignore */ }
+      } catch (err) { /* ignore */ console.debug("[streamPlatformOAuth] intentional swallow:", err); }
 
       // Include personal account as first option
       const destinations = [
@@ -475,7 +475,7 @@ class StreamPlatformOAuth {
             signal: AbortSignal.timeout(5000),
           });
           if (meResp.ok) { const me = await meResp.json(); pageName = me.name || pageName; }
-        } catch { /* ignore */ }
+        } catch (err) { /* ignore */ console.debug("[streamPlatformOAuth] intentional swallow:", err); }
       } else {
         // Page — get page token from the user token
         const pages = await this._listFacebookPages(church.fb_access_token);
@@ -650,7 +650,7 @@ class StreamPlatformOAuth {
         signal: AbortSignal.timeout(5000),
       });
       if (meResp.ok) { const me = await meResp.json(); userName = me.name || userName; }
-    } catch { /* ignore */ }
+    } catch (err) { /* ignore */ console.debug("[streamPlatformOAuth] intentional swallow:", err); }
     return {
       success: true,
       pages: [{ id: 'me', name: `${userName} (Personal)` }, ...pages.map(p => ({ id: p.id, name: p.name }))],

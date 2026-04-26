@@ -341,7 +341,7 @@ function _buildOperationalContext(status, opts) {
     try {
       const pcoContext = opts.planningCenter.buildAIContext(opts.churchId);
       if (pcoContext) sections.push(pcoContext);
-    } catch { /* planningCenter may not be available */ }
+    } catch (err) { /* planningCenter may not be available */ console.debug("[tally-context] intentional swallow:", err); }
   }
 
   // ── Document context ──
@@ -383,12 +383,12 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
           if (ctx.diagnosis?.likely_cause) {
             detail += ` \u2014 ${ctx.diagnosis.likely_cause}`;
           }
-        } catch { /* ignore parse errors */ }
+        } catch (err) { /* ignore parse errors */ console.debug("[tally-context] intentional swallow:", err); }
         lines.push(detail);
       }
       sections.push(lines.join('\n'));
     }
-  } catch { /* alerts table may not exist */ }
+  } catch (err) { /* alerts table may not exist */ console.debug("[tally-context] intentional swallow:", err); }
 
   // ── Current/recent service session + timeline ──
   try {
@@ -423,11 +423,11 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
             lines.push(`    ${time}: ${type} (${evtStatus})${detail}`);
           }
         }
-      } catch { /* service_events may not exist */ }
+      } catch (err) { /* service_events may not exist */ console.debug("[tally-context] intentional swallow:", err); }
 
       sections.push(lines.join('\n'));
     }
-  } catch { /* service_sessions may not exist */ }
+  } catch (err) { /* service_sessions may not exist */ console.debug("[tally-context] intentional swallow:", err); }
 
   // ── Signal failover state + transitions ──
   if (signalFailover) {
@@ -452,7 +452,7 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
         }
         sections.push(logLines.join('\n'));
       }
-    } catch { /* signalFailover might not have state */ }
+    } catch (err) { /* signalFailover might not have state */ console.debug("[tally-context] intentional swallow:", err); }
   }
 
   // ── Church memory (learned observations) ──
@@ -471,7 +471,7 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
       }
       sections.push(lines.join('\n'));
     }
-  } catch { /* church_memory may not exist */ }
+  } catch (err) { /* church_memory may not exist */ console.debug("[tally-context] intentional swallow:", err); }
 
   // ── Engineer profile from DB (detailed) ──
   try {
@@ -496,7 +496,7 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
         sections.push(lines.join('\n'));
       }
     }
-  } catch { /* ignore parse errors */ }
+  } catch (err) { /* ignore parse errors */ console.debug("[tally-context] intentional swallow:", err); }
 
   return sections.join('\n\n');
 }

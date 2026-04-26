@@ -257,7 +257,7 @@ class HealthAlertMonitor {
             for (const f of failing) {
               if (f && !failingChecks.includes(f)) failingChecks.push(f);
             }
-          } catch { /* ignore parse errors */ }
+          } catch (err) { /* ignore parse errors */ console.debug("[healthAlerts] intentional swallow:", err); }
         } else {
           break; // consecutive streak broken
         }

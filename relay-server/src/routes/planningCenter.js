@@ -395,7 +395,7 @@ function _callbackHtml(success, message) {
 </div>
 <script>
   // Auto-close after 3 seconds if opened as popup
-  setTimeout(() => { try { window.close(); } catch(e) {} }, 3000);
+  setTimeout(() => { try { window.close(); } catch(e) { console.debug('[PC OAuth result page] window.close blocked:', e && e.message); } }, 3000);
 </script>
 </body>
 </html>`;

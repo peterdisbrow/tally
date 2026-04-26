@@ -96,10 +96,10 @@ class PostServiceReport {
     `);
 
     try { this.db.prepare('SELECT room_id FROM post_service_reports LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN room_id TEXT'); } catch (err) { /* already exists */ console.debug("[postServiceReport] intentional swallow:", err); } }
 
     try { this.db.prepare('SELECT instance_name FROM post_service_reports LIMIT 1').get(); }
-    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT'); } catch (err) { /* already exists */ console.debug("[postServiceReport] intentional swallow:", err); } }
   }
 
   async _ensureSchema() {

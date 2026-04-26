@@ -521,8 +521,9 @@ function getAvailableCommandNames() {
     const { commandHandlers } = require('../../church-client/src/commands/index');
     const runtimeCommands = Object.keys(commandHandlers || {}).sort();
     if (runtimeCommands.length > 0) return runtimeCommands;
-  } catch {
+  } catch (err) {
     // Fall back to static command list.
+    console.debug('[ai-parser getAvailableCommandNames] runtime command resolve error:', err?.message);
   }
   return FALLBACK_COMMANDS;
 }
@@ -1099,21 +1100,21 @@ async function callAnthropic(messages, timeout = 20000, systemPrompt = '', model
 
 function parseJSON(raw) {
   // Try direct parse first
-  try { return JSON.parse(raw); } catch { /* continue */ }
+  try { return JSON.parse(raw); } catch (err) { /* continue */ console.debug("[ai-parser] intentional swallow:", err); }
 
   // Strip markdown code blocks
   let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  try { return JSON.parse(cleaned); } catch { /* continue */ }
+  try { return JSON.parse(cleaned); } catch (err) { /* continue */ console.debug("[ai-parser] intentional swallow:", err); }
 
   // Extract first JSON object from response (AI sometimes wraps in text)
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
-    try { return JSON.parse(match[0]); } catch { /* continue */ }
+    try { return JSON.parse(match[0]); } catch (err) { /* continue */ console.debug("[ai-parser] intentional swallow:", err); }
   }
 
   // Strip trailing commas (common AI mistake)
   cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-  try { return JSON.parse(cleaned); } catch { /* continue */ }
+  try { return JSON.parse(cleaned); } catch (err) { /* continue */ console.debug("[ai-parser] intentional swallow:", err); }
 
   console.warn('[ai-parser] Failed to parse AI response:', raw.substring(0, 200));
   throw new Error('Failed to parse AI response as JSON');

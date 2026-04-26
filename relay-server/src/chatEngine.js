@@ -80,14 +80,16 @@ class ChatEngine {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_church_ts ON chat_messages (church_id, timestamp)');
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session_id)');
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_room ON chat_messages (church_id, room_id, timestamp)');
-    } catch {
+    } catch (err) {
       // indexes may already exist
+      console.debug('[chatEngine migrations] create chat indexes:', err?.message);
     }
 
     try {
       this.db.exec('ALTER TABLE chat_messages ADD COLUMN room_id TEXT');
-    } catch {
+    } catch (err) {
       // column already exists
+      console.debug('[chatEngine migrations] add room_id column:', err?.message);
     }
   }
 
@@ -121,14 +123,16 @@ class ChatEngine {
       await client.exec('CREATE INDEX IF NOT EXISTS idx_chat_church_ts ON chat_messages (church_id, timestamp)');
       await client.exec('CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session_id)');
       await client.exec('CREATE INDEX IF NOT EXISTS idx_chat_room ON chat_messages (church_id, room_id, timestamp)');
-    } catch {
+    } catch (err) {
       // indexes may already exist
+      console.debug('[chatEngine migrations pg] create chat indexes:', err?.message);
     }
 
     try {
       await client.exec('ALTER TABLE chat_messages ADD COLUMN room_id TEXT');
-    } catch {
+    } catch (err) {
       // column already exists
+      console.debug('[chatEngine migrations pg] add room_id column:', err?.message);
     }
   }
 

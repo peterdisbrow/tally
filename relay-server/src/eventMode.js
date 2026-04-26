@@ -110,18 +110,24 @@ class EventMode {
     if (tdName) {
       try {
         await this.client.run('UPDATE churches SET td_name = ? WHERE churchId = ?', [tdName, churchId]);
-      } catch {}
+      } catch (err) {
+        console.debug('[EventMode createEvent] td_name column may not exist:', err?.message);
+      }
     }
     if (tdTelegramChatId) {
       try {
         await this.client.run('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?', [String(tdTelegramChatId), churchId]);
-      } catch {}
+      } catch (err) {
+        console.debug('[EventMode createEvent] td_telegram_chat_id column may not exist:', err?.message);
+      }
     }
 
     // Registration code for Telegram self-registration (column added by TallyBot)
     try {
       await this.client.run('UPDATE churches SET registration_code = ? WHERE churchId = ?', [registrationCode, churchId]);
-    } catch {}
+    } catch (err) {
+      console.debug('[EventMode createEvent] registration_code column may not exist:', err?.message);
+    }
 
     console.log(`[EventMode] Created event: "${name}" (${churchId}) expires ${expiresAt}`);
     return { churchId, token, expiresAt, name };
@@ -172,7 +178,7 @@ class EventMode {
         const runtime = churchesMap.get(church.churchId);
         if (runtime?.sockets?.size) {
           for (const sock of runtime.sockets.values()) {
-            if (sock.readyState === 1) { try { sock.close(1000, 'Event monitoring window ended'); } catch {} }
+            if (sock.readyState === 1) { try { sock.close(1000, 'Event monitoring window ended'); } catch (err) { console.error('[EventMode expireEvent] socket close error:', err); } }
           }
         }
       }

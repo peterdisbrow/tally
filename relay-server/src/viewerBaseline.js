@@ -75,7 +75,7 @@ class ViewerBaseline {
     this.db.exec(CREATE_VIEWER_BASELINES_TABLE_SQL);
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_viewer_baselines_church ON viewer_baselines(church_id, service_day)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[viewerBaseline] intentional swallow:", err); }
   }
 
   async _ensureTable() {
@@ -83,7 +83,7 @@ class ViewerBaseline {
     await client.exec(CREATE_VIEWER_BASELINES_TABLE_SQL);
     try {
       await client.exec('CREATE INDEX IF NOT EXISTS idx_viewer_baselines_church ON viewer_baselines(church_id, service_day)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[viewerBaseline] intentional swallow:", err); }
   }
 
   /**

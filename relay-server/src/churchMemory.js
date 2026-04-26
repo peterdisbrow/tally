@@ -175,7 +175,7 @@ class ChurchMemory {
 
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_memory_church ON church_memory(church_id, active, confidence DESC)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[churchMemory] intentional swallow:", err); }
   }
 
   async _ensureSchema() {
@@ -201,7 +201,7 @@ class ChurchMemory {
 
     try {
       await client.exec('CREATE INDEX IF NOT EXISTS idx_memory_church ON church_memory(church_id, active, confidence DESC)');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[churchMemory] intentional swallow:", err); }
   }
 
   // ─── CORE UPSERT ────────────────────────────────────────────────────────────

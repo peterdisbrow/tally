@@ -130,8 +130,9 @@ function createWebSocketHandlers({
       if (ws?.readyState === wsOpen) {
         ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
       }
-    } catch {
+    } catch (err) {
       // Connection may have closed between the readyState check and send()
+      console.debug('[wsRouter safeSend] send failed:', err?.message);
     }
   };
 
@@ -329,8 +330,9 @@ function createWebSocketHandlers({
       try {
         const msg = JSON.parse(data.toString());
         handleChurchMessage(church, msg, ws);
-      } catch {
+      } catch (err) {
         // Malformed JSON — drop silently (ws library already rate-limits payload size)
+        console.debug('[wsRouter church message] malformed JSON or handler error:', err?.message);
       }
     });
 
@@ -780,8 +782,9 @@ function createWebSocketHandlers({
       try {
         const msg = JSON.parse(data.toString());
         await handleControllerMessage(ws, msg);
-      } catch {
+      } catch (err) {
         // Malformed JSON — drop silently
+        console.debug('[wsRouter controller message] malformed JSON or handler error:', err?.message);
       }
     });
 

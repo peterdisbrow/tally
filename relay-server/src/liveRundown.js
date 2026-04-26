@@ -91,7 +91,7 @@ class LiveRundownManager {
     // Migration: add room_id column for existing tables
     try {
       await this._db.exec(`ALTER TABLE rundown_sessions ADD COLUMN room_id TEXT NOT NULL DEFAULT ''`);
-    } catch { /* column already exists */ }
+    } catch (err) { /* column already exists */ console.debug("[liveRundown] intentional swallow:", err); }
   }
 
   async _restoreActiveSessions() {

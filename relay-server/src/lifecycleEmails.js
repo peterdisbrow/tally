@@ -77,7 +77,7 @@ class LifecycleEmails {
     `);
 
     // Migration: add subject column to email_sends
-    try { this.db.exec('ALTER TABLE email_sends ADD COLUMN subject TEXT'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE email_sends ADD COLUMN subject TEXT'); } catch (err) { /* already exists */ console.debug("[lifecycleEmails] intentional swallow:", err); }
 
     // Email preferences table — lets users opt out of specific email categories
     this.db.exec(`
@@ -161,8 +161,9 @@ class LifecycleEmails {
     for (const sql of statements) {
       try {
         await this._exec(sql);
-      } catch {
+      } catch (err) {
         // Column migration and "already exists" paths are intentionally best-effort.
+        console.debug('[lifecycleEmails migrations] schema statement:', err?.message);
       }
     }
   }
@@ -456,7 +457,7 @@ class LifecycleEmails {
       for (const row of rows) {
         if (row.category in prefs) prefs[row.category] = row.enabled === 1;
       }
-    } catch { /* table may not exist */ }
+    } catch (err) { /* table may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
     return prefs;
   }
 
@@ -1116,8 +1117,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       const criticalTypes = ['stream_stopped', 'atem_disconnected', 'recording_failed', 'multiple_systems_down'];
       criticalEvents = events.filter(e => criticalTypes.includes(e.event_type)).length;
       autoRecoveries = events.filter(e => e.auto_resolved).length;
-    } catch {
+    } catch (err) {
       // service_events table might not exist — not critical
+      console.debug('[lifecycleEmails _gatherWeeklyStats] service_events query:', err?.message);
     }
 
     // Alerts from alerts table
@@ -1127,8 +1129,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND created_at >= ?',
         [churchId, sinceIso],
       );
-    } catch {
+    } catch (err) {
       // alerts table might not exist
+      console.debug('[lifecycleEmails _gatherWeeklyStats] alerts query:', err?.message);
     }
 
     // Session count from service_sessions table
@@ -1138,8 +1141,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')',
         [churchId, sinceIso],
       );
-    } catch {
+    } catch (err) {
       // service_sessions table might not exist
+      console.debug('[lifecycleEmails _gatherWeeklyStats] service_sessions query:', err?.message);
     }
 
     // Fallback: if no formal sessions but events exist, estimate from distinct event dates
@@ -1149,8 +1153,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           "SELECT COUNT(DISTINCT date(timestamp)) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'",
           [churchId, sinceIso],
         );
-      } catch {
+      } catch (err) {
         // ignore — best-effort estimate
+        console.debug('[lifecycleEmails _gatherWeeklyStats] estimate sessions from events:', err?.message);
       }
     }
 
@@ -1972,7 +1977,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           [church.churchId],
         );
         if (existing) continue;
-      } catch { /* table may not exist yet */ }
+      } catch (err) { /* table may not exist yet */ console.debug("[lifecycleEmails] intentional swallow:", err); }
 
       const { html, text } = this._buildReviewRequestEmail(church, { sessionCount, cleanCount });
       await this.sendEmail({
@@ -3407,7 +3412,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')', [church.churchId, yearAgo]);
       const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
       yearStats = { sessions, autoFixed };
-    } catch { /* tables may not exist */ }
+    } catch (err) { /* tables may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
 
     return this._renderAnnualRenewalReminderEmail(church, yearStats);
   }
@@ -3608,7 +3613,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')', [church.churchId, yearAgo]);
       const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
       yearStats = { sessions, autoFixed };
-    } catch { /* tables may not exist */ }
+    } catch (err) { /* tables may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
 
     return this._renderFirstYearAnniversaryEmail(church, yearStats);
   }
@@ -3787,7 +3792,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       try {
         const row = await this._selectOne('SELECT 1 FROM service_schedules WHERE church_id = ? LIMIT 1', [church.churchId]);
         hasSchedule = !!row;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
       if (hasSchedule) continue;
 
       const portalUrl = `${this.appUrl}/portal`;
@@ -3853,7 +3858,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       let roomCount = 0;
       try {
         roomCount = await this._count('SELECT COUNT(*) as cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL', [church.churchId]);
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
       if (roomCount > 1) continue;
 
       const portalUrl = `${this.appUrl}/portal`;
@@ -3922,7 +3927,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           [church.churchId],
         );
         hasPlatform = !!row;
-      } catch { /* table may not exist */ }
+      } catch (err) { /* table may not exist */ console.debug("[lifecycleEmails] intentional swallow:", err); }
       if (hasPlatform) continue;
 
       const portalUrl = `${this.appUrl}/portal`;
@@ -4217,7 +4222,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       try {
         const rows = this.db.prepare('SELECT email_type FROM email_template_overrides').all();
         rows.forEach(r => overrides.add(r.email_type));
-      } catch { /* table might not exist yet */ }
+      } catch (err) { /* table might not exist yet */ console.debug("[lifecycleEmails] intentional swallow:", err); }
     }
 
     return LifecycleEmails.EMAIL_REGISTRY.map(entry => ({

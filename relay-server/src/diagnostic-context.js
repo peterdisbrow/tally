@@ -159,13 +159,13 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
           if (ctx.diagnosis?.likely_cause) {
             detail += ` — ${ctx.diagnosis.likely_cause}`;
           }
-        } catch { /* ignore parse errors */ }
+        } catch (err) { /* ignore parse errors */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
         lines.push(detail);
       }
       sections.push(lines.join('\n'));
     }
-  } catch { /* alerts table may not exist */ }
+  } catch (err) { /* alerts table may not exist */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
   // ── 3. Current/recent service session ───────────────────────────────────
   try {
@@ -200,11 +200,11 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
             lines.push(`    ${time}: ${type} (${status})${detail}`);
           }
         }
-      } catch { /* service_events may not exist */ }
+      } catch (err) { /* service_events may not exist */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
       sections.push(lines.join('\n'));
     }
-  } catch { /* service_sessions may not exist */ }
+  } catch (err) { /* service_sessions may not exist */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
   // ── 4. Signal failover state ────────────────────────────────────────────
   if (signalFailover) {
@@ -230,7 +230,7 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
         }
         sections.push(logLines.join('\n'));
       }
-    } catch { /* signalFailover might not have state for this church */ }
+    } catch (err) { /* signalFailover might not have state for this church */ console.debug("[diagnostic-context] intentional swallow:", err); }
   }
 
   // ── 5. Church memory (learned observations) ─────────────────────────────
@@ -249,7 +249,7 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
       }
       sections.push(lines.join('\n'));
     }
-  } catch { /* church_memory may not exist */ }
+  } catch (err) { /* church_memory may not exist */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
   // ── 6. Engineer profile ─────────────────────────────────────────────────
   try {
@@ -274,7 +274,7 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
         sections.push(lines.join('\n'));
       }
     }
-  } catch { /* ignore parse errors */ }
+  } catch (err) { /* ignore parse errors */ console.debug("[diagnostic-context] intentional swallow:", err); }
 
   // ── Assemble ────────────────────────────────────────────────────────────
   if (sections.length === 0) {

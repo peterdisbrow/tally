@@ -76,7 +76,7 @@ class GuestTdMode {
     `);
     try {
       await this.client.exec('ALTER TABLE guest_tokens ADD COLUMN church_id TEXT');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[guestTdMode] intentional swallow:", err); }
     try {
       await this.client.run(`
         UPDATE guest_tokens
@@ -84,7 +84,9 @@ class GuestTdMode {
         WHERE (church_id IS NULL OR church_id = '')
           AND churchId IS NOT NULL
       `);
-    } catch {}
+    } catch (err) {
+      console.debug('[GuestTdMode migrations] backfill church_id error:', err?.message);
+    }
 
     // Migration: clean up orphaned portal tokens (gtd_ prefix) that used an incompatible schema.
     try {
@@ -93,7 +95,9 @@ class GuestTdMode {
         const result = await this.client.run("DELETE FROM guest_tokens WHERE token LIKE 'gtd_%'");
         console.log(`[GuestTdMode] Cleaned up ${result.changes} legacy portal token(s)`);
       }
-    } catch {}
+    } catch (err) {
+      console.debug('[GuestTdMode migrations] legacy gtd_ cleanup error:', err?.message);
+    }
   }
 
   async _cleanupExpired(options = {}) {

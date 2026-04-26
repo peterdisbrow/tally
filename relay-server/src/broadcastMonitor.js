@@ -450,7 +450,7 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       }
 
       // Notify dashboard SSE
-      try { notifyUpdate(churchId); } catch { /* ignore */ }
+      try { notifyUpdate(churchId); } catch (err) { /* ignore */ console.debug("[broadcastMonitor] intentional swallow:", err); }
     });
   }
 

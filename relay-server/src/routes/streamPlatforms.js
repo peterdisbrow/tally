@@ -16,7 +16,7 @@ function oauthResultPage(message, success) {
 .card{text-align:center;padding:40px;border-radius:12px;background:#1e293b;max-width:360px;}
 h2{color:${color};margin:0 0 8px;font-size:24px;} p{margin:0;font-size:14px;color:#94a3b8;}</style></head>
 <body><div class="card"><h2>${icon} ${message}</h2><p id="msg">This window will close automatically…</p></div>
-<script>setTimeout(function(){try{window.close()}catch(e){}document.getElementById("msg").textContent="You can close this tab and return to Tally."},1500);</script>
+<script>setTimeout(function(){try{window.close()}catch(e){console.debug("[OAuth result page] window.close blocked:",e&&e.message)}document.getElementById("msg").textContent="You can close this tab and return to Tally."},1500);</script>
 </body></html>`;
 }
 

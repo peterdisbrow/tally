@@ -90,10 +90,10 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN commission_rate REAL",
     ];
     for (const col of newColumns) {
-      try { this.db.exec(col); } catch { /* column already exists */ }
+      try { this.db.exec(col); } catch (err) { /* column already exists */ console.debug("[reseller] intentional swallow:", err); }
     }
 
-    try { this.db.exec("UPDATE resellers SET church_limit = NULL WHERE church_limit = 10"); } catch { /* ok */ }
+    try { this.db.exec("UPDATE resellers SET church_limit = NULL WHERE church_limit = 10"); } catch (err) { /* ok */ console.debug("[reseller] intentional swallow:", err); }
 
     try {
       this.db.prepare('SELECT reseller_id FROM churches LIMIT 1').get();
@@ -103,7 +103,7 @@ class ResellerSystem {
 
     try {
       this.db.exec('ALTER TABLE churches ADD COLUMN registration_code TEXT');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[reseller] intentional swallow:", err); }
   }
 
   async _ensureSchemaAsync() {
@@ -138,12 +138,12 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN commission_rate REAL",
     ];
     for (const col of newColumns) {
-      try { await client.exec(col); } catch { /* column already exists */ }
+      try { await client.exec(col); } catch (err) { /* column already exists */ console.debug("[reseller] intentional swallow:", err); }
     }
 
     try {
       await client.exec("UPDATE resellers SET church_limit = NULL WHERE church_limit = 10");
-    } catch { /* ok */ }
+    } catch (err) { /* ok */ console.debug("[reseller] intentional swallow:", err); }
 
     try {
       await client.queryOne('SELECT reseller_id FROM churches LIMIT 1');
@@ -153,7 +153,7 @@ class ResellerSystem {
 
     try {
       await client.exec('ALTER TABLE churches ADD COLUMN registration_code TEXT');
-    } catch { /* already exists */ }
+    } catch (err) { /* already exists */ console.debug("[reseller] intentional swallow:", err); }
   }
 
   async _loadCache() {
@@ -622,7 +622,7 @@ class ResellerSystem {
               AND ${this._recentAlertPredicate('a.created_at', 24)}
           `, [church.reseller_id]);
           this._alertCountCache.set(church.reseller_id, Number(row?.cnt || 0));
-        } catch { /* keep cache best-effort */ }
+        } catch (err) { /* keep cache best-effort */ console.debug("[reseller] intentional swallow:", err); }
       }
     });
     return this._cloneRow(church);

@@ -271,8 +271,9 @@ class OnCallRotation {
             [churchId, ctd.name]
           );
         }
-      } catch {
+      } catch (err) {
         // church_tds may not exist yet
+        console.debug('[onCallRotation] church_tds lookup error:', err?.message);
       }
     }
 
