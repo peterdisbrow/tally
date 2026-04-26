@@ -105,8 +105,9 @@ function createRuntimeMetrics({
   function close() {
     try {
       eventLoopHistogram.disable();
-    } catch {
+    } catch (err) {
       // ignore shutdown races
+      console.debug('[runtimeMetrics close] histogram.disable race:', err?.message);
     }
   }
 

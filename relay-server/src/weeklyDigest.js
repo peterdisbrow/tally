@@ -661,7 +661,9 @@ class WeeklyDigest {
           [churchId, weekAgo.toISOString()]
         );
       }
-    } catch {}
+    } catch (err) {
+      console.error('[weeklyDigest] sessions query error:', err);
+    }
 
     return {
       weekOf: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),

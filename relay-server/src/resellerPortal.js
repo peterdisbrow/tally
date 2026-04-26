@@ -1484,7 +1484,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     // Disconnect WS if connected
     const runtime = churches.get(churchId);
     if (runtime?.sockets?.size) {
-      for (const sock of runtime.sockets.values()) { try { sock.close(); } catch {} }
+      for (const sock of runtime.sockets.values()) { try { sock.close(); } catch (err) { console.debug('[ResellerPortal removeChurch] sock.close error:', err?.message); } }
     }
     churches.delete(churchId);
     resellerSystem.deleteChurch(churchId);

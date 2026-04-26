@@ -356,7 +356,9 @@ function createMobileWebSocketHandler({
       log(`[MobileWS] Connection error: ${err.message}`);
       try {
         ws.close(1011, 'Internal error');
-      } catch {}
+      } catch (closeErr) {
+        console.debug('[MobileWS connect] ws.close failed:', closeErr?.message);
+      }
     }
   }
 
@@ -487,8 +489,9 @@ function _safeSend(ws, data) {
   if (ws.readyState !== 1) return;
   try {
     ws.send(JSON.stringify(data));
-  } catch {
+  } catch (err) {
     // Connection may have closed between readyState check and send
+    console.debug('[MobileWS _safeSend] send failed:', err?.message);
   }
 }
 

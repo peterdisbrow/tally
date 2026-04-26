@@ -33,8 +33,9 @@ function createStatusBatcher(flushFn, { windowMs = 100 } = {}) {
     for (const [churchId, event] of entries) {
       try {
         flushFn(churchId, event);
-      } catch {
+      } catch (err) {
         // Don't let one failed flush block the rest
+        console.error('[statusBatcher flush] flushFn error for', churchId, err);
       }
     }
   }

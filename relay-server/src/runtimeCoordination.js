@@ -153,8 +153,9 @@ function createRuntimeCoordinator({
       sub.off('message', listener);
       try {
         await sub.unsubscribe(publishChannel);
-      } catch {
+      } catch (err) {
         // ignore unsubscribe races during shutdown
+        console.debug('[runtimeCoordination] redis unsubscribe race:', err?.message);
       }
     };
   }

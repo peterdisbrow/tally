@@ -521,8 +521,9 @@ function getAvailableCommandNames() {
     const { commandHandlers } = require('../../church-client/src/commands/index');
     const runtimeCommands = Object.keys(commandHandlers || {}).sort();
     if (runtimeCommands.length > 0) return runtimeCommands;
-  } catch {
+  } catch (err) {
     // Fall back to static command list.
+    console.debug('[ai-parser getAvailableCommandNames] runtime command resolve error:', err?.message);
   }
   return FALLBACK_COMMANDS;
 }

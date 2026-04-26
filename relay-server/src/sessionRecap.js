@@ -1039,7 +1039,7 @@ class SessionRecap {
     if (!apiKey) return null;
 
     let engineerProfile = {};
-    try { engineerProfile = JSON.parse(church.engineer_profile || '{}'); } catch {}
+    try { engineerProfile = JSON.parse(church.engineer_profile || '{}'); } catch (err) { console.debug('[sessionRecap _generateRecommendations] engineer_profile JSON parse error:', err?.message); }
 
     const timeline = this.db ? this._buildTimelineSync(session) : await this._buildTimelineAsync(session);
 

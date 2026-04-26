@@ -1158,8 +1158,9 @@ class AutoPilot {
         this._firedThisSession.get(sessionId).add(ruleId);
         return true;
       }
-    } catch {
+    } catch (err) {
       // DB error — fall through and allow the rule to fire (fail open)
+      console.error('[autoPilot _hasFiredThisSession] db lookup error (failing open):', err);
     }
     return false;
   }
@@ -1179,8 +1180,9 @@ class AutoPilot {
         this.db.prepare(
           'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
         ).run(sessionId, ruleId, churchId, new Date().toISOString());
-      } catch {
+      } catch (err) {
         // Non-fatal — in-memory cache still prevents double-fires within the same process
+        console.error('[autoPilot _markFiredThisSession] persist fire error (in-memory still tracked):', err);
       }
     } else {
       this._queueWrite(this._requireClient().run(
