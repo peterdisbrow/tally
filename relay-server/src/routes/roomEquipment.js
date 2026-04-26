@@ -155,7 +155,7 @@ function setupRoomEquipmentRoutes(app, ctx) {
 
       const row = await qOne('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[GET /api/church/app/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       const savedRoles = equipment._roles || null;
       const autoRoles = autoDetectRoles(equipment);
@@ -200,7 +200,7 @@ function setupRoomEquipmentRoutes(app, ctx) {
       // Read existing equipment, merge _roles in
       const row = await qOne('SELECT equipment FROM room_equipment WHERE room_id = ?', [roomId]);
       let equipment = {};
-      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch (err) { console.debug('[PUT /api/church/app/rooms/:roomId/roles] equipment JSON parse error:', err?.message); }
 
       equipment._roles = roles;
       const now = new Date().toISOString();

@@ -963,8 +963,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         for (const attachment of attachments) {
           try {
             fs.unlinkSync(path.join(UPLOAD_DIR, attachment.storagePath));
-          } catch {
+          } catch (err) {
             // File cleanup is best-effort.
+            console.debug('[rundown deletePlan] attachment cleanup error:', err?.message);
           }
         }
         res.json({ ok: true });
@@ -1414,8 +1415,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         for (const attachment of attachments) {
           try {
             fs.unlinkSync(path.join(UPLOAD_DIR, attachment.storagePath));
-          } catch {
+          } catch (err) {
             // File cleanup is best-effort.
+            console.debug('[rundown deleteItem] attachment cleanup error:', err?.message);
           }
         }
         const updated = await manualRundown.getPlan(req.params.planId);

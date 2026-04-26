@@ -75,10 +75,10 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
           for (const { table, column } of ALLOWED_CASCADE_DELETES) {
             try { await qRun(`DELETE FROM ${table} WHERE ${column} = ?`, [child.churchId]); } catch { /* table may not exist */ }
           }
-          try { await qRun('DELETE FROM churches WHERE churchId = ?', [child.churchId]); } catch {}
+          try { await qRun('DELETE FROM churches WHERE churchId = ?', [child.churchId]); } catch (err) { console.error('[deleteChurchCascade async] delete child church error:', err); }
           churches.delete(child.churchId);
         }
-      } catch { /* parent_church_id column may not exist */ }
+      } catch (err) { /* parent_church_id column may not exist */ console.debug('[deleteChurchCascade async] parent_church_id column lookup:', err?.message); }
 
       for (const { table, column } of ALLOWED_CASCADE_DELETES) {
         try {
@@ -97,10 +97,10 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
           for (const { table, column } of ALLOWED_CASCADE_DELETES) {
             try { db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(child.churchId); } catch { /* table may not exist */ }
           }
-          try { db.prepare('DELETE FROM churches WHERE churchId = ?').run(child.churchId); } catch {}
+          try { db.prepare('DELETE FROM churches WHERE churchId = ?').run(child.churchId); } catch (err) { console.error('[deleteChurchCascade sync] delete child church error:', err); }
           churches.delete(child.churchId);
         }
-      } catch { /* parent_church_id column may not exist */ }
+      } catch (err) { /* parent_church_id column may not exist */ console.debug('[deleteChurchCascade sync] parent_church_id column lookup:', err?.message); }
 
       for (const { table, column } of ALLOWED_CASCADE_DELETES) {
         try {

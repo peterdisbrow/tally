@@ -184,8 +184,9 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
           return next();
         }
       }
-    } catch {
+    } catch (err) {
       // Continue to admin auth fallback
+      console.debug('[supportTickets requireSupportAccess] church_app JWT verify failed:', err?.message);
     }
 
     return requireAdminJwt()(req, res, () => {
