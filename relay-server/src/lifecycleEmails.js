@@ -161,8 +161,9 @@ class LifecycleEmails {
     for (const sql of statements) {
       try {
         await this._exec(sql);
-      } catch {
+      } catch (err) {
         // Column migration and "already exists" paths are intentionally best-effort.
+        console.debug('[lifecycleEmails migrations] schema statement:', err?.message);
       }
     }
   }
@@ -1116,8 +1117,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       const criticalTypes = ['stream_stopped', 'atem_disconnected', 'recording_failed', 'multiple_systems_down'];
       criticalEvents = events.filter(e => criticalTypes.includes(e.event_type)).length;
       autoRecoveries = events.filter(e => e.auto_resolved).length;
-    } catch {
+    } catch (err) {
       // service_events table might not exist — not critical
+      console.debug('[lifecycleEmails _gatherWeeklyStats] service_events query:', err?.message);
     }
 
     // Alerts from alerts table
@@ -1127,8 +1129,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         'SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND created_at >= ?',
         [churchId, sinceIso],
       );
-    } catch {
+    } catch (err) {
       // alerts table might not exist
+      console.debug('[lifecycleEmails _gatherWeeklyStats] alerts query:', err?.message);
     }
 
     // Session count from service_sessions table
@@ -1138,8 +1141,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')',
         [churchId, sinceIso],
       );
-    } catch {
+    } catch (err) {
       // service_sessions table might not exist
+      console.debug('[lifecycleEmails _gatherWeeklyStats] service_sessions query:', err?.message);
     }
 
     // Fallback: if no formal sessions but events exist, estimate from distinct event dates
@@ -1149,8 +1153,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           "SELECT COUNT(DISTINCT date(timestamp)) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'",
           [churchId, sinceIso],
         );
-      } catch {
+      } catch (err) {
         // ignore — best-effort estimate
+        console.debug('[lifecycleEmails _gatherWeeklyStats] estimate sessions from events:', err?.message);
       }
     }
 
