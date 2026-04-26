@@ -1094,7 +1094,9 @@ class TallyBot {
           const ch = this._getChurchById(td.church_id);
           locale = churchLocale(ch);
         }
-      } catch {}
+      } catch (err) {
+        console.debug('[telegramBot welcome] locale resolve error:', err?.message);
+      }
       return this.sendMessage(chatId,
         bt('welcome', locale, { brandName, poweredBy }),
         { parse_mode: 'Markdown' }
@@ -1825,7 +1827,9 @@ class TallyBot {
       const resolved = this._resolveRoomForChat(church, chatId);
       tdRoomId = resolved.roomId || null;
       tdRoomName = resolved.roomName || '';
-    } catch {}
+    } catch (err) {
+      console.error('[telegramBot] resolve room for chat error:', err);
+    }
 
     // ── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
     const classification = classifyIntent(text);
@@ -2080,7 +2084,9 @@ class TallyBot {
       try {
         const _aRow = this.db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(targetChurch.churchId);
         if (_aRow?.equipment) _adminRoles = JSON.parse(_aRow.equipment)?._roles || null;
-      } catch { }
+      } catch (err) {
+        console.debug('[telegramBot admin command] roles lookup error:', err?.message);
+      }
       const smartResult = smartParse(commandText, adminLiveStatus, _adminRoles);
       if (smartResult) {
         if (smartResult.type === 'command') {

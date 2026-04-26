@@ -124,7 +124,7 @@ function initRtmpIngest(db, broadcastToSSE) {
 
     if (!streamKey) {
       console.log(`[RTMP] Rejected publish — no stream key in path: ${streamPath}`);
-      try { session.reject(); } catch {}
+      try { session.reject(); } catch (err) { console.error('[RTMP prePublish] session.reject error (no key):', err); }
       return;
     }
 
@@ -143,7 +143,7 @@ function initRtmpIngest(db, broadcastToSSE) {
 
       if (!church) {
         console.log(`[RTMP] Rejected publish — invalid stream key: ${streamKey.slice(0, 8)}...`);
-        try { session.reject(); } catch {}
+        try { session.reject(); } catch (err) { console.error('[RTMP prePublish] session.reject error (invalid key):', err); }
         return;
       }
       churchId = church.churchId;
@@ -158,7 +158,7 @@ function initRtmpIngest(db, broadcastToSSE) {
       const infoTarget = info.roomId || info.churchId;
       if (infoTarget === targetId) {
         console.log(`[RTMP] Rejected duplicate stream for ${roomName || churchName} (${targetId})`);
-        try { session.reject(); } catch {}
+        try { session.reject(); } catch (err) { console.error('[RTMP prePublish] session.reject error (duplicate stream):', err); }
         return;
       }
     }
