@@ -4,10 +4,14 @@ import {
   Alert,
   Animated,
   FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -21,6 +25,7 @@ import type {
   LegacyRundownState,
   ManualPlaybackState,
   ManualRundownItem,
+  ManualRundownItemInput,
   ManualRundownLiveState,
   ManualRundownPlan,
   ManualTimingEntry,
@@ -35,6 +40,8 @@ import {
   backManualLive,
   computeManualPlaybackState,
   computeManualTimings,
+  createManualRundownItem,
+  deleteManualRundownItem,
   fetchLegacyLiveState,
   fetchManualLiveState,
   fetchManualPlanDetail,
@@ -42,9 +49,49 @@ import {
   fetchPcoPlanDetail,
   fetchRundownPlanSummaries,
   gotoManualLive,
+  reorderManualRundownItems,
   startManualLive,
   stopManualLive,
+  updateManualRundownItem,
 } from '../src/rundown/api';
+
+const EDITABLE_ITEM_TYPES: { value: string; label: string }[] = [
+  { value: 'song', label: 'Song' },
+  { value: 'sermon', label: 'Sermon' },
+  { value: 'media', label: 'Media' },
+  { value: 'prayer', label: 'Prayer' },
+  { value: 'welcome', label: 'Welcome' },
+  { value: 'offering', label: 'Offering' },
+  { value: 'communion', label: 'Communion' },
+  { value: 'scripture', label: 'Scripture' },
+  { value: 'announcement', label: 'Announcement' },
+  { value: 'transition', label: 'Transition' },
+  { value: 'section', label: 'Section' },
+  { value: 'other', label: 'Other' },
+];
+
+interface ItemEditorState {
+  mode: 'create' | 'edit';
+  itemId?: string;
+  title: string;
+  itemType: string;
+  durationText: string;
+  notes: string;
+  assignee: string;
+  hardStartTime: string;
+  isHardStart: boolean;
+}
+
+const EMPTY_EDITOR: ItemEditorState = {
+  mode: 'create',
+  title: '',
+  itemType: 'song',
+  durationText: '',
+  notes: '',
+  assignee: '',
+  hardStartTime: '',
+  isHardStart: false,
+};
 
 type ScreenState = 'loading' | 'ready' | 'empty' | 'no_connection' | 'error';
 
@@ -94,6 +141,11 @@ export default function RundownScreen() {
   const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editorState, setEditorState] = useState<ItemEditorState | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [reorderBusyItemId, setReorderBusyItemId] = useState<string | null>(null);
 
   const manualPlayback = useMemo<ManualPlaybackState | null>(() => {
     if (!selectedDetail || selectedDetail.source !== 'manual') return null;
@@ -460,6 +512,155 @@ export default function RundownScreen() {
     }
   }, [selectedSummary]);
 
+  const isManualPlan = selectedSummary?.source === 'manual';
+
+  const refreshSelectedManualPlan = useCallback(async (planId: string) => {
+    if (!churchId) return null;
+    const detail = await fetchManualPlanDetail(churchId, planId);
+    cacheRef.current.set(`manual:${planId}`, {
+      detail,
+      manualLiveState: cacheRef.current.get(`manual:${planId}`)?.manualLiveState ?? null,
+      legacyLiveState: null,
+    });
+    if (selectedIdRef.current === planId) {
+      setSelectedDetail(detail);
+    }
+    return detail;
+  }, [churchId]);
+
+  const openCreateItemEditor = useCallback(() => {
+    setEditorError(null);
+    setEditorState({ ...EMPTY_EDITOR, mode: 'create' });
+  }, []);
+
+  const openEditItemEditor = useCallback((item: ManualRundownItem) => {
+    setEditorError(null);
+    const seconds = Math.max(0, Math.round(Number(item.lengthSeconds) || 0));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    const durationText = seconds > 0
+      ? `${minutes}:${String(remainder).padStart(2, '0')}`
+      : '';
+    setEditorState({
+      mode: 'edit',
+      itemId: item.id,
+      title: item.title || '',
+      itemType: item.itemType || 'other',
+      durationText,
+      notes: stripTags(item.notes || ''),
+      assignee: item.assignee || '',
+      hardStartTime: item.hardStartTime || '',
+      isHardStart: item.startType === 'hard',
+    });
+  }, []);
+
+  const closeItemEditor = useCallback(() => {
+    if (editorSaving) return;
+    setEditorState(null);
+    setEditorError(null);
+  }, [editorSaving]);
+
+  const submitItemEditor = useCallback(async () => {
+    if (!editorState || !churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
+    const trimmedTitle = editorState.title.trim();
+    if (!trimmedTitle) {
+      setEditorError('Title is required.');
+      return;
+    }
+    const seconds = parseDurationText(editorState.durationText);
+    if (seconds == null) {
+      setEditorError('Duration must be like 4:30 or 90 (seconds).');
+      return;
+    }
+    if (editorState.isHardStart && editorState.hardStartTime && !/^\d{1,2}:\d{2}$/.test(editorState.hardStartTime.trim())) {
+      setEditorError('Hard start time must be HH:MM (e.g. 09:30).');
+      return;
+    }
+
+    const payload: ManualRundownItemInput = {
+      title: trimmedTitle,
+      itemType: editorState.itemType || 'other',
+      lengthSeconds: seconds,
+      notes: editorState.notes,
+      assignee: editorState.assignee,
+      startType: editorState.isHardStart ? 'hard' : 'soft',
+      hardStartTime: editorState.isHardStart ? (editorState.hardStartTime.trim() || null) : null,
+    };
+
+    setEditorSaving(true);
+    setEditorError(null);
+    try {
+      if (editorState.mode === 'create') {
+        await createManualRundownItem(churchId, selectedSummary.id, payload);
+      } else if (editorState.itemId) {
+        await updateManualRundownItem(churchId, selectedSummary.id, editorState.itemId, payload);
+      }
+      await refreshSelectedManualPlan(selectedSummary.id);
+      setEditorState(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not save item';
+      setEditorError(msg);
+    } finally {
+      setEditorSaving(false);
+    }
+  }, [editorState, churchId, selectedSummary, refreshSelectedManualPlan]);
+
+  const deleteItem = useCallback((item: ManualRundownItem) => {
+    if (!churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
+    Alert.alert(
+      'Delete cue?',
+      `Remove "${item.title || 'Untitled'}" from this rundown?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteManualRundownItem(churchId, selectedSummary.id, item.id);
+              await refreshSelectedManualPlan(selectedSummary.id);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Could not delete item';
+              Alert.alert('Delete failed', msg);
+            }
+          },
+        },
+      ],
+    );
+  }, [churchId, selectedSummary, refreshSelectedManualPlan]);
+
+  const moveItem = useCallback(async (item: ManualRundownItem, direction: -1 | 1) => {
+    if (!churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
+    if (!selectedDetail || selectedDetail.source !== 'manual') return;
+    const items = selectedDetail.items.slice();
+    const idx = items.findIndex((it) => it.id === item.id);
+    if (idx < 0) return;
+    const target = idx + direction;
+    if (target < 0 || target >= items.length) return;
+    [items[idx], items[target]] = [items[target], items[idx]];
+    setReorderBusyItemId(item.id);
+    try {
+      await reorderManualRundownItems(
+        churchId,
+        selectedSummary.id,
+        items.map((it) => it.id),
+      );
+      await refreshSelectedManualPlan(selectedSummary.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not reorder';
+      Alert.alert('Reorder failed', msg);
+    } finally {
+      setReorderBusyItemId(null);
+    }
+  }, [churchId, selectedSummary, selectedDetail, refreshSelectedManualPlan]);
+
+  // Edit mode is only available for manual plans — exit it when switching plans.
+  useEffect(() => {
+    if (!isManualPlan && editMode) {
+      setEditMode(false);
+    }
+  }, [isManualPlan, editMode]);
+
   const isLoading = state === 'loading';
   const isEmpty = state === 'empty';
   const selectedTime = useMemo(() => {
@@ -574,17 +775,33 @@ export default function RundownScreen() {
       <View style={styles.screenHeader}>
         <View style={styles.screenHeaderTopRow}>
           <View>
-            <Text style={[styles.screenKicker, { color: colors.textSecondary }]}>RUNDOWN</Text>
+            <Text style={[styles.screenKicker, { color: colors.textSecondary }]}>
+              {editMode ? 'EDIT RUNDOWN' : 'RUNDOWN'}
+            </Text>
             <Text style={[styles.screenTitle, { color: colors.text }]}>
               {selectedSummary?.source === 'manual' ? 'Manual First' : 'Planning Center Fallback'}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={onRefresh}
-          >
-            <Ionicons name="refresh" size={18} color={colors.text} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {isManualPlan ? (
+              <TouchableOpacity
+                style={[styles.iconButton, {
+                  backgroundColor: editMode ? 'rgba(0,230,118,0.12)' : colors.surface,
+                  borderColor: editMode ? colors.accent : colors.border,
+                }]}
+                onPress={() => setEditMode((v) => !v)}
+                disabled={isLive && !editMode}
+              >
+                <Ionicons name={editMode ? 'checkmark' : 'create-outline'} size={18} color={editMode ? colors.accent : colors.text} />
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              onPress={onRefresh}
+            >
+              <Ionicons name="refresh" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {errorMessage && (
@@ -660,6 +877,24 @@ export default function RundownScreen() {
         </View>
 
         {selectedSummary?.source === 'manual' ? (
+          editMode ? (
+            <View style={styles.actionGrid}>
+              <ActionButton
+                label="Add cue"
+                icon="add"
+                tone="primary"
+                colors={colors}
+                onPress={openCreateItemEditor}
+              />
+              <ActionButton
+                label="Done editing"
+                icon="checkmark"
+                tone="ghost"
+                colors={colors}
+                onPress={() => setEditMode(false)}
+              />
+            </View>
+          ) : (
           <View style={styles.actionGrid}>
             {!isLive ? (
               <ActionButton
@@ -710,6 +945,7 @@ export default function RundownScreen() {
               }}
             />
           </View>
+          )
         ) : (
           <View style={styles.actionGrid}>
             {!isLive ? (
@@ -800,7 +1036,7 @@ export default function RundownScreen() {
       <View style={styles.sectionHead}>
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>CUES</Text>
         <Text style={[styles.sectionCaption, { color: colors.textMuted }]}>
-          Tap a cue to jump live, or use the controls above.
+          {editMode ? 'Tap edit to change a cue, or use arrows to reorder.' : 'Tap a cue to jump live, or use the controls above.'}
         </Text>
       </View>
     </View>
@@ -823,31 +1059,236 @@ export default function RundownScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          item.kind === 'section'
-            ? <SectionRow label={item.label} colors={colors} />
-            : (
-              <CueRow
-                item={item.item}
-                colors={colors}
-                isLive={isLive}
-                isCurrent={isCurrentCue(selectedSummary, currentLiveState, item.index, item.item)}
-                isNext={isNextCue(selectedSummary, currentLiveState, item.index)}
-                manualTiming={selectedSummary?.source === 'manual' ? manualTimings[item.index] || null : null}
-                onGoTo={() => {
-                  if (!isLive || actionBusy != null) return;
-                  if (selectedSummary?.source === 'manual') {
-                    performManualAction('goto', item.index);
-                  } else {
-                    performLegacyAction('goto', item.index);
-                  }
-                }}
-              />
-            )
-        )}
+        renderItem={({ item }) => {
+          if (item.kind === 'section') {
+            return <SectionRow label={item.label} colors={colors} />;
+          }
+          const manualItem = isManualPlan ? (item.item as ManualRundownItem) : null;
+          const isEditableRow = editMode && !!manualItem;
+          return (
+            <CueRow
+              item={item.item}
+              colors={colors}
+              isLive={isLive && !editMode}
+              isCurrent={!editMode && isCurrentCue(selectedSummary, currentLiveState, item.index, item.item)}
+              isNext={!editMode && isNextCue(selectedSummary, currentLiveState, item.index)}
+              manualTiming={selectedSummary?.source === 'manual' ? manualTimings[item.index] || null : null}
+              onGoTo={() => {
+                if (editMode || !isLive || actionBusy != null) return;
+                if (selectedSummary?.source === 'manual') {
+                  performManualAction('goto', item.index);
+                } else {
+                  performLegacyAction('goto', item.index);
+                }
+              }}
+              editMode={isEditableRow}
+              isFirst={item.index === 0}
+              isLast={!!selectedDetail && item.index === (selectedDetail.items?.length || 0) - 1}
+              reorderBusy={isEditableRow && reorderBusyItemId === manualItem?.id}
+              onEdit={isEditableRow && manualItem ? () => openEditItemEditor(manualItem) : undefined}
+              onDelete={isEditableRow && manualItem ? () => deleteItem(manualItem) : undefined}
+              onMoveUp={isEditableRow && manualItem ? () => moveItem(manualItem, -1) : undefined}
+              onMoveDown={isEditableRow && manualItem ? () => moveItem(manualItem, 1) : undefined}
+            />
+          );
+        }}
+      />
+      <ItemEditorModal
+        state={editorState}
+        colors={colors}
+        saving={editorSaving}
+        error={editorError}
+        onChange={setEditorState}
+        onCancel={closeItemEditor}
+        onSubmit={submitItemEditor}
       />
     </View>
   );
+}
+
+function ItemEditorModal({
+  state,
+  colors,
+  saving,
+  error,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  state: ItemEditorState | null;
+  colors: ThemeColors;
+  saving: boolean;
+  error: string | null;
+  onChange: (state: ItemEditorState | null) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const visible = !!state;
+  const value = state || EMPTY_EDITOR;
+  const update = (patch: Partial<ItemEditorState>) => {
+    if (!state) return;
+    onChange({ ...state, ...patch });
+  };
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}
+      >
+        <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.xl, width: '92%', maxWidth: 420, maxHeight: '92%' }}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={{ fontSize: fontSize.xl, fontWeight: '900', color: colors.text, marginBottom: spacing.md }}>
+              {value.mode === 'create' ? 'Add cue' : 'Edit cue'}
+            </Text>
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Title</Text>
+            <TextInput
+              style={[styles.fieldInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g. Welcome / Opening Worship"
+              placeholderTextColor={colors.textMuted}
+              value={value.title}
+              onChangeText={(t) => update({ title: t })}
+              autoFocus
+              returnKeyType="next"
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Type</Text>
+            <View style={styles.typeChipRow}>
+              {EDITABLE_ITEM_TYPES.map((type) => {
+                const selected = type.value === value.itemType;
+                return (
+                  <TouchableOpacity
+                    key={type.value}
+                    style={[
+                      styles.typeChip,
+                      {
+                        borderColor: selected ? colors.accent : colors.border,
+                        backgroundColor: selected ? 'rgba(0,230,118,0.12)' : colors.bg,
+                      },
+                    ]}
+                    onPress={() => update({ itemType: type.value })}
+                  >
+                    <Text style={{ fontSize: fontSize.xs, fontWeight: '700', color: selected ? colors.accent : colors.text }}>
+                      {type.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Duration (mm:ss or seconds)</Text>
+            <TextInput
+              style={[styles.fieldInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
+              placeholder="4:30"
+              placeholderTextColor={colors.textMuted}
+              value={value.durationText}
+              onChangeText={(t) => update({ durationText: t })}
+              keyboardType="numbers-and-punctuation"
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Assignee (optional)</Text>
+            <TextInput
+              style={[styles.fieldInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g. Pastor Mike"
+              placeholderTextColor={colors.textMuted}
+              value={value.assignee}
+              onChangeText={(t) => update({ assignee: t })}
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Notes (optional)</Text>
+            <TextInput
+              style={[styles.fieldInput, styles.fieldInputMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]}
+              placeholder="Cue notes, key, BPM, etc."
+              placeholderTextColor={colors.textMuted}
+              value={value.notes}
+              onChangeText={(t) => update({ notes: t })}
+              multiline
+              numberOfLines={3}
+            />
+
+            <TouchableOpacity
+              style={[styles.toggleRow, { borderColor: colors.border }]}
+              onPress={() => update({ isHardStart: !value.isHardStart })}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: fontSize.sm, fontWeight: '800', color: colors.text }}>Hard start time</Text>
+                <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 }}>
+                  Anchor this cue to a clock time instead of running off the previous duration.
+                </Text>
+              </View>
+              <View style={[styles.toggleSwitch, {
+                backgroundColor: value.isHardStart ? colors.accent : colors.border,
+              }]}>
+                <View style={[styles.toggleKnob, {
+                  alignSelf: value.isHardStart ? 'flex-end' : 'flex-start',
+                  backgroundColor: '#fff',
+                }]} />
+              </View>
+            </TouchableOpacity>
+
+            {value.isHardStart ? (
+              <TextInput
+                style={[styles.fieldInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text, marginTop: spacing.sm }]}
+                placeholder="HH:MM (e.g. 09:30)"
+                placeholderTextColor={colors.textMuted}
+                value={value.hardStartTime}
+                onChangeText={(t) => update({ hardStartTime: t })}
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+            ) : null}
+
+            {error ? (
+              <View style={[styles.inlineError, { borderColor: '#ff6b6b', backgroundColor: 'rgba(239,68,68,0.08)', marginTop: spacing.md }]}>
+                <Ionicons name="alert-circle-outline" size={16} color="#ff6b6b" />
+                <Text style={{ flex: 1, fontSize: fontSize.sm, color: '#ff6b6b' }}>{error}</Text>
+              </View>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg }}>
+              <TouchableOpacity
+                style={[styles.modalButton, { borderColor: colors.border }]}
+                onPress={onCancel}
+                disabled={saving}
+              >
+                <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.textSecondary }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.accent, borderColor: colors.accent, opacity: saving ? 0.7 : 1 }]}
+                onPress={onSubmit}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={{ fontSize: fontSize.md, fontWeight: '800', color: '#000' }}>
+                    {value.mode === 'create' ? 'Add cue' : 'Save changes'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function parseDurationText(input: string): number | null {
+  const trimmed = String(input || '').trim();
+  if (!trimmed) return 0;
+  if (/^\d+$/.test(trimmed)) {
+    const n = parseInt(trimmed, 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+    return null;
+  }
+  const match = trimmed.match(/^(\d+):([0-5]?\d)$/);
+  if (match) {
+    const minutes = parseInt(match[1], 10);
+    const seconds = parseInt(match[2], 10);
+    if (Number.isFinite(minutes) && Number.isFinite(seconds)) return minutes * 60 + seconds;
+  }
+  return null;
 }
 
 function PlanChip({
@@ -900,6 +1341,14 @@ function CueRow({
   isNext,
   manualTiming,
   onGoTo,
+  editMode,
+  isFirst,
+  isLast,
+  reorderBusy,
+  onEdit,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
 }: {
   item: ManualRundownItem | PcoRundownItem;
   colors: ThemeColors;
@@ -908,6 +1357,14 @@ function CueRow({
   isNext: boolean;
   manualTiming: ManualTimingEntry | null;
   onGoTo: () => void;
+  editMode?: boolean;
+  isFirst?: boolean;
+  isLast?: boolean;
+  reorderBusy?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const isSection = item.itemType === 'section';
 
@@ -920,7 +1377,7 @@ function CueRow({
 
   return (
     <TouchableOpacity
-      activeOpacity={isLive ? 0.88 : 1}
+      activeOpacity={isLive && !editMode ? 0.88 : 1}
       style={[
         styles.cueCard,
         {
@@ -930,7 +1387,7 @@ function CueRow({
         },
         isCurrent ? styles.currentCueCard : null,
       ]}
-      onPress={isLive ? onGoTo : undefined}
+      onPress={isLive && !editMode ? onGoTo : undefined}
     >
       {isCurrent ? <View style={[styles.currentRail, { backgroundColor: colors.accent }]} /> : null}
 
@@ -943,7 +1400,36 @@ function CueRow({
             {isCurrent ? <Pill tone="live" label="Current" colors={colors} /> : null}
             {!isCurrent && isNext ? <Pill tone="info" label="Next" colors={colors} /> : null}
           </View>
-          {isLive ? (
+          {editMode ? (
+            <View style={styles.editControls}>
+              <TouchableOpacity
+                style={[styles.editIconButton, { borderColor: colors.border, backgroundColor: colors.surface, opacity: isFirst || reorderBusy ? 0.3 : 1 }]}
+                onPress={onMoveUp}
+                disabled={isFirst || reorderBusy}
+              >
+                <Ionicons name="chevron-up" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editIconButton, { borderColor: colors.border, backgroundColor: colors.surface, opacity: isLast || reorderBusy ? 0.3 : 1 }]}
+                onPress={onMoveDown}
+                disabled={isLast || reorderBusy}
+              >
+                <Ionicons name="chevron-down" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editIconButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                onPress={onEdit}
+              >
+                <Ionicons name="create-outline" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editIconButton, { borderColor: 'rgba(239,68,68,0.4)', backgroundColor: 'rgba(239,68,68,0.08)' }]}
+                onPress={onDelete}
+              >
+                <Ionicons name="trash-outline" size={16} color="#ff6b6b" />
+              </TouchableOpacity>
+            </View>
+          ) : isLive ? (
             <TouchableOpacity
               style={[styles.goButton, { borderColor: colors.accent, backgroundColor: 'rgba(0,230,118,0.08)' }]}
               onPress={onGoTo}
@@ -1812,5 +2298,79 @@ const styles = StyleSheet.create({
   timingOverlap: {
     fontSize: fontSize.xs,
     fontWeight: '800',
+  },
+  editControls: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  editIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: spacing.md,
+    marginBottom: 6,
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.md,
+  },
+  fieldInputMultiline: {
+    minHeight: 76,
+    textAlignVertical: 'top',
+  },
+  typeChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  typeChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  toggleSwitch: {
+    width: 40,
+    height: 22,
+    borderRadius: 11,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleKnob: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+  },
+  modalButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
   },
 });
