@@ -43,6 +43,7 @@ const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse = require('pdf-parse');
 const { buildManualPlanTimerState } = require('../rundownPublic');
+const { escapeHtml } = require('../escapeHtml');
 
 const VALID_RUNDOWN_COLUMN_TYPES = new Set(['text', 'dropdown']);
 const VALID_RUNDOWN_COLLABORATOR_ROLES = new Set(['owner', 'editor', 'viewer']);
@@ -208,7 +209,13 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     broadcastToPortal,
     broadcastPublicRundownTimer,
     rundownPresence,
+    lifecycleEmails,
   } = ctx;
+
+  function inviteAppUrl() {
+    const base = (lifecycleEmails && lifecycleEmails.appUrl) || process.env.APP_URL || 'https://tallyconnect.app';
+    return String(base).replace(/\/+$/, '');
+  }
 
   const manualLiveTimerIntervals = new Map();
 
@@ -1251,6 +1258,174 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       markPresenceOffline(planId, collaboratorKey);
       broadcastPresence(churchId, planId);
       res.json({ ok: true, collaborator, collaborators: await manualRundown.getCollaborators(planId) });
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/rundown-plans/:planId/collaborators/invite
+   * Invite a collaborator by email. Sends a join link they can click while
+   * authenticated to be auto-added as a collaborator.
+   * Body: { email: string, role?: 'viewer' | 'editor' | 'owner' }
+   */
+  app.post('/api/churches/:churchId/rundown-plans/:planId/collaborators/invite',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      const plan = await manualRundown.getPlan(planId);
+      if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+      if (await ensurePlanWriteAccess(req, res, plan)) return;
+
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'A valid email is required' });
+      }
+      const role = normalizeRundownCollaboratorRole(req.body?.role, 'editor');
+      const actor = getRundownActor(req);
+
+      try {
+        const invite = await manualRundown.createInvite(planId, churchId, {
+          email,
+          role,
+          invitedBy: actor.displayName || actor.sessionId || '',
+        });
+
+        const joinUrl = `${inviteAppUrl()}/rundown/join?token=${encodeURIComponent(invite.token)}&plan=${encodeURIComponent(planId)}`;
+        const church = churches.get(churchId);
+        const churchName = church?.name || church?.churchName || 'TallyConnect';
+        const inviterLabel = actor.displayName || 'A teammate';
+
+        if (lifecycleEmails) {
+          const subject = `${inviterLabel} invited you to a rundown on ${churchName}`;
+          const html = (typeof lifecycleEmails._wrap === 'function')
+            ? lifecycleEmails._wrap(`
+                <h1 style="font-size:22px;color:#111;margin:0 0 8px;">You're invited to collaborate</h1>
+                <p style="font-size:15px;color:#333;line-height:1.6;">
+                  <strong>${escapeHtml(inviterLabel)}</strong> invited you to join the rundown
+                  <strong>${escapeHtml(plan.title || 'Untitled rundown')}</strong> at
+                  <strong>${escapeHtml(churchName)}</strong> as a <strong>${escapeHtml(role)}</strong>.
+                </p>
+                <p style="margin: 28px 0;">
+                  <a href="${joinUrl}" style="
+                    display:inline-block;padding:12px 28px;font-size:15px;font-weight:700;
+                    background:#22c55e;color:#000;text-decoration:none;border-radius:8px;
+                  ">Accept invite</a>
+                </p>
+                <p style="font-size:13px;color:#666;line-height:1.6;">
+                  Or paste this link into your browser:<br>
+                  <span style="color:#888;word-break:break-all;">${joinUrl}</span>
+                </p>
+              `)
+            : `<p>You're invited to a TallyConnect rundown. <a href="${joinUrl}">Accept invite</a></p>`;
+          const text = `${inviterLabel} invited you to the rundown "${plan.title || 'Untitled'}" at ${churchName} as ${role}.\n\nAccept the invite: ${joinUrl}\n`;
+
+          // Fire and forget — invite record persists even if email send fails so
+          // the inviter can copy the link from the pending list.
+          lifecycleEmails.sendEmail({
+            churchId,
+            emailType: `rundown-invite-${invite.id}`,
+            to: email,
+            subject,
+            html,
+            text,
+            urgent: true,
+          }).catch((e) => console.error('[rundown] invite email send failed:', e.message));
+        }
+
+        res.json({ invite, joinUrl });
+      } catch (e) {
+        console.error('[rundown] invite create error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * GET /api/churches/:churchId/rundown-plans/:planId/collaborators/invites
+   * List pending invites for a plan.
+   */
+  app.get('/api/churches/:churchId/rundown-plans/:planId/collaborators/invites',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      const { churchId, planId } = req.params;
+      const plan = await manualRundown.getPlan(planId);
+      if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+      try {
+        const invites = await manualRundown.listPendingInvites(planId);
+        res.json({ invites });
+      } catch (e) {
+        console.error('[rundown] invite list error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/churches/:churchId/rundown-plans/:planId/collaborators/invites/:inviteId
+   * Revoke a pending invite.
+   */
+  app.delete('/api/churches/:churchId/rundown-plans/:planId/collaborators/invites/:inviteId',
+    requireChurchWriteOrAdmin,
+    async (req, res) => {
+      const { churchId, planId, inviteId } = req.params;
+      const plan = await manualRundown.getPlan(planId);
+      if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
+      if (await ensurePlanWriteAccess(req, res, plan)) return;
+      try {
+        const invite = await manualRundown.getInviteById(inviteId);
+        if (!invite || invite.planId !== planId) return res.status(404).json({ error: 'Invite not found' });
+        const updated = await manualRundown.revokeInvite(inviteId);
+        res.json({ ok: true, invite: updated });
+      } catch (e) {
+        console.error('[rundown] invite revoke error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
+    }
+  );
+
+  /**
+   * POST /api/rundown-invites/:token/accept
+   * Accept a rundown invite — auto-adds the caller as a collaborator. The
+   * caller must be authenticated to a church that owns the plan; otherwise
+   * the invite stays pending and the link can be revisited after login.
+   */
+  app.post('/api/rundown-invites/:token/accept',
+    requireChurchOrAdmin,
+    async (req, res) => {
+      try {
+        const invite = await manualRundown.getInviteByToken(req.params.token);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+        if (invite.status !== 'pending') {
+          return res.status(409).json({ error: 'Invite already ' + invite.status });
+        }
+        const churchId = req.params.churchId || req.churchPayload?.churchId || req.church?.id;
+        if (churchId && churchId !== invite.churchId) {
+          return res.status(403).json({ error: 'This invite is for a different church.' });
+        }
+        const plan = await manualRundown.getPlan(invite.planId);
+        if (!plan || plan.churchId !== invite.churchId) {
+          return res.status(404).json({ error: 'Plan no longer exists' });
+        }
+        const actor = getRundownActor(req);
+        const collaboratorKey = actor.sessionId
+          || (req.churchPayload?.email)
+          || invite.email;
+        const displayName = actor.displayName || (req.churchPayload?.name) || invite.email;
+        const collaborator = await manualRundown.upsertCollaborator(invite.planId, invite.churchId, {
+          collaboratorKey,
+          displayName,
+          role: invite.role,
+          status: 'active',
+          joinedAt: Date.now(),
+          lastSeenAt: Date.now(),
+          metadata: { invitedAs: invite.email, inviteId: invite.id },
+        });
+        await manualRundown.markInviteAccepted(invite.id, collaboratorKey);
+        broadcastPresence(invite.churchId, invite.planId);
+        res.json({ ok: true, collaborator, planId: invite.planId, churchId: invite.churchId });
+      } catch (e) {
+        console.error('[rundown] invite accept error:', e);
+        res.status(500).json({ error: safeErrorMessage(e) });
+      }
     }
   );
 
