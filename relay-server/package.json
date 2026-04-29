@@ -17,7 +17,7 @@
     "test:all": "npm test && npm run test:integration"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.87.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@sentry/node": "^10.43.0",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^11.0.0",
