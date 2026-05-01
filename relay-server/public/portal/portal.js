@@ -142,6 +142,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (wrapEl) wrapEl.style.display = '';
     }
 
+    function _equipmentSkeletonRowsHtml() {
+      // Three pulsing rows so users see immediate "loading" feedback instead of
+      // a blank tbody while the next overview fetch completes (room switch / first load).
+      return ''
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:90px"></span></td><td><span class="skeleton-bar" style="width:60px"></span></td><td><span class="skeleton-bar" style="width:50px"></span></td><td><span class="skeleton-bar" style="width:140px"></span></td></tr>'
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:70px"></span></td><td><span class="skeleton-bar" style="width:80px"></span></td><td><span class="skeleton-bar" style="width:40px"></span></td><td><span class="skeleton-bar" style="width:120px"></span></td></tr>'
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:100px"></span></td><td><span class="skeleton-bar" style="width:70px"></span></td><td><span class="skeleton-bar" style="width:55px"></span></td><td><span class="skeleton-bar" style="width:160px"></span></td></tr>';
+    }
+    function showEquipmentSkeleton() {
+      var tbody = document.getElementById('equipment-tbody');
+      if (tbody) tbody.innerHTML = _equipmentSkeletonRowsHtml();
+    }
+
     /** Update _selectedRoomId globally, sync all room selectors, persist to URL. */
     function setSelectedRoom(roomId) {
       if (roomId === _selectedRoomId) return;
@@ -150,6 +163,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _activeSessionCacheKey = '';
       _activeSessionPromise = null;
       _activeSessionFetchedAt = 0;
+      // Show skeleton immediately so the user sees feedback while the next
+      // loadOverview() fetch is in flight.
+      showEquipmentSkeleton();
       // Persist to URL
       var url = new URL(window.location);
       if (_selectedRoomId) { url.searchParams.set('room', _selectedRoomId); }
@@ -1457,6 +1473,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     async function loadOverview() {
+      // Show a subtle "Syncing…" hint in the staleness label while the fetch
+      // is in flight so users know data is being refreshed (clears in the
+      // staleness update below on success, or in the catch on failure).
+      var _stalenessEl = document.getElementById('equip-staleness');
+      var _prevStalenessText = _stalenessEl ? _stalenessEl.textContent : '';
+      if (_stalenessEl) {
+        _stalenessEl.textContent = 'Syncing…';
+        _stalenessEl.classList.add('staleness-syncing');
+      }
       try {
         // Safety net: hide the zero-rooms gate once overview loads (rooms exist)
         var gateEl = document.getElementById('zero-rooms-gate');
@@ -1464,6 +1489,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         await loadOverviewRoomSelector();
         const d = await api('GET', '/api/church/me' + roomParam());
+        if (_stalenessEl) _stalenessEl.classList.remove('staleness-syncing');
         profileData = d;
         applyPortalSessionContext(d);
 
@@ -1880,13 +1906,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Room selector is now populated from DB in loadOverviewRoomSelector()
       } catch(e) {
-        console.error(e);
+        console.error('[overview] load failed:', e);
         var eqTbody = document.getElementById('equipment-tbody');
         if (eqTbody) eqTbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">Could not load equipment status.</td></tr>';
         var statusText = document.getElementById('stat-status-text');
         if (statusText) { statusText.textContent = '—'; statusText.style.color = '#8B9DAF'; }
         var schedBody = document.getElementById('schedule-overview-body');
         if (schedBody) schedBody.textContent = 'Could not load schedule.';
+        if (_stalenessEl) {
+          _stalenessEl.classList.remove('staleness-syncing');
+          _stalenessEl.textContent = _prevStalenessText || '';
+        }
       }
     }
 
