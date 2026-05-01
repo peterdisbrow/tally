@@ -106,6 +106,7 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "afterPack": "./scripts/afterPack.js",
+    "afterAllArtifactBuild": "./scripts/afterAllArtifactBuild.js",
     "extraResources": [
       {
         "from": "../church-client",
