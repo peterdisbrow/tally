@@ -206,6 +206,31 @@ class ManualRundownStore {
         ON rundown_collaborators(church_id, plan_id, role)
     `);
 
+    // ── Email invites for collaborators ────────────────────────────────────
+    await this._db.exec(`
+      CREATE TABLE IF NOT EXISTS rundown_invites (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        church_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'editor',
+        token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        invited_by TEXT NOT NULL DEFAULT '',
+        created_at BIGINT NOT NULL,
+        accepted_at BIGINT,
+        accepted_by TEXT
+      )
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rinvites_plan
+        ON rundown_invites(plan_id, status)
+    `);
+    await this._db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rinvites_token
+        ON rundown_invites(token)
+    `);
+
     // ── Live show state table (per-plan cueing state) ─────────────────────────
     await this._db.exec(`
       CREATE TABLE IF NOT EXISTS rundown_live_state (
@@ -997,6 +1022,83 @@ class ManualRundownStore {
       [Date.now(), Date.now(), planId, collaboratorKey]
     );
     return this.getCollaborator(planId, collaboratorKey);
+  }
+
+  // ─── INVITES ───────────────────────────────────────────────────────────────
+
+  async createInvite(planId, churchId, { email, role = 'editor', invitedBy = '' }) {
+    const normalizedRole = VALID_COLLABORATOR_ROLES.has(role) ? role : 'editor';
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) throw new Error('email is required');
+    const id = uuidv4();
+    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '').slice(0, 16);
+    const now = Date.now();
+    await this._db.run(
+      `INSERT INTO rundown_invites (id, plan_id, church_id, email, role, token, status, invited_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [id, planId, churchId, normalizedEmail, normalizedRole, token, String(invitedBy || ''), now]
+    );
+    return this.getInviteById(id);
+  }
+
+  async getInviteById(inviteId) {
+    if (!inviteId) return null;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_invites WHERE id = ?`, [inviteId]
+    );
+    return row ? this._toInvite(row) : null;
+  }
+
+  async getInviteByToken(token) {
+    if (!token) return null;
+    const row = await this._db.queryOne(
+      `SELECT * FROM rundown_invites WHERE token = ?`, [token]
+    );
+    return row ? this._toInvite(row) : null;
+  }
+
+  async listPendingInvites(planId) {
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_invites WHERE plan_id = ? AND status = 'pending' ORDER BY created_at DESC`,
+      [planId]
+    );
+    return rows.map((r) => this._toInvite(r));
+  }
+
+  async revokeInvite(inviteId) {
+    const existing = await this.getInviteById(inviteId);
+    if (!existing) return null;
+    await this._db.run(
+      `UPDATE rundown_invites SET status = 'revoked' WHERE id = ?`, [inviteId]
+    );
+    return this.getInviteById(inviteId);
+  }
+
+  async markInviteAccepted(inviteId, acceptedBy = '') {
+    const existing = await this.getInviteById(inviteId);
+    if (!existing) return null;
+    await this._db.run(
+      `UPDATE rundown_invites SET status = 'accepted', accepted_at = ?, accepted_by = ? WHERE id = ?`,
+      [Date.now(), String(acceptedBy || ''), inviteId]
+    );
+    return this.getInviteById(inviteId);
+  }
+
+  _toInvite(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      churchId: row.church_id,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      status: row.status,
+      invitedBy: row.invited_by || '',
+      createdAt: row.created_at,
+      acceptedAt: row.accepted_at || null,
+      acceptedBy: row.accepted_by || null,
+    };
   }
 
   async cleanupStaleCollaborators(staleBeforeMs) {

@@ -145,6 +145,12 @@ app.get('/rundown/prompter/:token', (_req, res) => {
   res.sendFile(require('path').join(__dirname, 'public/rundown-prompter.html'));
 });
 
+// Email invite landing page — accepts ?token=...&plan=... and posts to the
+// accept endpoint once the user is authenticated.
+app.get('/rundown/join', (_req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public/rundown-join.html'));
+});
+
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
