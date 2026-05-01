@@ -51,25 +51,28 @@ function _resetStripeClientForTests() {
 // Set these in .env or override with Stripe dashboard IDs
 
 const BILLING_INTERVALS = new Set(['monthly', 'annual', 'one_time']);
+// Missing env vars resolve to empty strings here. _validatePriceIds() throws at
+// startup in non-dev envs if any required ID is missing — never fall back to a
+// fake-looking string that could pass a `startsWith('price_')` check.
 const PRICES = {
   connect: {
-    monthly: process.env.STRIPE_PRICE_CONNECT || 'price_connect_placeholder',
+    monthly: process.env.STRIPE_PRICE_CONNECT || '',
     annual: process.env.STRIPE_PRICE_CONNECT_ANNUAL || process.env.STRIPE_PRICE_CONNECT_YEARLY || '',
   },
   plus: {
-    monthly: process.env.STRIPE_PRICE_PLUS || 'price_plus_placeholder',
+    monthly: process.env.STRIPE_PRICE_PLUS || '',
     annual: process.env.STRIPE_PRICE_PLUS_ANNUAL || process.env.STRIPE_PRICE_PLUS_YEARLY || '',
   },
   pro: {
-    monthly: process.env.STRIPE_PRICE_PRO || 'price_pro_placeholder',
+    monthly: process.env.STRIPE_PRICE_PRO || '',
     annual: process.env.STRIPE_PRICE_PRO_ANNUAL || process.env.STRIPE_PRICE_PRO_YEARLY || '',
   },
   managed: {
-    monthly: process.env.STRIPE_PRICE_MANAGED || 'price_managed_placeholder',
+    monthly: process.env.STRIPE_PRICE_MANAGED || '',
     annual: process.env.STRIPE_PRICE_MANAGED_ANNUAL || process.env.STRIPE_PRICE_MANAGED_YEARLY || '',
   },
   event: {
-    one_time: process.env.STRIPE_PRICE_EVENT || 'price_event_placeholder',
+    one_time: process.env.STRIPE_PRICE_EVENT || '',
   },
 };
 const PRICE_ENV_KEYS = {
