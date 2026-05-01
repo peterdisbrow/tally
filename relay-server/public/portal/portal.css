@@ -3117,6 +3117,22 @@ a:focus-visible,
   to { transform: rotate(360deg); }
 }
 
+/* ─── Skeleton loaders (overview tables/cards on first load) ──── */
+.skeleton-bar {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-row td { padding: 14px 12px !important; vertical-align: middle; }
+.staleness-syncing { color: var(--primary) !important; opacity: 0.7; }
+
 /* ─── Custom Scrollbar ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

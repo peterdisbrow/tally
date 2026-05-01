@@ -509,7 +509,7 @@ class WeeklyDigest {
           try {
             await this.churchMemory.writeWeeklyMemories(church.churchId, patterns, reliability);
           } catch (e) {
-            console.error(`[WeeklyDigest] Memory write error for ${church.name}:`, e.message);
+            console.error(`[WeeklyDigest] Memory write error for ${church.name}:`, e);
           }
         }
 
@@ -587,13 +587,13 @@ class WeeklyDigest {
             };
             for (const leaderEmail of leaderEmails) {
               this.lifecycleEmails.sendWeeklyDigestEmail(fullChurch, digestData, leaderEmail).catch(err => {
-                console.error(`[WeeklyDigest] Leadership email error for ${leaderEmail}:`, err.message);
+                console.error(`[WeeklyDigest] Leadership email error for ${leaderEmail}:`, err);
               });
             }
           }
         }
       } catch (e) {
-        console.error(`[WeeklyDigest] Church digest error for ${church.name}:`, e.message);
+        console.error(`[WeeklyDigest] Church digest error for ${church.name}:`, e);
       }
     }
   }
@@ -607,7 +607,7 @@ class WeeklyDigest {
         signal: AbortSignal.timeout(5000),
       });
     } catch (e) {
-      console.error(`[WeeklyDigest] Telegram error: ${e.message}`);
+      console.error('[WeeklyDigest] Telegram error:', e);
     }
   }
 

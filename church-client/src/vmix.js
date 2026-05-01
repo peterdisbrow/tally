@@ -206,6 +206,57 @@ class VMix {
     return true;
   }
 
+  // ─── STREAMING DESTINATION CONFIG ──────────────────────────────────────────
+
+  /**
+   * Set the stream key for a streaming channel.
+   * @param {string} key - The stream key
+   * @param {number} [channel=0] - Streaming channel index (0-based)
+   */
+  async setStreamingKey(key, channel = 0) {
+    const result = await this._call('SetStreamingKey', { Value: key, StreamingChannel: channel });
+    if (result === null) throw new Error('Could not set vMix streaming key');
+    return true;
+  }
+
+  /**
+   * Set the RTMP URL for a streaming channel.
+   * @param {string} url - The RTMP URL
+   * @param {number} [channel=0] - Streaming channel index (0-based)
+   */
+  async setStreamingUrl(url, channel = 0) {
+    const result = await this._call('SetStreamingUrl', { Value: url, StreamingChannel: channel });
+    if (result === null) throw new Error('Could not set vMix streaming URL');
+    return true;
+  }
+
+  /**
+   * Read current streaming configuration from vMix settings XML.
+   * Returns { url, key } for the requested channel.
+   * @param {number} [channel=0] - Streaming channel index (0-based)
+   */
+  async getStreamingConfig(channel = 0) {
+    // vMix exposes streaming settings through the full XML state
+    const xml = await this._call('GetXML');
+    if (!xml) return null;
+    // vMix XML has <streaming> elements — extract the channel
+    const streams = [];
+    const re = /<streaming\s([^>]*)\/?>(?:<\/streaming>)?/gi;
+    let m;
+    while ((m = re.exec(xml)) !== null) {
+      const attrs = m[1];
+      const getAttr = (a) => {
+        const am = attrs.match(new RegExp(`\\b${a}="([^"]*)"`,'i'));
+        return am ? am[1] : null;
+      };
+      streams.push({
+        url: getAttr('url') || getAttr('URL') || null,
+        key: getAttr('key') || getAttr('Key') || null,
+      });
+    }
+    return streams[channel] || { url: null, key: null };
+  }
+
   // ─── RECORDING ────────────────────────────────────────────────────────────
 
   async startRecording() {

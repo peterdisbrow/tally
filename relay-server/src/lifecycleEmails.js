@@ -350,6 +350,10 @@ class LifecycleEmails {
       if (override.html) html = override.html;
     }
 
+    // CAN-SPAM: inject unsubscribe footer for any categorized (non-transactional)
+    // email that doesn't already render one.
+    html = this._injectUnsubscribeFooter(html, churchId, to, emailType);
+
     const now = new Date().toISOString();
 
     if (!this.resendApiKey) {
@@ -656,7 +660,7 @@ class LifecycleEmails {
     const topAlertType = digestData.topAlertType || null;
 
     const subject = `Your Week in Review — ${church.name || 'Your Church'}`;
-    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'digest');
+    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'weekly-digest');
     const patternRows = patterns.length > 0
       ? patterns.map(p => `<li style="margin-bottom:6px;">${this._esc(p.pattern)} <span style="color:#475569;">— ${this._esc(p.timeWindow || '')}</span>${p.recommendation ? `<br><span style="color:#22c55e; font-size:12px;">&rarr; ${this._esc(p.recommendation)}</span>` : ''}</li>`).join('')
       : '<li style="color:#22c55e;">No recurring issues this week</li>';
@@ -706,7 +710,7 @@ class LifecycleEmails {
     const monthLabel = reportData.monthLabel || month;
 
     const subject = `Monthly Production Report — ${church.name || 'Your Church'}`;
-    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'report');
+    const unsubscribeFooter = this._buildUnsubscribeFooter(church.churchId, toEmail, 'monthly-reports');
 
     // Build narrative insight line
     const recoveryRate = alertsTriggered > 0 ? Math.round((autoRecovered / alertsTriggered) * 100) : 100;
@@ -777,6 +781,30 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Inject an unsubscribe footer into an email body for CAN-SPAM compliance.
+   * Skipped when:
+   *   - emailType has no category (treated as transactional — password reset,
+   *     security alerts, account confirmations) and is exempt under CAN-SPAM.
+   *   - The HTML already contains an unsubscribe link (e.g. digest/report
+   *     templates that build the footer inline).
+   * Token uses the category key (not the raw emailType) so the unsubscribe
+   * endpoint can opt the recipient out of the whole category.
+   */
+  _injectUnsubscribeFooter(html, churchId, recipient, emailType) {
+    if (!html || !churchId || !recipient || !emailType) return html;
+    if (/\/api\/notifications\/unsubscribe/i.test(html)) return html; // already present
+    const category = this._getCategoryForType(emailType);
+    if (!category) return html; // transactional — exempt
+    const footer = this._buildUnsubscribeFooter(churchId, recipient, category);
+    if (!footer) return html;
+    // Insert before </body> if present, else append.
+    if (/<\/body>/i.test(html)) {
+      return html.replace(/<\/body>/i, footer + '</body>');
+    }
+    return html + footer;
   }
 
   // ─── HOURLY CHECK ───────────────────────────────────────────────────────────

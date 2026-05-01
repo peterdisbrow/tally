@@ -142,6 +142,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (wrapEl) wrapEl.style.display = '';
     }
 
+    function _equipmentSkeletonRowsHtml() {
+      // Three pulsing rows so users see immediate "loading" feedback instead of
+      // a blank tbody while the next overview fetch completes (room switch / first load).
+      return ''
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:90px"></span></td><td><span class="skeleton-bar" style="width:60px"></span></td><td><span class="skeleton-bar" style="width:50px"></span></td><td><span class="skeleton-bar" style="width:140px"></span></td></tr>'
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:70px"></span></td><td><span class="skeleton-bar" style="width:80px"></span></td><td><span class="skeleton-bar" style="width:40px"></span></td><td><span class="skeleton-bar" style="width:120px"></span></td></tr>'
+        + '<tr class="skeleton-row"><td><span class="skeleton-bar" style="width:100px"></span></td><td><span class="skeleton-bar" style="width:70px"></span></td><td><span class="skeleton-bar" style="width:55px"></span></td><td><span class="skeleton-bar" style="width:160px"></span></td></tr>';
+    }
+    function showEquipmentSkeleton() {
+      var tbody = document.getElementById('equipment-tbody');
+      if (tbody) tbody.innerHTML = _equipmentSkeletonRowsHtml();
+    }
+
     /** Update _selectedRoomId globally, sync all room selectors, persist to URL. */
     function setSelectedRoom(roomId) {
       if (roomId === _selectedRoomId) return;
@@ -150,6 +163,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       _activeSessionCacheKey = '';
       _activeSessionPromise = null;
       _activeSessionFetchedAt = 0;
+      // Show skeleton immediately so the user sees feedback while the next
+      // loadOverview() fetch is in flight.
+      showEquipmentSkeleton();
       // Persist to URL
       var url = new URL(window.location);
       if (_selectedRoomId) { url.searchParams.set('room', _selectedRoomId); }
@@ -1241,7 +1257,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       pageEl.classList.add('active');
       if (el) el.classList.add('active');
-      try { localStorage.setItem('portal_page', id); } catch(e) {}
+      try { localStorage.setItem('portal_page', id); } catch (e) { console.warn('[portal] save current page failed:', e); }
       // Close mobile nav on page switch
       var sidebar = document.getElementById('sidebar-nav');
       var overlay = document.getElementById('sidebar-overlay');
@@ -1251,7 +1267,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id !== 'rundown' && typeof _rundownSelectedPlanId !== 'undefined' && _rundownSelectedPlanId) {
         if (typeof showRundownView === 'function') showRundownView('manager');
         if (typeof _rundownUnsubscribePlan === 'function' && _rundownSelectedPlanId) {
-          try { _rundownUnsubscribePlan(_rundownSelectedPlanId); } catch(e) {}
+          try { _rundownUnsubscribePlan(_rundownSelectedPlanId); } catch (e) { console.debug('[rundown] unsubscribe on nav failed:', e); }
         }
         _rundownSelectedPlanId = null;
         // Clear rundown hash so it doesn't interfere with other pages
@@ -1291,7 +1307,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       page.querySelectorAll('.tab-bar button').forEach(function(b) { b.classList.remove('active'); });
       var btn = page.querySelector('.tab-bar button[data-tab="' + tabId + '"]');
       if (btn) btn.classList.add('active');
-      try { localStorage.setItem('portal_tab', tabId); } catch(e) {}
+      try { localStorage.setItem('portal_tab', tabId); } catch (e) { console.warn('[portal] save current tab failed:', e); }
       // Load data for the tab if not already loaded
       if (!_tabLoaded[tabId]) {
         _tabLoaded[tabId] = true;
@@ -1457,6 +1473,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     async function loadOverview() {
+      // Show a subtle "Syncing…" hint in the staleness label while the fetch
+      // is in flight so users know data is being refreshed (clears in the
+      // staleness update below on success, or in the catch on failure).
+      var _stalenessEl = document.getElementById('equip-staleness');
+      var _prevStalenessText = _stalenessEl ? _stalenessEl.textContent : '';
+      if (_stalenessEl) {
+        _stalenessEl.textContent = 'Syncing…';
+        _stalenessEl.classList.add('staleness-syncing');
+      }
       try {
         // Safety net: hide the zero-rooms gate once overview loads (rooms exist)
         var gateEl = document.getElementById('zero-rooms-gate');
@@ -1464,6 +1489,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         await loadOverviewRoomSelector();
         const d = await api('GET', '/api/church/me' + roomParam());
+        if (_stalenessEl) _stalenessEl.classList.remove('staleness-syncing');
         profileData = d;
         applyPortalSessionContext(d);
 
@@ -1847,7 +1873,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         try { renderOnboarding(d); } catch (e) { console.error('Onboarding error', e); }
 
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
-        try { checkReviewEligibility(); } catch {}
+        try { checkReviewEligibility(); } catch (e) { console.debug('[portal] review eligibility check failed:', e); }
         // Referral card moved to billing page only
 
         // ── Sessions count for overview stat ─────────────────────────────────
@@ -1856,7 +1882,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             var sessions = await api('GET', '/api/church/sessions' + roomParam());
             var el = document.getElementById('stat-sessions');
             if (el) el.textContent = Array.isArray(sessions) ? sessions.length : '—';
-          } catch {}
+          } catch (e) { console.warn('[overview] sessions count fetch failed:', e); }
         })();
 
         // ── Schedule summary on overview ──────────────────────────────────────
@@ -1880,13 +1906,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Room selector is now populated from DB in loadOverviewRoomSelector()
       } catch(e) {
-        console.error(e);
+        console.error('[overview] load failed:', e);
         var eqTbody = document.getElementById('equipment-tbody');
         if (eqTbody) eqTbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">Could not load equipment status.</td></tr>';
         var statusText = document.getElementById('stat-status-text');
         if (statusText) { statusText.textContent = '—'; statusText.style.color = '#8B9DAF'; }
         var schedBody = document.getElementById('schedule-overview-body');
         if (schedBody) schedBody.textContent = 'Could not load schedule.';
+        if (_stalenessEl) {
+          _stalenessEl.classList.remove('staleness-syncing');
+          _stalenessEl.textContent = _prevStalenessText || '';
+        }
       }
     }
 
@@ -3560,14 +3590,41 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Tally Engineer: card rendering ────────────────────────────────────────
 
+    function _renderOfflineEmptyState(target, opts) {
+      // Shared offline empty state for any card whose data depends on the
+      // desktop agent being live. Avoids backfilling potentially stale
+      // historical data — if the desktop is offline we show "no current data"
+      // rather than misleading the user with the previous session's results.
+      opts = opts || {};
+      var heading = opts.heading || 'Desktop app is offline';
+      var detail = opts.detail || 'Open the Tally desktop app on your studio computer to see live results.';
+      target.innerHTML = ''
+        + '<div class="equip-empty-state" style="color:var(--text-secondary)">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40" style="color:var(--text-muted);margin-bottom:10px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M9.879 9.879a3 3 0 104.243 4.243M21 12c0-1.657-1.343-3-3-3M3 12c0-1.657 1.343-3 3-3"/></svg>'
+        + '<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">' + heading + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">' + detail + '</div>'
+        + '</div>';
+    }
+
     async function loadProblems() {
       var body = document.getElementById('pf-body');
       var badge = document.getElementById('pf-badge');
       if (!body) return;
+      // If the desktop agent is currently offline, do NOT fetch /problems —
+      // any returned data would be from a prior session and misleading.
+      if (profileData && profileData.connected === false) {
+        _renderOfflineEmptyState(body, {
+          heading: 'No live diagnostics — desktop app is offline',
+          detail: 'Diagnostics rely on the desktop agent. Open Tally on your studio computer to run a fresh check.',
+        });
+        if (badge) { badge.className = 'badge badge-gray'; badge.textContent = 'Offline'; }
+        return;
+      }
       try {
         var data = await api('GET', '/api/church/problems' + roomParam());
         renderProblems(data, body, badge);
       } catch(e) {
+        console.error('[diagnostics] loadProblems failed:', e);
         body.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
         if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
       }
@@ -5115,7 +5172,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (_engineerPageLoaded) return;
         const d = await fetchChurchProfile();
         var ep = {};
-        try { ep = JSON.parse(d.engineer_profile || '{}'); } catch {}
+        try { ep = JSON.parse(d.engineer_profile || '{}'); } catch (e) { console.warn('[engineer] failed to parse engineer_profile JSON:', e); }
         document.getElementById('eng-stream-platform').value = ep.streamPlatform || '';
         document.getElementById('eng-expected-viewers').value = ep.expectedViewers || '';
         document.getElementById('eng-operator-level').value = ep.operatorLevel || '';
@@ -8975,7 +9032,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (!window.localStorage) return;
         if (value) window.localStorage.setItem(key, value);
         else window.localStorage.removeItem(key);
-      } catch (e) {}
+      } catch (e) { console.warn('[rundown] localStorage write failed for key', key, e); }
     }
 
     function _rundownDefaultStationName() {
@@ -10232,9 +10289,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     try {
       var _savedCollapse = window.localStorage.getItem('tally.rundown.section-collapse');
       if (_savedCollapse) _rundownSectionCollapse = JSON.parse(_savedCollapse);
-    } catch(e) {}
+    } catch (e) { console.debug('[rundown] failed to parse stored section-collapse state:', e); }
     function _saveRundownSectionCollapse() {
-      try { window.localStorage.setItem('tally.rundown.section-collapse', JSON.stringify(_rundownSectionCollapse)); } catch(e) {}
+      try { window.localStorage.setItem('tally.rundown.section-collapse', JSON.stringify(_rundownSectionCollapse)); } catch (e) { console.warn('[rundown] save section-collapse failed:', e); }
     }
     var RUNDOWN_TYPE_LABELS = {
       song: 'Song', sermon: 'Sermon', message: 'Message', media: 'Media',
@@ -14906,7 +14963,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       dates.forEach(function(d) {
         var dateLabel = d;
         if (d !== 'Unscheduled') {
-          try { dateLabel = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch(e) {}
+          try { dateLabel = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { console.debug('[rundown] format date label failed for', d, e); }
         }
         html += '<div>';
         html += '<div style="font-size:13px;font-weight:700;color:#8B9DAF;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">' + escapeHtml(dateLabel) + '</div>';
@@ -18995,7 +19052,12 @@ document.addEventListener('DOMContentLoaded', function() {
         updateReadinessHero(null, true);
         updateNeedsAttention(null);
         var list = document.getElementById('equipment-simple-list');
-        if (list) list.innerHTML = '<div class="equip-empty-state" style="color:var(--text-muted)">Desktop app is offline</div>';
+        if (list) {
+          _renderOfflineEmptyState(list, {
+            heading: 'Desktop app is offline',
+            detail: 'Open Tally on your studio computer — equipment status will appear here once it connects.',
+          });
+        }
       }
     }).observe(_statEl, { childList: true, characterData: true, subtree: true });
   }
@@ -19019,10 +19081,10 @@ document.addEventListener('DOMContentLoaded', function() {
       var savedTab = localStorage.getItem('portal_tab');
       if (savedTab && document.getElementById(savedTab)) switchTab(savedTab);
     }
-  } catch(e) {}
+  } catch (e) { console.warn('[portal] restore last page from localStorage failed:', e); }
 
   // Check hash for rundown editor deep link (e.g. #rundown-plan-abc123)
-  try { _rundownCheckHashOnLoad(); } catch(e) {}
+  try { _rundownCheckHashOnLoad(); } catch (e) { console.warn('[rundown] hash deep-link check failed:', e); }
 
   // Init overview sections on first load (overview is active by default)
   initOverviewSections();

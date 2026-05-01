@@ -49,6 +49,20 @@ class VmixEncoder {
 
   async startStream() { return this._vmix.startStream(); }
   async stopStream()  { return this._vmix.stopStream(); }
+
+  // ─── STREAMING DESTINATION CONFIG ──────────────────────────────────────────
+
+  async getStreamingConfig(channel = 0) {
+    return this._vmix.getStreamingConfig(channel);
+  }
+
+  async setStreamingKey(key, channel = 0) {
+    return this._vmix.setStreamingKey(key, channel);
+  }
+
+  async setStreamingUrl(url, channel = 0) {
+    return this._vmix.setStreamingUrl(url, channel);
+  }
 }
 
 module.exports = { VmixEncoder };
