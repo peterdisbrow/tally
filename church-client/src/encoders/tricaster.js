@@ -71,6 +71,43 @@ function parseVersionText(payload) {
   }
 }
 
+// ─── Shortcut dialect catalog ──────────────────────────────────────────────
+// TriCaster's HTTP shortcut surface differs across firmware generations
+// (TC1, TC2, TC Mini, VMC1, etc.). Each entry produces a request shape that
+// has been observed in the wild. We try them in order until one returns 2xx,
+// then cache the working dialect on the encoder so subsequent commands skip
+// straight to it.
+//
+// `path` may include {name}/{value} placeholders that are substituted before
+// the request is issued. `body` may also include placeholders. A null body
+// means the request is sent with no payload (the data lives in the path/query).
+
+function buildShortcutAttempts(name, value) {
+  const safeName = encodeURIComponent(name);
+  const valueAttr = value == null ? '' : (value ? '1' : '0');
+
+  // Toggle (no value) — fewer firmwares need a value at all for *_toggle shortcuts.
+  if (value == null) {
+    return [
+      { path: '/v1/shortcut', body: `<shortcut name="${name}" />`, contentType: 'text/xml' },
+      { path: `/v1/shortcut?name=${safeName}`, body: null, contentType: null },
+      { path: `/shortcut?name=${safeName}`, body: null, contentType: null },
+      { path: '/v1/shortcut', body: `{"name":"${name}"}`, contentType: 'application/json' },
+    ];
+  }
+
+  // Value-bearing call (start/stop). Order is "most likely to work on a stock
+  // TriCaster install" first, then progressively rarer firmware quirks.
+  return [
+    { path: '/v1/shortcut', body: `<shortcut name="${name}" value="${valueAttr}" />`, contentType: 'text/xml' },
+    { path: '/v1/shortcut', body: `<shortcut name="${name}"><entry key="value" value="${valueAttr}" /></shortcut>`, contentType: 'text/xml' },
+    { path: `/v1/shortcut?name=${safeName}&value=${valueAttr}`, body: null, contentType: null },
+    { path: '/v1/shortcut', body: `name=${safeName}&value=${valueAttr}`, contentType: 'application/x-www-form-urlencoded' },
+    { path: '/v1/shortcut', body: `<shortcut name="${name}" state="${valueAttr}" />`, contentType: 'text/xml' },
+    { path: '/v1/shortcut', body: `{"name":"${name}","value":"${valueAttr}"}`, contentType: 'application/json' },
+  ];
+}
+
 class TriCasterEncoder {
   constructor({ host, port = 5951, password = '', label = '' } = {}) {
     this.host = String(host || '').trim();
@@ -84,6 +121,10 @@ class TriCasterEncoder {
     this._version = '';
     this._lastPollAt = 0;
     this._pollCacheMs = 6000;
+    // Caches the shortcut dialect index that last succeeded, keyed by shortcut
+    // name + value-arity ("with-value" / "no-value"). Lets repeated commands
+    // skip the trial loop on the firmware-specific path that we know works.
+    this._shortcutDialectCache = new Map();
   }
 
   _baseUrl() {
@@ -157,18 +198,28 @@ class TriCasterEncoder {
   }
 
   async _postShortcut(name, value = null) {
-    const payloads = value == null
-      ? [`<shortcut name="${name}" />`]
-      : [
-          `<shortcut name="${name}" value="${value ? 1 : 0}" />`,
-          `<shortcut name="${name}"><entry key="value" value="${value ? 1 : 0}" /></shortcut>`,
-        ];
+    const attempts = buildShortcutAttempts(name, value);
+    const cacheKey = `${name}:${value == null ? 'toggle' : 'set'}`;
+    const cachedIdx = this._shortcutDialectCache.get(cacheKey);
 
-    for (const payload of payloads) {
-      const res = await this._request('POST', '/v1/shortcut', payload, 'text/xml');
-      if (res.ok) return true;
+    // Try the cached working dialect first (firmware-pinned fast path).
+    const order = cachedIdx != null && cachedIdx < attempts.length
+      ? [cachedIdx, ...attempts.map((_, i) => i).filter((i) => i !== cachedIdx)]
+      : attempts.map((_, i) => i);
+
+    const failures = [];
+    for (const idx of order) {
+      const a = attempts[idx];
+      const res = await this._request('POST', a.path, a.body, a.contentType || 'text/plain');
+      if (res.ok) {
+        this._shortcutDialectCache.set(cacheKey, idx);
+        return true;
+      }
+      failures.push(`${a.path.split('?')[0]}=${res.status || 'net'}`);
     }
-    throw new Error(`TriCaster shortcut "${name}" failed`);
+    // Drop a stale cached dialect if it no longer works (firmware update etc.)
+    if (cachedIdx != null) this._shortcutDialectCache.delete(cacheKey);
+    throw new Error(`TriCaster shortcut "${name}" failed after ${attempts.length} dialect attempts: ${failures.join(', ')}`);
   }
 
   async connect() {

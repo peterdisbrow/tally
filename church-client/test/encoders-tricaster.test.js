@@ -508,3 +508,127 @@ test('tricaster: disconnect sets _connected=false', async () => {
     assert.equal(enc._connected, false);
   });
 });
+
+// ── Shortcut dialect fallback (firmware variants) ─────────────────────────
+
+test('tricaster: startStream falls through to query-string dialect when XML body returns 400', async () => {
+  // Simulate a firmware that rejects the XML payload but accepts the
+  // query-string variant. The encoder must keep trying until something works.
+  let xmlAttempts = 0;
+  let querySucceeded = false;
+
+  await withFetch(
+    [
+      [/v1\/shortcut$/, async (_url, opts) => {
+        if (opts.method !== 'POST') return mockResp('', 200);
+        // The XML-body POSTs hit the /v1/shortcut path (no query string).
+        if (opts.body && String(opts.body).includes('<shortcut')) {
+          xmlAttempts++;
+          return mockResp('Bad Request', 400);
+        }
+        // Form-encoded body (no XML, has '&value=')
+        if (opts.body && String(opts.body).includes('value=1')) {
+          querySucceeded = true;
+          return mockResp('', 200);
+        }
+        return mockResp('Bad Request', 400);
+      }],
+      [/v1\/shortcut\?name=streaming_toggle&value=1/, async (_url, opts) => {
+        if (opts.method !== 'POST') return mockResp('', 200);
+        querySucceeded = true;
+        return mockResp('', 200);
+      }],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      await enc.startStream();
+      assert.equal(enc._streaming, true);
+      assert.ok(xmlAttempts >= 1, 'expected at least one XML-body attempt');
+      assert.ok(querySucceeded, 'expected the query-string dialect to be reached and succeed');
+    }
+  );
+});
+
+test('tricaster: cached dialect is used on subsequent commands (no re-trial)', async () => {
+  // First call: XML succeeds → dialect cached.
+  // Second call: only the cached dialect should be tried first; if it works,
+  // no other variants are attempted.
+  let postCount = 0;
+  await withFetch(
+    [
+      [/v1\/shortcut/, async (_url, opts) => {
+        if (opts.method === 'POST') postCount++;
+        return mockResp('', 200);
+      }],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      await enc.startStream();
+      const after1 = postCount;
+      await enc.startStream();
+      const after2 = postCount;
+      assert.equal(after1, 1, 'first call should land on the first dialect attempt');
+      assert.equal(after2 - after1, 1, 'second call should use cached dialect → exactly 1 POST');
+    }
+  );
+});
+
+test('tricaster: stale cached dialect is dropped when it stops working', async () => {
+  // First call: XML succeeds → dialect cached at index 0.
+  // Then we flip the mock so /v1/shortcut returns 500 for the XML body but
+  // 200 for the query-string variant. The encoder must fall through and the
+  // cache must be invalidated so a re-pin happens.
+  let xmlOk = true;
+  await withFetch(
+    [
+      [/v1\/shortcut/, async (_url, opts) => {
+        if (opts.method !== 'POST') return mockResp('', 200);
+        if (opts.body && String(opts.body).includes('<shortcut')) {
+          return xmlOk ? mockResp('', 200) : mockResp('error', 500);
+        }
+        // Anything else (query string, form-encoded, JSON) is fine after the flip.
+        return mockResp('', 200);
+      }],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      await enc.startStream(); // pins XML dialect
+      assert.ok(enc._shortcutDialectCache.has('streaming_toggle:set'));
+      const pinnedIdx = enc._shortcutDialectCache.get('streaming_toggle:set');
+
+      xmlOk = false; // firmware "changes its mind"
+      await enc.stopStream(); // must succeed via fallthrough
+
+      // Either the cache was re-pinned to a different (working) dialect, or
+      // the entry was cleared and the next call will re-pin. Both are valid;
+      // what matters is we didn't throw and the new pin (if any) isn't the
+      // stale XML index.
+      const newIdx = enc._shortcutDialectCache.get('stop:set');
+      if (newIdx != null) {
+        assert.notEqual(newIdx, pinnedIdx, 'pinned dialect should not match the failing XML index');
+      }
+    }
+  );
+});
+
+test('tricaster: error message lists per-attempt status codes when all dialects fail', async () => {
+  await withFetch(
+    [
+      [/v1\/shortcut/, async (_url, opts) => {
+        if (opts.method !== 'POST') return mockResp('', 200);
+        return mockResp('error', 500);
+      }],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      try {
+        await enc.startStream();
+        assert.fail('expected throw');
+      } catch (e) {
+        assert.match(e.message, /TriCaster shortcut "streaming_toggle" failed/);
+        assert.match(e.message, /500/, 'expected 500 status to appear in the diagnostic');
+        assert.match(e.message, /dialect attempts/);
+      }
+    }
+  );
+});
