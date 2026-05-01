@@ -1773,8 +1773,17 @@ app.get('/api/notifications/unsubscribe', async (req, res) => {
     const payload = jwt.verify(token, JWT_SECRET) || {};
     const churchId = String(payload.churchId || '').trim();
     const email = String(payload.email || '').trim().toLowerCase();
-    const type = payload.type === 'digest' || payload.type === 'report' ? payload.type : '';
-    if (!churchId || !email || !type) throw new Error('Invalid token payload');
+    const rawType = String(payload.type || '').trim();
+    if (!churchId || !email || !rawType) throw new Error('Invalid token payload');
+
+    // Resolve to a known category. Back-compat: 'digest' / 'report' from
+    // pre-2026-05 tokens map to weekly-digest / monthly-reports. Anything
+    // else must be a current EMAIL_CATEGORIES key.
+    let category;
+    if (rawType === 'digest') category = 'weekly-digest';
+    else if (rawType === 'report') category = 'monthly-reports';
+    else if (LifecycleEmails.EMAIL_CATEGORIES && LifecycleEmails.EMAIL_CATEGORIES[rawType]) category = rawType;
+    else throw new Error('Unknown email category');
 
     const church = await queryClient.queryOne(
       'SELECT churchId FROM churches WHERE churchId = ?',
@@ -1784,14 +1793,14 @@ app.get('/api/notifications/unsubscribe', async (req, res) => {
       return res.status(404).type('html').send('<!doctype html><html><body><h1>Church not found</h1><p>This unsubscribe link is no longer valid.</p></body></html>');
     }
 
-    const category = type === 'digest' ? 'weekly-digest' : 'monthly-reports';
     lifecycleEmails.unsubscribeRecipient(churchId, email, category);
 
-    const label = type === 'digest' ? 'weekly digest emails' : 'monthly report emails';
+    const categoryLabel = (LifecycleEmails.EMAIL_CATEGORIES[category] && LifecycleEmails.EMAIL_CATEGORIES[category].name) || category;
     return res.type('html').send(
-      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(label)}.</p></body></html>`,
+      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(categoryLabel)} emails.</p></body></html>`,
     );
-  } catch {
+  } catch (err) {
+    console.error('[unsubscribe] token verification failed:', err.message);
     return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is invalid or has expired.</p></body></html>');
   }
 });
