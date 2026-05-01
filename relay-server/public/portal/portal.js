@@ -3590,14 +3590,41 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     // ── Tally Engineer: card rendering ────────────────────────────────────────
 
+    function _renderOfflineEmptyState(target, opts) {
+      // Shared offline empty state for any card whose data depends on the
+      // desktop agent being live. Avoids backfilling potentially stale
+      // historical data — if the desktop is offline we show "no current data"
+      // rather than misleading the user with the previous session's results.
+      opts = opts || {};
+      var heading = opts.heading || 'Desktop app is offline';
+      var detail = opts.detail || 'Open the Tally desktop app on your studio computer to see live results.';
+      target.innerHTML = ''
+        + '<div class="equip-empty-state" style="color:var(--text-secondary)">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40" style="color:var(--text-muted);margin-bottom:10px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M9.879 9.879a3 3 0 104.243 4.243M21 12c0-1.657-1.343-3-3-3M3 12c0-1.657 1.343-3 3-3"/></svg>'
+        + '<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">' + heading + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">' + detail + '</div>'
+        + '</div>';
+    }
+
     async function loadProblems() {
       var body = document.getElementById('pf-body');
       var badge = document.getElementById('pf-badge');
       if (!body) return;
+      // If the desktop agent is currently offline, do NOT fetch /problems —
+      // any returned data would be from a prior session and misleading.
+      if (profileData && profileData.connected === false) {
+        _renderOfflineEmptyState(body, {
+          heading: 'No live diagnostics — desktop app is offline',
+          detail: 'Diagnostics rely on the desktop agent. Open Tally on your studio computer to run a fresh check.',
+        });
+        if (badge) { badge.className = 'badge badge-gray'; badge.textContent = 'Offline'; }
+        return;
+      }
       try {
         var data = await api('GET', '/api/church/problems' + roomParam());
         renderProblems(data, body, badge);
       } catch(e) {
+        console.error('[diagnostics] loadProblems failed:', e);
         body.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
         if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
       }
@@ -19025,7 +19052,12 @@ document.addEventListener('DOMContentLoaded', function() {
         updateReadinessHero(null, true);
         updateNeedsAttention(null);
         var list = document.getElementById('equipment-simple-list');
-        if (list) list.innerHTML = '<div class="equip-empty-state" style="color:var(--text-muted)">Desktop app is offline</div>';
+        if (list) {
+          _renderOfflineEmptyState(list, {
+            heading: 'Desktop app is offline',
+            detail: 'Open Tally on your studio computer — equipment status will appear here once it connects.',
+          });
+        }
       }
     }).observe(_statEl, { childList: true, characterData: true, subtree: true });
   }
