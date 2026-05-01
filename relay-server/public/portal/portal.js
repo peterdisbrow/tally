@@ -1257,7 +1257,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       pageEl.classList.add('active');
       if (el) el.classList.add('active');
-      try { localStorage.setItem('portal_page', id); } catch(e) {}
+      try { localStorage.setItem('portal_page', id); } catch (e) { console.warn('[portal] save current page failed:', e); }
       // Close mobile nav on page switch
       var sidebar = document.getElementById('sidebar-nav');
       var overlay = document.getElementById('sidebar-overlay');
@@ -1267,7 +1267,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id !== 'rundown' && typeof _rundownSelectedPlanId !== 'undefined' && _rundownSelectedPlanId) {
         if (typeof showRundownView === 'function') showRundownView('manager');
         if (typeof _rundownUnsubscribePlan === 'function' && _rundownSelectedPlanId) {
-          try { _rundownUnsubscribePlan(_rundownSelectedPlanId); } catch(e) {}
+          try { _rundownUnsubscribePlan(_rundownSelectedPlanId); } catch (e) { console.debug('[rundown] unsubscribe on nav failed:', e); }
         }
         _rundownSelectedPlanId = null;
         // Clear rundown hash so it doesn't interfere with other pages
@@ -1307,7 +1307,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       page.querySelectorAll('.tab-bar button').forEach(function(b) { b.classList.remove('active'); });
       var btn = page.querySelector('.tab-bar button[data-tab="' + tabId + '"]');
       if (btn) btn.classList.add('active');
-      try { localStorage.setItem('portal_tab', tabId); } catch(e) {}
+      try { localStorage.setItem('portal_tab', tabId); } catch (e) { console.warn('[portal] save current tab failed:', e); }
       // Load data for the tab if not already loaded
       if (!_tabLoaded[tabId]) {
         _tabLoaded[tabId] = true;
@@ -1873,7 +1873,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         try { renderOnboarding(d); } catch (e) { console.error('Onboarding error', e); }
 
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
-        try { checkReviewEligibility(); } catch {}
+        try { checkReviewEligibility(); } catch (e) { console.debug('[portal] review eligibility check failed:', e); }
         // Referral card moved to billing page only
 
         // ── Sessions count for overview stat ─────────────────────────────────
@@ -1882,7 +1882,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             var sessions = await api('GET', '/api/church/sessions' + roomParam());
             var el = document.getElementById('stat-sessions');
             if (el) el.textContent = Array.isArray(sessions) ? sessions.length : '—';
-          } catch {}
+          } catch (e) { console.warn('[overview] sessions count fetch failed:', e); }
         })();
 
         // ── Schedule summary on overview ──────────────────────────────────────
@@ -5172,7 +5172,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (_engineerPageLoaded) return;
         const d = await fetchChurchProfile();
         var ep = {};
-        try { ep = JSON.parse(d.engineer_profile || '{}'); } catch {}
+        try { ep = JSON.parse(d.engineer_profile || '{}'); } catch (e) { console.warn('[engineer] failed to parse engineer_profile JSON:', e); }
         document.getElementById('eng-stream-platform').value = ep.streamPlatform || '';
         document.getElementById('eng-expected-viewers').value = ep.expectedViewers || '';
         document.getElementById('eng-operator-level').value = ep.operatorLevel || '';
@@ -9032,7 +9032,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (!window.localStorage) return;
         if (value) window.localStorage.setItem(key, value);
         else window.localStorage.removeItem(key);
-      } catch (e) {}
+      } catch (e) { console.warn('[rundown] localStorage write failed for key', key, e); }
     }
 
     function _rundownDefaultStationName() {
@@ -10289,9 +10289,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     try {
       var _savedCollapse = window.localStorage.getItem('tally.rundown.section-collapse');
       if (_savedCollapse) _rundownSectionCollapse = JSON.parse(_savedCollapse);
-    } catch(e) {}
+    } catch (e) { console.debug('[rundown] failed to parse stored section-collapse state:', e); }
     function _saveRundownSectionCollapse() {
-      try { window.localStorage.setItem('tally.rundown.section-collapse', JSON.stringify(_rundownSectionCollapse)); } catch(e) {}
+      try { window.localStorage.setItem('tally.rundown.section-collapse', JSON.stringify(_rundownSectionCollapse)); } catch (e) { console.warn('[rundown] save section-collapse failed:', e); }
     }
     var RUNDOWN_TYPE_LABELS = {
       song: 'Song', sermon: 'Sermon', message: 'Message', media: 'Media',
@@ -14963,7 +14963,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       dates.forEach(function(d) {
         var dateLabel = d;
         if (d !== 'Unscheduled') {
-          try { dateLabel = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch(e) {}
+          try { dateLabel = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { console.debug('[rundown] format date label failed for', d, e); }
         }
         html += '<div>';
         html += '<div style="font-size:13px;font-weight:700;color:#8B9DAF;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">' + escapeHtml(dateLabel) + '</div>';
@@ -19081,10 +19081,10 @@ document.addEventListener('DOMContentLoaded', function() {
       var savedTab = localStorage.getItem('portal_tab');
       if (savedTab && document.getElementById(savedTab)) switchTab(savedTab);
     }
-  } catch(e) {}
+  } catch (e) { console.warn('[portal] restore last page from localStorage failed:', e); }
 
   // Check hash for rundown editor deep link (e.g. #rundown-plan-abc123)
-  try { _rundownCheckHashOnLoad(); } catch(e) {}
+  try { _rundownCheckHashOnLoad(); } catch (e) { console.warn('[rundown] hash deep-link check failed:', e); }
 
   // Init overview sections on first load (overview is active by default)
   initOverviewSections();
