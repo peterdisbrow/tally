@@ -150,9 +150,25 @@ async function flushOfflineQueue() {
 
 // ─── PORTAL DISCOVERY ─────────────────────────────────────────────────────────
 
-function openPortal(path) {
+async function openPortal(path) {
   const base = 'https://tallyconnect.app/church-portal';
-  const url = path ? base + path : base;
+  // Append the currently-active room so the portal opens to the same room
+  // the desktop app is monitoring, not whichever room was last viewed in the
+  // browser. Param name is `roomId` per relay-server/public/portal/portal.js.
+  let roomId = '';
+  try {
+    const cfg = api.getConfig ? await api.getConfig() : null;
+    if (cfg && cfg.roomId) roomId = String(cfg.roomId);
+  } catch (e) {
+    console.warn('[openPortal] config lookup failed; opening without room context:', e);
+  }
+
+  let url = path ? base + path : base;
+  if (roomId) {
+    const sep = url.includes('?') ? '&' : '?';
+    url = `${url}${sep}roomId=${encodeURIComponent(roomId)}`;
+  }
+
   if (api.openExternal) {
     api.openExternal(url);
   } else {
@@ -191,6 +207,14 @@ function updateControlRoom(status) {
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
   if (!relayOk && !_monitoringStoppedByUser) warnings++;
+
+  // Roll the Problem Finder auto-run issue count into the hero headline so we
+  // never show "All Systems Nominal" while the System Check badge is reporting
+  // open issues. The badge is updated by updatePfBadge() from the same counter.
+  const pfIssues = (typeof _pfAutoRunIssueCount === 'number' && _pfAutoRunIssueCount > 0)
+    ? _pfAutoRunIssueCount
+    : 0;
+  issues += pfIssues;
 
   if (heroHeadline) {
     if (issues > 0) {
@@ -1646,6 +1670,12 @@ function wizardValidateStep() { return true; }
 // ─── PRE-SERVICE CHECK HERO ────────────────────────────────────────────────
 
 let _preServiceData = null;
+// Cap auto-runs to one per app session so a flaky check that keeps producing
+// stale results can't spin in a load → auto-run → load loop.
+let _preServiceAutoRunDone = false;
+// Anything older than this is treated as stale — both visually and as a
+// trigger for the on-launch auto-run.
+const PRESERVICE_STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 async function loadPreServiceCheck() {
   try {
@@ -1657,6 +1687,18 @@ async function loadPreServiceCheck() {
       // No check data yet — hide the panel
       const panel = document.getElementById('preservice-panel');
       if (panel) panel.style.display = 'none';
+    }
+
+    // Auto-run if data is missing or stale, once per session, only when the
+    // user is actively monitoring (otherwise we'd kick off checks against an
+    // offline agent and just produce errors).
+    if (!_preServiceAutoRunDone && isRunning) {
+      const ageMs = data && data.created_at ? (Date.now() - new Date(data.created_at).getTime()) : Infinity;
+      if (ageMs > PRESERVICE_STALE_MS) {
+        _preServiceAutoRunDone = true;
+        // Fire and forget — runPreServiceCheck reloads the panel itself.
+        runPreServiceCheck().catch((e) => console.warn('Pre-service auto-run failed:', e));
+      }
     }
   } catch (e) {
     console.warn('Pre-service check load failed:', e);
@@ -1705,19 +1747,29 @@ function renderPreServicePanel(data) {
     title.textContent = `${issueCount} Issue${issueCount !== 1 ? 's' : ''} Found`;
   }
 
-  // Meta (timestamp)
+  // Meta (timestamp) — flag as stale when older than the auto-run threshold so
+  // users know the panel state may not reflect current reality.
   const meta = document.getElementById('preservice-meta');
   if (data.created_at) {
     const d = new Date(data.created_at);
     const now = new Date();
     const diffMs = now - d;
     const diffMin = Math.round(diffMs / 60000);
-    if (diffMin < 1) meta.textContent = 'Just now';
-    else if (diffMin < 60) meta.textContent = `${diffMin}m ago`;
-    else if (diffMin < 1440) meta.textContent = `${Math.round(diffMin / 60)}h ago`;
-    else meta.textContent = d.toLocaleDateString();
+    let label;
+    if (diffMin < 1) label = 'Just now';
+    else if (diffMin < 60) label = `${diffMin}m ago`;
+    else if (diffMin < 1440) label = `${Math.round(diffMin / 60)}h ago`;
+    else label = d.toLocaleDateString();
+    const isStale = diffMs > PRESERVICE_STALE_MS;
+    meta.textContent = isStale ? `Stale — ${label}` : label;
+    meta.classList.toggle('stale', isStale);
+    // Inline color so we don't depend on CSS that may not exist yet — matches
+    // the warn color used elsewhere in renderer.js.
+    meta.style.color = isStale ? 'var(--warn, #FFB74D)' : '';
   } else {
     meta.textContent = '';
+    meta.classList.remove('stale');
+    meta.style.color = '';
   }
 
   // Checklist rows
@@ -2030,7 +2082,11 @@ async function runQuickSystemCheck() {
       if (result) { result.textContent = 'All clear'; result.style.color = 'var(--green)'; }
     } else {
       if (result) {
-        result.innerHTML = `<span style="color:var(--warn);">${issues.length} issue${issues.length !== 1 ? 's' : ''} found</span> <a href="#" onclick="switchTab('engineer'); return false;" style="color:var(--green); margin-left:6px;">View in Tally Engineer</a>`;
+        // Tally Engineer is a cloud-portal feature, not a desktop tab — the
+        // tab-engineer panel is hidden with display:none !important behind a
+        // feature flag, so switchTab('engineer') would render a blank screen.
+        // Route to the portal's engineer deep-link instead.
+        result.innerHTML = `<span style="color:var(--warn);">${issues.length} issue${issues.length !== 1 ? 's' : ''} found</span> <a href="#" onclick="openPortal('?page=engineer'); return false;" style="color:var(--green); margin-left:6px;">View in Tally Engineer</a>`;
       }
     }
   } catch {
@@ -3500,12 +3556,25 @@ function updatePfBadge() {
   } else {
     badge.style.display = 'none';
   }
+  // Re-render the hero headline against the most recent SSE status so it
+  // reflects the new PF count immediately — otherwise the badge updates but
+  // the headline stays "All Systems Nominal" until the next status push.
+  if (_lastStatus) updateControlRoom(_lastStatus);
 }
+
+// Cache of the most recent SSE status — used by updatePfBadge() to keep the
+// hero headline in sync with the System Check issue count between pushes.
+let _lastStatus = null;
 
 // ─── IPC listeners ─────────────────────────────────────────────────────────
 
 api.onStatus((status) => {
+  _lastStatus = status;
   updateStatusUI(status);
+
+  // Push live status into the Devices-tab dots so they don't drift out of
+  // sync with the header pills (the dots used to only update on manual Test).
+  syncEquipmentTabDots(status);
 
   // Control room dashboard update
   updateControlRoom(status);
@@ -4149,6 +4218,28 @@ async function loadEquipment() {
 function setEquipDot(id, status) {
   const dot = document.getElementById(id);
   if (dot) dot.className = 'equip-status ' + (status === true ? 'green' : status === false ? 'red' : '');
+}
+
+// Sync the Devices-tab equip dots with live SSE status. Without this, the
+// Devices tab dots only update when the user clicks an individual "Test"
+// button — so the header pill could show RED while the Devices tab still
+// showed GREEN from a stale prior test (or vice versa). Called from the
+// SSE handler alongside updateStatusUI so both render paths read the same
+// live data.
+function syncEquipmentTabDots(status) {
+  if (!status || typeof status !== 'object') return;
+  // Single-instance devices share their key name with the equip-dot id suffix.
+  if (status.atem !== undefined) setEquipDot('equip-dot-atem', getStatusActive(status.atem));
+  if (status.companion !== undefined) setEquipDot('equip-dot-companion', getStatusActive(status.companion));
+  if (status.proPresenter !== undefined) setEquipDot('equip-dot-propresenter', getStatusActive(status.proPresenter));
+  if (status.resolume !== undefined) setEquipDot('equip-dot-resolume', getStatusActive(status.resolume));
+  // Encoder: single-instance dot if the agent is reporting one encoder, or
+  // per-instance dots when the encoder array is present.
+  if (Array.isArray(status.encoders)) {
+    status.encoders.forEach((enc, i) => setEquipDot(`equip-dot-encoder-${i}`, getStatusActive(enc)));
+  } else if (status.encoder !== undefined) {
+    setEquipDot('equip-dot-encoder', getStatusActive(status.encoder));
+  }
 }
 
 function showHideKey(id) {
