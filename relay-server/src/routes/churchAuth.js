@@ -175,6 +175,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const verifyUrl = `${relayBase}/api/church/verify-email?token=${emailVerifyToken}`;
     sendOnboardingEmail({
       to: cleanEmail,
+      churchId,
       subject: 'Confirm your email to activate your trial',
       tag: 'email-verification',
       html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
