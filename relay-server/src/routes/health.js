@@ -186,18 +186,22 @@ module.exports = function setupHealthRoutes(app, ctx) {
   }
 
   /**
-   * Derive an overall health status word from connectivity and DB state.
-   * healthy   — everything looks good
-   * degraded  — some churches offline or DB slow, but not completely down
-   * unhealthy — DB error or all registered churches are disconnected
+   * Derive an overall health status word from server-side signals.
+   * healthy   — relay process is running normally and DB is responsive
+   * degraded  — DB is slow but still responding (>500ms read latency)
+   * unhealthy — DB read failed entirely
+   *
+   * NOTE: connected-vs-registered church ratio is intentionally NOT used
+   * here. Most Tally churches only run their desktop agent during Sunday
+   * services (and a few mid-week practices), so a weekday "1 of 6
+   * connected" reading is normal — not a degradation. Counts remain
+   * visible in the response (connectedChurches / registeredChurches
+   * fields) for monitors that want to compute their own degradation
+   * signal from connection patterns.
    */
-  function overallStatus(connectedCount, dbStatus) {
+  function overallStatus(_connectedCount, dbStatus) {
     if (dbStatus.status === 'error') return 'unhealthy';
-    const registered = listObservedChurches().length;
-    if (registered === 0) return 'healthy';
-    const ratio = connectedCount / registered;
-    if (ratio === 0) return 'unhealthy';
-    if (ratio < 1)   return 'degraded';
+    if (typeof dbStatus.latency_ms === 'number' && dbStatus.latency_ms > 500) return 'degraded';
     return 'healthy';
   }
 
@@ -327,6 +331,13 @@ module.exports = function setupHealthRoutes(app, ctx) {
   //
   // Status values: 'operational' | 'degraded' | 'partial_outage' | 'major_outage'
   // HTTP 200 for operational/degraded, 503 for outage states.
+  //
+  // The outage values stay in the documented enum because uptime-monitor
+  // consumers may already key on them, but they are no longer triggered
+  // from connected-vs-registered church ratios — that produced false 503
+  // alerts every weekday since most Tally churches only connect during
+  // Sunday services. Future degradation signals (DB error, queue backlog,
+  // event-loop saturation) can still produce these values when added.
 
   app.get('/api/status', healthRateLimit, (_req, res) => {
     const uptimeSeconds  = Math.floor(process.uptime());
@@ -335,20 +346,18 @@ module.exports = function setupHealthRoutes(app, ctx) {
     const registeredCount = churches.size;
     const connectRatio    = registeredCount > 0 ? connectedCount / registeredCount : 1;
 
-    // Component statuses
-    const websocketOk = connectedCount > 0 || registeredCount === 0;
+    // Component statuses — websocket component is "operational" whenever the
+    // relay process is up and accepting connections. Whether any specific
+    // client has chosen to connect is informational, not a server-health
+    // signal.
     const relayOk     = uptimeSeconds > 30; // just restarted = degraded
+    const websocketOk = relayOk;
 
-    // Overall status derived from components
+    // Overall status — only relay-process signals drive this. Connection
+    // counts are informational only (see header note).
     let status;
     if (!relayOk) {
       status = 'degraded'; // relay just restarted
-    } else if (registeredCount > 0 && connectRatio === 0) {
-      status = 'major_outage'; // nothing connected at all
-    } else if (registeredCount > 0 && connectRatio < 0.5) {
-      status = 'partial_outage'; // more than half offline
-    } else if (registeredCount > 0 && connectRatio < 1) {
-      status = 'degraded'; // some churches offline
     } else {
       status = 'operational';
     }

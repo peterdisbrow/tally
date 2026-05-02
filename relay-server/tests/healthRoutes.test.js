@@ -167,6 +167,78 @@ describe('GET /api/health — detailed health', () => {
     expect(body.connectedChurches).toBe(1);
   });
 
+  // Regression: degraded should NOT fire purely from connection ratio.
+  // Most Tally churches only run their desktop agent during Sunday services,
+  // so weekday "1 of 6 connected" is normal operating state. The connection
+  // ratio is informational only — it surfaces in the response but does not
+  // drive overallStatus.
+  it('overallStatus stays healthy when most churches are offline (weekday norm)', async () => {
+    const sqlite = new Database(':memory:');
+    const queryClient = new SqliteQueryClient(sqlite);
+    const churches = new Map([
+      ['c1', makeChurch(1)],  // OPEN
+      ['c2', makeChurch(3)],  // CLOSED — 5 of 6 disconnected, like a Tuesday afternoon
+      ['c3', makeChurch(3)],
+      ['c4', makeChurch(3)],
+      ['c5', makeChurch(3)],
+      ['c6', makeChurch(3)],
+    ]);
+    const ctx = makeCtx({ queryClient, churches });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/api/health');
+    expect(body.status).toBe('healthy');
+    expect(body.connectedChurches).toBe(1);
+    expect(body.registeredChurches).toBe(6);
+    await queryClient.close();
+    sqlite.close();
+  });
+
+  it('overallStatus stays healthy when zero churches are connected', async () => {
+    const sqlite = new Database(':memory:');
+    const queryClient = new SqliteQueryClient(sqlite);
+    const churches = new Map([
+      ['c1', makeChurch(3)],
+      ['c2', makeChurch(3)],
+    ]);
+    const ctx = makeCtx({ queryClient, churches });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/api/health');
+    expect(body.status).toBe('healthy');
+    expect(body.connectedChurches).toBe(0);
+    await queryClient.close();
+    sqlite.close();
+  });
+
+  it('overallStatus reports unhealthy when DB read fails', async () => {
+    // Force a DB error by passing a queryClient whose queryOne rejects.
+    const queryClient = {
+      queryOne: () => Promise.reject(new Error('connection refused')),
+    };
+    const ctx = makeCtx({ queryClient });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/api/health');
+    expect(body.status).toBe('unhealthy');
+    expect(body.database.status).toBe('error');
+  });
+
+  it('overallStatus reports degraded when DB read latency exceeds 500ms', async () => {
+    // Stub queryClient.queryOne to resolve after 600ms so the recorded latency
+    // crosses the degradation threshold without depending on real DB load.
+    const queryClient = {
+      queryOne: () => new Promise((resolve) => setTimeout(() => resolve({ ok: 1 }), 600)),
+    };
+    const ctx = makeCtx({ queryClient });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/api/health');
+    expect(body.status).toBe('degraded');
+    expect(body.database.status).toBe('ok');
+    expect(body.database.latency_ms).toBeGreaterThan(500);
+  });
+
   it('uses queryClient for DB checks when only async client access is available', async () => {
     const sqlite = new Database(':memory:');
     const queryClient = new SqliteQueryClient(sqlite);
@@ -341,8 +413,13 @@ describe('GET /api/status — degraded when uptime <= 30', () => {
   });
 });
 
-describe('GET /api/status — major_outage', () => {
-  it('returns major_outage when churches registered but none connected', () => {
+// Connection-ratio degradation was removed — Tally churches typically only
+// connect their desktop agent during Sunday services, so weekday ratios of
+// 0/N or 1/N are normal operating state, not an outage. These tests now
+// pin the corrected behavior: server-side signals only drive status.
+
+describe('GET /api/status — connection ratio is informational only', () => {
+  it('stays operational when zero churches are connected (weekday norm)', () => {
     const original = process.uptime;
     process.uptime = () => 100;
     try {
@@ -354,20 +431,21 @@ describe('GET /api/status — major_outage', () => {
       const { app, routes } = makeApp();
       setupHealthRoutes(app, ctx);
       const { body, status } = callRoute(routes, '/api/status');
-      expect(body.status).toBe('major_outage');
-      expect(status).toBe(503);
+      expect(body.status).toBe('operational');
+      expect(status).toBe(200);
+      // Counts still surface for monitors that want their own opinion.
+      expect(body.components.websocket.connected_churches).toBe(0);
+      expect(body.components.websocket.registered_churches).toBe(2);
     } finally {
       process.uptime = original;
     }
   });
-});
 
-describe('GET /api/status — partial_outage', () => {
-  it('returns partial_outage when fewer than 50% of churches are connected', () => {
+  it('stays operational when fewer than 50% of churches are connected', () => {
     const original = process.uptime;
     process.uptime = () => 100;
     try {
-      // 1 of 4 connected = 25% connect ratio
+      // 1 of 4 connected — would have been "partial_outage" + HTTP 503.
       const churches = new Map([
         ['c1', makeChurch(1)],
         ['c2', makeChurch(3)],
@@ -378,20 +456,18 @@ describe('GET /api/status — partial_outage', () => {
       const { app, routes } = makeApp();
       setupHealthRoutes(app, ctx);
       const { body, status } = callRoute(routes, '/api/status');
-      expect(body.status).toBe('partial_outage');
-      expect(status).toBe(503);
+      expect(body.status).toBe('operational');
+      expect(status).toBe(200);
     } finally {
       process.uptime = original;
     }
   });
-});
 
-describe('GET /api/status — degraded (partial connection)', () => {
-  it('returns degraded when some but not all churches are offline (ratio ≥ 0.5 and < 1)', () => {
+  it('stays operational when only some churches are offline (ratio between 0.5 and 1)', () => {
     const original = process.uptime;
     process.uptime = () => 100;
     try {
-      // 2 of 3 connected = 0.67 ratio → degraded
+      // 2 of 3 connected — would have been "degraded".
       const churches = new Map([
         ['c1', makeChurch(1)],
         ['c2', makeChurch(1)],
@@ -401,7 +477,7 @@ describe('GET /api/status — degraded (partial connection)', () => {
       const { app, routes } = makeApp();
       setupHealthRoutes(app, ctx);
       const { body } = callRoute(routes, '/api/status');
-      expect(body.status).toBe('degraded');
+      expect(body.status).toBe('operational');
     } finally {
       process.uptime = original;
     }
@@ -409,7 +485,7 @@ describe('GET /api/status — degraded (partial connection)', () => {
 });
 
 describe('GET /api/status — HTTP status codes', () => {
-  it('returns HTTP 503 for major_outage', () => {
+  it('returns HTTP 200 even when no churches are connected', () => {
     const original = process.uptime;
     process.uptime = () => 100;
     try {
@@ -418,13 +494,13 @@ describe('GET /api/status — HTTP status codes', () => {
       const { app, routes } = makeApp();
       setupHealthRoutes(app, ctx);
       const { status } = callRoute(routes, '/api/status');
-      expect(status).toBe(503);
+      expect(status).toBe(200);
     } finally {
       process.uptime = original;
     }
   });
 
-  it('returns HTTP 503 for partial_outage', () => {
+  it('returns HTTP 200 when most churches are offline (was 503 partial_outage)', () => {
     const original = process.uptime;
     process.uptime = () => 100;
     try {
@@ -438,7 +514,7 @@ describe('GET /api/status — HTTP status codes', () => {
       const { app, routes } = makeApp();
       setupHealthRoutes(app, ctx);
       const { status } = callRoute(routes, '/api/status');
-      expect(status).toBe(503);
+      expect(status).toBe(200);
     } finally {
       process.uptime = original;
     }

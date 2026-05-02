@@ -33,19 +33,31 @@ module.exports = function setupOfflineDetection(ctx) {
 
   /**
    * Determine the local hour for a church using its IANA timezone.
-   * Falls back to server local time if no timezone is stored.
+   * Resolution order:
+   *   1. Timezone passed directly (typically the SQL row's `timezone` column)
+   *   2. Timezone on the runtime map's church object (set when a status
+   *      update arrives via msg.status.system.timezone — see server.js:4751)
+   *   3. Server local time (last-resort fallback)
+   *
+   * Reading from the SQL row first matters because churches loaded into the
+   * runtime map at startup (server.js:910-928) don't carry a timezone field
+   * until the agent connects and sends a status update — so a church that
+   * hasn't connected yet would otherwise fall through to server local time,
+   * which silently breaks the night-suppression logic for any church not in
+   * the same timezone as the relay host.
    */
-  function getChurchLocalHour(churchId) {
+  function getChurchLocalHour(churchId, dbTimezone = '', now = Date.now()) {
     const church = churches.get(churchId);
-    const tz = church?.timezone || '';
+    const tz = String(dbTimezone || '').trim() || church?.timezone || '';
+    const at = new Date(now);
     if (tz) {
       try {
-        const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).formatToParts(new Date());
+        const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).formatToParts(at);
         const hourPart = parts.find(p => p.type === 'hour');
         if (hourPart) return parseInt(hourPart.value, 10);
       } catch { /* invalid timezone — fall through */ }
     }
-    return new Date().getHours(); // fallback: server local time
+    return at.getHours(); // fallback: server local time
   }
 
   function processRows(allChurches, now) {
@@ -58,7 +70,7 @@ module.exports = function setupOfflineDetection(ctx) {
       if (!church.lastHeartbeat) continue; // never connected — skip
       if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
 
-      const localHour = getChurchLocalHour(row.churchId);
+      const localHour = getChurchLocalHour(row.churchId, row.timezone, now);
       const isNightTime = localHour >= 23 || localHour < 6; // 11pm–6am church local
 
       const offlineMs = now - church.lastHeartbeat;

@@ -587,6 +587,216 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await serverWithHooks.close();
     });
 
+    // Regression for the bug discovered by the E2E harness in PR #66:
+    // bridges that connect *after* the agent's initial WS push must merge
+    // into church.status (and trigger an SSE/portal broadcast each time),
+    // not get dropped because the relay only captured the initial snapshot.
+    it('merges bridge updates that arrive after the initial status_update into church.status', async () => {
+      const sseBroadcasts = [];
+      const portalBroadcasts = [];
+      const serverWithHooks = await buildTestServer({
+        broadcastToSSE: (data) => { if (data?.type === 'status_update') sseBroadcasts.push(data); },
+        broadcastToPortal: (churchId, data) => {
+          if (data?.type === 'status_update') portalBroadcasts.push({ churchId, data });
+        },
+      });
+      serverWithHooks.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${serverWithHooks.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const churchWs = await connect(`${serverWithHooks.url}/church?token=${signToken('church-1')}`);
+      await nextMessage(churchWs); // connected
+      await nextMessage(ctrl); // church_connected
+
+      // 1. Initial full snapshot — only some bridges are connected at startup
+      //    (mirrors the church-client's first sendStatus() after relay open).
+      send(churchWs, {
+        type: 'status_update',
+        isFull: true,
+        statusMode: 'delta',
+        status: {
+          atem:    { connected: true,  programInput: 1 },
+          obs:     { connected: true,  streaming: false },
+          encoder: { connected: true,  live: false },
+          companion:    { connected: false, endpoint: null, connectionCount: 0, connections: [] },
+          proPresenter: { connected: false, running: false, version: null },
+          videoHubs: [],
+          mixer:   { connected: false, type: null },
+        },
+      });
+      await nextMessage(ctrl); // initial broadcast
+
+      const church = serverWithHooks.churches.get('church-1');
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.status.companion?.connected).toBe(false);
+      expect(church.status.proPresenter?.connected).toBe(false);
+
+      // 2. Companion comes online — agent sends a delta with ONLY companion.
+      send(churchWs, {
+        type: 'status_update',
+        isDelta: true,
+        statusMode: 'delta',
+        status: {
+          companion: { connected: true, endpoint: '127.0.0.1:8000', connectionCount: 1, connections: [{ id: 'a' }] },
+        },
+      });
+      await nextMessage(ctrl); // delta broadcast
+
+      // ATEM/OBS/Encoder must still be present (the bug was that subsequent
+      // deltas overwrote rather than merged).
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.status.atem?.programInput).toBe(1);
+      expect(church.status.obs?.connected).toBe(true);
+      expect(church.status.encoder?.connected).toBe(true);
+      expect(church.status.companion?.connected).toBe(true);
+      expect(church.status.companion?.endpoint).toBe('127.0.0.1:8000');
+
+      // 3. ProPresenter comes online a moment later — another delta.
+      send(churchWs, {
+        type: 'status_update',
+        isDelta: true,
+        statusMode: 'delta',
+        status: {
+          proPresenter: { connected: true, running: true, version: '7.16' },
+        },
+      });
+      await nextMessage(ctrl);
+
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.status.companion?.connected).toBe(true);
+      expect(church.status.proPresenter?.connected).toBe(true);
+      expect(church.status.proPresenter?.version).toBe('7.16');
+
+      // 4. Mixer + videoHubs come online together.
+      send(churchWs, {
+        type: 'status_update',
+        isDelta: true,
+        statusMode: 'delta',
+        status: {
+          mixer:     { connected: true, type: 'X32', model: 'X32 Compact' },
+          videoHubs: [{ ip: '10.0.0.5', connected: true, model: 'Smart Videohub 12x12' }],
+        },
+      });
+      await nextMessage(ctrl);
+
+      // After all bridges have connected, every bridge must be reflected.
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.status.obs?.connected).toBe(true);
+      expect(church.status.encoder?.connected).toBe(true);
+      expect(church.status.companion?.connected).toBe(true);
+      expect(church.status.proPresenter?.connected).toBe(true);
+      expect(church.status.mixer?.connected).toBe(true);
+      expect(Array.isArray(church.status.videoHubs)).toBe(true);
+      expect(church.status.videoHubs?.[0]?.connected).toBe(true);
+
+      // Every delta must have produced an SSE + portal broadcast — the harness
+      // observed only the initial snapshot reaching subscribers in production.
+      expect(sseBroadcasts.length).toBeGreaterThanOrEqual(4);
+      expect(portalBroadcasts.length).toBeGreaterThanOrEqual(4);
+
+      // The last broadcast must carry the fully-merged status, not just the
+      // last delta — controllers/portal that join late should still see all
+      // bridges from the most recent push.
+      const lastSse = sseBroadcasts[sseBroadcasts.length - 1];
+      expect(lastSse.status.atem?.connected).toBe(true);
+      expect(lastSse.status.companion?.connected).toBe(true);
+      expect(lastSse.status.proPresenter?.connected).toBe(true);
+      expect(lastSse.status.mixer?.connected).toBe(true);
+
+      await serverWithHooks.close();
+    });
+
+    // Regression for the production bug surfaced by the E2E harness in PR #66:
+    // the agent's WS gets replaced (rapid reconnect, wsPing timeout, network
+    // blip) and the OLD socket's close handler unconditionally erases the
+    // instance's status + delta-tracker snapshot — even though a new open
+    // socket already owns that instance slot. The next heartbeat-only delta
+    // from the new socket then merges into an empty `previousInstanceStatus`,
+    // wiping every bridge field from `church.status`.
+    it('preserves instanceStatus when an instance socket is replaced by a new connection', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const token = signToken('church-1');
+
+      // First socket connects and reports a fully-populated status (this is
+      // the agent's initial sendStatus after relay open — all bridges in
+      // their default state, with ATEM/OBS/Encoder already connected).
+      const ws1 = await connect(`${server.url}/church?token=${token}&instance=Booth`);
+      await nextMessage(ws1);  // connected
+      await nextMessage(ctrl); // church_connected
+
+      send(ws1, {
+        type: 'status_update',
+        isFull: true,
+        statusMode: 'delta',
+        status: {
+          atem:         { connected: true, programInput: 1 },
+          obs:          { connected: true, streaming: false },
+          encoder:      { connected: true, live: false },
+          companion:    { connected: false },
+          proPresenter: { connected: false },
+        },
+      });
+      await nextMessage(ctrl); // initial broadcast
+
+      const church = server.churches.get('church-1');
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.instanceStatus.Booth).toBeTruthy();
+
+      // Bridge updates land while ws1 is still alive.
+      send(ws1, {
+        type: 'status_update',
+        isDelta: true,
+        statusMode: 'delta',
+        status: { companion: { connected: true, endpoint: '127.0.0.1:8000' } },
+      });
+      await nextMessage(ctrl);
+      send(ws1, {
+        type: 'status_update',
+        isDelta: true,
+        statusMode: 'delta',
+        status: { proPresenter: { connected: true, version: '7.16' } },
+      });
+      await nextMessage(ctrl);
+
+      expect(church.status.companion?.connected).toBe(true);
+      expect(church.status.proPresenter?.connected).toBe(true);
+
+      // ── ws2 reconnects with the same instance name (rapid reconnect / WS
+      // ping-timeout replacement). The router closes ws1 and installs ws2.
+      const ws2 = await connect(`${server.url}/church?token=${token}&instance=Booth`);
+      await nextMessage(ws2); // connected ack on ws2
+      // ws1 receives its close event; let the server-side close handler run.
+      await new Promise((r) => setTimeout(r, 50));
+
+      // ws2's first message after taking over the slot is the heartbeat-only
+      // delta the church-client emits when nothing has changed.  This is
+      // exactly the path that wipes status in production.
+      send(ws2, {
+        type: 'status_update',
+        isDelta: true,
+        heartbeatOnly: true,
+        status: {},
+        statusMode: 'delta',
+      });
+      // Give the relay a tick to process the message.
+      await new Promise((r) => setTimeout(r, 50));
+
+      // The replacement must not have erased the bridge state — the agent
+      // didn't disconnect, it just swapped sockets.
+      expect(church.instanceStatus.Booth).toBeTruthy();
+      expect(church.status.atem?.connected).toBe(true);
+      expect(church.status.obs?.connected).toBe(true);
+      expect(church.status.encoder?.connected).toBe(true);
+      expect(church.status.companion?.connected).toBe(true);
+      expect(church.status.proPresenter?.connected).toBe(true);
+
+      await closeWs(ws2);
+      await closeWs(ctrl);
+    });
+
     it('forwards alert to all controllers', async () => {
       const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
       await nextMessage(ctrl);

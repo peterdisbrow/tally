@@ -337,38 +337,89 @@ describe('setupOfflineDetection', () => {
     delete process.env.ANDREW_TELEGRAM_CHAT_ID;
   });
 
+  it('reads timezone from the SQL row when the runtime church has none', async () => {
+    // Regression: in production, churches loaded into the runtime map at
+    // startup don't carry `timezone` until the agent connects and sends a
+    // status update (server.js:910-928 vs :4751). If we only consulted the
+    // runtime map for timezone, getChurchLocalHour would silently fall back
+    // to server local time — producing a time-of-day-dependent suppression
+    // of the night-time alert window for any church not in the relay's local
+    // tz. Pin it to UTC + a 03:00 UTC frozen clock so the local-server hour
+    // can never accidentally match.
+    const fixedNow = Date.UTC(2026, 0, 15, 3, 0, 0); // 2026-01-15T03:00:00Z — UTC night
+    const realDateNow = Date.now;
+    Date.now = () => fixedNow;
+    try {
+      const ctx = makeCtx();
+      // SQL-row timezone is 'America/Anchorage' (UTC-9 in winter → 18:00 local
+      // when UTC is 03:00 → NOT night). If the impl only looked at the runtime
+      // church (which lacks timezone), it would compute server-local hour and
+      // potentially classify as night.
+      const church = churchWithHeartbeat(180); // 3h offline, no timezone field
+      ctx.churches.set('c1', church);
+      ctx.db.prepare = vi.fn(() => ({
+        get: vi.fn(() => null),
+        all: vi.fn(() => [{ churchId: 'c1', name: 'Anchorage Church', timezone: 'America/Anchorage' }]),
+      }));
+      const { checkOfflineChurches } = setupOfflineDetection(ctx);
+      await checkOfflineChurches();
+      expect(ctx.alertEngine.sendTelegramMessage).toHaveBeenCalledWith(
+        'test-chat-id',
+        'test-token',
+        expect.stringContaining('Anchorage Church'),
+      );
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
   it('uses the query-client path when only a query client is available', async () => {
-    const sqlite = new Database(':memory:');
-    sqlite.exec(`
-      CREATE TABLE churches (
-        churchId TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        timezone TEXT DEFAULT '',
-        lastHeartbeat INTEGER
+    // Pin the clock to a UTC daytime hour so the night-suppression check
+    // (localHour < 6 || >= 23) never accidentally swallows the alert. Without
+    // this, the test was time-of-day dependent — passing during UTC daylight
+    // and failing between 23:00–05:59 UTC (any TZ at "night" would suppress).
+    const fixedNow = Date.UTC(2026, 5, 15, 14, 0, 0); // 2026-06-15T14:00:00Z = 14:00 UTC = clearly daytime
+    const realDateNow = Date.now;
+    Date.now = () => fixedNow;
+    let sqlite, queryClient;
+    try {
+      sqlite = new Database(':memory:');
+      sqlite.exec(`
+        CREATE TABLE churches (
+          churchId TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          timezone TEXT DEFAULT '',
+          lastHeartbeat INTEGER
+        );
+        CREATE TABLE maintenance_windows (
+          id TEXT PRIMARY KEY,
+          churchId TEXT NOT NULL,
+          startTime TEXT NOT NULL,
+          endTime TEXT NOT NULL
+        );
+      `);
+      sqlite.prepare(
+        'INSERT INTO churches (churchId, name, timezone, lastHeartbeat) VALUES (?, ?, ?, ?)'
+      ).run('c1', 'Query Church', 'UTC', fixedNow - 3 * 60 * 60 * 1000);
+
+      queryClient = createQueryClient({ config: SQLITE_CONFIG, sqliteDb: sqlite });
+      const ctx = makeCtx({ db: { queryClient }, churches: new Map([['c1', churchWithHeartbeat(180)]]) });
+      // Runtime church.lastHeartbeat is set off the (now-fixed) Date.now —
+      // re-pin it explicitly to fixedNow - 3h so it lines up regardless of
+      // when churchWithHeartbeat() ran relative to the Date.now mutation.
+      ctx.churches.get('c1').lastHeartbeat = fixedNow - 3 * 60 * 60 * 1000;
+      const { checkOfflineChurches } = setupOfflineDetection(ctx);
+      await checkOfflineChurches();
+
+      expect(ctx.alertEngine.sendTelegramMessage).toHaveBeenCalledWith(
+        'test-chat-id',
+        'test-token',
+        expect.stringContaining('Query Church'),
       );
-      CREATE TABLE maintenance_windows (
-        id TEXT PRIMARY KEY,
-        churchId TEXT NOT NULL,
-        startTime TEXT NOT NULL,
-        endTime TEXT NOT NULL
-      );
-    `);
-    sqlite.prepare(
-      'INSERT INTO churches (churchId, name, timezone, lastHeartbeat) VALUES (?, ?, ?, ?)'
-    ).run('c1', 'Query Church', 'UTC', Date.now() - 3 * 60 * 60 * 1000);
-
-    const queryClient = createQueryClient({ config: SQLITE_CONFIG, sqliteDb: sqlite });
-    const ctx = makeCtx({ db: { queryClient }, churches: new Map([['c1', churchWithHeartbeat(180)]]) });
-    const { checkOfflineChurches } = setupOfflineDetection(ctx);
-    await checkOfflineChurches();
-
-    expect(ctx.alertEngine.sendTelegramMessage).toHaveBeenCalledWith(
-      'test-chat-id',
-      'test-token',
-      expect.stringContaining('Query Church'),
-    );
-
-    await queryClient.close();
-    sqlite.close();
+    } finally {
+      Date.now = realDateNow;
+      if (queryClient) await queryClient.close();
+      if (sqlite) sqlite.close();
+    }
   });
 });
