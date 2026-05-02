@@ -33,15 +33,46 @@ module.exports = async function companionPress(ctx) {
   // Real command name (verified against agent stdout): `companion.pressNamed`
   // with params `{ name: <button-text> }`. The legacy `pressByLocation`
   // doesn't exist as a registered command — the agent logs "Unknown command".
+  //
+  // The relay can briefly return HTTP 503 "Church client not connected" if
+  // the agent's WS is mid-reconnect when the command lands (we've seen this
+  // when status SSE still shows connected from up to 1s ago).  Retry the
+  // dispatch a few times — real callers do the same.
   // ──────────────────────────────────────────────────────────────────────
   const before = (await mocks.state('companion')).pressLog?.length || 0;
-  await admin.post('/api/command', {
-    body: {
-      churchId: ctx.account.churchId,
-      command: 'companion.pressNamed',
-      params: { name: 'CUE 1' },
-    },
-  });
+  const dispatchDeadline = Date.now() + 8_000;
+  let dispatchedOk = false;
+  let lastErr = null;
+  while (!dispatchedOk && Date.now() < dispatchDeadline) {
+    try {
+      // Re-confirm the church is connected from the relay's POV right before
+      // posting — guards against stale SSE `latest` showing connected when
+      // the agent just dropped its WS.
+      await sse.refresh();
+      if (sse.latest && sse.connected !== false) {
+        await admin.post('/api/command', {
+          body: {
+            churchId: ctx.account.churchId,
+            command: 'companion.pressNamed',
+            params: { name: 'CUE 1' },
+          },
+        });
+        dispatchedOk = true;
+        break;
+      }
+    } catch (e) {
+      lastErr = e;
+      // Only retry the specific "not connected" race; surface anything else
+      // immediately (auth failure, malformed body, etc.).
+      const isNotConnected = e?.status === 503
+        && (typeof e.body === 'object' ? /not connected/i.test(e.body?.error || '') : /not connected/i.test(String(e.body)));
+      if (!isNotConnected) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 750));
+  }
+  if (!dispatchedOk) {
+    throw lastErr || new Error('command dispatch never succeeded — relay reported church disconnected for the entire 8s window');
+  }
 
   // Wait for the press to land on the mock.
   const deadline = Date.now() + 8_000;
