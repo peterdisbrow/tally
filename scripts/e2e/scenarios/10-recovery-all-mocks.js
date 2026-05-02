@@ -41,17 +41,34 @@ const RECONNECT_PRED = {
   'planning-center': (s) => true, // server-side OAuth, not in agent status
 };
 
-// Reconnect timeouts — give devices that retry on slow intervals more room.
+// Reconnect timeouts — calibrated to each bridge's actual reconnect cadence
+// in church-client/src/index.js (and proPresenter.js).  When the launcher
+// cascade-restarts, every device drops simultaneously and the agent has to
+// wait through whatever poll/backoff timer that bridge schedules before it
+// even *attempts* a reconnect.  The window therefore = (worst-case retry
+// interval) + (TCP/handshake cost) + (status push round-trip), with a small
+// safety buffer.
+//
+//   Bridge        Cadence in agent code                        Window
+//   --------------------------------------------------------------------
+//   companion     30s availability poll (index.js:2022)        35_000
+//   propresenter  30s schedReconnect on first-fail (proP.js:996) 35_000
+//   videohub      ~5s reconnect from VideoHubs bridge          15_000
+//   obs           5s exp backoff (index.js:1605, max 60s)      15_000
+//   atem          long UDP backoff                              20_000
+//   tricaster     15s encoder poll (index.js:1721)             20_000
+//   resolume      30s availability poll (index.js:2356)        35_000
+//   sq            tcp-midi reconnect                           25_000
 const RECONNECT_MS = {
-  'companion':       12_000,
-  'propresenter':    10_000,
+  'companion':       35_000, // 30s availability poll + buffer
+  'propresenter':    35_000, // 30s scheduled retry on first-fail + buffer
   'videohub':        15_000,
   'obs':             15_000,
   'atem':            20_000, // long backoff
-  'tricaster':       12_000,
+  'tricaster':       20_000, // 15s encoder poll + buffer
   'birddog':         5_000,
   'teradek':         5_000,
-  'resolume':        12_000,
+  'resolume':        35_000, // 30s availability poll + buffer
   'sq':              25_000, // tcp-midi reconnect can be slow
   'planning-center': 5_000,
 };

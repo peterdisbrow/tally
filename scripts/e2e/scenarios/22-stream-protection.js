@@ -35,11 +35,15 @@ module.exports = async function streamProtection(ctx) {
   const baselineEventAt = baseline?.lastEventAt ?? null;
   const baselineState = baseline?.state ?? 'idle';
 
-  // 1. Get OBS streaming.
+  // 1. Get OBS streaming.  The OBS mock now emits StreamStateChanged
+  //    (op:5) on every setStreaming, so the agent's bridge handler updates
+  //    `status.obs.streaming` in ~10ms; previously this only landed via the
+  //    bridge's 15s GetStats poll which made the 15s/10s windows below
+  //    arithmetically too tight.
   await mocks.action('obs', 'setStreaming', { active: true });
   await sse.waitFor(
     (s) => s?.obs?.streaming === true,
-    { timeoutMs: 15_000 },
+    { timeoutMs: 18_000 },
   );
 
   // Give stream protection a moment to acknowledge the stream is live —
@@ -52,7 +56,7 @@ module.exports = async function streamProtection(ctx) {
   // 3. Wait for the streaming:false transition to land.
   await sse.waitFor(
     (s) => s?.obs?.streaming === false,
-    { timeoutMs: 10_000 },
+    { timeoutMs: 18_000 },
   );
 
   // 4. Look for ANY change to streamProtection state since baseline.

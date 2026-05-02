@@ -175,6 +175,11 @@ async function start({ port = 4455, controlPort = 0 } = {}) {
       try { return JSON.parse(raw.toString()); } catch { return null; }
     };
 
+    // Track only AFTER the client identifies — broadcasting before Identify
+    // confuses obs-websocket-js (it'll throw "Socket not identified").
+    let identified = false;
+    socket.on('close', () => clients.delete(socket));
+
     // Hello — initiate handshake (no auth challenge for simplicity).
     send({
       op: 0,
@@ -188,10 +193,13 @@ async function start({ port = 4455, controlPort = 0 } = {}) {
       if (msg.op === 1) {
         // Identify → respond with Identified
         send({ op: 2, d: { negotiatedRpcVersion: 1 } });
+        identified = true;
+        clients.add(socket);
         return;
       }
       if (msg.op === 6) {
         // Request
+        if (!identified) return; // protocol violation
         const { requestType, requestId, requestData } = msg.d || {};
         const response = handleRequest(state, requestType, requestId, requestData);
         send(response);
@@ -201,14 +209,47 @@ async function start({ port = 4455, controlPort = 0 } = {}) {
     });
   });
 
+  // Track every connected client so control-API mutations can broadcast the
+  // matching obs-websocket Event (op:5) to all of them. Real OBS does this:
+  // SetStreaming → it pushes StreamStateChanged. The agent's bridge listens
+  // for those events and updates `status.obs.streaming` immediately. Without
+  // them, the agent only catches state changes via its 15s GetStats poll —
+  // far too slow for a 10s scenario predicate.
+  const clients = new Set();
+  const broadcastEvent = (eventType, eventData) => {
+    const frame = { op: 5, d: { eventType, eventIntent: 0, eventData } };
+    for (const c of clients) {
+      const isMsgpack = c.protocol === 'obswebsocket.msgpack' && !!msgpackEncode;
+      try {
+        c.send(isMsgpack ? Buffer.from(msgpackEncode(frame)) : JSON.stringify(frame));
+      } catch { /* socket may have just closed */ }
+    }
+  };
+
   const control = await createControlServer({
     device: 'obs',
     port: controlPort,
     state,
     initialState: DEFAULTS,
     actions: {
-      setStreaming: ({ active }) => { state.streaming.outputActive = !!active; },
-      setRecording: ({ active }) => { state.recording.outputActive = !!active; },
+      setStreaming: ({ active }) => {
+        const next = !!active;
+        if (state.streaming.outputActive === next) return;
+        state.streaming.outputActive = next;
+        broadcastEvent('StreamStateChanged', {
+          outputActive: next,
+          outputState: next ? 'OBS_WEBSOCKET_OUTPUT_STARTED' : 'OBS_WEBSOCKET_OUTPUT_STOPPED',
+        });
+      },
+      setRecording: ({ active }) => {
+        const next = !!active;
+        if (state.recording.outputActive === next) return;
+        state.recording.outputActive = next;
+        broadcastEvent('RecordStateChanged', {
+          outputActive: next,
+          outputState: next ? 'OBS_WEBSOCKET_OUTPUT_STARTED' : 'OBS_WEBSOCKET_OUTPUT_STOPPED',
+        });
+      },
       setProgramScene: ({ scene }) => { state.programScene = scene; },
       setPreviewScene: ({ scene }) => { state.previewScene = scene; },
       setScenes: (scenes) => { if (Array.isArray(scenes)) state.scenes = scenes; },

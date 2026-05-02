@@ -23,11 +23,17 @@ module.exports = async function obsStreaming(ctx) {
   // Flip the streaming switch.
   await mocks.action('obs', 'setStreaming', { active: true });
 
-  // Wait for the agent's WebSocket-driven status update to propagate.
+  // Wait for the agent's WebSocket-driven status update to propagate.  The
+  // OBS mock now broadcasts a `StreamStateChanged` Event (op:5) on every
+  // setStreaming, so the agent's bridge handler fires within ~10ms and
+  // sendStatus debounces a relay push within 100ms — we typically see this
+  // resolve sub-second.  The previous 10s window failed because the mock
+  // didn't emit the event and the agent only caught the change via its 15s
+  // GetStats poll; 18s is the new safe ceiling that covers either path.
   // Real shape (verified): s.obs.streaming is a boolean.
   await sse.waitFor(
     (s) => s?.obs?.streaming === true,
-    { timeoutMs: 10_000 },
+    { timeoutMs: 18_000 },
   );
 
   // Stat surface — the OBS bridge polls GetStats periodically. Real SSE
@@ -45,10 +51,10 @@ module.exports = async function obsStreaming(ctx) {
   );
 
   // Stop streaming and assert the off transition lands too — proves the
-  // round-trip isn't a one-way latch.
+  // round-trip isn't a one-way latch. Same event-driven path as above.
   await mocks.action('obs', 'setStreaming', { active: false });
   await sse.waitFor(
     (s) => s?.obs?.streaming === false,
-    { timeoutMs: 10_000 },
+    { timeoutMs: 18_000 },
   );
 };
