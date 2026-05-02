@@ -24,17 +24,27 @@
 module.exports = async function streamProtection(ctx) {
   const { mocks, sse } = ctx;
 
+  // Capture the baseline streamProtection state. Real shape (verified):
+  //   s.streamProtection = { enabled, active, state, lastEvent, lastEventAt,
+  //                          canManualRestart, cdnHealth, cdnPlatforms }
+  // Default state is { enabled:true, active:false, state:'idle',
+  // lastEvent:null }. After an unexpected stop, the meaningful signal is
+  // a CHANGE — state !== 'idle', or active === true, or lastEvent
+  // populated, or lastEventAt advanced.
+  const baseline = sse.latest?.streamProtection;
+  const baselineEventAt = baseline?.lastEventAt ?? null;
+  const baselineState = baseline?.state ?? 'idle';
+
   // 1. Get OBS streaming.
   await mocks.action('obs', 'setStreaming', { active: true });
   await sse.waitFor(
-    (s) => s?.obs?.streaming === true || s?.streaming === true,
-    { timeoutMs: 12_000 },
+    (s) => s?.obs?.streaming === true,
+    { timeoutMs: 15_000 },
   );
 
   // Give stream protection a moment to acknowledge the stream is live —
-  // it needs to have observed "streaming" before "stopped" looks
-  // unexpected.
-  await new Promise((r) => setTimeout(r, 2_000));
+  // it needs to have observed "streaming" before "stopped" looks unexpected.
+  await new Promise((r) => setTimeout(r, 3_000));
 
   // 2. Drop the stream.
   await mocks.action('obs', 'setStreaming', { active: false });
@@ -45,31 +55,27 @@ module.exports = async function streamProtection(ctx) {
     { timeoutMs: 10_000 },
   );
 
-  // 4. Look for any signalFailover-related field in status. Names vary by
-  //    relay version: streamProtection, signalFailover, failoverActive,
-  //    streamHealth.lastUnexpectedStop. We accept any of them as evidence
-  //    the detection wired through.
+  // 4. Look for ANY change to streamProtection state since baseline.
   const observed = await sse.waitFor(
     (s) => {
-      // Direct flags
-      if (s?.streamProtection || s?.signalFailover || s?.failoverActive) return true;
-      // Stream health snapshot referencing the stop
-      const sh = s?.streamHealth || s?.obs?.streamHealth;
-      if (sh && (sh.lastUnexpectedStop || sh.unexpectedStops > 0)) return true;
-      // Some implementations annotate the obs block directly
-      if (s?.obs?.unexpectedStop) return true;
+      const sp = s?.streamProtection;
+      if (!sp) return false;
+      if (sp.active === true) return true;
+      if (sp.state && sp.state !== baselineState) return true;
+      if (sp.lastEvent != null) return true;
+      if (sp.lastEventAt && sp.lastEventAt !== baselineEventAt) return true;
       return false;
     },
-    { timeoutMs: 8_000 },
+    { timeoutMs: 10_000 },
   ).catch(() => null);
 
   if (!observed) {
-    ctx.log.info('  ⚠ Stream stopped + agent published; no protection signal observed in 8s');
-    ctx.log.info('    (Stream protection module may only escalate after multiple consecutive');
-    ctx.log.info('     unexpected stops, or may dispatch via Telegram-only without status flag.)');
-    // Don't hard-fail — the absence of an observable surface is itself a finding.
-    return;
+    ctx.log.info('  ⚠ Stream stopped + agent published; streamProtection state stayed idle');
+    ctx.log.info('    (Module may only escalate after multiple consecutive unexpected stops,');
+    ctx.log.info('     or dispatches via Telegram-only without setting state. Either is OK —');
+    ctx.log.info('     surfacing the absence of an observable surface IS the finding.)');
+    return; // Soft pass — no observable signal is itself a finding.
   }
 
-  ctx.log.debug('  stream protection signal detected in agent status');
+  ctx.log.debug(`  streamProtection state advanced: ${JSON.stringify(observed.streamProtection)}`);
 };

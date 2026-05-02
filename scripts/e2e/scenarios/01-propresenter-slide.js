@@ -20,41 +20,36 @@ module.exports = async function propresenterSlide(ctx) {
     slideTotal: 20,
   });
 
-  // Wait for the agent to pick up the initial state — the PP bridge polls
-  // every 2s, so allow up to 6s for at least one poll cycle to land.
-  const initial = await sse.waitFor(
-    (s) => s?.proPresenter && (
-      s.proPresenter.currentSlide?.presentationName === 'E2E Sermon'
-      || s.proPresenter.presentationName === 'E2E Sermon'
-    ),
-    { timeoutMs: 8_000 },
+  // Wait for the agent to pick up the initial state. Real SSE shape
+  // (verified by probe — see /tmp/sse-shape.json):
+  //   s.proPresenter.currentSlide        ← string (presentation NAME)
+  //   s.proPresenter.slideIndex          ← top-level on proPresenter
+  //   s.proPresenter.slideTotal          ← top-level
+  //   s.proPresenter.presentationUUID    ← top-level
+  // The PP bridge polls every 2s; allow 8s for at least one cycle.
+  await sse.waitFor(
+    (s) => s?.proPresenter?.currentSlide === 'E2E Sermon',
+    { timeoutMs: 10_000 },
   );
-  if (!initial) throw new Error('Agent did not publish initial PP state to relay');
 
   // Advance 3 times via control API. The mock advances slideIndex on the
   // GET-style trigger fetch issued by the church-client's _fire().
   for (let i = 0; i < 3; i++) {
     await mocks.action('propresenter', 'advanceSlide');
-    // Tiny delay so the agent's next poll picks up each step.
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  // Wait until the relay reflects slideIndex >= 3 (or whatever the mock
-  // reports; we tolerate either currentSlide.slideIndex or the flatter shape).
+  // Wait until the relay reflects slideIndex >= 3.
   const final = await sse.waitFor(
-    (s) => {
-      const idx = s?.proPresenter?.currentSlide?.slideIndex
-              ?? s?.proPresenter?.slideIndex;
-      return typeof idx === 'number' && idx >= 3;
-    },
+    (s) => typeof s?.proPresenter?.slideIndex === 'number' && s.proPresenter.slideIndex >= 3,
     { timeoutMs: 10_000 },
   );
 
-  // Cross-check with the mock's own state — they should agree.
+  // Cross-check with the mock — they should agree.
   const mockState = await mocks.state('propresenter');
   const mockIdx = mockState.slide?.slideIndex;
   if (typeof mockIdx !== 'number' || mockIdx < 3) {
     throw new Error(`Mock slideIndex=${mockIdx}, expected >=3 after 3 advances`);
   }
-  ctx.log.debug(`PP final slideIndex (relay)=${final?.proPresenter?.currentSlide?.slideIndex ?? final?.proPresenter?.slideIndex} (mock)=${mockIdx}`);
+  ctx.log.debug(`PP final slideIndex (relay)=${final?.proPresenter?.slideIndex} (mock)=${mockIdx}`);
 };

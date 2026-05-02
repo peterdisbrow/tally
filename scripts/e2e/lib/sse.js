@@ -76,6 +76,72 @@ class StatusStream {
       .catch((e) => { throw new Error(`[sse] no initial status frame within ${timeoutMs}ms: ${e.message}`); });
   }
 
+  /**
+   * Seed `latest` from /api/church/app/me. The relay's SSE channel only
+   * pushes DELTAS after the subscriber connects — so if a bridge connected
+   * BEFORE we subscribed, its `connected:true` field never appears as a
+   * delta and predicates wait forever. Seeding from REST gives us the
+   * authoritative current state to merge subsequent deltas onto.
+   */
+  async seedFromRest() {
+    const res = await fetch(`${this.url}/api/church/app/me`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`[sse] seedFromRest failed: HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    const status = body?.status || body;
+    if (!status || typeof status !== 'object') {
+      throw new Error(`[sse] seedFromRest got unexpected body shape`);
+    }
+    // Merge into latest (delta-friendly) — subsequent SSE frames overlay.
+    this.latest = { ...(this.latest || {}), ...status };
+    // Trigger any waiters now that latest may match their predicate.
+    const stillWaiting = [];
+    for (const w of this._waiters) {
+      try { if (w.predicate(this.latest)) { w.resolve(this.latest); continue; } }
+      catch (err) { w.reject(err); continue; }
+      stillWaiting.push(w);
+    }
+    this._waiters = stillWaiting;
+  }
+
+  /**
+   * Force a refresh from /api/church/app/me. Useful when a scenario waits
+   * for state that may have already settled BEFORE its waitFor predicate
+   * was registered (e.g. between two scenarios where the change happened
+   * during cleanup of the previous one).
+   */
+  async refresh() {
+    return this.seedFromRest().catch(() => { /* best effort */ });
+  }
+
+  /**
+   * Start a background poll that calls refresh() every `intervalMs`.
+   * Required because the relay's SSE channel only pushes the initial
+   * snapshot + sporadic deltas — it doesn't republish when bridges connect
+   * later, so a subscriber that joined too early misses the bridge-up
+   * transitions entirely. Polling REST keeps `latest` aligned with the
+   * relay's authoritative cached status throughout the run.
+   *
+   * Returns the interval handle; call stopPolling() to clear.
+   */
+  startPolling({ intervalMs = 1_000 } = {}) {
+    if (this._pollTimer) return;
+    this._pollTimer = setInterval(() => {
+      this.refresh();
+    }, intervalMs);
+    if (this._pollTimer.unref) this._pollTimer.unref();
+  }
+
+  stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
   _onFrame(obj) {
     // The relay's SSE may push either a full status snapshot (initial) or
     // typed event objects. We're interested in anything that looks like a
@@ -119,6 +185,7 @@ class StatusStream {
 
   close() {
     this._closed = true;
+    this.stopPolling();
     try { this.controller?.abort(); } catch { /* ignore */ }
     for (const w of this._waiters) w.reject(new Error('[sse] stream closed'));
     this._waiters = [];

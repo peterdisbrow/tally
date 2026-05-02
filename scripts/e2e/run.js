@@ -74,6 +74,13 @@ async function main() {
   log.info('Phase 2: boot mocks');
   const mocksLauncher = new MockLauncher({ log: log.child('mocks') });
   await mocksLauncher.start();
+  // Brief settle so all listening sockets are fully bound before the agent
+  // starts probing. The launcher reports "ready" as soon as every mock's
+  // start() resolves, but TCP listeners can need an extra tick to accept
+  // connections — without this, agent bridges sometimes hit ECONNREFUSED
+  // on their FIRST probe and then enter retry-with-backoff (PP retries
+  // every 30s, which is too slow for the harness budget).
+  await new Promise((r) => setTimeout(r, 1_500));
   log.info('  ✓ all 11 mocks running');
   const mocks = new MockControl();
 
@@ -90,11 +97,60 @@ async function main() {
   await agent.waitConnected({ timeoutMs: 30_000 });
   log.info('  ✓ agent connected to relay');
 
-  // 4. SSE
-  log.info('Phase 4: subscribe to status SSE');
+  // 4. SSE — subscribe AND seed from REST. The relay's SSE only pushes
+  // deltas after subscribe, so if a bridge connected before our subscriber
+  // joined, that "connected:true" field never appears as a delta. Seeding
+  // from /api/church/app/me gives us authoritative current state.
+  log.info('Phase 4: subscribe to status SSE + start REST poll');
   const sse = new StatusStream({ url: cfg.relayUrl, token: account.appToken, log: log.child('sse') });
   await sse.connect({ timeoutMs: 15_000 });
-  log.info('  ✓ first status frame received');
+  // The relay's SSE channel only pushes the initial snapshot + sporadic
+  // deltas. Bridges that connect AFTER subscribe never trigger a republish.
+  // Background REST poll keeps `sse.latest` aligned with the authoritative
+  // /api/church/app/me state throughout the run.
+  sse.startPolling({ intervalMs: 1_000 });
+
+  // 4b. Wait for the agent's bridges to actually connect, polling REST
+  // until the critical-bridge predicate holds (or 45s elapses). The poll
+  // overlays REST snapshots into `sse.latest` so SSE deltas continue to
+  // merge naturally on top during the rest of the run.
+  //
+  // 45s is calibrated to PP's retry interval (30s) — if PP fails its
+  // first connection attempt (e.g. mock not fully bound when agent
+  // probes), it retries at +30s. Anything shorter than ~35s loses to
+  // the retry race when mocks are sluggish to bind.
+  log.info('Phase 4b: wait for agent bridges to connect');
+  const bridgeDeadline = Date.now() + 45_000;
+  let bridgesReady = false;
+  while (Date.now() < bridgeDeadline) {
+    await sse.refresh();
+    const s = sse.latest || {};
+    if (s.companion?.connected === true
+        && s.proPresenter?.connected === true
+        && s.obs?.connected === true
+        && Array.isArray(s.videoHubs) && s.videoHubs.some((h) => h?.connected === true)
+        && s.mixer?.connected === true) {
+      bridgesReady = true;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 1_500));
+  }
+  if (bridgesReady) {
+    log.info('  ✓ all critical bridges connected (companion, PP, OBS, VideoHub, mixer)');
+  } else {
+    const s = sse.latest || {};
+    const status = {
+      companion: s.companion?.connected,
+      proPresenter: s.proPresenter?.connected,
+      obs: s.obs?.connected,
+      videoHubs: s.videoHubs?.[0]?.connected,
+      mixer: s.mixer?.connected,
+    };
+    log.info(`  ⚠ Not all bridges connected within 45s: ${JSON.stringify(status)} — proceeding anyway`);
+    log.info(`    (Likely cause: relay-side stale status cache. The agent connects to the`);
+    log.info(`     bridges locally but the relay's church.status doesn't update after the`);
+    log.info(`     initial WS push. Worth a separate investigation in relay-server.)`);
+  }
 
   // 5. Build harness context for scenarios.
   const ctx = {
