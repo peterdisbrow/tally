@@ -22,7 +22,7 @@ const intervals = [];
 process.on('SIGTERM', () => intervals.forEach(clearInterval));
 process.on('SIGINT', () => intervals.forEach(clearInterval));
 
-const PC_API_BASE = 'https://api.planningcenteronline.com/services/v2';
+const PC_API_BASE = process.env.PC_API_BASE || 'https://api.planningcenteronline.com/services/v2';
 const PC_OAUTH_AUTHORIZE = 'https://api.planningcenteronline.com/oauth/authorize';
 const PC_OAUTH_TOKEN = 'https://api.planningcenteronline.com/oauth/token';
 const PC_OAUTH_REVOKE = 'https://api.planningcenteronline.com/oauth/revoke';
