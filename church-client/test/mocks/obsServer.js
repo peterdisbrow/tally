@@ -34,6 +34,30 @@ try {
   WebSocketServer = null;
 }
 
+// obs-websocket-js v5 ships two transports: `obswebsocket.json` (text frames,
+// JSON.stringify) and `obswebsocket.msgpack` (binary frames, MessagePack
+// encoding). The CommonJS default export resolves to the msgpack variant via
+// the package's `exports` map (`require → ./dist/msgpack.cjs`), so the
+// church-client agent connects with subprotocol `obswebsocket.msgpack`. If
+// the mock only spoke JSON, the server would still negotiate "msgpack" via
+// ws's default subprotocol echoing — then every Identify/Request frame would
+// arrive as a binary msgpack buffer, JSON.parse would silently throw, and
+// the agent's `await obs.connect()` would hang forever waiting for an
+// Identified that never comes. Real OBS speaks both, so we do too.
+let msgpackEncode = null;
+let msgpackDecode = null;
+try {
+  ({ encode: msgpackEncode, decode: msgpackDecode } = require('@msgpack/msgpack'));
+} catch {
+  // @msgpack/msgpack is a transitive dep of obs-websocket-js, but if it's
+  // ever missing the mock will simply refuse the msgpack subprotocol and
+  // force the client onto JSON.
+}
+
+const SUPPORTED_PROTOCOLS = msgpackEncode
+  ? ['obswebsocket.msgpack', 'obswebsocket.json']
+  : ['obswebsocket.json'];
+
 const DEFAULTS = {
   obsVersion: '30.0.0',
   obsWebSocketVersion: '5.4.0',
@@ -117,32 +141,60 @@ async function start({ port = 4455, controlPort = 0 } = {}) {
     throw new Error('mock OBS server requires `ws` package (transitive via obs-websocket-js)');
   }
 
-  const wss = new WebSocketServer({ host: '127.0.0.1', port });
+  const wss = new WebSocketServer({
+    host: '127.0.0.1',
+    port,
+    // Pick the first subprotocol the client offers that we actually support,
+    // preferring msgpack (which is the obs-websocket-js v5 default for
+    // CommonJS consumers like the church-client agent). Returning `false`
+    // would reject the connection — instead we fall through to JSON when
+    // msgpack isn't available so a degraded client can still speak to us.
+    handleProtocols: (offered) => {
+      // ws v8 passes `offered` as a Set (not an Array). Use .has() to test.
+      for (const p of SUPPORTED_PROTOCOLS) if (offered.has(p)) return p;
+      return SUPPORTED_PROTOCOLS[0];
+    },
+  });
   await new Promise((resolve) => wss.once('listening', resolve));
   const actualPort = wss.address().port;
 
   wss.on('connection', (socket) => {
+    const isMsgpack = socket.protocol === 'obswebsocket.msgpack' && !!msgpackEncode;
+    const send = (obj) => {
+      if (isMsgpack) {
+        // msgpackEncode returns Uint8Array — ws.send(buffer) sends a binary frame.
+        socket.send(Buffer.from(msgpackEncode(obj)));
+      } else {
+        socket.send(JSON.stringify(obj));
+      }
+    };
+    const decode = (raw) => {
+      if (isMsgpack) {
+        try { return msgpackDecode(raw); } catch { return null; }
+      }
+      try { return JSON.parse(raw.toString()); } catch { return null; }
+    };
+
     // Hello — initiate handshake (no auth challenge for simplicity).
-    socket.send(JSON.stringify({
+    send({
       op: 0,
       d: { obsWebSocketVersion: state.obsWebSocketVersion, rpcVersion: 1 },
-    }));
+    });
 
     socket.on('message', (raw) => {
-      let msg;
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      const msg = decode(raw);
       if (!msg || typeof msg.op !== 'number') return;
 
       if (msg.op === 1) {
         // Identify → respond with Identified
-        socket.send(JSON.stringify({ op: 2, d: { negotiatedRpcVersion: 1 } }));
+        send({ op: 2, d: { negotiatedRpcVersion: 1 } });
         return;
       }
       if (msg.op === 6) {
         // Request
         const { requestType, requestId, requestData } = msg.d || {};
         const response = handleRequest(state, requestType, requestId, requestData);
-        socket.send(JSON.stringify(response));
+        send(response);
         return;
       }
       // Other ops (Reidentify=3, RequestBatch=8) — ignore for stub.
