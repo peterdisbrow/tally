@@ -2209,6 +2209,16 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json(lifecycleEmails.getTemplateList());
   });
 
+  // Email catalog — full per-template view (subject, body preview,
+  // unsubscribe-list status, override status). Backs the admin email manager.
+  // Note: served at /catalog because /api/admin/emails is already in use for
+  // the send-history endpoint.
+  app.get('/api/admin/emails/catalog', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.json([]);
+    const previewLength = Math.min(parseInt(req.query.previewLength, 10) || 500, 5000);
+    res.json(lifecycleEmails.getEmailCatalog({ previewLength }));
+  });
+
   app.get('/api/admin/emails/templates/:type/preview', requireAdminSession, (req, res) => {
     if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
     const result = lifecycleEmails.getPreview(req.params.type);
@@ -2272,6 +2282,26 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     });
     if (result?.sent) auditFromReq(req, 'email_sent', 'church', churchId || null, { emailType: 'custom', to, subject });
     res.json(result);
+  });
+
+  // Catalog override endpoints — alias to the templates routes but accept a
+  // {subject, body} payload (matching the admin email-catalog spec). `body`
+  // maps to the existing `html` column on email_template_overrides.
+  // Defined AFTER /api/admin/emails/send so the static route wins for that path.
+  app.post('/api/admin/emails/:type', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    if (req.params.type === 'send') return res.status(404).json({ error: 'not found' });
+    const { subject, body, html } = req.body || {};
+    const resolvedHtml = body !== undefined && body !== null ? body : html;
+    if (!subject && !resolvedHtml) return res.status(400).json({ error: 'subject or body required' });
+    const result = lifecycleEmails.applyOverride(req.params.type, { subject, html: resolvedHtml });
+    res.json(result);
+  });
+
+  app.delete('/api/admin/emails/:type', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    lifecycleEmails.removeOverride(req.params.type);
+    res.json({ reverted: true });
   });
 
   // ── Reseller Portal ───────────────────────────────────────────────────────

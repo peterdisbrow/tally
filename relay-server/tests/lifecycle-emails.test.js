@@ -306,6 +306,110 @@ describe('LifecycleEmails', () => {
       expect(override.subject).toBe('Custom Subject Override');
     });
 
+    // Override fallback: when an admin override exists for a category, sendEmail
+    // must use the override subject/body. When no override exists, it must fall
+    // back to the caller-provided (hardcoded template) values. We assert against
+    // the actual Resend payload so the assertion follows the override all the
+    // way through sendEmail.
+    describe('override fallback in sendEmail', () => {
+      function dbWithOverride(overrideRow) {
+        const base = mockDb();
+        const originalPrepare = base.prepare;
+        base.prepare = vi.fn((sql) => {
+          if (sql.includes('SELECT subject, html FROM email_template_overrides')) {
+            return { get: vi.fn().mockReturnValue(overrideRow || undefined) };
+          }
+          return originalPrepare(sql);
+        });
+        return base;
+      }
+
+      async function captureResendPayload({ overrideRow, sendArgs }) {
+        const captureDb = dbWithOverride(overrideRow);
+        const instance = new LifecycleEmails(captureDb, {
+          resendApiKey: 're_test_fake_key',
+          fromEmail: 'Tally <test@test.com>',
+          appUrl: 'https://test.app',
+        });
+
+        const originalFetch = globalThis.fetch;
+        let capturedBody = null;
+        globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+          capturedBody = JSON.parse(init.body);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'resend-fake-id' }),
+            text: async () => '',
+          };
+        });
+
+        try {
+          const result = await instance.sendEmail(sendArgs);
+          return { result, capturedBody };
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      }
+
+      it('uses override subject and html when an override exists', async () => {
+        const { result, capturedBody } = await captureResendPayload({
+          overrideRow: {
+            subject: 'Custom Subject Override',
+            html: '<p>Custom HTML override body</p>',
+          },
+          sendArgs: {
+            churchId: 'church-1',
+            emailType: 'setup-reminder',
+            to: 'pastor@grace.church',
+            subject: 'Default subject from template',
+            html: '<p>Default template HTML</p>',
+          },
+        });
+
+        expect(result.sent).toBe(true);
+        expect(capturedBody.subject).toBe('Custom Subject Override');
+        expect(capturedBody.html).toContain('Custom HTML override body');
+        // The default template content must NOT be present
+        expect(capturedBody.html).not.toContain('Default template HTML');
+        expect(capturedBody.subject).not.toBe('Default subject from template');
+      });
+
+      it('falls back to the hardcoded template when no override exists', async () => {
+        const { result, capturedBody } = await captureResendPayload({
+          overrideRow: undefined,
+          sendArgs: {
+            churchId: 'church-2',
+            emailType: 'setup-reminder',
+            to: 'pastor@hope.church',
+            subject: 'Default subject from template',
+            html: '<p>Default template HTML</p>',
+          },
+        });
+
+        expect(result.sent).toBe(true);
+        expect(capturedBody.subject).toBe('Default subject from template');
+        expect(capturedBody.html).toContain('Default template HTML');
+      });
+
+      it('uses override subject but keeps caller html when override.html is null', async () => {
+        const { result, capturedBody } = await captureResendPayload({
+          overrideRow: { subject: 'Subject Only Override', html: null },
+          sendArgs: {
+            churchId: 'church-3',
+            emailType: 'setup-reminder',
+            to: 'pastor@joy.church',
+            subject: 'Default subject',
+            html: '<p>Default template HTML stays</p>',
+          },
+        });
+
+        expect(result.sent).toBe(true);
+        expect(capturedBody.subject).toBe('Subject Only Override');
+        expect(capturedBody.html).toContain('Default template HTML stays');
+      });
+    });
+
     it('getPreview returns rendered HTML for known email types', () => {
       const preview = emails.getPreview('setup-reminder');
       expect(preview).toBeDefined();

@@ -339,8 +339,19 @@ function createWebSocketHandlers({
     ws.on('close', () => {
       if (wsPingInterval) clearInterval(wsPingInterval);
 
-      // Remove this instance from the sockets map
+      // If a newer socket has already taken over this instance slot (rapid
+      // reconnect / WS-ping replacement), this is NOT a real disconnect —
+      // the agent is still talking to us through the new socket. Skip every
+      // cleanup step so we don't erase the live instance's status, snapshot,
+      // or room mapping (PR #66 status-cache regression).
       ensureSockets(church);
+      const replacedByNewerSocket = church.sockets.get(instance) && church.sockets.get(instance) !== ws;
+      if (replacedByNewerSocket) {
+        console.log(`[WS] Church ${church.churchId} instance="${instance}" socket closed after replacement — preserving instance state`);
+        return;
+      }
+
+      // Remove this instance from the sockets map
       if (church.sockets.get(instance) === ws) {
         church.sockets.delete(instance);
       }
