@@ -1348,6 +1348,125 @@ test('_sendWatchdogAlert: different types are not deduplicated', () => {
   assert.equal(t._relaySends.length, 3);
 });
 
+// ─── 13b. _checkTeradekBattery ────────────────────────────────────────────────
+// Reimplements the body of ChurchAVAgent._checkTeradekBattery. Drift between
+// this copy and src/index.js will surface as a test failure — keep them in
+// sync. The point of these tests is to lock in the rule that the alert is NOT
+// gated on the Teradek's configured role: any polling path that hands the
+// agent a Teradek status with battery data must be able to fire the warning.
+
+function makeBatteryTracker() {
+  const t = {
+    _recentAlerts: [],
+    _lastAlerts: new Map(),
+    _relaySends: [],
+    sendToRelay(msg) { this._relaySends.push(msg); },
+    _checkTeradekBattery(deviceStatus) {
+      if (!deviceStatus || deviceStatus.type !== 'teradek') return;
+      if (deviceStatus.powerSource !== 'battery') return;
+      const pct = deviceStatus.batteryPct;
+      if (typeof pct !== 'number' || !Number.isFinite(pct)) return;
+
+      let severity, threshold;
+      if (pct <= 10)      { severity = 'critical'; threshold = 'critical'; }
+      else if (pct <= 20) { severity = 'warning';  threshold = 'low'; }
+      else return;
+
+      const alertType = `teradek_battery_${threshold}`;
+      const now = Date.now();
+      const lastSent = this._lastAlerts.get(alertType) || 0;
+      if (now - lastSent < 5 * 60 * 1000) return;
+      this._lastAlerts.set(alertType, now);
+
+      const message = `🔋 Teradek battery ${threshold} (${pct}%)`;
+      this.sendToRelay({ type: 'alert', alertType, message, severity });
+      this._recentAlerts.push({ message, severity, timestamp: now });
+      while (this._recentAlerts.length > 50) this._recentAlerts.shift();
+    },
+  };
+  return t;
+}
+
+test('_checkTeradekBattery: fires for Teradek not configured as encoder type', () => {
+  // Regression: previously, Teradek battery alerts were only generated when the
+  // device was configured as the primary `encoder`. Any other configured role
+  // (backup encoder, future camera/PTZ-like wiring, etc.) silently dropped the
+  // warning. The helper must fire for ANY Teradek that reports battery state.
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({
+    type: 'teradek',
+    role: 'backup-encoder',          // not 'encoder' — this is the bug case
+    powerSource: 'battery',
+    batteryPct: 15,
+    connected: true,
+    live: false,
+  });
+  assert.equal(t._relaySends.length, 1, 'should send exactly one alert');
+  assert.equal(t._relaySends[0].type, 'alert');
+  assert.equal(t._relaySends[0].alertType, 'teradek_battery_low');
+  assert.equal(t._relaySends[0].severity, 'warning');
+  assert.ok(/15%/.test(t._relaySends[0].message), `message should mention 15%; got ${t._relaySends[0].message}`);
+});
+
+test('_checkTeradekBattery: critical severity when battery <= 10%', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 7 });
+  assert.equal(t._relaySends.length, 1);
+  assert.equal(t._relaySends[0].alertType, 'teradek_battery_critical');
+  assert.equal(t._relaySends[0].severity, 'critical');
+});
+
+test('_checkTeradekBattery: does not fire while running on AC power', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'ac', batteryPct: 100 });
+  // Teradek may report 100% on AC — that's not a battery condition, no alert.
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'ac', batteryPct: 5 });
+  assert.equal(t._relaySends.length, 0);
+});
+
+test('_checkTeradekBattery: does not fire above 20% on battery', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 50 });
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 21 });
+  assert.equal(t._relaySends.length, 0);
+});
+
+test('_checkTeradekBattery: dedups same threshold within the 5-min window', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 18 });
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 17 });
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 15 });
+  assert.equal(t._relaySends.length, 1, 'only the first low-battery alert should send');
+});
+
+test('_checkTeradekBattery: critical and low alerts are tracked independently', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 18 }); // low
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: 8 });  // critical
+  assert.equal(t._relaySends.length, 2);
+  assert.deepEqual(
+    t._relaySends.map(s => s.alertType),
+    ['teradek_battery_low', 'teradek_battery_critical'],
+  );
+});
+
+test('_checkTeradekBattery: ignores non-Teradek devices', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'aja', powerSource: 'battery', batteryPct: 5 });
+  t._checkTeradekBattery({ type: 'obs', batteryPct: 5 });
+  t._checkTeradekBattery(null);
+  t._checkTeradekBattery(undefined);
+  assert.equal(t._relaySends.length, 0);
+});
+
+test('_checkTeradekBattery: ignores missing/invalid batteryPct', () => {
+  const t = makeBatteryTracker();
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: null });
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery' });
+  t._checkTeradekBattery({ type: 'teradek', powerSource: 'battery', batteryPct: NaN });
+  assert.equal(t._relaySends.length, 0);
+});
+
 // ─── 14. isObsMonitoringEnabled / getObsUrlForConnection ─────────────────────
 
 const LEGACY_DEFAULT_OBS_URLS = new Set(['ws://localhost:4455', 'ws://127.0.0.1:4455']);

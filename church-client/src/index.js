@@ -865,6 +865,34 @@ class ChurchAVAgent {
     this.sendToRelay({ type: 'alert', alertType, message, severity: 'warning' });
   }
 
+  // Fires a low-battery alert for any Teradek device that reports battery state.
+  // Intentionally does not gate on the device's configured role — runs for the
+  // primary encoder, the backup encoder, or any other polling path that hands
+  // us a Teradek status object.
+  _checkTeradekBattery(deviceStatus) {
+    if (!deviceStatus || deviceStatus.type !== 'teradek') return;
+    if (deviceStatus.powerSource !== 'battery') return;
+    const pct = deviceStatus.batteryPct;
+    if (typeof pct !== 'number' || !Number.isFinite(pct)) return;
+
+    let severity, threshold;
+    if (pct <= 10)      { severity = 'critical'; threshold = 'critical'; }
+    else if (pct <= 20) { severity = 'warning';  threshold = 'low'; }
+    else return;
+
+    const alertType = `teradek_battery_${threshold}`;
+    const now = Date.now();
+    const lastSent = this._lastAlerts.get(alertType) || 0;
+    if (now - lastSent < 5 * 60 * 1000) return;
+    this._lastAlerts.set(alertType, now);
+
+    const message = `🔋 Teradek battery ${threshold} (${pct}%)`;
+    console.log(`[Battery] ${message}`);
+    this.sendToRelay({ type: 'alert', alertType, message, severity });
+    this._recentAlerts.push({ message, severity, timestamp: now });
+    while (this._recentAlerts.length > 50) this._recentAlerts.shift();
+  }
+
   // ─── RELAY CONNECTION ──────────────────────────────────────────────────────
 
   connectRelay() {
@@ -1803,6 +1831,11 @@ class ChurchAVAgent {
       if (isLive && s.bitrateKbps > 0) {
         this._updateBitrateSignal(s.bitrateKbps);
       }
+
+      // ── Battery monitoring (Teradek) ───────────────────────────────────────
+      // Fires for any Teradek device with battery state, regardless of how the
+      // user has configured this Teradek (primary encoder, backup, etc.).
+      this._checkTeradekBattery(s);
     } catch { /* ignore */ }
   }
 
@@ -1839,6 +1872,7 @@ class ChurchAVAgent {
           status.then(result => {
             Object.assign(this.status.encoder, result);
             this._checkBackupEncoderHealth(wasLive, result);
+            this._checkTeradekBattery(result);
           }).catch(() => {});
           return;
         }
@@ -1849,6 +1883,7 @@ class ChurchAVAgent {
 
       Object.assign(this.status.encoder, s);
       this._checkBackupEncoderHealth(wasLive, s);
+      this._checkTeradekBattery(s);
     } catch { /* ignore */ }
   }
 

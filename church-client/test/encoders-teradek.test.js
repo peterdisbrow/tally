@@ -223,6 +223,52 @@ test('teradek: getStatus — battery percentage shown in details', async () => {
   }
 });
 
+test('teradek: getStatus — exposes structured batteryPct / powerSource / batteryCharging', async () => {
+  // Regression: battery state must be available as structured fields so that
+  // alert logic can act on it regardless of how the Teradek is wired into the
+  // agent (primary encoder, backup, or any future polling path). Embedding it
+  // only inside the `details` string previously made the data invisible to
+  // downstream consumers.
+  const srv = await createServer(async (req, res) => {
+    await collectBody(req);
+    if (req.url === '/cgi-bin/api.cgi') respond(res, 'OK', 200, { 'Set-Cookie': 'serenity-session=s1; Path=/' });
+    else if (req.url.includes('/cgi-bin/system.cgi')) {
+      respond(res, statusBody({ 'System-Power': 'battery:18:unknown:false' }));
+    } else {
+      respond(res, { 'Codec.Status.stream1': JSON.stringify({}) });
+    }
+  });
+  try {
+    const enc = new TeradekEncoder({ host: '127.0.0.1', port: srv.port });
+    const status = await enc.getStatus();
+    assert.equal(status.batteryPct, 18, 'batteryPct should be a number');
+    assert.equal(status.powerSource, 'battery');
+    assert.equal(status.batteryCharging, false);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('teradek: getStatus — AC power reports powerSource=ac and no battery alert data', async () => {
+  const srv = await createServer(async (req, res) => {
+    await collectBody(req);
+    if (req.url === '/cgi-bin/api.cgi') respond(res, 'OK', 200, { 'Set-Cookie': 'serenity-session=s1; Path=/' });
+    else if (req.url.includes('/cgi-bin/system.cgi')) {
+      respond(res, statusBody({ 'System-Power': 'ac:100:unknown:false' }));
+    } else {
+      respond(res, { 'Codec.Status.stream1': JSON.stringify({}) });
+    }
+  });
+  try {
+    const enc = new TeradekEncoder({ host: '127.0.0.1', port: srv.port });
+    const status = await enc.getStatus();
+    assert.equal(status.powerSource, 'ac');
+    assert.equal(status.batteryPct, 100);
+  } finally {
+    await srv.close();
+  }
+});
+
 test('teradek: getStatus — firmware version from connect() appears in details', async () => {
   const srv = await createServer(async (req, res) => {
     await collectBody(req);
