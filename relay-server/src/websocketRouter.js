@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { applyStatusDelta, cloneStatus, diffStatus } = require('./deltaUpdates');
+const { normalizeStreamProtection } = require('./streamProtectionState');
 
 /**
  * WebSocket routing factory for the Tally relay server.
@@ -670,18 +671,73 @@ function createWebSocketHandlers({
         break;
 
       case 'stream_protection_status': {
-        // Broadcast stream protection status to all controllers and portal clients
+        // Augment the raw status with a relay-tracked `triggeredAt` so portal
+        // consumers can show "since X" badges without their own transition
+        // tracking.
+        const prevSp = church.status?.streamProtection || null;
+        const normalized = normalizeStreamProtection(msg.streamProtection, prevSp);
+
+        // Resolve sender instance so multi-room churches stay scoped per-room.
+        let spInstance = null;
+        if (church.sockets?.size) {
+          for (const [inst, sock] of church.sockets.entries()) {
+            if (sock === senderWs) { spInstance = inst; break; }
+          }
+        }
+
+        // Persist on church.status so portal SSE snapshots (initial frame on
+        // connect) include the field. Without this, a client connecting
+        // between status_update tics would never see the protection state.
+        church.status = { ...(church.status || {}), streamProtection: normalized };
+
+        // Mirror onto the per-instance status so multi-room state stays in
+        // sync with the delta-tracker snapshot keyed by (churchId, instance).
+        if (spInstance && church.instanceStatus) {
+          const prevInst = church.instanceStatus[spInstance] || {};
+          church.instanceStatus[spInstance] = {
+            ...prevInst,
+            streamProtection: normalized,
+            _updatedAt: Date.now(),
+          };
+        }
+
+        // Push through the delta-tracker pipeline so portal SSE clients see
+        // the change as a status_update (matching the channel they already
+        // consume) — not just the dedicated event below. Without this, a
+        // protection state change between regular status_update tics would
+        // skip the delta tracker entirely and land in stale snapshots on
+        // any future computeDelta call.
+        if (deltaTracker?.computeDelta && spInstance && church.instanceStatus?.[spInstance]) {
+          const merged = stripRuntimeStatusMeta(church.instanceStatus[spInstance]);
+          const dr = deltaTracker.computeDelta(church.churchId, spInstance, merged);
+          if (dr.delta) {
+            broadcastToPortal(church.churchId, {
+              type: 'status_update',
+              status: church.status,
+              instance: spInstance,
+              instanceStatus: church.instanceStatus,
+              roomInstanceMap: church.roomInstanceMap,
+              lastSeen: church.lastSeen,
+              statusDelta: dr.delta,
+              statusMode: dr.isFull ? 'full' : 'delta',
+            });
+          }
+        }
+
+        // Dedicated event — keep so the portal's specialised
+        // updateStreamProtectionUI() handler keeps firing immediately and
+        // controllers that listen on this channel still receive updates.
         const spEvent = {
           type: 'stream_protection_status',
           churchId: church.churchId,
           name: church.name,
-          streamProtection: msg.streamProtection,
+          streamProtection: normalized,
           timestamp: church.lastSeen,
         };
         broadcastToControllers(spEvent);
         broadcastToPortal(church.churchId, {
           type: 'stream_protection_status',
-          streamProtection: msg.streamProtection,
+          streamProtection: normalized,
         });
         break;
       }
