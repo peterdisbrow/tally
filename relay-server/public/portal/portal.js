@@ -2518,7 +2518,47 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Stream Protection UI ────────────────────────────────────────────────
+    function formatStreamProtectionSince(triggeredAtIso) {
+      if (!triggeredAtIso) return 'Watching for issues';
+      var t = new Date(triggeredAtIso).getTime();
+      if (!isFinite(t)) return 'Watching for issues';
+      var ageSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+      var rel;
+      if (ageSec < 60) rel = 'just now';
+      else if (ageSec < 3600) rel = Math.round(ageSec / 60) + 'm ago';
+      else if (ageSec < 86400) rel = Math.round(ageSec / 3600) + 'h ago';
+      else rel = Math.round(ageSec / 86400) + 'd ago';
+      var d = new Date(triggeredAtIso);
+      var clock = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      return 'Active since ' + clock + ' · ' + rel;
+    }
+
+    function updateStreamProtectionBanner(sp) {
+      var banner = document.getElementById('stream-protection-banner');
+      if (!banner) return;
+      if (sp && sp.active) {
+        banner.style.display = 'flex';
+        var sinceEl = document.getElementById('sp-banner-since');
+        if (sinceEl) sinceEl.textContent = formatStreamProtectionSince(sp.triggeredAt);
+        if (!window._spBannerTickTimer) {
+          window._spBannerTickTimer = setInterval(function() {
+            var current = window._lastStreamProtection;
+            if (!current || !current.active) return;
+            var el = document.getElementById('sp-banner-since');
+            if (el) el.textContent = formatStreamProtectionSince(current.triggeredAt);
+          }, 30000);
+        }
+      } else {
+        banner.style.display = 'none';
+        if (window._spBannerTickTimer) {
+          clearInterval(window._spBannerTickTimer);
+          window._spBannerTickTimer = null;
+        }
+      }
+    }
+
     function updateStreamProtectionUI(sp) {
+      updateStreamProtectionBanner(sp);
       var card = document.getElementById('stream-protection-card');
       if (!card || !sp) return;
       card.style.display = '';
@@ -16365,6 +16405,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                     broadcastHealth: data.broadcastHealth,
                     audio_via_atem: profileData && profileData.audio_via_atem,
                   });
+                }
+                // PR #74 — relay now folds streamProtection (with active/triggeredAt)
+                // into the per-room status payload. Drive the top-level banner from it.
+                if (effectiveStatus._offline) {
+                  try { updateStreamProtectionBanner(null); } catch (e) {}
+                } else if (effectiveStatus.streamProtection) {
+                  try { updateStreamProtectionUI(effectiveStatus.streamProtection); } catch (e) { console.error('SP banner error', e); }
+                } else if (data.type === 'status_update' && Object.prototype.hasOwnProperty.call(effectiveStatus, 'streamProtection')) {
+                  // Explicit null in the delta means protection was cleared.
+                  try { updateStreamProtectionBanner(null); } catch (e) {}
                 }
               }
             } else if (data.type === 'instance_disconnected') {
