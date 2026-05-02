@@ -4099,6 +4099,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'setup-reminder',          name: 'Setup Nudge',             trigger: 'Auto — 24h after signup, app not connected' },
     { type: 'first-sunday-prep',       name: 'First Sunday Prep',       trigger: 'Auto — 3 days after signup, app connected' },
     { type: 'week-one-checkin',        name: 'Week-One Check-In',       trigger: 'Auto — 7 days after signup' },
+    { type: 'trial-ending-7days',      name: 'Trial Ending — 7 Days',   trigger: 'Auto — 7 days before trial expires' },
     { type: 'trial-ending-soon',       name: 'Trial Ending Soon',       trigger: 'Auto — 5 days before trial expires' },
     { type: 'trial-ending-tomorrow',   name: 'Trial Ending Tomorrow',   trigger: 'Auto — 1 day before trial expires' },
     { type: 'trial-expired',           name: 'Trial Expired',           trigger: 'Billing webhook — trial ended' },
