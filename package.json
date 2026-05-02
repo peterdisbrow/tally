@@ -1,0 +1,11 @@
+{
+  "name": "tally-monorepo",
+  "version": "1.1.65",
+  "private": true,
+  "description": "TallyConnect monorepo — relay-server, church-client, electron-app, mobile, and shared scripts.",
+  "scripts": {
+    "test:e2e": "node scripts/e2e/run.js",
+    "test:e2e:create-account": "node scripts/e2e-create-test-account.js",
+    "test:e2e:cleanup": "node scripts/e2e-create-test-account.js --cleanup"
+  }
+}
