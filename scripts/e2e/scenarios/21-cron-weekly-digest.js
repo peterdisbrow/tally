@@ -47,25 +47,26 @@ module.exports = async function cronWeeklyDigest(ctx) {
         calls.push({ church: church.name || church.churchId, toEmail });
         return { sent: true, id: 'mock-' + Date.now() };
       },
-      // Some digest paths call sendEmail directly; cover that too.
       sendEmail: async ({ to, subject }) => {
         calls.push({ to, subject });
         return { sent: true, id: 'mock-' + Date.now() };
       },
     };
 
-    const digest = new WeeklyDigest({ queryClient, log: () => {} });
+    // Constructor signature is (dbOrClient, options). Pass queryClient as
+    // first arg — _resolveClient sees .query+.exec and treats it as a client.
+    const digest = new WeeklyDigest(queryClient);
     if (typeof digest.setLifecycleEmails === 'function') {
       digest.setLifecycleEmails(captureLifecycle);
     } else {
-      // older API: assign directly
       digest.lifecycleEmails = captureLifecycle;
     }
 
     (async () => {
-      // Pick the right entry point: runDigest() / generate() / sendDigestEmails().
+      // Real entry point on relay-server/src/weeklyDigest.js (verified): generateDigest().
+      // Keep the method-name search as a fallback in case the API renames.
       let invoked = false;
-      for (const fnName of ['runDigest', 'generate', 'sendDigestEmails', 'sendDigestForAllChurches']) {
+      for (const fnName of ['generateDigest', 'runDigest', 'generate', 'sendDigestEmails', 'sendDigestForAllChurches']) {
         if (typeof digest[fnName] === 'function') {
           await digest[fnName]();
           invoked = true;

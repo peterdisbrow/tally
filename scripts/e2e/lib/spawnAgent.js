@@ -25,12 +25,27 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const CHURCH_CLIENT = path.join(REPO_ROOT, 'church-client');
 
 function buildEquipmentConfig() {
-  // Mirrors the keys church-client/src/index.js reads. Encoder picks tricaster
-  // because it's the most-mocked transport surface; the harness covers
-  // teradek + birddog directly via mock control APIs.
+  // Mirrors the keys church-client/src/index.js reads.
+  //
+  // Two non-obvious gotchas:
+  //
+  // 1) `obsUrl` MUST NOT exactly match a string in
+  //    church-client/src/index.js LEGACY_DEFAULT_OBS_URLS
+  //    (= ['ws://localhost:4455', 'ws://127.0.0.1:4455'] with NO trailing
+  //    slash). When `encoder.type !== 'obs'` AND obsUrl matches, the agent's
+  //    loadConfig() silently strips obsUrl and OBS never connects. The
+  //    workaround is to use a string that points at the same socket but
+  //    isn't in the set — adding a trailing slash works.
+  //
+  // 2) Setting `encoder.type = 'obs'` creates a SECOND OBS connection (the
+  //    EncoderBridge → ObsEncoder, alongside the standalone OBS bridge from
+  //    obsUrl). Both target ws://127.0.0.1:4455 and the dual connections
+  //    collide on the mock — the agent goes into a flap-loop, disconnecting
+  //    every other bridge along the way. Keep encoder.type as 'tricaster'
+  //    (separate mock at port 5951) so OBS gets exactly one connection.
   return {
     atemIp: '127.0.0.1',
-    obsUrl: 'ws://127.0.0.1:4455',
+    obsUrl: 'ws://127.0.0.1:4455/', // trailing slash bypasses LEGACY_DEFAULT_OBS_URLS
     obsPassword: '',
     companionUrl: 'http://127.0.0.1:8000',
     videoHubs: [{ ip: '127.0.0.1', name: 'VH1' }],

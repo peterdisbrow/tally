@@ -18,6 +18,27 @@ export DATABASE_URL='postgres://...'
 npm run test:e2e
 ```
 
+## Loading env from Railway CLI (recommended)
+
+The relay's prod env vars live in Railway. Pull them into your shell with
+the awk-based quoting below — naive `eval $(railway variables --kv | sed
+'s/^/export /')` breaks on Postgres URLs that contain `&`, `?`, `=`, etc.
+
+```bash
+eval "$(cd relay-server && railway variables --kv \
+  | grep -E '^(DATABASE_URL|ADMIN_API_KEY|JWT_SECRET)=' \
+  | awk -F= '{printf "export %s=%s\n", $1, "\047" substr($0, index($0,"=")+1) "\047"}')"
+
+# Verify all three loaded
+env | grep -cE "^(ADMIN_API_KEY|DATABASE_URL|JWT_SECRET)="    # should print 3
+
+npm run test:e2e
+```
+
+The `awk` step single-quotes each value so shell metacharacters in the
+Postgres URL (the `?sslmode=require&channel_binding=require` tail in
+particular) survive the `eval`.
+
 What you'll see:
 
 ```
