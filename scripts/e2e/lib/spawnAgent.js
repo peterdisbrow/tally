@@ -71,6 +71,11 @@ class AgentRunner {
     this.configPath = null;
     this.stdoutBuf = '';
     this.stderrBuf = '';
+    // Cursor into stdoutBuf/stderrBuf marking the next byte to flush. Lets
+    // scenarios print "what has the agent done since I last looked" without
+    // re-printing the whole buffer.
+    this._flushedStdout = 0;
+    this._flushedStderr = 0;
   }
 
   async start() {
@@ -120,6 +125,45 @@ class AgentRunner {
       await new Promise((r) => setTimeout(r, 200));
     }
     throw new Error(`[agent] did not connect within ${timeoutMs}ms\nstdout:\n${this.stdoutBuf.slice(-2000)}\nstderr:\n${this.stderrBuf.slice(-2000)}`);
+  }
+
+  /**
+   * Emit any agent stdout/stderr captured since the last flush via the harness
+   * logger at info level (so it shows up in default-verbosity runs, unlike the
+   * raw debug stream attached on spawn).
+   *
+   * Scenarios call this on retry attempts and at end-of-scenario so that when
+   * the relay reports the agent disconnected, we can see WHY from the agent's
+   * own logs (reconnect attempts, ws errors, terminate paths, etc.) without
+   * having to re-run with E2E_LOG_LEVEL=debug.
+   *
+   * @param {object|null} logger    Optional logger to use; defaults to this.log
+   * @param {string}      [reason]  Short label printed before the chunk
+   */
+  flushLogs(logger = null, reason = '') {
+    const out = (logger || this.log);
+    if (!out) return { stdout: 0, stderr: 0 };
+    const newStdout = this.stdoutBuf.slice(this._flushedStdout);
+    const newStderr = this.stderrBuf.slice(this._flushedStderr);
+    this._flushedStdout = this.stdoutBuf.length;
+    this._flushedStderr = this.stderrBuf.length;
+    if (!newStdout && !newStderr) {
+      out.info?.(`[agent-flush${reason ? ' ' + reason : ''}] (no new output since last flush)`);
+      return { stdout: 0, stderr: 0 };
+    }
+    const header = `── agent flush${reason ? ' (' + reason + ')' : ''} ─ +${newStdout.length}b stdout, +${newStderr.length}b stderr ──`;
+    out.info?.(header);
+    if (newStdout) {
+      for (const line of newStdout.split('\n')) {
+        if (line.trim()) out.info?.(`[agent-out] ${line}`);
+      }
+    }
+    if (newStderr) {
+      for (const line of newStderr.split('\n')) {
+        if (line.trim()) out.info?.(`[agent-err] ${line}`);
+      }
+    }
+    return { stdout: newStdout.length, stderr: newStderr.length };
   }
 
   async stop() {

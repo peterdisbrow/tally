@@ -14,7 +14,8 @@
 'use strict';
 
 module.exports = async function companionPress(ctx) {
-  const { mocks, sse, admin } = ctx;
+  const { mocks, sse, admin, agent, log } = ctx;
+  const scenarioLog = log?.child ? log.child('scenario-D') : log;
 
   // Initial: Companion bridge connected.
   await sse.waitFor(
@@ -45,6 +46,11 @@ module.exports = async function companionPress(ctx) {
   // the relay's WebSocket-level ping interval (25s default ÷ 2). Real
   // callers do the same.
   // ──────────────────────────────────────────────────────────────────────
+  // Snapshot the agent's current stdout offset BEFORE we start dispatching,
+  // so the first 503-retry flush only includes the (failing) reconnect noise
+  // produced by THIS scenario rather than every line since launch.
+  agent?.flushLogs?.(scenarioLog, 'pre-dispatch baseline');
+
   const before = (await mocks.state('companion')).pressLog?.length || 0;
   const dispatchDeadline = Date.now() + 20_000;
   let dispatchedOk = false;
@@ -75,10 +81,17 @@ module.exports = async function companionPress(ctx) {
       const isNotConnected = e?.status === 503
         && (typeof e.body === 'object' ? /not connected/i.test(e.body?.error || '') : /not connected/i.test(String(e.body)));
       if (!isNotConnected) throw e;
+      // Surface the agent's recent stdout/stderr so we can see WHY the relay
+      // says the WS is down (reconnect backoff, replaced-by-duplicate, ping
+      // timeout, etc.). Without this, a 20-attempt failure is opaque.
+      agent?.flushLogs?.(scenarioLog, `503 retry attempt #${attempts}`);
     }
     await new Promise((r) => setTimeout(r, 1_000));
   }
   if (!dispatchedOk) {
+    // Final flush so the failure summary in the test report carries the last
+    // bit of agent output too.
+    agent?.flushLogs?.(scenarioLog, 'dispatch FAILED — final agent state');
     throw lastErr || new Error(`command dispatch never succeeded after ${attempts} attempts over 20s — relay reported church disconnected for the entire window`);
   }
 
@@ -115,4 +128,10 @@ module.exports = async function companionPress(ctx) {
   // Belt-and-suspenders: confirm the agent's Companion bridge is still
   // connected after both press cycles (proves nothing crashed).
   await sse.waitFor((s) => s?.companion?.connected === true, { timeoutMs: 5_000 });
+
+  // End-of-scenario flush so any agent activity from this run shows up in
+  // the harness log even when the scenario passes — useful for spotting
+  // soft regressions (extra reconnects, transient errors that didn't fail
+  // the scenario but are worth noticing).
+  agent?.flushLogs?.(scenarioLog, 'end of scenario');
 };
