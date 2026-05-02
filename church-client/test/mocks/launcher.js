@@ -19,12 +19,23 @@
 
 const path = require('node:path');
 
+// `defaultPort` is the documented real-world port for that device. Where two
+// real devices clash on the same port (Resolume + BirdDog both default to
+// 8080 in production), we move the less common one to a free port in the
+// launcher and document the override; tests can pin either via PORT_<name>
+// or pass `port: 0` for ephemeral allocation.
 const REGISTRY = [
-  { name: 'companion',    file: 'companionServer.js',    defaultPort: 8000 },
-  { name: 'propresenter', file: 'propresenterServer.js', defaultPort: 1025 },
-  { name: 'videohub',     file: 'videohubServer.js',     defaultPort: 9990 },
-  { name: 'obs',          file: 'obsServer.js',          defaultPort: 4455 },
-  { name: 'atem',         file: 'atemServer.js',         defaultPort: 9910 },
+  { name: 'companion',       file: 'companionServer.js',       defaultPort: 8000 },
+  { name: 'propresenter',    file: 'propresenterServer.js',    defaultPort: 1025 },
+  { name: 'videohub',        file: 'videohubServer.js',        defaultPort: 9990 },
+  { name: 'obs',             file: 'obsServer.js',             defaultPort: 4455 },
+  { name: 'atem',            file: 'atemServer.js',            defaultPort: 9910 },
+  { name: 'tricaster',       file: 'tricasterServer.js',       defaultPort: 5951 },
+  { name: 'birddog',         file: 'birddogServer.js',         defaultPort: 8081 }, // real default 8080 — moved to avoid Resolume collision
+  { name: 'teradek',         file: 'teradekServer.js',         defaultPort: 8082 }, // real default 80 — moved (privileged port)
+  { name: 'resolume',        file: 'resolumeServer.js',        defaultPort: 8080 },
+  { name: 'sq',              file: 'sqMixerServer.js',         defaultPort: 51325 }, // also opens 51326 for OSC
+  { name: 'planning-center', file: 'planningCenterServer.js',  defaultPort: 8083 },
 ];
 
 async function main() {
