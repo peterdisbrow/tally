@@ -35,15 +35,23 @@ module.exports = async function companionPress(ctx) {
   // doesn't exist as a registered command — the agent logs "Unknown command".
   //
   // The relay can briefly return HTTP 503 "Church client not connected" if
-  // the agent's WS is mid-reconnect when the command lands (we've seen this
-  // when status SSE still shows connected from up to 1s ago).  Retry the
-  // dispatch a few times — real callers do the same.
+  // the agent's WS is mid-reconnect when the command lands. We've seen this
+  // even when status SSE still shows connected (the SSE `latest` can be up
+  // to 1s stale relative to the relay's authoritative socket state). The
+  // ws reconnect path in church-client/src/index.js uses a 5s exponential
+  // backoff on reconnectDelay, capped at 60s — but in practice the church
+  // typically rejoins within ~10–15s after a transient drop. We allow up
+  // to 20s of retry, which comfortably covers a single backoff cycle plus
+  // the relay's WebSocket-level ping interval (25s default ÷ 2). Real
+  // callers do the same.
   // ──────────────────────────────────────────────────────────────────────
   const before = (await mocks.state('companion')).pressLog?.length || 0;
-  const dispatchDeadline = Date.now() + 8_000;
+  const dispatchDeadline = Date.now() + 20_000;
   let dispatchedOk = false;
   let lastErr = null;
+  let attempts = 0;
   while (!dispatchedOk && Date.now() < dispatchDeadline) {
+    attempts++;
     try {
       // Re-confirm the church is connected from the relay's POV right before
       // posting — guards against stale SSE `latest` showing connected when
@@ -68,10 +76,10 @@ module.exports = async function companionPress(ctx) {
         && (typeof e.body === 'object' ? /not connected/i.test(e.body?.error || '') : /not connected/i.test(String(e.body)));
       if (!isNotConnected) throw e;
     }
-    await new Promise((r) => setTimeout(r, 750));
+    await new Promise((r) => setTimeout(r, 1_000));
   }
   if (!dispatchedOk) {
-    throw lastErr || new Error('command dispatch never succeeded — relay reported church disconnected for the entire 8s window');
+    throw lastErr || new Error(`command dispatch never succeeded after ${attempts} attempts over 20s — relay reported church disconnected for the entire window`);
   }
 
   // Wait for the press to land on the mock.
