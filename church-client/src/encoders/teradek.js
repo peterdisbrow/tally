@@ -122,6 +122,7 @@ class TeradekEncoder {
       return {
         type: 'teradek', connected: false, live: false,
         bitrateKbps: null, fps: null, cpuUsage: null, recording: false,
+        powerSource: null, batteryPct: null, batteryCharging: null,
         details: this._productName,
       };
     }
@@ -137,7 +138,10 @@ class TeradekEncoder {
 
     // Power: "source:percentage:unknown:charging"
     const powerParts = (s['System-Power'] || '').split(':');
-    const batteryPct = powerParts[1] || null;
+    const powerSource = powerParts[0] || null;
+    const pctNum = Number.parseInt(powerParts[1], 10);
+    const batteryPct = Number.isFinite(pctNum) ? pctNum : null;
+    const batteryCharging = powerParts[3] === 'true' ? true : powerParts[3] === 'false' ? false : null;
 
     // Video input: "type:state"
     const videoInput = (s['Video-Input'] || '').split(':')[0] || '';
@@ -161,7 +165,7 @@ class TeradekEncoder {
     if (live) details += ` — ${broadcastState}`;
     if (recording) details += ' — Recording';
     if (broadcastError !== 'none') details += ` (⚠ ${broadcastError})`;
-    if (batteryPct) details += ` · 🔋${batteryPct}%`;
+    if (batteryPct != null) details += ` · 🔋${batteryPct}%`;
     if (videoInput) details += ` · ${videoInput}`;
 
     return {
@@ -172,6 +176,9 @@ class TeradekEncoder {
       fps: null,
       cpuUsage: null,
       recording,
+      powerSource,
+      batteryPct,
+      batteryCharging,
       details,
       firmwareVersion: this._firmware || null,
     };
