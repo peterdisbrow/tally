@@ -470,10 +470,24 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
 
 // ─── ONBOARDING EMAILS (via Resend) ─────────────────────────────────────────
 
-async function sendOnboardingEmail({ to, subject, html, text, tag }) {
+async function sendOnboardingEmail({ to, subject, html, text, tag, churchId }) {
   if (!RESEND_API_KEY) {
     log(`[onboarding-email] No RESEND_API_KEY — would send "${subject}" to ${to}`);
     return { sent: false, reason: 'no-api-key' };
+  }
+  // CAN-SPAM: route through the lifecycleEmails injection helper so this
+  // bypass path picks up the same unsubscribe footer logic as
+  // lifecycleEmails.sendEmail. Skipped automatically for tags that don't
+  // map to a category in EMAIL_CATEGORIES (e.g. 'email-verification' —
+  // genuinely transactional under CAN-SPAM and exempt). Adding a new tag
+  // here that should ship with an unsubscribe link requires registering
+  // it in EMAIL_CATEGORIES on lifecycleEmails.js.
+  if (lifecycleEmails && churchId && tag) {
+    try {
+      html = lifecycleEmails.injectUnsubscribeFooter(html, churchId, to, tag);
+    } catch (e) {
+      log(`[onboarding-email] Footer injection failed for tag=${tag}: ${e.message}`);
+    }
   }
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -4616,6 +4630,7 @@ const _wsHandlers = createWebSocketHandlers({
               const portalUrl = `${APP_URL}/portal`;
               sendOnboardingEmail({
                 to: dbRow.portal_email,
+                churchId: church.churchId,
                 subject: `Tally is live at ${church.name}!`,
                 html: buildConnectionEmailHtml({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
                 text: buildConnectionEmailText({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),

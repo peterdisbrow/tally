@@ -403,7 +403,7 @@ class LifecycleEmails {
     'service-recaps':  { name: 'Service Recaps',      types: ['session-recap'] },
     'weekly-digest':   { name: 'Weekly Digest',        types: ['weekly-digest'] },
     'monthly-reports': { name: 'Monthly Reports',      types: ['monthly-roi-summary'] },
-    'onboarding':      { name: 'Setup & Onboarding',   types: ['setup-reminder', 'first-sunday-prep', 'week-one-checkin', 'activation-escalation', 'telegram-setup-nudge', 'pre-service-friday', 'trial-to-paid-onboarding'] },
+    'onboarding':      { name: 'Setup & Onboarding',   types: ['setup-reminder', 'first-sunday-prep', 'week-one-checkin', 'activation-escalation', 'telegram-setup-nudge', 'pre-service-friday', 'trial-to-paid-onboarding', 'connection-success'] },
     'feature-tips':    { name: 'Feature Tips',          types: ['schedule-setup-nudge', 'multi-cam-nudge', 'viewer-analytics-nudge', 'nps-survey'] },
     'billing':         { name: 'Billing & Trial',       types: ['trial-ending-7days', 'trial-ending-soon', 'trial-ending-tomorrow', 'trial-expired', 'payment-failed', 'grace-period-ending', 'grace-period-ending-early', 'annual-renewal-reminder', 'invoice-upcoming'] },
     'referral':        { name: 'Referral Program',      types: ['referral-invite'] },
@@ -792,6 +792,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
    *     templates that build the footer inline).
    * Token uses the category key (not the raw emailType) so the unsubscribe
    * endpoint can opt the recipient out of the whole category.
+   *
+   * **Public alias** — `injectUnsubscribeFooter` (no underscore) — exists so
+   * the bypass paths in server.js (sendOnboardingEmail) can call into the
+   * same injection logic without reaching into private API. Use the public
+   * name from any external caller; both names are wired to this method.
    */
   _injectUnsubscribeFooter(html, churchId, recipient, emailType) {
     if (!html || !churchId || !recipient || !emailType) return html;
@@ -805,6 +810,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       return html.replace(/<\/body>/i, footer + '</body>');
     }
     return html + footer;
+  }
+
+  // Public alias for external callers (e.g. server.js sendOnboardingEmail).
+  injectUnsubscribeFooter(html, churchId, recipient, emailType) {
+    return this._injectUnsubscribeFooter(html, churchId, recipient, emailType);
   }
 
   // ─── HOURLY CHECK ───────────────────────────────────────────────────────────
@@ -4101,6 +4111,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'win-back',                name: 'Win-Back',                trigger: 'Auto — 30-60 days after cancellation' },
     { type: 'review-request',          name: 'Review Request',          trigger: 'Auto — 30-180 days, 4+ sessions, 2+ clean' },
     { type: 'welcome-verified',        name: 'Welcome Email',           trigger: 'On email verification' },
+    { type: 'connection-success',      name: 'Booth Connected',         trigger: 'On first desktop-app connection (sent via server.js sendOnboardingEmail)' },
     { type: 'payment-confirmed',       name: 'Payment Confirmed',       trigger: 'Billing webhook — new subscription' },
     { type: 'password-reset',          name: 'Password Reset',          trigger: 'Self-service — forgot password' },
     // Gap emails

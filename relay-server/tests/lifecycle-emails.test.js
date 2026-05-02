@@ -615,6 +615,72 @@ describe('LifecycleEmails', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Unsubscribe footer injection — covers the "watching your stream" bug
+  // where a categorized feature-tip email shipped without a footer because
+  // it was sent before the relay-server redeploy. Tests assert that the
+  // injection helper is wired correctly and public-API-callable so the
+  // server.js sendOnboardingEmail bypass path can use it.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('injectUnsubscribeFooter', () => {
+    it('injects an unsubscribe link for a categorized feature-tip email', () => {
+      const html = '<div>Hello world</div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+      expect(out).toContain('/api/notifications/unsubscribe');
+      expect(out).toContain('Unsubscribe');
+    });
+
+    it('injects an unsubscribe link for the connection-success onboarding email', () => {
+      // The "Tally is live at <church>!" email — sent via server.js
+      // sendOnboardingEmail. Was missing a footer until this fix.
+      const html = '<div>Tally is live at LCC!</div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'connection-success');
+      expect(out).toContain('/api/notifications/unsubscribe');
+    });
+
+    it('does NOT inject for transactional email-verification (uncategorized)', () => {
+      // Verification emails are exempt under CAN-SPAM AND would actively
+      // harm the signup funnel if users could click an unsubscribe link
+      // before completing verification.
+      const html = '<div>Confirm your email</div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'email-verification');
+      expect(out).not.toContain('/api/notifications/unsubscribe');
+      expect(out).toBe(html);
+    });
+
+    it('skips injection when html already contains an unsubscribe link', () => {
+      const html = '<div>...<a href="https://x/api/notifications/unsubscribe?token=abc">Unsubscribe</a></div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+      expect(out).toBe(html);
+    });
+
+    it('returns html unchanged when churchId is missing', () => {
+      const html = '<div>Test</div>';
+      const out = emails.injectUnsubscribeFooter(html, '', 'a@b.com', 'viewer-analytics-nudge');
+      expect(out).toBe(html);
+    });
+
+    it('public injectUnsubscribeFooter delegates to the private impl', () => {
+      // Sanity: both names produce the same output for the same input.
+      const html = '<div>Hello</div>';
+      const a = emails.injectUnsubscribeFooter(html, 'c', 'a@b.com', 'viewer-analytics-nudge');
+      const b = emails._injectUnsubscribeFooter(html, 'c', 'a@b.com', 'viewer-analytics-nudge');
+      expect(a).toBe(b);
+    });
+
+    it('connection-success is registered in EMAIL_CATEGORIES.onboarding', () => {
+      const { LifecycleEmails } = require('../src/lifecycleEmails');
+      expect(LifecycleEmails.EMAIL_CATEGORIES.onboarding.types).toContain('connection-success');
+    });
+
+    it('connection-success appears in EMAIL_REGISTRY for the admin Templates UI', () => {
+      const { LifecycleEmails } = require('../src/lifecycleEmails');
+      const types = LifecycleEmails.EMAIL_REGISTRY.map((e) => e.type);
+      expect(types).toContain('connection-success');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Schema / Constructor
   // ──────────────────────────────────────────────────────────────────────────
 
