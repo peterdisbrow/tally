@@ -49,7 +49,15 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
       return res.status(access.status).json({ error: access.error, command, device: access.device });
     }
 
-    const msg = { type: 'command', command, params, id: uuidv4() };
+    // churchId MUST be on the payload — dispatchCommandAcrossRuntime() bails
+    // out early with `delivered: false` if `payload.churchId` is missing, even
+    // though the local-delivery loop above already sent the message. Without
+    // it, the relay returns 503 "Church client not connected" while the agent
+    // happily executes the command, breaking E2E scenario D and any caller
+    // that relies on the HTTP response code. The portal WS handler at
+    // server.js (`type: 'command'` branch) already includes churchId in its
+    // dispatched payload — this matches that convention.
+    const msg = { type: 'command', churchId, command, params, id: uuidv4() };
     ctx.totalMessagesRelayed++;
 
     let localRecipients = 0;

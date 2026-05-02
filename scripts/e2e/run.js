@@ -188,6 +188,11 @@ async function main() {
     admin: apiAdmin(cfg.relayUrl, cfg.adminApiKey),
     bearer: apiBearer(cfg.relayUrl, account.appToken),
     mocksLauncher,
+    // Exposed so scenarios can flush the agent's stdout into the harness log
+    // when they hit transient relay errors (e.g. 503 "not connected"). Lets
+    // us see WHY the WS is down — reconnect attempts, replaced-by-duplicate,
+    // ping-pong terminate, etc. — without re-running at debug verbosity.
+    agent,
   };
   // Recovery scenarios need to restart the launcher so attach it to mocks
   // namespace too.
