@@ -266,6 +266,10 @@ const { createRateLimit, consumeRateLimit, logRateLimitStatus, closeRedisRateLim
 const { createWebSocketHandlers } = require('./src/websocketRouter');
 const { createDeltaTracker } = require('./src/deltaUpdates');
 const { createStatusBatcher } = require('./src/statusBatcher');
+const {
+  sendPortalSnapshotToClient,
+  startPortalSnapshotHeartbeat,
+} = require('./src/portalStream');
 const { createRuntimeCoordinator } = require('./src/runtimeCoordination');
 const { createRuntimeMetrics } = require('./src/runtimeMetrics');
 const { createRuntimeMirror } = require('./src/runtimeMirror');
@@ -2389,10 +2393,11 @@ app.get('/api/church/stream', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  // Send current state immediately
-  const church = getObservedChurch(churchId);
-  const initialPayload = buildPortalStatusSnapshot(church);
-  res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+  // Send current state immediately. The snapshot is read fresh from the
+  // observed-church mirror at subscribe time so a client connecting partway
+  // through an agent reconnect (after some bridges have arrived but not all)
+  // still gets a full, up-to-date view rather than the cached starting state.
+  sendPortalSnapshotToClient(res, churchId, getObservedChurch);
 
   // Register as a portal SSE client for this church
   if (!portalSseClients.has(churchId)) portalSseClients.set(churchId, new Set());
@@ -2465,10 +2470,9 @@ app.get('/api/church/app/status/stream', requireChurchAppAuth, (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  // Send current snapshot immediately
-  const church = getObservedChurch(churchId);
-  const snapshot = buildPortalStatusSnapshot(church);
-  res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+  // Send current snapshot immediately, pulled fresh from the observed mirror
+  // (see /api/church/stream above for why this matters).
+  sendPortalSnapshotToClient(res, churchId, getObservedChurch);
 
   // Reuse portal SSE client set so broadcastToPortal() pushes updates here too
   if (!portalSseClients.has(churchId)) portalSseClients.set(churchId, new Set());
@@ -4564,6 +4568,16 @@ _intervals.push(setInterval(() => {
   broadcastToSSE({ type: 'snapshot', churches: states });
 }, 60_000));
 
+// Periodic full re-snapshot to portal SSE clients every 30s. Portal clients
+// receive deltas after their initial subscribe; if they miss one (transient
+// disconnect, agent reconnect mid-stream), this self-heals their state.
+// Snapshots are idempotent for the client — the frame replaces local state.
+_intervals.push(startPortalSnapshotHeartbeat({
+  portalSseClients,
+  getObservedChurch,
+  intervalMs: 30_000,
+}));
+
 // Maintenance, on-call, guest token routes → src/routes/churchOps.js
 
 // Telegram bot API (extracted)
@@ -5873,17 +5887,6 @@ function buildDashboardChurchState(church) {
     reseller_id: church.reseller_id || null,
     audio_via_atem: church.audio_via_atem || 0,
     instances: Array.isArray(church.instances) ? church.instances : [],
-  };
-}
-
-function buildPortalStatusSnapshot(church) {
-  return {
-    type: 'status_snapshot',
-    connected: !!church?.connected,
-    status: church?.status || {},
-    instanceStatus: church?.instanceStatus || {},
-    roomInstanceMap: church?.roomInstanceMap || {},
-    lastSeen: church?.lastSeen || null,
   };
 }
 
