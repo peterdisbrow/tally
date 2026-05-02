@@ -146,6 +146,19 @@
         </div>
       </div>
 
+      <!-- Stream Protection Active Banner — top-level indicator for live services. Shown
+           for all users (not advanced-only) since this is a Sunday-morning critical signal. -->
+      <div id="stream-protection-banner" style="display:none;margin-bottom:16px;padding:14px 20px;border-radius:10px;background:linear-gradient(90deg,rgba(0,230,118,0.14),rgba(0,230,118,0.04));border:1px solid rgba(0,230,118,0.45);align-items:center;gap:14px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,230,118,0.22);flex-shrink:0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:#00E676;letter-spacing:0.5px;text-transform:uppercase">Stream Protected</div>
+          <div id="sp-banner-since" style="font-size:12px;color:#8B9DAF;margin-top:3px">Watching for issues</div>
+        </div>
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#00E676;animation:pulse 2s infinite;flex-shrink:0"></span>
+      </div>
+
       <!-- Sunday Readiness Hero Card -->
       <div class="readiness-hero" id="readiness-hero">
         <div class="readiness-icon" id="readiness-icon">
