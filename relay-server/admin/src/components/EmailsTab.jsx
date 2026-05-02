@@ -199,7 +199,7 @@ function Templates({ api }) {
   const load = useCallback(async () => {
     try {
       setErr('');
-      const data = await api('/api/admin/emails/templates');
+      const data = await api('/api/admin/emails/catalog');
       setTemplates(data);
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
@@ -253,14 +253,32 @@ function Templates({ api }) {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
         {templates.map(t => (
           <div key={t.type} style={s.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8, gap: 8 }}>
               <strong style={{ fontSize: 14 }}>{t.name}</strong>
-              {t.hasOverride && <span style={{ ...s.badge(C.yellow), fontSize: 10 }}>Override</span>}
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {t.hasOverride && <span style={{ ...s.badge(C.yellow), fontSize: 10 }}>Override active</span>}
+                {t.isUnsubscribable && <span style={{ ...s.badge(C.blue), fontSize: 10 }}>Unsubscribable</span>}
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>{t.trigger}</div>
+            {t.subject && (
+              <div style={{ fontSize: 12, color: C.white, marginBottom: 8, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.subject}>
+                {t.subject}
+              </div>
+            )}
+            {t.category && (
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+                Category: <code style={{ fontSize: 11 }}>{t.category}</code>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>{t.trigger}</div>
+            {t.bodyPreview && (
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 12, lineHeight: 1.4, maxHeight: 60, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {t.bodyPreview.length > 180 ? t.bodyPreview.slice(0, 180) + '…' : t.bodyPreview}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button style={{ ...s.btn('secondary'), padding: '6px 12px', fontSize: 12 }} onClick={() => handlePreview(t.type)}>Preview</button>
               <button style={{ ...s.btn('secondary'), padding: '6px 12px', fontSize: 12 }} onClick={() => handleEdit(t.type)}>Edit</button>

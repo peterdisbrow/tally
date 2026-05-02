@@ -4265,6 +4265,55 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     }));
   }
 
+  /**
+   * Catalog view for the admin email manager — augments getTemplateList() with
+   * the rendered subject, a stripped-text body preview, the unsubscribe-list
+   * category (or null for transactional types), and override metadata.
+   */
+  getEmailCatalog({ previewLength = 500 } = {}) {
+    const list = this.getTemplateList();
+    const overridesByType = this.queryClient
+      ? this._cache.overridesByEmailType
+      : (() => {
+          const map = new Map();
+          try {
+            this.db.prepare('SELECT email_type, subject, html, updated_at FROM email_template_overrides').all()
+              .forEach(r => map.set(r.email_type, r));
+          } catch { /* table might not exist yet */ }
+          return map;
+        })();
+
+    return list.map(entry => {
+      const preview = this.getPreview(entry.type) || {};
+      const override = overridesByType.get(entry.type) || null;
+      const category = this._getCategoryForType(entry.type);
+      const html = preview.html || '';
+      const text = String(html)
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return {
+        type: entry.type,
+        name: entry.name,
+        trigger: entry.trigger,
+        category,
+        isUnsubscribable: !!category,
+        subject: preview.subject || null,
+        bodyPreview: text.slice(0, previewLength),
+        hasOverride: !!override,
+        override: override
+          ? {
+              subject: override.subject || null,
+              html: override.html || null,
+              updated_at: override.updated_at || null,
+            }
+          : null,
+      };
+    });
+  }
+
   /** Get a template override from DB */
   _getOverride(emailType) {
     if (this.queryClient) {
