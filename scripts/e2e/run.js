@@ -111,17 +111,27 @@ async function main() {
   sse.startPolling({ intervalMs: 1_000 });
 
   // 4b. Wait for the agent's bridges to actually connect, polling REST
-  // until the critical-bridge predicate holds (or 45s elapses). The poll
-  // overlays REST snapshots into `sse.latest` so SSE deltas continue to
-  // merge naturally on top during the rest of the run.
+  // until the critical-bridge predicate holds (early-exit) or the hard
+  // cap elapses. The poll overlays REST snapshots into `sse.latest` so
+  // SSE deltas continue to merge naturally on top during the rest of
+  // the run.
   //
-  // 45s is calibrated to PP's retry interval (30s) — if PP fails its
-  // first connection attempt (e.g. mock not fully bound when agent
-  // probes), it retries at +30s. Anything shorter than ~35s loses to
-  // the retry race when mocks are sluggish to bind.
+  // Cap = 90s. Calibrated against the slowest-retrying bridges:
+  //   - Companion (church-client/index.js):  30s availability poll
+  //   - Mixer (church-client/index.js):       30s availability poll
+  //   - ProPresenter (proPresenter.js):       5s exp backoff → 60s
+  //   - OBS (church-client/index.js):         5s exp backoff → 60s
+  // If Companion or Mixer races a not-yet-bound mock on first attempt,
+  // the next attempt lands at +30s; agent startup plus mock binding
+  // pushes the worst-case green window past 45s.  90s comfortably
+  // covers a second miss on the 30s pollers (attempts at ~0s, ~30s,
+  // ~60s) without bloating the harness — we early-exit the moment
+  // all bridges report connected.
   log.info('Phase 4b: wait for agent bridges to connect');
-  const bridgeDeadline = Date.now() + 45_000;
+  const bridgeDeadlineMs = 90_000;
+  const bridgeDeadline = Date.now() + bridgeDeadlineMs;
   let bridgesReady = false;
+  let lastLogged = 0;
   while (Date.now() < bridgeDeadline) {
     await sse.refresh();
     const s = sse.latest || {};
@@ -133,10 +143,26 @@ async function main() {
       bridgesReady = true;
       break;
     }
+    // Visibility tick every 15s while we wait — makes "what's the agent
+    // doing right now" obvious instead of a silent 90s pause.
+    const now = Date.now();
+    if (now - lastLogged >= 15_000) {
+      lastLogged = now;
+      const elapsed = Math.round((bridgeDeadlineMs - (bridgeDeadline - now)) / 1000);
+      const pending = [
+        !s.companion?.connected && 'companion',
+        !s.proPresenter?.connected && 'proPresenter',
+        !s.obs?.connected && 'obs',
+        !(Array.isArray(s.videoHubs) && s.videoHubs.some((h) => h?.connected === true)) && 'videoHub',
+        !s.mixer?.connected && 'mixer',
+      ].filter(Boolean);
+      log.info(`  …waiting (${elapsed}s elapsed, still pending: ${pending.join(', ') || 'none'})`);
+    }
     await new Promise((r) => setTimeout(r, 1_500));
   }
   if (bridgesReady) {
-    log.info('  ✓ all critical bridges connected (companion, PP, OBS, VideoHub, mixer)');
+    const settleSec = Math.round((bridgeDeadlineMs - (bridgeDeadline - Date.now())) / 1000);
+    log.info(`  ✓ all critical bridges connected in ${settleSec}s (companion, PP, OBS, VideoHub, mixer)`);
   } else {
     const s = sse.latest || {};
     const status = {
@@ -146,10 +172,10 @@ async function main() {
       videoHubs: s.videoHubs?.[0]?.connected,
       mixer: s.mixer?.connected,
     };
-    log.info(`  ⚠ Not all bridges connected within 45s: ${JSON.stringify(status)} — proceeding anyway`);
-    log.info(`    (Likely cause: relay-side stale status cache. The agent connects to the`);
-    log.info(`     bridges locally but the relay's church.status doesn't update after the`);
-    log.info(`     initial WS push. Worth a separate investigation in relay-server.)`);
+    log.info(`  ⚠ Not all bridges connected within ${bridgeDeadlineMs / 1000}s: ${JSON.stringify(status)} — proceeding anyway`);
+    log.info(`    (Companion/Mixer poll every 30s; OBS/PP back off up to 60s. If a bridge`);
+    log.info(`     misses two retry windows here, the mock probably isn't bound — check`);
+    log.info(`     scripts/e2e/lib/spawnMocks.js and confirm the mock listener is up.)`);
   }
 
   // 5. Build harness context for scenarios.
