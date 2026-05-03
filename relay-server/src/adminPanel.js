@@ -1975,14 +1975,14 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const openSockets = [];
 
     if (roomId && runtime?.roomInstanceMap?.[roomId]) {
-      // Room-targeted: find the specific socket for this room's instance
+      // Room-targeted: find the specific socket for this room's instance.
+      // runtime.sockets is a Map<instanceName, ws>, so look up the ws by key —
+      // sock.instanceName is not set in production, so iterating values and
+      // comparing sock.instanceName never matches.
       const instanceName = runtime.roomInstanceMap[roomId];
-      if (runtime.sockets?.size) {
-        for (const sock of runtime.sockets.values()) {
-          if (sock.readyState === WebSocket.OPEN && sock.instanceName === instanceName) {
-            openSockets.push(sock);
-          }
-        }
+      const targetSock = runtime.sockets?.get(instanceName);
+      if (targetSock && targetSock.readyState === WebSocket.OPEN) {
+        openSockets.push(targetSock);
       }
       if (openSockets.length === 0) {
         return res.status(409).json({ error: `Room instance "${instanceName}" is not connected` });
