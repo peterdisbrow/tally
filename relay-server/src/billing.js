@@ -463,52 +463,34 @@ class BillingSystem {
       record.updated_at,
     ];
 
-    if (this.db) {
-      this.db.prepare(`
-        INSERT OR REPLACE INTO billing_customers
-          (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
-           tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
-           grace_ends_at, email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(...params);
-      return;
-    }
-
-    const client = this._requireClient();
-    if (client.driver === 'postgres') {
-      await client.run(`
-        INSERT INTO billing_customers
-          (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
-           tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
-           grace_ends_at, email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          church_id = EXCLUDED.church_id,
-          reseller_id = EXCLUDED.reseller_id,
-          stripe_customer_id = EXCLUDED.stripe_customer_id,
-          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-          stripe_session_id = EXCLUDED.stripe_session_id,
-          tier = EXCLUDED.tier,
-          billing_interval = EXCLUDED.billing_interval,
-          status = EXCLUDED.status,
-          trial_ends_at = EXCLUDED.trial_ends_at,
-          current_period_end = EXCLUDED.current_period_end,
-          cancel_at_period_end = EXCLUDED.cancel_at_period_end,
-          grace_ends_at = EXCLUDED.grace_ends_at,
-          email = EXCLUDED.email,
-          created_at = EXCLUDED.created_at,
-          updated_at = EXCLUDED.updated_at
-      `, params);
-      return;
-    }
-
-    await client.run(`
-      INSERT OR REPLACE INTO billing_customers
+    const upsertSql = `
+      INSERT INTO billing_customers
         (id, church_id, reseller_id, stripe_customer_id, stripe_subscription_id, stripe_session_id,
          tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end,
          grace_ends_at, email, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, params);
+      ON CONFLICT (id) DO UPDATE SET
+        church_id = EXCLUDED.church_id,
+        reseller_id = EXCLUDED.reseller_id,
+        stripe_customer_id = EXCLUDED.stripe_customer_id,
+        stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+        stripe_session_id = EXCLUDED.stripe_session_id,
+        tier = EXCLUDED.tier,
+        billing_interval = EXCLUDED.billing_interval,
+        status = EXCLUDED.status,
+        trial_ends_at = EXCLUDED.trial_ends_at,
+        current_period_end = EXCLUDED.current_period_end,
+        cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+        grace_ends_at = EXCLUDED.grace_ends_at,
+        email = EXCLUDED.email,
+        created_at = EXCLUDED.created_at,
+        updated_at = EXCLUDED.updated_at
+    `;
+    if (this.db) {
+      this.db.prepare(upsertSql).run(...params);
+      return;
+    }
+    await this._requireClient().run(upsertSql, params);
   }
 
   async _ensureDisputesTable() {
@@ -858,22 +840,15 @@ class BillingSystem {
         dispute.reason || 'unknown',
         now,
       ];
+      const insertSql = `
+        INSERT INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
+        ON CONFLICT (stripe_dispute_id) DO NOTHING
+      `;
       if (this.db) {
-        this.db.prepare(`
-          INSERT OR IGNORE INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
-        `).run(...params);
-      } else if (this._requireClient().driver === 'postgres') {
-        await this._requireClient().run(`
-          INSERT INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
-          ON CONFLICT (stripe_dispute_id) DO NOTHING
-        `, params);
+        this.db.prepare(insertSql).run(...params);
       } else {
-        await this._requireClient().run(`
-          INSERT OR IGNORE INTO billing_disputes (id, church_id, stripe_dispute_id, stripe_charge_id, amount, currency, reason, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
-        `, params);
+        await this._requireClient().run(insertSql, params);
       }
     } catch (e) {
       console.error(`[Billing] Failed to record dispute: ${e.message}`);

@@ -147,6 +147,14 @@ class LifecycleEmails {
         PRIMARY KEY (church_id, category)
       )`,
       `
+      CREATE TABLE IF NOT EXISTS email_unsubscribes (
+        church_id TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        category TEXT NOT NULL,
+        unsubscribed_at TEXT NOT NULL,
+        PRIMARY KEY (church_id, recipient, category)
+      )`,
+      `
       CREATE TABLE IF NOT EXISTS sales_leads (
         id ${idColumn},
         email TEXT NOT NULL UNIQUE,
@@ -468,18 +476,20 @@ class LifecycleEmails {
   setPreference(churchId, category, enabled) {
     if (!(category in LifecycleEmails.EMAIL_CATEGORIES)) return false;
     const now = new Date().toISOString();
+    const upsertSql = `
+      INSERT INTO email_preferences (church_id, category, enabled, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (church_id, category) DO UPDATE SET
+        enabled = excluded.enabled,
+        updated_at = excluded.updated_at
+    `;
     if (this.queryClient) {
       this._cachePreference(churchId, category, enabled);
-      void this._queueWrite(() => this._run(
-        'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)',
-        [churchId, category, enabled ? 1 : 0, now],
-      ));
+      void this._queueWrite(() => this._run(upsertSql, [churchId, category, enabled ? 1 : 0, now]));
       return true;
     }
     try {
-      this.db.prepare(
-        'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)'
-      ).run(churchId, category, enabled ? 1 : 0, now);
+      this.db.prepare(upsertSql).run(churchId, category, enabled ? 1 : 0, now);
       return true;
     } catch { return false; }
   }
@@ -510,6 +520,12 @@ class LifecycleEmails {
   unsubscribeRecipient(churchId, recipient, category) {
     const normalizedEmail = recipient.trim().toLowerCase();
     const now = new Date().toISOString();
+    const upsertSql = `
+      INSERT INTO email_unsubscribes (church_id, recipient, category, unsubscribed_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (church_id, recipient, category) DO UPDATE SET
+        unsubscribed_at = excluded.unsubscribed_at
+    `;
     if (this.queryClient) {
       if (!this._cache.recipientUnsubscribes) this._cache.recipientUnsubscribes = [];
       const existing = this._cache.recipientUnsubscribes.find(r =>
@@ -520,16 +536,11 @@ class LifecycleEmails {
       if (!existing) {
         this._cache.recipientUnsubscribes.push({ church_id: churchId, recipient: normalizedEmail, category, unsubscribed_at: now });
       }
-      void this._queueWrite(() => this._run(
-        'INSERT OR REPLACE INTO email_unsubscribes (church_id, recipient, category, unsubscribed_at) VALUES (?, ?, ?, ?)',
-        [churchId, normalizedEmail, category, now],
-      ));
+      void this._queueWrite(() => this._run(upsertSql, [churchId, normalizedEmail, category, now]));
       return true;
     }
     try {
-      this.db.prepare(
-        'INSERT OR REPLACE INTO email_unsubscribes (church_id, recipient, category, unsubscribed_at) VALUES (?, ?, ?, ?)'
-      ).run(churchId, normalizedEmail, category, now);
+      this.db.prepare(upsertSql).run(churchId, normalizedEmail, category, now);
       return true;
     } catch { return false; }
   }
@@ -565,6 +576,12 @@ class LifecycleEmails {
   }
 
   _recordSend(churchId, emailType, recipient, sentAt, resendId, subject) {
+    const insertSql = `
+      INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (church_id, email_type) DO NOTHING
+    `;
+    const insertParams = [churchId, emailType, recipient, sentAt, resendId || null, subject || null];
     if (this.queryClient) {
       const row = {
         church_id: churchId,
@@ -576,16 +593,11 @@ class LifecycleEmails {
       };
       this._cacheSend(row);
       this._cacheChurch({ churchId, name: this._cache.churchesById.get(churchId)?.name || null });
-      void this._queueWrite(() => this._run(
-        'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)',
-        [churchId, emailType, recipient, sentAt, resendId || null, subject || null],
-      ));
+      void this._queueWrite(() => this._run(insertSql, insertParams));
       return;
     }
     try {
-      this.db.prepare(
-        'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(churchId, emailType, recipient, sentAt, resendId || null, subject || null);
+      this.db.prepare(insertSql).run(...insertParams);
     } catch (e) {
       console.error(`[LifecycleEmails] Failed to record send: ${e.message}`);
     }
@@ -2617,6 +2629,12 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   captureLead({ email, name, source, churchName }) {
     if (!email) return null;
     const now = new Date().toISOString();
+    const insertSql = `
+      INSERT INTO sales_leads (email, name, church_name, source, captured_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (email) DO NOTHING
+    `;
+    const insertParams = [email, name || null, churchName || null, source || 'website', now];
     if (this.queryClient) {
       const lead = {
         id: this._cache.salesLeadsByEmail.get(email)?.id || null,
@@ -2628,16 +2646,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         status: 'active',
       };
       this._cacheLead(lead);
-      void this._queueWrite(() => this._run(
-        'INSERT OR IGNORE INTO sales_leads (email, name, church_name, source, captured_at) VALUES (?, ?, ?, ?, ?)',
-        [email, name || null, churchName || null, source || 'website', now],
-      ));
+      void this._queueWrite(() => this._run(insertSql, insertParams));
       return lead;
     }
     try {
-      this.db.prepare(
-        'INSERT OR IGNORE INTO sales_leads (email, name, church_name, source, captured_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(email, name || null, churchName || null, source || 'website', now);
+      this.db.prepare(insertSql).run(...insertParams);
     } catch (e) {
       console.error(`[LifecycleEmails] Lead capture failed: ${e.message}`);
       return null;

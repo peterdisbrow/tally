@@ -520,13 +520,27 @@ class RundownEngine {
       room_id: rundown.room_id || null,
     });
 
+    const upsertSql = `
+      INSERT INTO active_rundowns
+        (church_id, rundown_id, current_step, started_at, state, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id)
+      VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (church_id) DO UPDATE SET
+        rundown_id = excluded.rundown_id,
+        current_step = excluded.current_step,
+        started_at = excluded.started_at,
+        state = excluded.state,
+        service_start_at = excluded.service_start_at,
+        last_cue_fired_at = excluded.last_cue_fired_at,
+        cues_fired = excluded.cues_fired,
+        instance_name = excluded.instance_name,
+        room_id = excluded.room_id
+    `;
+    const upsertParams = [churchId, rundownId, now, 'running', now, null, '[]', instanceName || null, rundown.room_id || null];
     if (this.db) {
       if (instanceName) {
         this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND instance_name = ?').run(churchId, instanceName);
       }
-      this.db.prepare(
-        'INSERT OR REPLACE INTO active_rundowns (church_id, rundown_id, current_step, started_at, instance_name, room_id) VALUES (?, ?, 0, ?, ?, ?)'
-      ).run(churchId, rundownId, now, instanceName || null, rundown.room_id || null);
+      this.db.prepare(upsertSql).run(...upsertParams);
     } else {
       if (instanceName) {
         this._queueWrite(this._requireClient().run(
@@ -534,10 +548,7 @@ class RundownEngine {
           [churchId, instanceName]
         ));
       }
-      this._queueWrite(this._requireClient().run(
-        'INSERT INTO active_rundowns (church_id, rundown_id, current_step, started_at, state, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (church_id) DO UPDATE SET rundown_id = excluded.rundown_id, current_step = excluded.current_step, started_at = excluded.started_at, state = excluded.state, service_start_at = excluded.service_start_at, last_cue_fired_at = excluded.last_cue_fired_at, cues_fired = excluded.cues_fired, instance_name = excluded.instance_name, room_id = excluded.room_id',
-        [churchId, rundownId, now, 'running', now, null, '[]', instanceName || null, rundown.room_id || null]
-      ));
+      this._queueWrite(this._requireClient().run(upsertSql, upsertParams));
     }
 
     return this._toPublicActive(row, rundown);
@@ -691,15 +702,27 @@ class RundownEngine {
       room_id: rundown.room_id || null,
     });
 
+    const upsertSql = `
+      INSERT INTO active_rundowns
+        (church_id, rundown_id, current_step, state, started_at, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id)
+      VALUES (?, ?, 0, 'running', ?, ?, NULL, '[]', ?, ?)
+      ON CONFLICT (church_id) DO UPDATE SET
+        rundown_id = excluded.rundown_id,
+        current_step = excluded.current_step,
+        state = excluded.state,
+        started_at = excluded.started_at,
+        service_start_at = excluded.service_start_at,
+        last_cue_fired_at = excluded.last_cue_fired_at,
+        cues_fired = excluded.cues_fired,
+        instance_name = excluded.instance_name,
+        room_id = excluded.room_id
+    `;
+    const upsertParams = [churchId, rundownId, now, serviceStartAt || now, instanceName || null, rundown.room_id || null];
     if (this.db) {
       if (instanceName) {
         this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND instance_name = ?').run(churchId, instanceName);
       }
-      this.db.prepare(`
-        INSERT OR REPLACE INTO active_rundowns
-          (church_id, rundown_id, current_step, state, started_at, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id)
-        VALUES (?, ?, 0, 'running', ?, ?, NULL, '[]', ?, ?)
-      `).run(churchId, rundownId, now, serviceStartAt || now, instanceName || null, rundown.room_id || null);
+      this.db.prepare(upsertSql).run(...upsertParams);
     } else {
       if (instanceName) {
         this._queueWrite(this._requireClient().run(
@@ -707,22 +730,7 @@ class RundownEngine {
           [churchId, instanceName]
         ));
       }
-      this._queueWrite(this._requireClient().run(
-        `INSERT INTO active_rundowns
-          (church_id, rundown_id, current_step, state, started_at, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id)
-         VALUES (?, ?, 0, 'running', ?, ?, NULL, '[]', ?, ?)
-         ON CONFLICT (church_id) DO UPDATE SET
-           rundown_id = excluded.rundown_id,
-           current_step = excluded.current_step,
-           state = excluded.state,
-           started_at = excluded.started_at,
-           service_start_at = excluded.service_start_at,
-           last_cue_fired_at = excluded.last_cue_fired_at,
-           cues_fired = excluded.cues_fired,
-           instance_name = excluded.instance_name,
-           room_id = excluded.room_id`,
-        [churchId, rundownId, now, serviceStartAt || now, instanceName || null, rundown.room_id || null]
-      ));
+      this._queueWrite(this._requireClient().run(upsertSql, upsertParams));
     }
 
     return {

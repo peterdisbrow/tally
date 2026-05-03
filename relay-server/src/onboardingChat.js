@@ -311,8 +311,14 @@ function createSession(db, churchId, scanResults = {}) {
 
   if (sqliteDb) {
     sqliteDb.prepare(`
-      INSERT OR REPLACE INTO onboarding_sessions (church_id, state, collected_data, scan_results, started_at, updated_at)
+      INSERT INTO onboarding_sessions (church_id, state, collected_data, scan_results, started_at, updated_at)
       VALUES (?, 'intro', '{}', ?, ?, ?)
+      ON CONFLICT(church_id) DO UPDATE SET
+        state = excluded.state,
+        collected_data = excluded.collected_data,
+        scan_results = excluded.scan_results,
+        started_at = excluded.started_at,
+        updated_at = excluded.updated_at
     `).run(churchId, JSON.stringify(scanResults), now, now);
   }
   return { churchId, state: 'intro', collectedData: {}, scanResults, startedAt: now, updatedAt: now };

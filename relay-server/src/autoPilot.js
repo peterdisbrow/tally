@@ -1174,19 +1174,20 @@ class AutoPilot {
     }
     this._firedThisSession.get(sessionId).add(ruleId);
 
+    const insertSql = `
+      INSERT INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (session_id, rule_id) DO NOTHING
+    `;
+    const insertParams = [sessionId, ruleId, churchId, new Date().toISOString()];
     if (this.db) {
       try {
-        this.db.prepare(
-          'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
-        ).run(sessionId, ruleId, churchId, new Date().toISOString());
+        this.db.prepare(insertSql).run(...insertParams);
       } catch {
         // Non-fatal — in-memory cache still prevents double-fires within the same process
       }
     } else {
-      this._queueWrite(this._requireClient().run(
-        'INSERT INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, rule_id) DO NOTHING',
-        [sessionId, ruleId, churchId, new Date().toISOString()]
-      ));
+      this._queueWrite(this._requireClient().run(insertSql, insertParams));
     }
   }
 

@@ -98,7 +98,7 @@ function createQueryClientMock(initial = {}) {
   client.run = vi.fn(async (sql, params = []) => {
     const normalized = normalize(sql);
 
-    if (normalized.startsWith('insert or replace into email_preferences')) {
+    if (normalized.includes('into email_preferences')) {
       const [churchId, category, enabled, updatedAt] = params;
       state.emailPreferences = state.emailPreferences.filter(
         (row) => !(row.church_id === churchId && row.category === category),
@@ -112,13 +112,33 @@ function createQueryClientMock(initial = {}) {
       return { changes: 1, lastInsertRowid: null, rows: [] };
     }
 
+    if (normalized.includes('into email_unsubscribes')) {
+      const [churchId, recipient, category, unsubscribedAt] = params;
+      state.emailUnsubscribes = state.emailUnsubscribes || [];
+      state.emailUnsubscribes = state.emailUnsubscribes.filter(
+        (row) => !(row.church_id === churchId && row.recipient === recipient && row.category === category),
+      );
+      state.emailUnsubscribes.push({
+        church_id: churchId,
+        recipient,
+        category,
+        unsubscribed_at: unsubscribedAt,
+      });
+      return { changes: 1, lastInsertRowid: null, rows: [] };
+    }
+
     if (normalized.includes('into email_sends')) {
       const [churchId, emailType, recipient, sentAt, resendId, subject] = params;
       const existing = state.emailSends.find(
         (row) => row.church_id === churchId && row.email_type === emailType,
       );
 
-      if (normalized.includes('insert or ignore') && existing) {
+      // Both "INSERT OR IGNORE" (legacy) and "ON CONFLICT … DO NOTHING" (current)
+      // mean: skip the insert when a row already exists for (church_id, email_type).
+      const isIgnoreOnConflict =
+        normalized.includes('insert or ignore') ||
+        (normalized.includes('on conflict') && normalized.includes('do nothing'));
+      if (isIgnoreOnConflict && existing) {
         return { changes: 0, lastInsertRowid: existing.id ?? null, rows: [] };
       }
 
