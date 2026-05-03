@@ -128,6 +128,18 @@ function handleRequest(state, requestType, requestId, requestData) {
     case 'StopStream':
       state.streaming.outputActive = false;
       return makeResponse(state, requestType, requestId, {});
+    case 'StartRecord':
+      state.recording.outputActive = true;
+      return makeResponse(state, requestType, requestId, {});
+    case 'StopRecord':
+      state.recording.outputActive = false;
+      return makeResponse(state, requestType, requestId, { outputPath: '/tmp/mock-recording.mkv' });
+    case 'PauseRecord':
+      state.recording.outputPaused = true;
+      return makeResponse(state, requestType, requestId, {});
+    case 'ResumeRecord':
+      state.recording.outputPaused = false;
+      return makeResponse(state, requestType, requestId, {});
     default:
       // Generic success envelope for anything unmodeled.
       return makeResponse(state, requestType, requestId, {});

@@ -103,9 +103,27 @@ async function start({ port = 5951, controlPort = 0 } = {}) {
       res.end(`<dictionary key="${key || ''}">${value}</dictionary>`);
       return;
     }
-    // GET /v1/shortcut?name=...
+    // GET /v1/shortcut?name=...&[value=...]
+    // The church-client TriCaster bridge issues every shortcut as a GET — for
+    // value-less triggers (e.g. `main_take`, `streaming_toggle`), reads, AND
+    // value-bearing writes (e.g. `main_a_row=2`). All three forms hit this
+    // route. We log each hit so tests can assert the agent reached the wire,
+    // and apply value-bearing requests to state.
     if (req.method === 'GET' && path === '/v1/shortcut') {
       const name = url.searchParams.get('name');
+      const value = url.searchParams.get('value');
+      if (name) {
+        if (value !== null) {
+          const coerced = coerceBool(value);
+          state.shortcuts[name] = coerced;
+          state.shortcutLog.push({ name, value: coerced, ts: Date.now(), via: 'GET' });
+          res.end(`<shortcut name="${name}" value="${value}" />`);
+          return;
+        }
+        // Value-less GET = trigger. Real TriCaster fires the shortcut and
+        // returns the (now-toggled) state; tests just want to see the hit.
+        state.shortcutLog.push({ name, value: null, ts: Date.now(), via: 'GET' });
+      }
       const cur = state.shortcuts[name];
       const v = typeof cur === 'boolean' ? (cur ? 1 : 0) : (cur ?? '');
       res.end(`<shortcut name="${name || ''}" value="${v}" />`);

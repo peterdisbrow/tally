@@ -60,25 +60,34 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const msg = { type: 'command', churchId, command, params, id: uuidv4() };
     ctx.totalMessagesRelayed++;
 
+    // Delegate ALL delivery (local sockets + cross-runtime publish) to
+    // dispatchCommandAcrossRuntime. Doing a second `for (sock of church.sockets)`
+    // loop here would double-send to every locally connected agent — which
+    // looks fine for idempotent commands like setScene but causes
+    // `propresenter.next` to advance two slides, `companion.pressButton` to
+    // log two presses, and so on. The portal WS handler at server.js gets
+    // this right; this admin route now matches that pattern.
     let localRecipients = 0;
-    if (church.sockets?.size) {
+    let remotePublished = false;
+    let delivered = false;
+    if (dispatchRemoteCommand) {
+      const remoteResult = await dispatchRemoteCommand(msg, {
+        churchId,
+        source: 'admin_http',
+        hasLocalDelivery: false,
+      });
+      localRecipients = remoteResult?.localRecipients ?? 0;
+      remotePublished = !!remoteResult?.remotePublished;
+      delivered = !!remoteResult?.delivered;
+    } else if (church.sockets?.size) {
+      // Defensive fallback for runtimes that didn't wire dispatchRemoteCommand
+      // — tests and the controller-only path. Mirrors the old loop.
       for (const sock of church.sockets.values()) {
         if (sock.readyState !== WebSocket.OPEN) continue;
         safeSend(sock, msg);
         localRecipients++;
       }
-    }
-
-    let remotePublished = false;
-    let delivered = localRecipients > 0;
-    if (dispatchRemoteCommand) {
-      const remoteResult = await dispatchRemoteCommand(msg, {
-        churchId,
-        source: 'admin_http',
-        hasLocalDelivery: localRecipients > 0,
-      });
-      remotePublished = !!remoteResult?.remotePublished;
-      delivered = !!remoteResult?.delivered;
+      delivered = localRecipients > 0;
     }
 
     if (!delivered) {

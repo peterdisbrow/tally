@@ -2129,7 +2129,10 @@ class ChurchAVAgent {
     }
 
     for (const hubConfig of hubs) {
-      const hub = new VideoHub({ ip: hubConfig.ip, name: hubConfig.name });
+      // Pass `port` through — Blackmagic Videohubs default to TCP 9990, but
+      // tests and unusual deployments need to override it. Dropping the
+      // field here meant config.videoHubs[].port was silently ignored.
+      const hub = new VideoHub({ ip: hubConfig.ip, port: hubConfig.port, name: hubConfig.name });
       hub.on('connected', () => {
         this._updateVideoHubStatus();
         this.sendStatus();

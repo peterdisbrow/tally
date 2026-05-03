@@ -251,11 +251,13 @@ class AllenHeathMixer {
   }
 
   /**
-   * @param {{ host: string, port?: number, model?: string, midiChannel?: number }} opts
-   *   model: 'SQ' | 'SQ5' | 'SQ6' | 'SQ7' (default 'SQ')
+   * @param {{ host: string, port?: number, midiPort?: number, model?: string, midiChannel?: number }} opts
+   *   port:        OSC port (default 51326)
+   *   midiPort:    TCP MIDI port (default 51325) — overridable for tests / non-default deployments
+   *   model:       'SQ' | 'SQ5' | 'SQ6' | 'SQ7' (default 'SQ')
    *   midiChannel: 0–15 (default 0 = MIDI channel 1)
    */
-  constructor({ host, port, model = 'SQ', midiChannel = 0 }) {
+  constructor({ host, port, midiPort, model = 'SQ', midiChannel = 0 }) {
     this.host  = host;
     this.model = model.toUpperCase();
     this.midiCh = midiChannel & 0x0F;
@@ -264,8 +266,9 @@ class AllenHeathMixer {
     this._osc = null;
     this._oscPort = port || OSC_PORT;
 
-    // TCP MIDI for everything else (port 51325)
-    this._tcp = new TcpMidi({ host, port: MIDI_PORT, autoReconnect: true });
+    // TCP MIDI for everything else (default port 51325)
+    const midiPortToUse = Number(midiPort) || MIDI_PORT;
+    this._tcp = new TcpMidi({ host, port: midiPortToUse, autoReconnect: true });
     this._online = false;
 
     // Live state from bidirectional feedback

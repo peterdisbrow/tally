@@ -36,6 +36,7 @@ const REGISTRY = [
   { name: 'resolume',        file: 'resolumeServer.js',        defaultPort: 8080 },
   { name: 'sq',              file: 'sqMixerServer.js',         defaultPort: 51325 }, // also opens 51326 for OSC
   { name: 'planning-center', file: 'planningCenterServer.js',  defaultPort: 8083 },
+  { name: 'visca-ptz',       file: 'viscaPtzServer.js',        defaultPort: 5678 },
 ];
 
 async function main() {
