@@ -6,6 +6,16 @@
   "scripts": {
     "test:e2e": "node scripts/e2e/run.js",
     "test:e2e:create-account": "node scripts/e2e-create-test-account.js",
-    "test:e2e:cleanup": "node scripts/e2e-create-test-account.js --cleanup"
+    "test:e2e:cleanup": "node scripts/e2e-create-test-account.js --cleanup",
+    "test:portal": "playwright test --config=playwright.config.js",
+    "test:portal:headed": "playwright test --config=playwright.config.js --headed",
+    "test:portal:ui": "playwright test --config=playwright.config.js --ui",
+    "test:portal:install": "playwright install chromium",
+    "test:portal:provision": "node portal-e2e/scripts/provision.js",
+    "test:portal:deprovision": "node portal-e2e/scripts/deprovision.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "dotenv": "^16.4.5"
   }
 }
