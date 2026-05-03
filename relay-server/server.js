@@ -878,7 +878,10 @@ const messageQueues = new Map();
 const MAX_QUEUE_SIZE = 10;
 const QUEUE_TTL_MS = 30_000; // 30 seconds
 
-const RATE_LIMIT = 10; // commands per second
+// Per-church command rate limit (commands per second). Hardcoded to 10 in
+// production; overridable via env so the E2E suite — which fires every device
+// command in tight succession — doesn't trip a 429 mid-run.
+const RATE_LIMIT = Math.max(1, Number(process.env.TALLY_COMMAND_RATE_LIMIT) || 10);
 const STATUS_STATES = ['operational', 'degraded', 'outage'];
 // Support constants (supportCategories, supportSeverities, supportTicketStates) moved to src/routes/supportTickets.js
 let statusCheckInFlight = false;
