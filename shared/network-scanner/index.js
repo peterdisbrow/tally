@@ -180,11 +180,15 @@ class NetworkScanner {
       const hosts = expandSubnet(iface.ip, netmaskToPrefix(iface.netmask));
       for (const h of hosts) ipSet.add(h);
     }
-    // Add extra subnets/IPs
+    // Add extra subnets/IPs. Per-octet 0-255 validation matters: a regex of
+    // \d{1,3} alone would accept "999.999.999.999" and dispatch hundreds of
+    // probes against unreachable addresses.
+    const isOctet = (n) => Number.isInteger(n) && n >= 0 && n <= 255;
     if (Array.isArray(options.extraSubnets)) {
       for (const s of options.extraSubnets) {
         const trimmed = String(s).trim().replace(/\.+$/, '');
-        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) {
+        const parts = trimmed.split('.');
+        if (parts.length === 3 && parts.every(p => isOctet(Number(p)))) {
           for (let i = 1; i <= 254; i++) ipSet.add(`${trimmed}.${i}`);
         }
       }
@@ -192,7 +196,10 @@ class NetworkScanner {
     if (Array.isArray(options.extraIps)) {
       for (const ip of options.extraIps) {
         const trimmed = String(ip).trim();
-        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) ipSet.add(trimmed);
+        const parts = trimmed.split('.');
+        if (parts.length === 4 && parts.every(p => isOctet(Number(p)))) {
+          ipSet.add(trimmed);
+        }
       }
     }
 

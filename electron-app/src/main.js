@@ -45,6 +45,7 @@ const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
 const equipmentTester = require('./equipment-tester');
 const problemFinderBridge = require('./problem-finder-bridge');
+const autostart = require('./autostart');
 
 // Auto-update (gracefully optional)
 let autoUpdater;
@@ -1626,17 +1627,19 @@ ipcMain.handle('get-session-latest', async () => {
 });
 
 // ─── AUTO-START CONFIG IPC ───────────────────────────────────────────────────
-ipcMain.handle('get-autostart', () => {
-  const config = loadConfig();
-  // Default to true (enabled) if not explicitly set
-  const enabled = config.autoStartMonitoring !== undefined ? !!config.autoStartMonitoring : true;
-  return { enabled };
+// Logic lives in autostart.js so it can be unit-tested with a fake Electron
+// `app`. The toggle does double-duty: persists config (renderer reads this to
+// decide whether to auto-start the agent post-sign-in) AND registers the
+// macOS/Windows OS Login Item so the tray helper relaunches after reboot.
+autostart.init({
+  app,
+  loadConfig,
+  saveConfig: (patch) => saveConfig(patch),
+  logger: (msg) => appendAppLog('SYSTEM', msg),
 });
 
-ipcMain.handle('set-autostart', (_, enabled) => {
-  saveConfig({ autoStartMonitoring: enabled ? 1 : 0 });
-  return { ok: true };
-});
+ipcMain.handle('get-autostart', () => autostart.getAutoStart());
+ipcMain.handle('set-autostart', (_, enabled) => autostart.setAutoStart(enabled));
 
 // ─── PRE-SERVICE CHECK IPC ────────────────────────────────────────────────────
 ipcMain.handle('get-preservice-check', async () => {
@@ -2562,6 +2565,9 @@ app.whenReady().then(() => {
       appendAppLog('SYSTEM', `CLI: provisioned churchId=${_cliOpts.churchId}`);
     }
   }
+  // First-launch default: register OS Login Item so the tray helper relaunches
+  // after reboot. Reconciles config to OS state on subsequent launches.
+  autostart.applyDefaultOnFirstLaunch();
   createWindow();
   createTray();
   setupAutoUpdate();
