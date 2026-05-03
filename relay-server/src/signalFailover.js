@@ -271,12 +271,26 @@ class SignalFailover {
       return this._churchConfigCache.get(churchId) || null;
     }
 
+    // Try the modern schema (alert_bot_token, written by portal/admin) first,
+    // fall back to the legacy telegram_bot_token column for older installs.
     try {
       return this.db.prepare(
-        'SELECT td_telegram_chat_id, telegram_bot_token FROM churches WHERE churchId = ?'
+        'SELECT td_telegram_chat_id, alert_bot_token, telegram_bot_token FROM churches WHERE churchId = ?'
       ).get(churchId) || null;
     } catch {
-      return null;
+      try {
+        return this.db.prepare(
+          'SELECT td_telegram_chat_id, alert_bot_token FROM churches WHERE churchId = ?'
+        ).get(churchId) || null;
+      } catch {
+        try {
+          return this.db.prepare(
+            'SELECT td_telegram_chat_id, telegram_bot_token FROM churches WHERE churchId = ?'
+          ).get(churchId) || null;
+        } catch {
+          return null;
+        }
+      }
     }
   }
 
@@ -1134,7 +1148,16 @@ class SignalFailover {
     try {
       // Send directly via Telegram (bypass full alert engine escalation — failover has its own)
       const dbChurch = this._getChurchAlertContact(church.churchId);
-      const botToken = dbChurch?.telegram_bot_token || dbChurch?.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+      // Bot token: prefer the column the rest of the system writes (alert_bot_token /
+      // ALERT_BOT_TOKEN). Older code only checked telegram_bot_token / TELEGRAM_BOT_TOKEN,
+      // which is never written by the portal — so failover alerts were silently dropped
+      // for any deployment that only had ALERT_BOT_TOKEN set.
+      const botToken = dbChurch?.alert_bot_token
+        || dbChurch?.alertBotToken
+        || dbChurch?.telegram_bot_token
+        || dbChurch?.telegramBotToken
+        || process.env.ALERT_BOT_TOKEN
+        || process.env.TELEGRAM_BOT_TOKEN;
       const tdChatId = dbChurch?.td_telegram_chat_id || dbChurch?.tdChatId;
 
       if (botToken && tdChatId) {

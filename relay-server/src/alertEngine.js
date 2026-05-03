@@ -62,6 +62,9 @@ const ALERT_CLASSIFICATIONS = {
   'failover_recovery_executed': 'INFO',
   'failover_recovery_failed': 'CRITICAL',
   'failover_command_failed': 'EMERGENCY',
+  // Teradek battery (raised by church-client _checkTeradekBattery, per-threshold)
+  'teradek_battery_low': 'WARNING',
+  'teradek_battery_critical': 'CRITICAL',
 };
 
 const DIAGNOSIS_TEMPLATES = {
@@ -237,6 +240,18 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Failover command could not be sent to the switcher or router',
     confidence: 85,
     steps: ['Check ATEM/VideoHub connection', 'Manually switch to backup source immediately', 'Check network between Tally and switcher'],
+    canAutoFix: false,
+  },
+  'teradek_battery_low': {
+    likely_cause: 'Teradek encoder is running on battery and below 20%',
+    confidence: 95,
+    steps: ['Connect AC power to the Teradek', 'Swap in a charged battery', 'Verify the battery is seated properly'],
+    canAutoFix: false,
+  },
+  'teradek_battery_critical': {
+    likely_cause: 'Teradek battery is below 10% — encoder will shut down imminently',
+    confidence: 99,
+    steps: ['Connect AC power immediately', 'Swap in a fresh battery', 'If swapping, prepare for a short stream interruption'],
     canAutoFix: false,
   },
 };
@@ -523,12 +538,21 @@ class AlertEngine {
 
     if (entry.count <= 1) return; // Only one occurrence — already sent immediately
 
-    const [churchId, alertType] = key.split('::');
+    // Keys are either "churchId::alertType" or "churchId::instanceName::alertType".
+    // Splitting blindly and pulling the second segment as alertType breaks
+    // instance-scoped alerts — they'd flush with the room name in place of the
+    // alert type, both in the summary text and in the dedup-window lookup.
+    const parts = key.split('::');
+    const churchId = parts[0];
+    const instanceName = parts.length === 3 ? parts[1] : null;
+    const alertType = parts[parts.length - 1];
+
     const windowMs = this._getDedupWindowMs(churchId, alertType);
     const windowMin = Math.round(windowMs / 60000);
     const severity = ALERT_CLASSIFICATIONS[alertType] || 'WARNING';
     const icon = severity === 'CRITICAL' || severity === 'EMERGENCY' ? '🔴' : severity === 'WARNING' ? '⚠️' : 'ℹ️';
-    const summary = `${icon} ${alertType.replace(/_/g, ' ')} (${entry.count} occurrences in last ${windowMin} min)`;
+    const roomLabel = instanceName ? ` [${instanceName}]` : '';
+    const summary = `${icon} ${alertType.replace(/_/g, ' ')}${roomLabel} (${entry.count} occurrences in last ${windowMin} min)`;
 
     const botToken = entry.church.alert_bot_token || this.defaultBotToken;
     if (!botToken) return;
