@@ -22,7 +22,7 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(rundownEngine.getRundowns(req.params.churchId));
   });
 
-  app.post('/api/churches/:churchId/rundowns', requireChurchOrAdmin, async (req, res) => {
+  app.post('/api/churches/:churchId/rundowns', requireChurchOrAdmin, requireFeature('scheduler'), async (req, res) => {
     try {
       if (!getChurch(req, res)) return;
       const { name, steps, service_day, auto_activate } = req.body;
@@ -54,7 +54,7 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(rundown);
   });
 
-  app.put('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, async (req, res) => {
+  app.put('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, requireFeature('scheduler'), async (req, res) => {
     try {
       if (!getChurch(req, res)) return;
       const existing = rundownEngine.getRundown(req.params.id);
@@ -79,7 +79,7 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     }
   });
 
-  app.delete('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, (req, res) => {
+  app.delete('/api/churches/:churchId/rundowns/:id', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const existing = rundownEngine.getRundown(req.params.id);
     if (!existing || existing.church_id !== req.params.churchId) {
@@ -91,7 +91,7 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
 
   // ─── SCHEDULER CONTROLS ────────────────────────────────────────────────────
 
-  app.post('/api/churches/:churchId/scheduler/activate', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/activate', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const { rundownId } = req.body;
     if (!rundownId) return res.status(400).json({ error: 'rundownId is required' });
@@ -100,28 +100,28 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(result);
   });
 
-  app.post('/api/churches/:churchId/scheduler/advance', requireChurchOrAdmin, async (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/advance', requireChurchOrAdmin, requireFeature('scheduler'), async (req, res) => {
     if (!getChurch(req, res)) return;
     const result = await scheduler.advance(req.params.churchId);
     if (result?.error) return res.status(400).json(result);
     res.json(result || { error: 'Could not advance' });
   });
 
-  app.post('/api/churches/:churchId/scheduler/skip', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/skip', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const result = scheduler.skip(req.params.churchId);
     if (result.error) return res.status(400).json(result);
     res.json(result);
   });
 
-  app.post('/api/churches/:churchId/scheduler/back', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/back', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const result = scheduler.goBack(req.params.churchId);
     if (result.error) return res.status(400).json(result);
     res.json(result);
   });
 
-  app.post('/api/churches/:churchId/scheduler/jump', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/jump', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const { cueIndex } = req.body;
     if (cueIndex === undefined) return res.status(400).json({ error: 'cueIndex is required' });
@@ -130,19 +130,19 @@ module.exports = function setupSchedulerRoutes(app, ctx) {
     res.json(result);
   });
 
-  app.post('/api/churches/:churchId/scheduler/pause', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/pause', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     res.json(scheduler.pause(req.params.churchId));
   });
 
-  app.post('/api/churches/:churchId/scheduler/resume', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/resume', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     const result = scheduler.resume(req.params.churchId);
     if (result.error) return res.status(400).json(result);
     res.json(result);
   });
 
-  app.post('/api/churches/:churchId/scheduler/deactivate', requireChurchOrAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/scheduler/deactivate', requireChurchOrAdmin, requireFeature('scheduler'), (req, res) => {
     if (!getChurch(req, res)) return;
     res.json(scheduler.deactivate(req.params.churchId));
   });

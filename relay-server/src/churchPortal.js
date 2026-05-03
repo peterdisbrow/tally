@@ -625,7 +625,12 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, requireFeature, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
+  // Fallback no-op gate when caller didn't pass requireFeature (e.g. older
+  // callers, tests). Keeping the call sites cleaner than scattering ?: checks.
+  const featureGate = typeof requireFeature === 'function'
+    ? requireFeature
+    : () => (req, res, next) => next();
   const portalQuery = queryClient || (
     db && typeof db.query === 'function'
       && typeof db.run === 'function'
@@ -2391,7 +2396,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/rundowns', authMiddleware, (req, res) => {
+  app.post('/api/church/rundowns', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const { name, steps } = req.body;
@@ -2411,7 +2416,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.put('/api/church/rundowns/:id', authMiddleware, (req, res) => {
+  app.put('/api/church/rundowns/:id', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const existing = rundownEngine.getRundown(req.params.id);
@@ -2422,7 +2427,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.delete('/api/church/rundowns/:id', authMiddleware, (req, res) => {
+  app.delete('/api/church/rundowns/:id', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const existing = rundownEngine.getRundown(req.params.id);
@@ -2431,7 +2436,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/rundowns/:id/activate', authMiddleware, (req, res) => {
+  app.post('/api/church/rundowns/:id/activate', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const { instanceName } = getRequestedRoomContext(req, churches);
@@ -2720,7 +2725,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── Scheduler routes (church portal) ────────────────────────────────────────
-  app.post('/api/church/scheduler/activate', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/activate', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = scheduler.activate(req.church.churchId, req.body.rundownId);
@@ -2729,7 +2734,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/advance', authMiddleware, async (req, res) => {
+  app.post('/api/church/scheduler/advance', authMiddleware, featureGate('scheduler'), async (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = await scheduler.advance(req.church.churchId);
@@ -2738,7 +2743,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/skip', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/skip', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = scheduler.skip(req.church.churchId);
@@ -2747,7 +2752,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/back', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/back', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = scheduler.goBack(req.church.churchId);
@@ -2756,7 +2761,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/jump', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/jump', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = scheduler.jumpToCue(req.church.churchId, Number(req.body.cueIndex));
@@ -2765,14 +2770,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/pause', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/pause', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       res.json(scheduler.pause(req.church.churchId));
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/resume', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/resume', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       const result = scheduler.resume(req.church.churchId);
@@ -2781,7 +2786,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/scheduler/deactivate', authMiddleware, (req, res) => {
+  app.post('/api/church/scheduler/deactivate', authMiddleware, featureGate('scheduler'), (req, res) => {
     try {
       if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
       res.json(scheduler.deactivate(req.church.churchId));
@@ -3456,6 +3461,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const now = new Date().toISOString();
       await qRun('UPDATE churches SET billing_tier = ? WHERE churchId = ?', [newTier, church.churchId]);
       await qRun('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?', [newTier, now, church.churchId]);
+
+      // Sync the in-memory runtime cache so feature gates lift immediately,
+      // without waiting for Stripe's customer.subscription.updated webhook.
+      const runtimeChurch = churches.get(church.churchId);
+      if (runtimeChurch) runtimeChurch.billing_tier = newTier;
 
       log.info('Upgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
 

@@ -67,7 +67,7 @@ function autoDetectRoles(equipment) {
 }
 
 function setupRoomEquipmentRoutes(app, ctx) {
-  const { db, queryClient, requireChurchAppAuth, requireChurchWriteAccess, safeErrorMessage, log } = ctx;
+  const { db, queryClient, requireChurchAppAuth, requireChurchWriteAccess, billing, safeErrorMessage, log } = ctx;
   const hasQueryClient = queryClient && typeof queryClient.queryOne === 'function';
   const qOne = (sql, params = []) => (
     hasQueryClient ? queryClient.queryOne(sql, params) : db.prepare(sql).get(...params) || null
@@ -122,6 +122,44 @@ function setupRoomEquipmentRoutes(app, ctx) {
       const equipment = req.body?.equipment;
       if (!equipment || typeof equipment !== 'object') {
         return res.status(400).json({ error: 'Missing or invalid equipment object' });
+      }
+
+      // Per-device tier enforcement. Connect tier is limited to ATEM/OBS/vMix;
+      // Plus and above get all device types. Encoder-system fields are skipped
+      // because their device class is determined by the entry's `type`, not
+      // the top-level key (an `encoders` array can hold OBS/vMix entries).
+      if (billing && typeof billing.checkDeviceAccess === 'function') {
+        const ENCODER_FIELDS = new Set([
+          'encoder', 'encoders', 'encoderPort', 'encoderType',
+          'encoderHost', 'encoderLabel', 'encoderPassword',
+          'encoderSource', 'encoderStatusUrl',
+        ]);
+        const isEmpty = (v) => (
+          v == null
+          || v === ''
+          || (Array.isArray(v) && v.length === 0)
+          || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)
+        );
+        for (const [key, value] of Object.entries(equipment)) {
+          if (key.startsWith('_')) continue; // metadata (e.g. _roles)
+          if (ENCODER_FIELDS.has(key)) continue;
+          if (isEmpty(value)) continue;
+          const access = billing.checkDeviceAccess(req.church, key);
+          if (!access.allowed) {
+            return res.status(403).json({ error: access.reason, deviceType: key });
+          }
+        }
+        // Encoders array: each entry's `type` determines its device class.
+        if (Array.isArray(equipment.encoders)) {
+          for (const enc of equipment.encoders) {
+            const t = enc?.type || enc?.encoderType;
+            if (!t) continue;
+            const access = billing.checkDeviceAccess(req.church, t);
+            if (!access.allowed) {
+              return res.status(403).json({ error: access.reason, deviceType: t });
+            }
+          }
+        }
       }
 
       const now = new Date().toISOString();
