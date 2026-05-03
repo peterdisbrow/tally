@@ -88,14 +88,20 @@ function buildReq(overrides = {}) {
   return { params: {}, body: {}, query: {}, headers: {}, cookies: {}, ip: '127.0.0.1', path: '/api/test', ...overrides };
 }
 
-/** Mock WebSocket with an instanceName property for room scoping. */
-function makeSocket(instanceName, open = true) {
-  return {
+/**
+ * Mock WebSocket. Production sockets are stored in `runtime.sockets` as a
+ * Map<instanceName, ws>, so the route looks them up by Map key — there is NO
+ * `instanceName` property on the socket itself. This mock intentionally omits
+ * it so the test exercises the same lookup path as production.
+ */
+function makeSocket(open = true) {
+  const sock = {
     readyState: open ? WebSocket.OPEN : WebSocket.CLOSED,
-    instanceName,
-    send: () => {},
+    sent: [],
+    send(data) { this.sent.push(typeof data === 'string' ? data : JSON.stringify(data)); },
     close: () => {},
   };
+  return sock;
 }
 
 // ─── Suite setup ──────────────────────────────────────────────────────────────
@@ -142,8 +148,8 @@ describe('send-command — room ID scoping', () => {
   it('with roomId targets only the matching instance socket (instanceCount=1)', async () => {
     seedChurch(db, 'c1', 'Grace Church');
 
-    const mainSock  = makeSocket('main-instance');
-    const youthSock = makeSocket('youth-instance');
+    const mainSock  = makeSocket();
+    const youthSock = makeSocket();
     churches.set('c1', {
       roomInstanceMap: { 'room-main': 'main-instance', 'room-youth': 'youth-instance' },
       sockets: new Map([['main-instance', mainSock], ['youth-instance', youthSock]]),
@@ -162,8 +168,8 @@ describe('send-command — room ID scoping', () => {
   it('does NOT route to the other room socket (room-youth stays untouched)', async () => {
     seedChurch(db, 'c1', 'Grace Church');
 
-    const mainSock  = makeSocket('main-instance');
-    const youthSock = makeSocket('youth-instance');
+    const mainSock  = makeSocket();
+    const youthSock = makeSocket();
     churches.set('c1', {
       roomInstanceMap: { 'room-main': 'main-instance', 'room-youth': 'youth-instance' },
       sockets: new Map([['main-instance', mainSock], ['youth-instance', youthSock]]),
@@ -181,8 +187,8 @@ describe('send-command — room ID scoping', () => {
   it('without roomId broadcasts to all open instances (instanceCount=2)', async () => {
     seedChurch(db, 'c1', 'Grace Church');
 
-    const mainSock  = makeSocket('main-instance');
-    const youthSock = makeSocket('youth-instance');
+    const mainSock  = makeSocket();
+    const youthSock = makeSocket();
     churches.set('c1', {
       roomInstanceMap: { 'room-main': 'main-instance', 'room-youth': 'youth-instance' },
       sockets: new Map([['main-instance', mainSock], ['youth-instance', youthSock]]),
@@ -200,7 +206,7 @@ describe('send-command — room ID scoping', () => {
   it('returns 409 when the targeted room instance socket is not open', async () => {
     seedChurch(db, 'c1', 'Grace Church');
 
-    const closedSock = makeSocket('main-instance', false); // CLOSED
+    const closedSock = makeSocket(false); // CLOSED
     churches.set('c1', {
       roomInstanceMap: { 'room-main': 'main-instance' },
       sockets: new Map([['main-instance', closedSock]]),
@@ -217,7 +223,7 @@ describe('send-command — room ID scoping', () => {
   it('unknown roomId falls back to broadcast (not an error)', async () => {
     seedChurch(db, 'c1', 'Grace Church');
 
-    const mainSock = makeSocket('main-instance');
+    const mainSock = makeSocket();
     churches.set('c1', {
       roomInstanceMap: { 'room-main': 'main-instance' },
       sockets: new Map([['main-instance', mainSock]]),
