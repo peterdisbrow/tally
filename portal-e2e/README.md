@@ -15,12 +15,9 @@ From the repo root:
 npm install                     # installs @playwright/test + dotenv
 npm run test:portal:install     # installs Playwright's bundled Chromium
 cp portal-e2e/.env.example portal-e2e/.env
-# edit portal-e2e/.env and fill in PORTAL_EMAIL / PORTAL_PASSWORD
-# (and ADMIN_EMAIL / ADMIN_PASSWORD if you want to run admin-panel tests)
+# edit portal-e2e/.env — fill in ADMIN_API_KEY for auto-provisioning
+# (or PORTAL_EMAIL / PORTAL_PASSWORD if you want to use a pre-existing account)
 ```
-
-Use a **dedicated test church account** for `PORTAL_EMAIL` — tests create
-and delete rooms and write equipment configs under that account.
 
 ## Running
 
@@ -30,6 +27,46 @@ npm run test:portal:headed       # watch the browser drive the UI
 npm run test:portal:ui           # interactive Playwright UI mode
 npx playwright test 01-auth      # single spec
 ```
+
+A test church is provisioned automatically before each run when
+`ADMIN_API_KEY` is set, and deleted afterward. See the next section.
+
+## Auto-provisioning
+
+The suite's preferred mode is to **create a fresh, dedicated test church
+on each run** — that way no state from previous runs (rooms, equipment
+configs) ever leaks across tests, and there's no shared password to
+manage.
+
+How it works:
+
+- `playwright.config.js` runs [`global-setup.js`](global-setup.js) before
+  the first test.
+- If `ADMIN_API_KEY` is set, global-setup invokes
+  [`scripts/provision.js`](scripts/provision.js), which POSTs to the
+  admin endpoint `/api/churches/register` with a unique
+  `e2e-test+<timestamp>@tallyconnect.app` portal email and a generated
+  password. The admin endpoint creates the church with
+  `billing_status='active'` and skips the email-verification flow, so
+  the account can immediately log in.
+- The new credentials are written to `portal-e2e/.env.provisioned`
+  (git-ignored) and the playwright config loads them with override
+  precedence over `.env`.
+- After the suite finishes, [`global-teardown.js`](global-teardown.js)
+  invokes [`scripts/deprovision.js`](scripts/deprovision.js), which
+  hits `DELETE /api/churches/:churchId` and removes the local state
+  files.
+
+You can also run the provisioning step on its own:
+
+```bash
+npm run test:portal:provision      # create a test church, write .env.provisioned
+npm run test:portal:deprovision    # delete that church + state files
+```
+
+If `ADMIN_API_KEY` is not set, global-setup is a no-op and the suite
+falls back to whatever `PORTAL_EMAIL` / `PORTAL_PASSWORD` is in
+`portal-e2e/.env`.
 
 ## What's covered
 
@@ -48,19 +85,24 @@ npx playwright test 01-auth      # single spec
 | Env var | Default | Required for |
 | --- | --- | --- |
 | `PORTAL_BASE_URL` | `https://api.tallyconnect.app` | All tests |
-| `PORTAL_EMAIL` | — | All authenticated portal tests |
-| `PORTAL_PASSWORD` | — | All authenticated portal tests |
+| `ADMIN_API_KEY` | — | Auto-provisioning (recommended) |
+| `PORTAL_EMAIL` | — | Manual fallback (when not auto-provisioning) |
+| `PORTAL_PASSWORD` | — | Manual fallback (when not auto-provisioning) |
 | `ADMIN_EMAIL` | — | `07-admin.spec.js` only |
 | `ADMIN_PASSWORD` | — | `07-admin.spec.js` only |
+| `PORTAL_E2E_EMAIL_USER` | `e2e-test` | Local-part of provisioned email |
+| `PORTAL_E2E_EMAIL_DOMAIN` | `tallyconnect.app` | Domain of provisioned email |
+| `PORTAL_E2E_TIER` | `connect` | Billing tier seeded on the church |
+| `PORTAL_E2E_SKIP_PROVISION` | — | `=1` to disable auto-provisioning for one run |
+| `PORTAL_E2E_KEEP_PROVISIONED` | — | `=1` to skip teardown (debug a failed run) |
 
 ## Notes
 
 - Tests run serially (`workers: 1`) because they hit a single shared
-  account — parallel rooms named `e2e-test-room-...` would collide on
-  cleanup.
-- Cleanup uses an `e2e-test-` prefix on room names. After each room or
-  equipment test, every room with that prefix on the test account is
-  deleted via `DELETE /api/church/rooms/:id`.
+  account during a run.
+- Cleanup on a per-test basis still uses an `e2e-test-` prefix on room
+  names — that protects the manual-fallback account from accumulating
+  rooms in the rare case the church-level teardown is skipped.
 - Failures retain a screenshot, video, and trace under
   `portal-e2e/test-results/`.
 - The full HTML report writes to `portal-e2e/playwright-report/` —

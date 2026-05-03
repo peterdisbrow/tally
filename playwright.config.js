@@ -1,5 +1,11 @@
 // @ts-check
-require('dotenv').config({ path: require('path').join(__dirname, 'portal-e2e/.env'), quiet: true });
+const path = require('path');
+
+// Load env files in priority order: .env.provisioned > .env. The provisioned
+// file is auto-written by global-setup.js after creating a fresh test church
+// so its credentials always win for the current run.
+require('dotenv').config({ path: path.join(__dirname, 'portal-e2e/.env'), quiet: true });
+require('dotenv').config({ path: path.join(__dirname, 'portal-e2e/.env.provisioned'), override: true, quiet: true });
 
 const { defineConfig, devices } = require('@playwright/test');
 
@@ -14,6 +20,8 @@ module.exports = defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
+  globalSetup: require.resolve('./portal-e2e/global-setup.js'),
+  globalTeardown: require.resolve('./portal-e2e/global-teardown.js'),
   reporter: [
     ['list'],
     ['html', { outputFolder: 'portal-e2e/playwright-report', open: 'never' }],

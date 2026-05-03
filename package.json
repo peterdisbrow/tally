@@ -10,7 +10,9 @@
     "test:portal": "playwright test --config=playwright.config.js",
     "test:portal:headed": "playwright test --config=playwright.config.js --headed",
     "test:portal:ui": "playwright test --config=playwright.config.js --ui",
-    "test:portal:install": "playwright install chromium"
+    "test:portal:install": "playwright install chromium",
+    "test:portal:provision": "node portal-e2e/scripts/provision.js",
+    "test:portal:deprovision": "node portal-e2e/scripts/deprovision.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",

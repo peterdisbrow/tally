@@ -26,4 +26,6 @@ CODEX-*.md
 
 # Portal E2E (Playwright)
 portal-e2e/playwright-report/
+portal-e2e/.env.provisioned
+portal-e2e/.provisioned.json
 playwright-report/
