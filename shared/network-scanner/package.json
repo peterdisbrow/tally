@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "AV network device discovery — ARP, mDNS, and protocol-aware port scanning",
   "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "dependencies": {
     "multicast-dns": "^7.2.5"
   }

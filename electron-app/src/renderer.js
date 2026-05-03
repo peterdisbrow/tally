@@ -151,7 +151,6 @@ async function flushOfflineQueue() {
 // ─── PORTAL DISCOVERY ─────────────────────────────────────────────────────────
 
 async function openPortal(path) {
-  const base = 'https://tallyconnect.app/church-portal';
   // Append the currently-active room so the portal opens to the same room
   // the desktop app is monitoring, not whichever room was last viewed in the
   // browser. Param name is `roomId` per relay-server/public/portal/portal.js.
@@ -163,11 +162,10 @@ async function openPortal(path) {
     console.warn('[openPortal] config lookup failed; opening without room context:', e);
   }
 
-  let url = path ? base + path : base;
-  if (roomId) {
-    const sep = url.includes('?') ? '&' : '?';
-    url = `${url}${sep}roomId=${encodeURIComponent(roomId)}`;
-  }
+  // buildPortalUrl is exposed as a global by portal-url.js (loaded via <script>
+  // in index.html before this file). Pure URL builder, kept in its own module
+  // so unit tests can pin the engineer-route invariants from PR #60.
+  const url = buildPortalUrl(path, roomId);
 
   if (api.openExternal) {
     api.openExternal(url);
