@@ -703,7 +703,16 @@ class TallyBot {
 
       this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
       this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
-      this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
+      this._stmtRegisterTD = this.db.prepare(`
+        INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active)
+        VALUES (?, ?, ?, ?, ?, 1)
+        ON CONFLICT (telegram_user_id) DO UPDATE SET
+          church_id = excluded.church_id,
+          telegram_chat_id = excluded.telegram_chat_id,
+          name = excluded.name,
+          registered_at = excluded.registered_at,
+          active = excluded.active
+      `);
       this._stmtListTDs = this.db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1');
       this._stmtDeactivateTD = this.db.prepare('UPDATE church_tds SET active = 0 WHERE church_id = ? AND telegram_user_id = ?');
       this.ready = Promise.resolve();

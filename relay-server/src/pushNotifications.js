@@ -445,10 +445,11 @@ class PushNotificationService {
   }
 
   async _getPrefsAsync(churchId, userId = null) {
-    const row = await this._one(
-      'SELECT * FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))',
-      [churchId, userId, userId]
-    );
+    // Branch on null to avoid passing untyped NULL parameters to Postgres
+    // (raises "could not determine data type of parameter $N").
+    const row = userId === null
+      ? await this._one('SELECT * FROM mobile_notification_prefs WHERE church_id = ? AND user_id IS NULL', [churchId])
+      : await this._one('SELECT * FROM mobile_notification_prefs WHERE church_id = ? AND user_id = ?', [churchId, userId]);
 
     if (!row) {
       return {
@@ -522,10 +523,10 @@ class PushNotificationService {
 
   async _updatePrefsAsync(churchId, userId = null, prefs = {}) {
     await this.ready;
-    const existing = await this._one(
-      'SELECT id FROM mobile_notification_prefs WHERE church_id = ? AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))',
-      [churchId, userId, userId]
-    );
+    // Branch on null to avoid passing untyped NULL parameters to Postgres.
+    const existing = userId === null
+      ? await this._one('SELECT id FROM mobile_notification_prefs WHERE church_id = ? AND user_id IS NULL', [churchId])
+      : await this._one('SELECT id FROM mobile_notification_prefs WHERE church_id = ? AND user_id = ?', [churchId, userId]);
 
     const now = new Date().toISOString();
     const enabled = prefs.enabled !== undefined ? (prefs.enabled ? 1 : 0) : 1;

@@ -6907,10 +6907,16 @@ function gracefulShutdown(signal, exitCode = 0) {
 
   log(`${signal} received — shutting down gracefully`, { signal, event: 'shutdown_start' });
 
-  // Force exit after 10s if graceful close hangs
+  // Force exit after 10s if graceful close hangs (e.g. node-media-server keeps
+  // sockets open with no exposed stop() method). Honor the caller's exitCode so
+  // SIGTERM-triggered shutdowns still report a clean exit (Railway treats
+  // exit-code 1 as a crash and notifies on it).
   const forceTimer = setTimeout(() => {
-    logError('Graceful shutdown timed out after 10s — forcing exit', { event: 'shutdown_timeout' });
-    process.exit(1);
+    logError(`Graceful shutdown timed out after 10s — forcing exit (code ${exitCode})`, {
+      event: 'shutdown_timeout',
+      exitCode,
+    });
+    process.exit(exitCode);
   }, 10_000);
   forceTimer.unref(); // don't keep the event loop alive just for this timer
 

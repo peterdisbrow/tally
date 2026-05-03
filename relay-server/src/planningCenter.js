@@ -241,41 +241,28 @@ class PlanningCenter {
       row.pco_updated_at,
     ];
 
+    const upsertSql = `
+      INSERT INTO pc_plans (
+        id, church_id, service_type_id, title, sort_date,
+        items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET
+        church_id = EXCLUDED.church_id,
+        service_type_id = EXCLUDED.service_type_id,
+        title = EXCLUDED.title,
+        sort_date = EXCLUDED.sort_date,
+        items_json = EXCLUDED.items_json,
+        team_json = EXCLUDED.team_json,
+        times_json = EXCLUDED.times_json,
+        notes_json = EXCLUDED.notes_json,
+        last_fetched = EXCLUDED.last_fetched,
+        pco_updated_at = EXCLUDED.pco_updated_at
+    `;
     if (this.db) {
-      this.db.prepare(`
-        INSERT OR REPLACE INTO pc_plans (
-          id, church_id, service_type_id, title, sort_date,
-          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(...params);
-    } else if (this._requireClient().driver === 'postgres') {
-      await this._requireClient().run(`
-        INSERT INTO pc_plans (
-          id, church_id, service_type_id, title, sort_date,
-          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          church_id = EXCLUDED.church_id,
-          service_type_id = EXCLUDED.service_type_id,
-          title = EXCLUDED.title,
-          sort_date = EXCLUDED.sort_date,
-          items_json = EXCLUDED.items_json,
-          team_json = EXCLUDED.team_json,
-          times_json = EXCLUDED.times_json,
-          notes_json = EXCLUDED.notes_json,
-          last_fetched = EXCLUDED.last_fetched,
-          pco_updated_at = EXCLUDED.pco_updated_at
-      `, params);
+      this.db.prepare(upsertSql).run(...params);
     } else {
-      await this._requireClient().run(`
-        INSERT OR REPLACE INTO pc_plans (
-          id, church_id, service_type_id, title, sort_date,
-          items_json, team_json, times_json, notes_json, last_fetched, pco_updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, params);
+      await this._requireClient().run(upsertSql, params);
     }
 
     this._setPlanCache(row);

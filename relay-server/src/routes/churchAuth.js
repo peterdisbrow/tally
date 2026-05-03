@@ -298,7 +298,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const runtime = churches.get(c.churchId);
     let tds = [];
     try {
-      tds = await qAll('SELECT * FROM church_tds WHERE church_id = ? AND active = 1 ORDER BY registered_at ASC', [c.churchId]);
+      // Postgres church_tds.active is BOOLEAN; SQLite church_tds.active is INTEGER.
+      // Use the matching predicate per driver to avoid `operator does not exist: boolean = integer`.
+      const isPostgres = queryClient?.driver === 'postgres';
+      const activePred = isPostgres ? 'active = TRUE' : 'active = 1';
+      tds = await qAll(`SELECT * FROM church_tds WHERE church_id = ? AND ${activePred} ORDER BY registered_at ASC`, [c.churchId]);
     } catch (e) { console.warn('[churchAuth] church_tds query failed (schema may vary):', e.message); }
     const { portal_password_hash, token, ...safe } = c;
     let notifications = {};
@@ -396,11 +400,25 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const createdAt = b.createdAt || new Date().toISOString();
 
       await qRun(`
-        INSERT OR REPLACE INTO problem_finder_reports
+        INSERT INTO problem_finder_reports
           (id, church_id, trigger_type, status, issue_count, auto_fixed_count, coverage_score,
            blocker_count, issues_json, blockers_json, auto_fixed_json, needs_attention_json,
            top_actions_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          church_id = excluded.church_id,
+          trigger_type = excluded.trigger_type,
+          status = excluded.status,
+          issue_count = excluded.issue_count,
+          auto_fixed_count = excluded.auto_fixed_count,
+          coverage_score = excluded.coverage_score,
+          blocker_count = excluded.blocker_count,
+          issues_json = excluded.issues_json,
+          blockers_json = excluded.blockers_json,
+          auto_fixed_json = excluded.auto_fixed_json,
+          needs_attention_json = excluded.needs_attention_json,
+          top_actions_json = excluded.top_actions_json,
+          created_at = excluded.created_at
       `, [id, churchId, triggerType, status, issueCount, autoFixedCount, coverageScore,
         blockerCount, issuesJson, blockersJson, autoFixedJson, needsAttentionJson,
         topActionsJson, createdAt]);

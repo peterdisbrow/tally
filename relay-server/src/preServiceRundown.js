@@ -1343,39 +1343,40 @@ class PreServiceRundown {
   // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
 
   _persistRundown(rundown) {
+    const upsertSql = `
+      INSERT INTO preservice_rundowns
+        (id, church_id, instance_name, room_id, service_time, overall_status,
+         checks_json, historical_json, ai_summary, confirmed_by, confirmed_at,
+         escalation_level, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET
+        church_id = excluded.church_id,
+        instance_name = excluded.instance_name,
+        room_id = excluded.room_id,
+        service_time = excluded.service_time,
+        overall_status = excluded.overall_status,
+        checks_json = excluded.checks_json,
+        historical_json = excluded.historical_json,
+        ai_summary = excluded.ai_summary,
+        confirmed_by = excluded.confirmed_by,
+        confirmed_at = excluded.confirmed_at,
+        escalation_level = excluded.escalation_level,
+        created_at = excluded.created_at
+    `;
+    const upsertParams = [
+      rundown.id, rundown.churchId, rundown.instanceName, rundown.roomId,
+      rundown.serviceTime || '', rundown.overallStatus,
+      JSON.stringify(rundown.checks), JSON.stringify(rundown.historical),
+      rundown.aiSummary, rundown.confirmation?.confirmedBy || null,
+      rundown.confirmation?.confirmedAt || null,
+      rundown.confirmation?.escalationLevel || 0,
+      rundown.generatedAt,
+    ];
     try {
       if (this.db) {
-        this.db.prepare(`
-        INSERT OR REPLACE INTO preservice_rundowns
-          (id, church_id, instance_name, room_id, service_time, overall_status,
-           checks_json, historical_json, ai_summary, confirmed_by, confirmed_at,
-           escalation_level, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        rundown.id, rundown.churchId, rundown.instanceName, rundown.roomId,
-        rundown.serviceTime || '', rundown.overallStatus,
-        JSON.stringify(rundown.checks), JSON.stringify(rundown.historical),
-        rundown.aiSummary, rundown.confirmation?.confirmedBy || null,
-        rundown.confirmation?.confirmedAt || null,
-        rundown.confirmation?.escalationLevel || 0,
-        rundown.generatedAt
-      );
+        this.db.prepare(upsertSql).run(...upsertParams);
       } else if (this.queryClient) {
-        this._run(`
-        INSERT OR REPLACE INTO preservice_rundowns
-          (id, church_id, instance_name, room_id, service_time, overall_status,
-           checks_json, historical_json, ai_summary, confirmed_by, confirmed_at,
-           escalation_level, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-          rundown.id, rundown.churchId, rundown.instanceName, rundown.roomId,
-          rundown.serviceTime || '', rundown.overallStatus,
-          JSON.stringify(rundown.checks), JSON.stringify(rundown.historical),
-          rundown.aiSummary, rundown.confirmation?.confirmedBy || null,
-          rundown.confirmation?.confirmedAt || null,
-          rundown.confirmation?.escalationLevel || 0,
-          rundown.generatedAt,
-        ]).catch((e) => {
+        this._run(upsertSql, upsertParams).catch((e) => {
           console.error(`[PreServiceRundown] DB persist error:`, e.message);
         });
       }
