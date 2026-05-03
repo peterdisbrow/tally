@@ -264,6 +264,7 @@ const { escapeHtml, decodeHtmlEntities } = require('./src/escapeHtml');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus, closeRedisRateLimitClient } = require('./src/rateLimit');
 const { createWebSocketHandlers } = require('./src/websocketRouter');
+const { createAgentLogHandler } = require('./src/agentLogs');
 const { createDeltaTracker } = require('./src/deltaUpdates');
 const { createStatusBatcher } = require('./src/statusBatcher');
 const { createRuntimeCoordinator } = require('./src/runtimeCoordination');
@@ -1251,6 +1252,27 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_clock_layouts_church ON clock_layouts(church_id)');
 
+// ─── CHURCH AGENT LOGS TABLE ─────────────────────────────────────────────────
+// Structured logs shipped from the church-client agent over WS for remote
+// diagnosis. Retained 7 days / 10k rows per church (enforced in agentLogs.js).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS church_agent_logs (
+    id          ${SQL_AUTOINCREMENT_PRIMARY_KEY},
+    church_id   TEXT NOT NULL,
+    room_id     TEXT,
+    device_type TEXT,
+    device_id   TEXT,
+    level       TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    error_json  TEXT,
+    created_at  TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_church_agent_logs_church ON church_agent_logs(church_id, created_at DESC)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_church_agent_logs_level ON church_agent_logs(church_id, level, created_at DESC)');
+
+const agentLogHandler = createAgentLogHandler({ queryClient, logger: console });
+
 /** Log an admin action to the audit table. Fire-and-forget — never throws. */
 function logAudit({ adminUserId, adminEmail, action, targetType, targetId, details, ip }) {
   queryClient.run(
@@ -1984,6 +2006,11 @@ _intervals.push(setInterval(() => {
 _intervals.push(setInterval(() => {
   runDataRetention().catch((e) => {
     console.error('[DataRetention] Scheduled run failed:', e.message);
+  });
+}, 24 * 60 * 60 * 1000));
+_intervals.push(setInterval(() => {
+  agentLogHandler.runDailyCleanup().catch((e) => {
+    console.error('[AgentLogs] Daily cleanup failed:', e.message);
   });
 }, 24 * 60 * 60 * 1000));
 
@@ -4976,6 +5003,14 @@ const _wsHandlers = createWebSocketHandlers({
         })).catch(() => {});
         if (tallyBot) tallyBot.onPreviewFrame(frameMsg);
         totalMessagesRelayed++;
+        break;
+      }
+      case 'agent_log': {
+        runtimeMetrics.record('church.agent_log.in');
+        // Best-effort persistence — never let log shipping disrupt the church socket.
+        agentLogHandler.handle(church.churchId, msg).catch((e) => {
+          console.error('[agentLogs] handle failed:', e.message);
+        });
         break;
       }
     }

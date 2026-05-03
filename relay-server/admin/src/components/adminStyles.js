@@ -53,6 +53,7 @@ export const NAV_GROUPS = [
       { id: 'emails',  icon: '\uD83D\uDCE7', label: 'Emails' },
       { id: 'monitor', icon: '\uD83D\uDCE1', label: 'Monitor' },
       { id: 'status',  icon: '\uD83D\uDCCA', label: 'Status' },
+      { id: 'logs',    icon: '\uD83D\uDCDC', label: 'Logs' },
     ],
   },
   {
@@ -188,9 +189,9 @@ export function getEncoderLiveFromStatus(status = {}) {
 
 export function tabsForRole(role) {
   switch (role) {
-    case 'super_admin': return [['churches', '\u26EA Churches'], ['resellers', '\uD83C\uDFE2 Resellers'], ['users', '\uD83D\uDC64 Users'], ['rooms', '\uD83D\uDEAA Rooms'], ['aiusage', '\uD83E\uDD16 AI Usage'], ['alerts', '\uD83D\uDD14 Alerts'], ['tickets', '\uD83C\uDFAB Tickets'], ['emails', '\uD83D\uDCE7 Emails'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status'], ['outreach', '\uD83D\uDCEC Outreach']];
-    case 'admin':       return [['churches', '\u26EA Churches'], ['resellers', '\uD83C\uDFE2 Resellers'], ['rooms', '\uD83D\uDEAA Rooms'], ['aiusage', '\uD83E\uDD16 AI Usage'], ['alerts', '\uD83D\uDD14 Alerts'], ['tickets', '\uD83C\uDFAB Tickets'], ['emails', '\uD83D\uDCE7 Emails'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status'], ['outreach', '\uD83D\uDCEC Outreach']];
-    case 'engineer':    return [['churches', '\u26EA Churches'], ['rooms', '\uD83D\uDEAA Rooms'], ['alerts', '\uD83D\uDD14 Alerts'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status']];
+    case 'super_admin': return [['churches', '\u26EA Churches'], ['resellers', '\uD83C\uDFE2 Resellers'], ['users', '\uD83D\uDC64 Users'], ['rooms', '\uD83D\uDEAA Rooms'], ['aiusage', '\uD83E\uDD16 AI Usage'], ['alerts', '\uD83D\uDD14 Alerts'], ['tickets', '\uD83C\uDFAB Tickets'], ['emails', '\uD83D\uDCE7 Emails'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status'], ['logs', '\uD83D\uDCDC Logs'], ['outreach', '\uD83D\uDCEC Outreach']];
+    case 'admin':       return [['churches', '\u26EA Churches'], ['resellers', '\uD83C\uDFE2 Resellers'], ['rooms', '\uD83D\uDEAA Rooms'], ['aiusage', '\uD83E\uDD16 AI Usage'], ['alerts', '\uD83D\uDD14 Alerts'], ['tickets', '\uD83C\uDFAB Tickets'], ['emails', '\uD83D\uDCE7 Emails'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status'], ['logs', '\uD83D\uDCDC Logs'], ['outreach', '\uD83D\uDCEC Outreach']];
+    case 'engineer':    return [['churches', '\u26EA Churches'], ['rooms', '\uD83D\uDEAA Rooms'], ['alerts', '\uD83D\uDD14 Alerts'], ['monitor', '\uD83D\uDCE1 Monitor'], ['status', '\uD83D\uDCCA Status'], ['logs', '\uD83D\uDCDC Logs']];
     case 'sales':       return [['churches', '\u26EA Churches'], ['resellers', '\uD83C\uDFE2 Resellers'], ['outreach', '\uD83D\uDCEC Outreach']];
     default:            return [['churches', '\u26EA Churches']];
   }

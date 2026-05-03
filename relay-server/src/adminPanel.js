@@ -1264,6 +1264,50 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
+  // ── Church Agent Logs ────────────────────────────────────────────────────
+  // Returns the structured logs the church-client agent has shipped over WS.
+  // Used by the admin panel's Logs tab for remote diagnosis.
+  app.get('/api/admin/churches/:churchId/logs', requireAdminSession, async (req, res) => {
+    try {
+      const churchId = String(req.params.churchId || '').trim();
+      if (!churchId) return res.status(400).json({ error: 'churchId required' });
+
+      // Filters
+      const levelParam = String(req.query.level || 'all').toLowerCase();
+      const range = String(req.query.range || '24h').toLowerCase();
+      const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit) || 500));
+
+      // Map range → milliseconds. Anything unknown falls back to 24h.
+      const RANGE_MS = { '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000, '7d': 7 * 86_400_000 };
+      const sinceMs = RANGE_MS[range] || RANGE_MS['24h'];
+      const cutoff = new Date(Date.now() - sinceMs).toISOString();
+
+      const where = ['church_id = ?', 'created_at >= ?'];
+      const params = [churchId, cutoff];
+      if (levelParam === 'warn') {
+        where.push("level IN ('warn','error')");
+      } else if (levelParam === 'error') {
+        where.push("level = 'error'");
+      } else if (levelParam === 'info') {
+        where.push("level = 'info'");
+      }
+      // 'all' applies no level filter.
+
+      const whereClause = ' WHERE ' + where.join(' AND ');
+      const logs = await qAll(
+        `SELECT id, church_id, room_id, device_type, device_id, level, message, error_json, created_at
+           FROM church_agent_logs${whereClause}
+          ORDER BY created_at DESC
+          LIMIT ?`,
+        [...params, limit],
+      );
+
+      res.json({ logs, churchId, level: levelParam, range, limit });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e, 'Failed to load agent logs') });
+    }
+  });
+
   // AI usage endpoint moved to server.js (uses requireAdminJwt for tally-landing proxy compatibility)
 
   // ── Onboarding Funnel ────────────────────────────────────────────────────
