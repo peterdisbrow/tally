@@ -135,6 +135,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onWhatsNew: (cb) => ipcRenderer.on('whats-new', (_, data) => cb(data)),
   // Connection quality
   onConnectionQuality: (cb) => ipcRenderer.on('connection-quality', (_, data) => cb(data)),
+  // Relay reachability — fires when the debounced /health probe state flips
+  // and on every poll so the renderer can show "last seen" age. Payload:
+  //   { online: boolean, lastSeen: string|null (ISO), consecutiveFailures: number }
+  onRelayStatus: (cb) => {
+    const listener = (_, data) => cb(data);
+    ipcRenderer.on('relay:status', listener);
+    return () => ipcRenderer.removeListener('relay:status', listener);
+  },
+  getRelayStatus: () => ipcRenderer.invoke('get-relay-status'),
+  // Local-status snapshot — fires when the local fallback poll merges a
+  // fresh snapshot from the agent. Renderer uses this to refresh the
+  // device dashboard while the relay is unreachable.
+  onLocalStatus: (cb) => {
+    const listener = (_, data) => cb(data);
+    ipcRenderer.on('local:status', listener);
+    return () => ipcRenderer.removeListener('local:status', listener);
+  },
   // Deep link config update
   onConfigUpdated: (cb) => ipcRenderer.on('config-updated', () => cb()),
 });

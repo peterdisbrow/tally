@@ -227,6 +227,31 @@ body.is-mac .header .header-title {
   gap: 10px;
 }
 
+/* ── Reconnected toast (shown briefly when relay /health flips online) ── */
+.reconnected-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  background: rgba(34,197,94,0.95);
+  color: #042f1d;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 8px 14px;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.reconnected-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* ── Connectivity Indicator ─────────────────────────────────── */
 .connectivity-indicator {
   display: flex;

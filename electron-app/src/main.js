@@ -46,6 +46,7 @@ const relayClient = require('./relay-client');
 const equipmentTester = require('./equipment-tester');
 const problemFinderBridge = require('./problem-finder-bridge');
 const autostart = require('./autostart');
+const { createRelayHealthMonitor, parseLocalStatusPortLine } = require('./relayHealthMonitor');
 
 // Auto-update (gracefully optional)
 let autoUpdater;
@@ -78,6 +79,15 @@ let mainWindow = null;
 let agentProcess = null;
 let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
 let lastNotifiedState = {};
+
+// ─── LOCAL FALLBACK STATE ────────────────────────────────────────────────────
+// Set when the agent prints `[LOCAL_STATUS_PORT]` on startup. Used to read
+// device state directly from the agent when the relay is unreachable.
+let _localStatusPort = null;
+let _localStatusFallbackTimer = null;
+// Last debounced relay reachability state, mirrored from relayHealthMonitor.
+// Starts optimistic — flips when the first health probe completes.
+let _relayHealthState = { online: true, lastSeen: null, consecutiveFailures: 0 };
 const recentLogLines = [];
 let agentCrashCount = 0;
 let _agentEscalatedAt = 0;      // timestamp of last crash-escalation notification
@@ -851,6 +861,20 @@ function startAgent() {
 
     let statusChanged = false;
 
+    // Capture the localhost port the agent picked for /local-status. The
+    // main process polls this when the relay /health probe shows offline.
+    if (text.includes('[LOCAL_STATUS_PORT]')) {
+      // The marker may be embedded in a multi-line chunk; scan each line.
+      for (const line of text.split('\n')) {
+        const port = parseLocalStatusPortLine(line);
+        if (port) {
+          _localStatusPort = port;
+          appendAppLog('SYSTEM', `Agent local-status endpoint on port ${port}`);
+          break;
+        }
+      }
+    }
+
     // Skip [STATUS_JSON] lines — status now comes via relay SSE, not stdout
     if (text.includes('[STATUS_JSON]')) { return; }
 
@@ -1117,6 +1141,9 @@ function startAgent() {
   agentProcess.on('close', (code) => {
     const wasManualStop = agentProcess === null; // stopAgent() sets this to null before kill
     agentProcess = null;
+    // Drop stale local-status port; the next agent will print a new one.
+    _localStatusPort = null;
+    stopLocalStatusFallback();
     const savedEncoderType = agentStatus.encoderType;
     const closedConfig = loadConfig();
     agentStatus = {
@@ -1168,6 +1195,9 @@ function startAgent() {
 
 function stopAgent() {
   stopRelayStatusSSE();
+  // Stale port becomes invalid the moment the agent process exits.
+  _localStatusPort = null;
+  stopLocalStatusFallback();
   if (agentProcess) {
     appendAppLog('SYSTEM', 'Stopping agent');
     const proc = agentProcess;
@@ -1227,6 +1257,99 @@ function measureRelayLatency() {
 setInterval(() => {
   if (agentStatus.relay) measureRelayLatency();
 }, 30_000);
+
+// ─── RELAY /HEALTH POLLER + LOCAL FALLBACK ──────────────────────────────────
+// Independent HTTP probe of the relay's /health endpoint. The agent's WS
+// gives us one signal but it can sit in a stale connecting state for many
+// seconds; this lets the desktop app flip into local-fallback mode the
+// moment the relay actually goes dark.
+
+const _relayHealthMonitor = createRelayHealthMonitor({
+  getRelayUrl: () => {
+    try {
+      const config = configManager.loadConfig();
+      return config.relay || DEFAULT_RELAY_URL;
+    } catch {
+      return DEFAULT_RELAY_URL;
+    }
+  },
+  intervalMs: 10_000,
+  timeoutMs: 5_000,
+  failureThreshold: 3,
+  onChange: (state) => {
+    _relayHealthState = state;
+    appendAppLog('SYSTEM', `Relay health flipped to ${state.online ? 'ONLINE' : 'OFFLINE'} (consecutiveFailures=${state.consecutiveFailures})`);
+    sendRelayStatusToRenderer();
+    if (state.online) {
+      stopLocalStatusFallback();
+    } else {
+      startLocalStatusFallback();
+    }
+  },
+  onPoll: (state) => {
+    // Keep _relayHealthState fresh even between transitions so renderer can
+    // show "last seen" age accurately on demand.
+    _relayHealthState = state;
+  },
+});
+
+function sendRelayStatusToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed?.()) return;
+  mainWindow.webContents.send('relay:status', {
+    online: _relayHealthState.online,
+    lastSeen: _relayHealthState.lastSeen ? _relayHealthState.lastSeen.toISOString() : null,
+    consecutiveFailures: _relayHealthState.consecutiveFailures,
+  });
+}
+
+async function pollLocalStatus() {
+  if (!_localStatusPort) return;
+  try {
+    const resp = await fetch(`http://127.0.0.1:${_localStatusPort}/local-status`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) return;
+    const body = await resp.json();
+    if (body && body.status && typeof body.status === 'object') {
+      _mergeLocalStatus(body.status);
+      mainWindow?.webContents?.send('local:status', {
+        receivedAt: new Date().toISOString(),
+        status: body.status,
+      });
+    }
+  } catch { /* ignore — agent may be restarting */ }
+}
+
+function _mergeLocalStatus(status) {
+  // Merge agent-sourced device state into agentStatus, but DO NOT overwrite
+  // the relay flag — that's owned by the WS lifecycle / health monitor.
+  // Preserve null for unconfigured devices (renderer hides those pills).
+  for (const key of Object.keys(status)) {
+    if (key === 'relay') continue;
+    if (key.startsWith('_')) continue;
+    agentStatus[key] = status[key];
+  }
+}
+
+function startLocalStatusFallback() {
+  if (_localStatusFallbackTimer) return;
+  // Kick off immediately so the dashboard refreshes the moment we go offline.
+  pollLocalStatus();
+  _localStatusFallbackTimer = setInterval(pollLocalStatus, 5_000);
+  if (_localStatusFallbackTimer.unref) _localStatusFallbackTimer.unref();
+  appendAppLog('SYSTEM', 'Local-status fallback polling started');
+}
+
+function stopLocalStatusFallback() {
+  if (_localStatusFallbackTimer) {
+    clearInterval(_localStatusFallbackTimer);
+    _localStatusFallbackTimer = null;
+    appendAppLog('SYSTEM', 'Local-status fallback polling stopped');
+  }
+}
+
+// Start the health monitor once Electron is ready (DEFAULT_RELAY_URL is defined above).
+app.whenReady().then(() => _relayHealthMonitor.start()).catch(() => {});
 
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
@@ -1316,6 +1439,12 @@ ipcMain.handle('import-portable-config', async () => {
 });
 
 ipcMain.handle('get-status', () => agentStatus);
+ipcMain.handle('get-relay-status', () => ({
+  online: _relayHealthState.online,
+  lastSeen: _relayHealthState.lastSeen ? _relayHealthState.lastSeen.toISOString() : null,
+  consecutiveFailures: _relayHealthState.consecutiveFailures,
+  localStatusPort: _localStatusPort,
+}));
 ipcMain.handle('start-agent', () => { agentCrashCount = 0; startAgent(); });
 ipcMain.handle('stop-agent', () => stopAgent());
 ipcMain.handle('is-running', () => !!agentProcess);

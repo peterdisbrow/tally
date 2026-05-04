@@ -63,6 +63,8 @@ program
   .option('--room-name <name>', 'Room display name (auto-resolved if --room-id is set)')
   .option('--watchdog', 'Enable watchdog monitoring (default: true)', true)
   .option('--no-watchdog', 'Disable watchdog monitoring')
+  .option('--local-status-port <port>', 'Bind port for the localhost /local-status endpoint (0 = auto)', '0')
+  .option('--no-local-status', 'Disable the local /local-status HTTP endpoint')
   .parse();
 
 // Handle 'setup' subcommand before anything else
@@ -204,6 +206,8 @@ function loadConfig() {
   if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
   if (opts.roomId) config.roomId = opts.roomId;
   if (opts.roomName) config.roomName = opts.roomName;
+  if (opts.localStatus === false) config.localStatus = false;
+  if (opts.localStatusPort !== undefined) config.localStatusPort = opts.localStatusPort;
 
   // Preserve array fields from config file (hyperdecks, ptz)
   // These are set via the Equipment UI, not CLI args
@@ -707,6 +711,26 @@ class ChurchAVAgent {
     if (this.watchdogActive) {
       console.log('🐕 Watchdog enabled (30s interval)');
       this._track(setInterval(() => this.watchdogTick(), 30_000));
+    }
+
+    // Local-status HTTP endpoint — lets the desktop app read device state
+    // directly when the relay is unreachable. Loopback-only.
+    if (this.config.localStatus !== false) {
+      try {
+        const { startLocalStatusServer } = require('./localStatusServer');
+        const requested = Number.parseInt(this.config.localStatusPort, 10);
+        const port = Number.isFinite(requested) && requested >= 0 ? requested : 0;
+        const handle = await startLocalStatusServer({
+          getStatus: () => this.status,
+          port,
+        });
+        this._localStatusServer = handle;
+        // Stable, parseable line for the Electron main process to read.
+        console.log(`[LOCAL_STATUS_PORT] ${handle.port}`);
+        console.log(`📡 Local-status endpoint: http://127.0.0.1:${handle.port}/local-status`);
+      } catch (err) {
+        console.warn(`⚠️  Local-status server failed to start: ${err.message}`);
+      }
     }
 
     console.log('\n✅ Tally running. Press Ctrl+C to stop.\n');
@@ -1603,6 +1627,12 @@ class ChurchAVAgent {
     if (this.companion?.stopPolling) this.companion.stopPolling();
     if (this.streamHealthMonitor?.stop) this.streamHealthMonitor.stop();
     if (this.audioMonitor?.stop) this.audioMonitor.stop();
+
+    // 7. Stop local-status HTTP server
+    if (this._localStatusServer?.stop) {
+      try { await this._localStatusServer.stop(); } catch { /* ignore */ }
+      this._localStatusServer = null;
+    }
 
     console.log('🛑 All timers cleared, connections closed.');
   }

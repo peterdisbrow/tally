@@ -198,6 +198,9 @@
     <div id="offline-banner-stale" style="display:none; font-weight:400; font-size:10px; padding:4px 16px 0 36px; opacity:0.7;"></div>
   </div>
 
+  <!-- Reconnected toast — shown briefly when the relay /health probe flips back to online -->
+  <div class="reconnected-toast" id="reconnected-toast" role="status" aria-live="polite">Reconnected to relay</div>
+
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('dashboard')" title="Dashboard (Ctrl+1 / &#8984;1)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
