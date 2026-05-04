@@ -730,8 +730,29 @@ describe('LifecycleEmails', () => {
     it('injects an unsubscribe link for a categorized feature-tip email', () => {
       const html = '<div>Hello world</div>';
       const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
-      expect(out).toContain('/api/notifications/unsubscribe');
+      expect(out).toContain('/unsubscribe?token=');
       expect(out).toContain('Unsubscribe');
+    });
+
+    it('includes a CAN-SPAM physical-address line in the footer', () => {
+      const html = '<div>Hello world</div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+      expect(out).toContain('TallyConnect');
+      expect(out).toContain('support@tallyconnect.app');
+    });
+
+    it('signs the unsubscribe token with { churchId, email, category }', () => {
+      const jwt = require('jsonwebtoken');
+      process.env.NODE_ENV = 'test';
+      const html = '<div>Hello world</div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+      const match = out.match(/\/unsubscribe\?token=([^"&]+)/);
+      expect(match).toBeTruthy();
+      const decoded = jwt.verify(decodeURIComponent(match[1]), 'test-jwt-secret');
+      expect(decoded.churchId).toBe('church-1');
+      expect(decoded.email).toBe('a@b.com');
+      // feature-tips category is the resolved value
+      expect(decoded.category).toBe('feature-tips');
     });
 
     it('injects an unsubscribe link for the connection-success onboarding email', () => {
@@ -739,7 +760,7 @@ describe('LifecycleEmails', () => {
       // sendOnboardingEmail. Was missing a footer until this fix.
       const html = '<div>Tally is live at LCC!</div>';
       const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'connection-success');
-      expect(out).toContain('/api/notifications/unsubscribe');
+      expect(out).toContain('/unsubscribe?token=');
     });
 
     it('does NOT inject for transactional email-verification (uncategorized)', () => {
@@ -748,11 +769,17 @@ describe('LifecycleEmails', () => {
       // before completing verification.
       const html = '<div>Confirm your email</div>';
       const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'email-verification');
-      expect(out).not.toContain('/api/notifications/unsubscribe');
+      expect(out).not.toContain('/unsubscribe?token=');
       expect(out).toBe(html);
     });
 
-    it('skips injection when html already contains an unsubscribe link', () => {
+    it('skips injection when html already contains the new unsubscribe path', () => {
+      const html = '<div>...<a href="https://x/unsubscribe?token=abc">Unsubscribe</a></div>';
+      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+      expect(out).toBe(html);
+    });
+
+    it('skips injection when html already contains the legacy unsubscribe path', () => {
       const html = '<div>...<a href="https://x/api/notifications/unsubscribe?token=abc">Unsubscribe</a></div>';
       const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
       expect(out).toBe(html);
@@ -795,6 +822,49 @@ describe('LifecycleEmails', () => {
       expect(allCalls).toContain('email_sends');
       expect(allCalls).toContain('email_template_overrides');
       expect(allCalls).toContain('sales_leads');
+      expect(allCalls).toContain('email_unsubscribes');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Per-recipient unsubscribe + resubscribe — CAN-SPAM compliance
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('unsubscribe / resubscribe', () => {
+    it('unsubscribeRecipient writes to email_unsubscribes', () => {
+      const inserts = [];
+      db.prepare = vi.fn((sql) => {
+        if (sql.includes('INSERT OR REPLACE INTO email_unsubscribes')) {
+          return { run: vi.fn((...args) => inserts.push(args)) };
+        }
+        return { get: vi.fn(), all: vi.fn().mockReturnValue([]), run: vi.fn() };
+      });
+      emails.unsubscribeRecipient('church-1', 'A@b.com', 'feature-tips');
+      expect(inserts).toHaveLength(1);
+      // Email is normalized to lower-case
+      expect(inserts[0][0]).toBe('church-1');
+      expect(inserts[0][1]).toBe('a@b.com');
+      expect(inserts[0][2]).toBe('feature-tips');
+    });
+
+    it('resubscribeRecipient deletes from email_unsubscribes', () => {
+      const deletes = [];
+      db.prepare = vi.fn((sql) => {
+        if (sql.includes('DELETE FROM email_unsubscribes')) {
+          return { run: vi.fn((...args) => deletes.push(args)) };
+        }
+        return { get: vi.fn(), all: vi.fn().mockReturnValue([]), run: vi.fn() };
+      });
+      emails.resubscribeRecipient('church-1', 'A@b.com', 'feature-tips');
+      expect(deletes).toHaveLength(1);
+      expect(deletes[0][0]).toBe('church-1');
+      expect(deletes[0][1]).toBe('a@b.com');
+      expect(deletes[0][2]).toBe('feature-tips');
+    });
+
+    it('resubscribeRecipient swallows DB errors and returns false', () => {
+      db.prepare = vi.fn(() => { throw new Error('table missing'); });
+      expect(emails.resubscribeRecipient('c', 'a@b.com', 'feature-tips')).toBe(false);
     });
   });
 });
