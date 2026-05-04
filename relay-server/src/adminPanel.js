@@ -7,6 +7,7 @@ const { WebSocket } = require('ws');
 const { hasOpenSocket } = require('./runtimeSockets');
 const { getJwtSecret } = require('./jwtSecret');
 const { SqliteQueryClient } = require('./db/queryClient');
+const { hashPassword } = require('./auth');
 
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
@@ -1625,6 +1626,228 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       );
       if (!result.changes) return res.status(404).json({ error: 'Assignment not found' });
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── TD Credentials & Management (Admin) ──────────────────────────────────
+  //
+  // These endpoints expose the per-room TD credential capability that already
+  // exists in churchPortal.js (set-password, portal-access toggle, access-level)
+  // to the superadmin admin panel. The admin panel uses requireAdminSession;
+  // the church-portal-facing endpoints use the church admin's session cookie.
+
+  const VALID_TD_ACCESS_LEVELS = ['viewer', 'operator', 'admin'];
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+  function normalizeEmail(raw) {
+    return raw == null ? '' : String(raw).trim().toLowerCase();
+  }
+
+  // GET /api/admin/church/:churchId/tds — list TDs with credential info
+  app.get('/api/admin/church/:churchId/tds', requireAdminSession, async (req, res) => {
+    try {
+      const churchId = req.params.churchId;
+      const tds = await qMaybeAll(
+        'SELECT id, name, email, phone, role, access_level, portal_enabled, password_hash, last_portal_login, registered_at, telegram_user_id, telegram_chat_id, active FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC',
+        [churchId],
+        []
+      );
+      const withAssignments = await Promise.all((tds || []).map(async (td) => {
+        const { password_hash, ...safe } = td;
+        safe.has_password = !!password_hash;
+        safe.portal_enabled = !!td.portal_enabled;
+        safe.access_level = td.access_level || 'operator';
+        try {
+          safe.roomAssignments = await qAll(
+            `SELECT tra.id AS assignment_id, tra.room_id, r.name AS room_name
+             FROM td_room_assignments tra
+             JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+             WHERE tra.td_id = ? AND tra.church_id = ?
+             ORDER BY r.name ASC`,
+            [td.id, churchId]
+          );
+        } catch {
+          safe.roomAssignments = [];
+        }
+        return safe;
+      }));
+      res.json(withAssignments);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/admin/church/:churchId/tds — create a portal-only TD
+  app.post('/api/admin/church/:churchId/tds', requireAdminSession, async (req, res) => {
+    try {
+      const churchId = req.params.churchId;
+      const { name, email, role, accessLevel, phone } = req.body || {};
+      const cleanName = String(name || '').trim();
+      if (!cleanName) return res.status(400).json({ error: 'name required' });
+      const cleanEmail = normalizeEmail(email);
+      if (cleanEmail && !EMAIL_RE.test(cleanEmail)) {
+        return res.status(400).json({ error: 'invalid email format' });
+      }
+      const resolvedAccessLevel = VALID_TD_ACCESS_LEVELS.includes(accessLevel) ? accessLevel : 'operator';
+      if (cleanEmail) {
+        const dup = await qMaybeOne(
+          'SELECT id FROM church_tds WHERE LOWER(email) = ?',
+          [cleanEmail]
+        );
+        if (dup) return res.status(409).json({ error: 'A TD with that email already exists' });
+      }
+      const placeholderId = uuidv4();
+      const placeholder = `portal_${placeholderId}`;
+      const registeredAt = new Date().toISOString();
+      try {
+        await qRun(
+          'INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone, access_level) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
+          [churchId, placeholder, placeholder, cleanName, registeredAt, role || 'td', cleanEmail || '', phone || '', resolvedAccessLevel]
+        );
+      } catch {
+        // Fallback if access_level column doesn't exist yet (migration pending)
+        await qRun(
+          'INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)',
+          [churchId, placeholder, placeholder, cleanName, registeredAt, role || 'td', cleanEmail || '', phone || '']
+        );
+      }
+      const created = await qMaybeOne(
+        'SELECT id, name, email, phone, role, access_level, portal_enabled, registered_at FROM church_tds WHERE telegram_user_id = ? AND church_id = ?',
+        [placeholder, churchId]
+      );
+      res.status(201).json({
+        ...(created || { name: cleanName, email: cleanEmail, role: role || 'td', access_level: resolvedAccessLevel }),
+        has_password: false,
+        portal_enabled: !!(created && created.portal_enabled),
+        roomAssignments: [],
+      });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PATCH /api/admin/church/:churchId/tds/:tdId — update name/email/access_level/role/phone
+  app.patch('/api/admin/church/:churchId/tds/:tdId', requireAdminSession, async (req, res) => {
+    try {
+      const { churchId, tdId } = req.params;
+      const td = await qMaybeOne(
+        'SELECT id FROM church_tds WHERE id = ? AND church_id = ?',
+        [tdId, churchId]
+      );
+      if (!td) return res.status(404).json({ error: 'TD not found' });
+
+      const updates = [];
+      const params = [];
+
+      if (req.body && req.body.name !== undefined) {
+        const cleanName = String(req.body.name || '').trim();
+        if (!cleanName) return res.status(400).json({ error: 'name cannot be empty' });
+        updates.push('name = ?'); params.push(cleanName);
+      }
+      if (req.body && req.body.email !== undefined) {
+        const cleanEmail = normalizeEmail(req.body.email);
+        if (cleanEmail && !EMAIL_RE.test(cleanEmail)) {
+          return res.status(400).json({ error: 'invalid email format' });
+        }
+        if (cleanEmail) {
+          const dup = await qMaybeOne(
+            'SELECT id FROM church_tds WHERE LOWER(email) = ? AND id != ?',
+            [cleanEmail, tdId]
+          );
+          if (dup) return res.status(409).json({ error: 'A TD with that email already exists' });
+        }
+        updates.push('email = ?'); params.push(cleanEmail);
+      }
+      if (req.body && req.body.accessLevel !== undefined) {
+        if (!VALID_TD_ACCESS_LEVELS.includes(req.body.accessLevel)) {
+          return res.status(400).json({ error: 'invalid access level' });
+        }
+        updates.push('access_level = ?'); params.push(req.body.accessLevel);
+      }
+      if (req.body && req.body.role !== undefined) {
+        updates.push('role = ?'); params.push(String(req.body.role || 'td'));
+      }
+      if (req.body && req.body.phone !== undefined) {
+        updates.push('phone = ?'); params.push(String(req.body.phone || ''));
+      }
+      if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
+
+      params.push(tdId, churchId);
+      await qRun(
+        `UPDATE church_tds SET ${updates.join(', ')} WHERE id = ? AND church_id = ?`,
+        params
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/admin/church/:churchId/tds/:tdId — remove TD + cascade assignments
+  app.delete('/api/admin/church/:churchId/tds/:tdId', requireAdminSession, async (req, res) => {
+    try {
+      const { churchId, tdId } = req.params;
+      try { await qRun('DELETE FROM td_room_assignments WHERE td_id = ? AND church_id = ?', [tdId, churchId]); } catch {}
+      const result = await qRun(
+        'DELETE FROM church_tds WHERE id = ? AND church_id = ?',
+        [tdId, churchId]
+      );
+      if (!result.changes) return res.status(404).json({ error: 'TD not found' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/admin/church/:churchId/tds/:tdId/set-password — set/reset password (auto-enables portal)
+  app.post('/api/admin/church/:churchId/tds/:tdId/set-password', requireAdminSession, async (req, res) => {
+    try {
+      const { churchId, tdId } = req.params;
+      const { password } = req.body || {};
+      if (!password || String(password).length < 8) {
+        return res.status(400).json({ error: 'password must be at least 8 characters' });
+      }
+      const td = await qMaybeOne(
+        'SELECT id, email FROM church_tds WHERE id = ? AND church_id = ?',
+        [tdId, churchId]
+      );
+      if (!td) return res.status(404).json({ error: 'TD not found' });
+      if (!td.email) {
+        return res.status(400).json({ error: 'TD must have an email address before enabling portal login' });
+      }
+      await qRun(
+        'UPDATE church_tds SET password_hash = ?, portal_enabled = 1 WHERE id = ? AND church_id = ?',
+        [hashPassword(String(password)), tdId, churchId]
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PUT /api/admin/church/:churchId/tds/:tdId/portal-access — toggle portal access
+  app.put('/api/admin/church/:churchId/tds/:tdId/portal-access', requireAdminSession, async (req, res) => {
+    try {
+      const { churchId, tdId } = req.params;
+      const { enabled } = req.body || {};
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'enabled (boolean) required' });
+      }
+      const td = await qMaybeOne(
+        'SELECT id, email, password_hash FROM church_tds WHERE id = ? AND church_id = ?',
+        [tdId, churchId]
+      );
+      if (!td) return res.status(404).json({ error: 'TD not found' });
+      if (enabled && (!td.email || !td.password_hash)) {
+        return res.status(400).json({ error: 'TD must have an email and password before enabling portal access' });
+      }
+      await qRun(
+        'UPDATE church_tds SET portal_enabled = ? WHERE id = ? AND church_id = ?',
+        [enabled ? 1 : 0, tdId, churchId]
+      );
+      res.json({ ok: true, portal_enabled: !!enabled });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
