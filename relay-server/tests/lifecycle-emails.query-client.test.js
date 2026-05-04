@@ -11,6 +11,7 @@ function createQueryClientMock(initial = {}) {
     ],
     emailSends: [...(initial.emailSends || [])],
     emailPreferences: [...(initial.emailPreferences || [])],
+    emailUnsubscribes: [...(initial.emailUnsubscribes || [])],
     overrides: [...(initial.overrides || [])],
     leads: [...(initial.leads || [])],
     serviceEvents: [...(initial.serviceEvents || [])],
@@ -43,6 +44,9 @@ function createQueryClientMock(initial = {}) {
       }
       if (normalized.includes('from email_sends')) {
         return state.emailSends.slice().sort(bySendTime).map((row) => ({ ...row }));
+      }
+      if (normalized.includes('from email_unsubscribes')) {
+        return state.emailUnsubscribes.map((row) => ({ ...row }));
       }
       if (normalized.includes('from sales_leads')) {
         return state.leads.map((row) => ({ ...row }));
@@ -97,6 +101,15 @@ function createQueryClientMock(initial = {}) {
 
   client.run = vi.fn(async (sql, params = []) => {
     const normalized = normalize(sql);
+
+    if (normalized.startsWith('delete from email_unsubscribes')) {
+      const [churchId, recipient, category] = params;
+      const before = state.emailUnsubscribes.length;
+      state.emailUnsubscribes = state.emailUnsubscribes.filter(
+        (row) => !(row.church_id === churchId && row.recipient === recipient && row.category === category),
+      );
+      return { changes: before - state.emailUnsubscribes.length, lastInsertRowid: null, rows: [] };
+    }
 
     if (normalized.includes('into email_preferences')) {
       const [churchId, category, enabled, updatedAt] = params;
@@ -397,5 +410,58 @@ describe('LifecycleEmails query-client support', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // CAN-SPAM unsubscribe / resubscribe — query-client (postgres) path
+  // ────────────────────────────────────────────────────────────────────────
+
+  it('unsubscribeRecipient persists to email_unsubscribes and blocks future sends', async () => {
+    await settle(emails);
+
+    emails.unsubscribeRecipient('church-1', 'pastor@grace.church', 'feature-tips');
+    await settle(emails);
+
+    expect(queryClient.state.emailUnsubscribes).toEqual([
+      expect.objectContaining({
+        church_id: 'church-1',
+        recipient: 'pastor@grace.church',
+        category: 'feature-tips',
+      }),
+    ]);
+
+    // Send-time guard skips an opted-out recipient
+    const result = await emails.sendEmail({
+      churchId: 'church-1',
+      emailType: 'viewer-analytics-nudge',
+      to: 'pastor@grace.church',
+      subject: 'Tip',
+      html: '<p>tip</p>',
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe('recipient-unsubscribed');
+  });
+
+  it('resubscribeRecipient removes the row and re-enables sends', async () => {
+    await settle(emails);
+
+    emails.unsubscribeRecipient('church-1', 'pastor@grace.church', 'feature-tips');
+    await settle(emails);
+    expect(queryClient.state.emailUnsubscribes).toHaveLength(1);
+
+    emails.resubscribeRecipient('church-1', 'pastor@grace.church', 'feature-tips');
+    await settle(emails);
+    expect(queryClient.state.emailUnsubscribes).toHaveLength(0);
+
+    // Cache reflects the deletion — guard no longer fires
+    const result = await emails.sendEmail({
+      churchId: 'church-1',
+      emailType: 'viewer-analytics-nudge',
+      to: 'pastor@grace.church',
+      subject: 'Tip',
+      html: '<p>tip</p>',
+    });
+    // resendApiKey is empty so the response is no-api-key, not recipient-unsubscribed
+    expect(result.reason).toBe('no-api-key');
   });
 });

@@ -1812,46 +1812,135 @@ const lifecycleEmails = new LifecycleEmails(queryClient, {
   appUrl: APP_URL,
 });
 
-app.get('/api/notifications/unsubscribe', async (req, res) => {
+// ─── UNSUBSCRIBE / RESUBSCRIBE (CAN-SPAM) ─────────────────────────────────
+// Tokens are signed with JWT_SECRET (UNSUBSCRIBE_SECRET overrides if set so
+// unsubscribe tokens can be rotated independently of session JWTs).
+const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET || JWT_SECRET;
+
+/**
+ * Verify an unsubscribe token. Accepts new tokens (`category` field) and
+ * legacy tokens (`type` field with the same category-key value, plus the
+ * pre-2026-05 'digest'/'report' aliases). Returns `{ churchId, email, category }`.
+ */
+function verifyUnsubscribeToken(token) {
+  const payload = jwt.verify(token, UNSUBSCRIBE_SECRET) || {};
+  const churchId = String(payload.churchId || '').trim();
+  const email = String(payload.email || '').trim().toLowerCase();
+  const rawCategory = String(payload.category || payload.type || '').trim();
+  if (!churchId || !email || !rawCategory) throw new Error('Invalid token payload');
+
+  let category;
+  if (rawCategory === 'digest') category = 'weekly-digest';
+  else if (rawCategory === 'report') category = 'monthly-reports';
+  else if (LifecycleEmails.EMAIL_CATEGORIES && LifecycleEmails.EMAIL_CATEGORIES[rawCategory]) category = rawCategory;
+  else throw new Error('Unknown email category');
+
+  return { churchId, email, category };
+}
+
+function renderUnsubscribePage({ email, category, token, status }) {
+  const categoryLabel = (LifecycleEmails.EMAIL_CATEGORIES[category] && LifecycleEmails.EMAIL_CATEGORIES[category].name) || category;
+  const safeEmail = escapeHtml(email);
+  const safeLabel = escapeHtml(categoryLabel);
+  const safeToken = escapeHtml(token);
+  const heading = status === 'resubscribed' ? 'Resubscribed' : 'Unsubscribed';
+  const message = status === 'resubscribed'
+    ? `${safeEmail} will receive ${safeLabel} emails again.`
+    : `${safeEmail} will no longer receive ${safeLabel} emails.`;
+  const action = status === 'resubscribed'
+    ? `<button type="submit" formaction="/unsubscribe?token=${encodeURIComponent(token)}" formmethod="get" style="background:#fff;border:1px solid #ccc;padding:10px 18px;border-radius:6px;cursor:pointer;">Unsubscribe again</button>`
+    : `<button type="submit" style="background:#0066cc;color:#fff;border:0;padding:10px 18px;border-radius:6px;cursor:pointer;">Resubscribe</button>`;
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${heading} &middot; TallyConnect</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+  </head>
+  <body style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;margin:64px auto;padding:0 24px;color:#222;">
+    <h1 style="font-size:24px;margin-bottom:8px;">${heading}</h1>
+    <p style="color:#555;line-height:1.5;">${message}</p>
+    <form method="post" action="/unsubscribe/resubscribe" style="margin-top:24px;">
+      <input type="hidden" name="token" value="${safeToken}" />
+      ${action}
+    </form>
+    <p style="font-size:12px;color:#888;margin-top:48px;">TallyConnect &middot; <a href="mailto:support@tallyconnect.app" style="color:#888;">support@tallyconnect.app</a></p>
+  </body>
+</html>`;
+}
+
+function renderUnsubscribeError(message) {
+  const safe = escapeHtml(message || 'This link is invalid or has expired.');
+  return `<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>Invalid unsubscribe link</title></head>
+  <body style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;margin:64px auto;padding:0 24px;color:#222;">
+    <h1>Invalid unsubscribe link</h1>
+    <p style="color:#555;">${safe}</p>
+    <p style="font-size:12px;color:#888;margin-top:48px;">TallyConnect &middot; <a href="mailto:support@tallyconnect.app" style="color:#888;">support@tallyconnect.app</a></p>
+  </body>
+</html>`;
+}
+
+app.get('/unsubscribe', async (req, res) => {
   const token = String(req.query.token || '').trim();
   if (!token) {
-    return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is missing a token.</p></body></html>');
+    return res.status(400).type('html').send(renderUnsubscribeError('This link is missing a token.'));
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) || {};
-    const churchId = String(payload.churchId || '').trim();
-    const email = String(payload.email || '').trim().toLowerCase();
-    const rawType = String(payload.type || '').trim();
-    if (!churchId || !email || !rawType) throw new Error('Invalid token payload');
-
-    // Resolve to a known category. Back-compat: 'digest' / 'report' from
-    // pre-2026-05 tokens map to weekly-digest / monthly-reports. Anything
-    // else must be a current EMAIL_CATEGORIES key.
-    let category;
-    if (rawType === 'digest') category = 'weekly-digest';
-    else if (rawType === 'report') category = 'monthly-reports';
-    else if (LifecycleEmails.EMAIL_CATEGORIES && LifecycleEmails.EMAIL_CATEGORIES[rawType]) category = rawType;
-    else throw new Error('Unknown email category');
+    const { churchId, email, category } = verifyUnsubscribeToken(token);
 
     const church = await queryClient.queryOne(
       'SELECT churchId FROM churches WHERE churchId = ?',
       [churchId],
     );
     if (!church) {
-      return res.status(404).type('html').send('<!doctype html><html><body><h1>Church not found</h1><p>This unsubscribe link is no longer valid.</p></body></html>');
+      return res.status(404).type('html').send(renderUnsubscribeError('This unsubscribe link is no longer valid.'));
     }
 
     lifecycleEmails.unsubscribeRecipient(churchId, email, category);
-
-    const categoryLabel = (LifecycleEmails.EMAIL_CATEGORIES[category] && LifecycleEmails.EMAIL_CATEGORIES[category].name) || category;
-    return res.type('html').send(
-      `<!doctype html><html><body><h1>Unsubscribed</h1><p>${escapeHtml(email)} will no longer receive ${escapeHtml(categoryLabel)} emails.</p></body></html>`,
-    );
+    return res.type('html').send(renderUnsubscribePage({ email, category, token, status: 'unsubscribed' }));
   } catch (err) {
     console.error('[unsubscribe] token verification failed:', err.message);
-    return res.status(400).type('html').send('<!doctype html><html><body><h1>Invalid unsubscribe link</h1><p>This link is invalid or has expired.</p></body></html>');
+    return res.status(400).type('html').send(renderUnsubscribeError('This link is invalid or has expired.'));
   }
+});
+
+app.post('/unsubscribe/resubscribe', async (req, res) => {
+  const token = String((req.body && req.body.token) || req.query.token || '').trim();
+  if (!token) {
+    return res.status(400).type('html').send(renderUnsubscribeError('This link is missing a token.'));
+  }
+
+  try {
+    const { churchId, email, category } = verifyUnsubscribeToken(token);
+
+    const church = await queryClient.queryOne(
+      'SELECT churchId FROM churches WHERE churchId = ?',
+      [churchId],
+    );
+    if (!church) {
+      return res.status(404).type('html').send(renderUnsubscribeError('This link is no longer valid.'));
+    }
+
+    lifecycleEmails.resubscribeRecipient(churchId, email, category);
+    return res.type('html').send(renderUnsubscribePage({ email, category, token, status: 'resubscribed' }));
+  } catch (err) {
+    console.error('[resubscribe] token verification failed:', err.message);
+    return res.status(400).type('html').send(renderUnsubscribeError('This link is invalid or has expired.'));
+  }
+});
+
+// Back-compat: footers issued before 2026-05-04 link to the old path.
+// Tokens stay valid for 365 days, so redirect them to the new handler
+// rather than removing the route.
+app.get('/api/notifications/unsubscribe', (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) {
+    return res.status(400).type('html').send(renderUnsubscribeError('This link is missing a token.'));
+  }
+  return res.redirect(302, `/unsubscribe?token=${encodeURIComponent(token)}`);
 });
 
 // ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────

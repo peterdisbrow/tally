@@ -545,6 +545,31 @@ class LifecycleEmails {
     } catch { return false; }
   }
 
+  /** Resubscribe a recipient — removes the email_unsubscribes row */
+  resubscribeRecipient(churchId, recipient, category) {
+    const normalizedEmail = recipient.trim().toLowerCase();
+    if (this.queryClient) {
+      if (this._cache.recipientUnsubscribes) {
+        this._cache.recipientUnsubscribes = this._cache.recipientUnsubscribes.filter(r =>
+          !((r.church_id || r.churchId) === churchId &&
+            r.recipient === normalizedEmail &&
+            r.category === category)
+        );
+      }
+      void this._queueWrite(() => this._run(
+        'DELETE FROM email_unsubscribes WHERE church_id = ? AND recipient = ? AND category = ?',
+        [churchId, normalizedEmail, category],
+      ));
+      return true;
+    }
+    try {
+      this.db.prepare(
+        'DELETE FROM email_unsubscribes WHERE church_id = ? AND recipient = ? AND category = ?'
+      ).run(churchId, normalizedEmail, category);
+      return true;
+    } catch { return false; }
+  }
+
   _hasSent(churchId, emailType) {
     if (this.queryClient) {
       return this._cache.emailSends.some(
@@ -784,12 +809,21 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  _buildUnsubscribeFooter(churchId, email, type) {
-    if (!churchId || !email || !type) return '';
+  _buildUnsubscribeFooter(churchId, email, category) {
+    if (!churchId || !email || !category) return '';
     try {
-      const token = jwt.sign({ churchId, email, type }, getJwtSecret(), { expiresIn: '365d' });
-      const unsubscribeUrl = `${process.env.RELAY_URL || 'https://api.tallyconnect.app'}/api/notifications/unsubscribe?token=${encodeURIComponent(token)}`;
-      return `<p style="font-size:12px;color:#888;text-align:center;margin-top:32px;"><a href="${unsubscribeUrl}" style="color:#888;">Unsubscribe</a> from these emails.</p>`;
+      // `type` is preserved for back-compat with existing footers (legacy
+      // verifier reads `type`); new tokens carry `category` as the canonical
+      // field. Both match the same value.
+      const token = jwt.sign({ churchId, email, category, type: category }, getJwtSecret(), { expiresIn: '365d' });
+      const baseUrl = process.env.RELAY_URL || 'https://api.tallyconnect.app';
+      const unsubscribeUrl = `${baseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
+      return [
+        '<p style="font-size:12px;color:#888;text-align:center;margin-top:32px;line-height:1.6;">',
+        `<a href="${unsubscribeUrl}" style="color:#888;">Unsubscribe</a> from these emails.<br/>`,
+        'TallyConnect &middot; <a href="mailto:support@tallyconnect.app" style="color:#888;">support@tallyconnect.app</a>',
+        '</p>',
+      ].join('');
     } catch {
       return '';
     }
@@ -812,7 +846,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
    */
   _injectUnsubscribeFooter(html, churchId, recipient, emailType) {
     if (!html || !churchId || !recipient || !emailType) return html;
-    if (/\/api\/notifications\/unsubscribe/i.test(html)) return html; // already present
+    // Skip if any unsubscribe link is already rendered — covers both the
+    // new `/unsubscribe?token=` path and the legacy `/api/notifications/unsubscribe`
+    // path used by templates (digest/report) and by older injected footers.
+    if (/\/(api\/notifications\/)?unsubscribe\?token=/i.test(html)) return html;
     const category = this._getCategoryForType(emailType);
     if (!category) return html; // transactional — exempt
     const footer = this._buildUnsubscribeFooter(churchId, recipient, category);
