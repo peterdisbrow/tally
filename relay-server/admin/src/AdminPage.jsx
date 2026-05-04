@@ -14,6 +14,7 @@ import MonitorTab from './components/MonitorTab';
 import StatusTab from './components/StatusTab';
 import OutreachTab from './components/OutreachTab';
 import RoomsTab from './components/RoomsTab';
+import LogsTab from './components/LogsTab';
 import AIChatDrawer from './components/AIChatDrawer';
 
 export default function AdminPage() {
@@ -233,6 +234,7 @@ export default function AdminPage() {
         {tab === 'emails'    && <EmailsTab api={api} role={role} />}
         {tab === 'monitor'   && <MonitorTab token={token} api={api} />}
         {tab === 'status'    && <StatusTab api={api} role={role} />}
+        {tab === 'logs'      && <LogsTab api={api} />}
         {tab === 'outreach'  && <OutreachTab api={api} />}
       </div>
 

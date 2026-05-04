@@ -34,6 +34,7 @@ const { collectDiagnosticBundle } = require('./diagnosticBundle');
 const { SwitcherManager } = require('./switcherManager');
 const { StreamProtectionManager } = require('./streamProtection');
 const { createStatusDeltaTracker } = require('./statusDelta');
+const { createLogShipper, attachConsoleTap } = require('./logShipper');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -433,6 +434,21 @@ class ChurchAVAgent {
     // ── Stream Protection ─────────────────────────────────────────────────────
     this.streamProtection = new StreamProtectionManager(this);
     this.streamProtection.start();
+
+    // ── Remote log shipper ────────────────────────────────────────────────────
+    // Buffers structured log entries and ships them to the relay over the
+    // same WebSocket so support can diagnose without asking the church for
+    // local files. Only ships warn/error and a curated set of info events.
+    this.logShipper = createLogShipper({
+      getRelay: () => this.relay,
+      wsOpenState: WebSocket.OPEN,
+      churchId: this.churchId || 'unknown',
+      getRoomId: () => this.config.roomId || null,
+      deviceType: 'church-client',
+      deviceId: this.config.name || os.hostname(),
+    });
+    this._detachConsoleTap = attachConsoleTap(this.logShipper);
+    this.logShipper.start();
 
     // ── Signal failover bitrate tracking ──────────────────────────────────────
     this._bitrateBaseline = null;      // established kbps baseline for current stream
@@ -938,6 +954,8 @@ class ChurchAVAgent {
         this._consecutiveRelayFailures = 0;
         this._statusDeltaTracker.reset();
         this.sendStatus();
+        // Drain any logs buffered while the relay was down
+        try { this.logShipper?.flush(); } catch { /* shipper must never throw */ }
         doResolve();
 
         // Ping relay every 30s to measure latency
@@ -1516,6 +1534,10 @@ class ChurchAVAgent {
 
   async stop() {
     this._stopping = true;
+
+    // Tear down log shipper — restore console BEFORE we start chattering
+    try { this._detachConsoleTap?.(); } catch { /* ignore */ }
+    try { this.logShipper?.stop(); } catch { /* ignore */ }
 
     // 1. Clear ALL tracked intervals (prevents timer fires after connections close)
     for (const id of this._intervals) clearInterval(id);
