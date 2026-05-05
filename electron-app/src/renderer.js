@@ -80,6 +80,14 @@ let _reconnectAttempt = 0;        // exponential backoff counter
 let _reconnectCountdownTimer = null;
 let _monitoringStoppedByUser = false; // true when user intentionally stopped monitoring
 
+// ─── RELAY HEALTH (debounced /health probe from main process) ───────────────
+// Mirrors the relayHealthMonitor in main.js. This is the authoritative signal
+// for the local-fallback banner and the "Reconnected to relay" toast.
+let _relayHealthOnline = true;
+let _relayHealthLastSeen = null;  // Date or null
+let _relayHealthBannerTimer = null; // refresh "X seconds ago" copy while offline
+let _reconnectedToastTimer = null;
+
 // ─── OFFLINE ACTION QUEUE ──────────────────────────────────────────────────
 // Queue actions attempted while offline; replay when relay reconnects.
 const _offlineQueue = [];
@@ -399,20 +407,40 @@ function updateOfflineBannerText(relayOk) {
     if (offlineBannerDetail) offlineBannerDetail.textContent = 'Local device monitoring continues. Network scanning works offline. Changes sync when connected.';
     offlineBanner.style.display = '';
   } else if (!relayOk) {
-    if (offlineBannerText) offlineBannerText.textContent = 'Offline Mode \u2014 Local monitoring active';
+    if (offlineBannerText) offlineBannerText.textContent = 'Relay unreachable \u2014 running in local mode';
     if (offlineBannerDetail) offlineBannerDetail.textContent = 'Device connections maintained locally. Portal sync and AI features unavailable.';
     offlineBanner.style.display = '';
   } else {
     offlineBanner.style.display = 'none';
   }
 
-  if (offlineBannerStale && _cachedStatusTime && !relayOk) {
-    const agoText = formatTimeAgo(_cachedStatusTime);
-    offlineBannerStale.textContent = `Last cloud sync: ${agoText}`;
-    offlineBannerStale.style.display = '';
+  // While offline, prefer "time since last relay connection" if known; fall
+  // back to the cached relay-status timestamp.
+  if (offlineBannerStale && !relayOk) {
+    const since = _relayHealthLastSeen || _cachedStatusTime;
+    if (since) {
+      offlineBannerStale.textContent = `Last relay connection: ${formatTimeAgo(since)}`;
+      offlineBannerStale.style.display = '';
+    } else {
+      offlineBannerStale.textContent = 'No relay connection since this app started.';
+      offlineBannerStale.style.display = '';
+    }
   } else if (offlineBannerStale) {
     offlineBannerStale.style.display = 'none';
   }
+}
+
+// \u2500\u2500\u2500 RECONNECTED TOAST \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+function showReconnectedToast() {
+  const toast = document.getElementById('reconnected-toast');
+  if (!toast) return;
+  toast.textContent = 'Reconnected to relay';
+  toast.classList.add('show');
+  if (_reconnectedToastTimer) clearTimeout(_reconnectedToastTimer);
+  _reconnectedToastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+    _reconnectedToastTimer = null;
+  }, 3000);
 }
 
 function updateOfflineQueueBadge() {
@@ -2203,7 +2231,10 @@ function updateStatusUI(status) {
   }
 
   // ── Offline / disconnection banner ──────────────────────────────────────
-  updateOfflineBannerText(relayOk);
+  // Banner state is driven by the main-process /health probe (debounced)
+  // when available; fall back to the WS-derived flag while we wait for the
+  // first probe result (initial render before the IPC event arrives).
+  updateOfflineBannerText(_relayHealthOnline && relayOk);
 
   // ── Dynamic encoder dot + label ─────────────────────────────────────────
   const encoderLabel = status.encoderType || 'Encoder';
@@ -3737,6 +3768,58 @@ if (api.onConnectionQuality) {
     chip.style.display = '';
     chip.title = `Last ping: ${lastPingTime ? new Date(lastPingTime).toLocaleTimeString() : '—'} · ${latencyMs}ms round-trip`;
   });
+}
+
+// ─── RELAY HEALTH (debounced) ────────────────────────────────────────────────
+// The main process polls api.tallyconnect.app/health every 10s and flips this
+// state with a 3-failure debounce. We use it to drive the local-fallback
+// banner and the "Reconnected to relay" toast — independent of agentStatus.
+function _applyRelayHealth(payload) {
+  if (!payload) return;
+  const wasOnline = _relayHealthOnline;
+  _relayHealthOnline = !!payload.online;
+  _relayHealthLastSeen = payload.lastSeen ? new Date(payload.lastSeen) : _relayHealthLastSeen;
+
+  if (wasOnline && !_relayHealthOnline) {
+    // Just went offline — keep the banner age fresh.
+    if (_relayHealthBannerTimer) clearInterval(_relayHealthBannerTimer);
+    _relayHealthBannerTimer = setInterval(() => {
+      // Re-render banner so the "X seconds ago" copy ticks up.
+      const relayOk = _cachedStatus ? getStatusActive(_cachedStatus.relay) : false;
+      updateOfflineBannerText(_relayHealthOnline && relayOk);
+    }, 5000);
+  }
+
+  if (!wasOnline && _relayHealthOnline) {
+    // Reconnected — show toast, stop the age-refresh timer, hide banner.
+    if (_relayHealthBannerTimer) {
+      clearInterval(_relayHealthBannerTimer);
+      _relayHealthBannerTimer = null;
+    }
+    showReconnectedToast();
+  }
+
+  // Always re-render the banner so an in-flight offline state picks up the
+  // freshest "last seen" timestamp.
+  const relayOk = _cachedStatus ? getStatusActive(_cachedStatus.relay) : false;
+  updateOfflineBannerText(_relayHealthOnline && relayOk);
+}
+
+if (api.onRelayStatus) api.onRelayStatus(_applyRelayHealth);
+// Bootstrap: pull the current state once on load so the UI reflects reality
+// before the next periodic event arrives.
+if (api.getRelayStatus) {
+  api.getRelayStatus().then((s) => {
+    if (s) _applyRelayHealth(s);
+  }).catch(() => { /* ignore */ });
+}
+
+// Local-status snapshots (received only while relay is offline). The status
+// has already been merged into agentStatus by the main process, so the next
+// onStatus tick will pick it up. We don't need to do anything here yet, but
+// we keep the subscription so the channel stays alive and is easy to extend.
+if (api.onLocalStatus) {
+  api.onLocalStatus(() => { /* renderer uses agentStatus path; nothing to do */ });
 }
 
 // Pause chat polling when window is hidden to tray
