@@ -1,6 +1,6 @@
 {
   "name": "tally",
-  "version": "1.1.65",
+  "version": "1.1.66",
   "description": "Connect your church AV system to Tally Connect remote monitoring",
   "main": "src/index.js",
   "bin": {
