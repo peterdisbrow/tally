@@ -626,9 +626,12 @@ class AITriageEngine {
       const start = s.startHour * 60 + (s.startMin || 0);
       const end = start + (s.durationHours || 2) * 60;
 
-      // Pre-service: [start - preWindowMin, start)
-      // Guard: if pre-window goes negative (early morning service), skip — handled by cross-midnight logic
-      if (start - preWindowMin >= 0 && minutesNow >= start - preWindowMin && minutesNow < start) {
+      // Pre-service: [start - preWindowMin, start). When start - preWindowMin
+      // is negative (early-morning service, e.g. 0:30 with a 60-min window),
+      // the pre-window wraps to the previous day; from today's perspective
+      // any minute before `start` still counts as pre-service.
+      const preStart = start - preWindowMin;
+      if (minutesNow < start && (preStart < 0 || minutesNow >= preStart)) {
         const minutesUntilService = start - minutesNow;
         return {
           context: TIME_CONTEXT.PRE_SERVICE,

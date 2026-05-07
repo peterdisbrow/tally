@@ -834,7 +834,7 @@ describe('LifecycleEmails', () => {
     it('unsubscribeRecipient writes to email_unsubscribes', () => {
       const inserts = [];
       db.prepare = vi.fn((sql) => {
-        if (sql.includes('INSERT OR REPLACE INTO email_unsubscribes')) {
+        if (sql.includes('INSERT INTO email_unsubscribes')) {
           return { run: vi.fn((...args) => inserts.push(args)) };
         }
         return { get: vi.fn(), all: vi.fn().mockReturnValue([]), run: vi.fn() };

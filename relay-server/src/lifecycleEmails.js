@@ -324,6 +324,11 @@ class LifecycleEmails {
   async sendEmail({ churchId, emailType, to, subject, html, text, urgent = false }) {
     await this.ready;
 
+    if (!churchId) {
+      console.warn(`[LifecycleEmails] sendEmail skipped: missing churchId (emailType=${emailType}, to=${to})`);
+      return { sent: false, reason: 'no-church' };
+    }
+
     // Check if already sent
     if (this._hasSent(churchId, emailType)) {
       return { sent: false, reason: 'already-sent' };
@@ -518,6 +523,10 @@ class LifecycleEmails {
 
   /** Unsubscribe a specific recipient from a category */
   unsubscribeRecipient(churchId, recipient, category) {
+    if (!churchId) {
+      console.warn(`[LifecycleEmails] unsubscribeRecipient skipped: missing churchId (recipient=${recipient}, category=${category})`);
+      return false;
+    }
     const normalizedEmail = recipient.trim().toLowerCase();
     const now = new Date().toISOString();
     const upsertSql = `
@@ -601,6 +610,14 @@ class LifecycleEmails {
   }
 
   _recordSend(churchId, emailType, recipient, sentAt, resendId, subject) {
+    if (!churchId) {
+      // email_sends.church_id is NOT NULL in both SQLite and Postgres — skip
+      // the insert rather than crash the queue. Callers occasionally pass
+      // undefined when a lookup fails upstream; we'd rather drop the dedup
+      // record than poison the write queue with a constraint violation.
+      console.warn(`[LifecycleEmails] _recordSend skipped: missing churchId (emailType=${emailType}, recipient=${recipient})`);
+      return;
+    }
     const insertSql = `
       INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject)
       VALUES (?, ?, ?, ?, ?, ?)
