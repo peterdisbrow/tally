@@ -2207,7 +2207,11 @@ _intervals.push(setInterval(() => {
 const _isProduction = process.env.NODE_ENV === 'production';
 const _defaultBackupMinutes = 0; // Backups are opt-in so fresh deployments do not silently exhaust volumes
 const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || _defaultBackupMinutes);
-if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
+if (queryClient.driver !== 'sqlite') {
+  // Snapshot-based backups only work for the embedded SQLite runtime; managed
+  // Postgres handles backups out-of-band, so the scheduler is a no-op here.
+  log(`[Backup] Snapshot scheduler disabled — driver is "${queryClient.driver}" (managed backups expected)`);
+} else if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
   log(`[Backup] Scheduled snapshots every ${DB_BACKUP_INTERVAL_MINUTES} minute(s)`);
   _intervals.push(setInterval(() => {
     try {
