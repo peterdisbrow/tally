@@ -17,12 +17,12 @@
 // Log unhandled rejections and uncaught exceptions with full detail so Railway
 // deploy logs show exactly why the process died.
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[FATAL] Unhandled promise rejection:', reason);
+  console.error('[WARN] Unhandled promise rejection (non-fatal):', reason);
   if (reason?.stack) console.error(reason.stack);
-  process.exit(1);
+  // Do NOT exit — unhandled rejections are usually from background tasks and shouldn't kill the server
 });
 process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught exception:', err.message);
+  console.error('[FATAL] Uncaught synchronous exception — process must exit:', err.message);
   if (err.stack) console.error(err.stack);
   process.exit(1);
 });
