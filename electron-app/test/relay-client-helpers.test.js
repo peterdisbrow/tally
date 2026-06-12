@@ -10,6 +10,7 @@ const {
   normalizeRelayUrl,
   isLocalRelayUrl,
   enforceRelayPolicy,
+  isRelayHostAllowed,
   relayHttpUrl,
   decodeChurchIdFromToken,
 } = require('../src/relay-client');
@@ -29,14 +30,32 @@ test('enforceRelayPolicy normalizes http URL', () => {
   assert.equal(result, 'ws://localhost:3000');
 });
 
-test('enforceRelayPolicy normalizes bare domain', () => {
-  const result = enforceRelayPolicy('example.com');
-  assert.equal(result, 'wss://example.com');
+test('enforceRelayPolicy normalizes bare domain (allowed host)', () => {
+  const result = enforceRelayPolicy('api.tallyconnect.app');
+  assert.equal(result, 'wss://api.tallyconnect.app');
 });
 
-test('enforceRelayPolicy strips trailing slashes', () => {
-  const result = enforceRelayPolicy('wss://example.com/');
-  assert.equal(result, 'wss://example.com');
+test('enforceRelayPolicy strips trailing slashes (allowed host)', () => {
+  const result = enforceRelayPolicy('wss://api.tallyconnect.app/');
+  assert.equal(result, 'wss://api.tallyconnect.app');
+});
+
+// ─── enforceRelayPolicy — host allowlist (token-exfil hardening) ──────────────
+
+test('enforceRelayPolicy rejects a disallowed host, falling back to default', () => {
+  assert.equal(enforceRelayPolicy('wss://evil.example.com'), DEFAULT_RELAY_URL);
+});
+
+test('enforceRelayPolicy rejects a look-alike suffix host', () => {
+  assert.equal(enforceRelayPolicy('wss://api.tallyconnect.app.evil.com'), DEFAULT_RELAY_URL);
+});
+
+test('isRelayHostAllowed allows official host and loopback, blocks others', () => {
+  assert.ok(isRelayHostAllowed('wss://api.tallyconnect.app'));
+  assert.ok(isRelayHostAllowed('ws://localhost:8080'));
+  assert.ok(isRelayHostAllowed('http://127.0.0.1:3000'));
+  assert.ok(!isRelayHostAllowed('wss://evil.example.com'));
+  assert.ok(!isRelayHostAllowed('wss://api.tallyconnect.app.evil.com'));
 });
 
 // ─── decodeChurchIdFromToken ─────────────────────────────────────────────────
@@ -131,7 +150,7 @@ test('isLocalRelayUrl returns false for empty string', () => {
 // ─── relayHttpUrl — edge cases ────────────────────────────────────────────────
 
 test('relayHttpUrl converts wss to https', () => {
-  assert.equal(relayHttpUrl('wss://api.example.com'), 'https://api.example.com');
+  assert.equal(relayHttpUrl('wss://api.tallyconnect.app'), 'https://api.tallyconnect.app');
 });
 
 test('relayHttpUrl converts ws to http', () => {

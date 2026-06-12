@@ -2626,8 +2626,13 @@ function handleDeepLink(url) {
         mainWindow.focus();
       }
     } else if (action === 'config') {
-      // Only allow whitelisted, non-sensitive keys
-      const ALLOWED_KEYS = ['relayUrl', 'churchId', 'atemHost', 'companionHost', 'obsHost'];
+      // Only allow whitelisted, non-sensitive keys.
+      // NOTE: `relayUrl` is deliberately NOT accepted from deep links. The agent
+      // sends the church bearer token to the configured relay, so allowing an
+      // untrusted tally://config?relayUrl=... link to repoint the relay is a
+      // token-exfiltration vector. The relay is locked to the official host via
+      // enforceRelayPolicy() and is configured in-app, not via deep link.
+      const ALLOWED_KEYS = ['churchId', 'atemHost', 'companionHost', 'obsHost'];
       const patch = {};
       for (const [k, v] of parsed.searchParams) {
         if (ALLOWED_KEYS.includes(k)) patch[k] = v;

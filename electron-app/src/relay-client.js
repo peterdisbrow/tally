@@ -64,8 +64,45 @@ function isLocalRelayUrl(url) {
   }
 }
 
+// ─── Relay host allowlist ───────────────────────────────────────────────────
+// The agent sends the church's bearer token to whatever relay is configured
+// (Authorization: Bearer <token>), so the relay host is security-sensitive: a
+// redirected relay = token exfiltration. Constrain it to the official host and
+// loopback. enforceRelayPolicy runs on every config load/save, so it must NOT
+// throw — a disallowed host is neutralised by falling back to the default.
+const ALLOWED_RELAY_HOSTS = new Set([
+  'api.tallyconnect.app',
+  'localhost',
+  '127.0.0.1',
+  '::1',
+]);
+
+function relayHostname(url) {
+  const httpUrl = normalizeRelayUrl(url)
+    .replace(/^wss:\/\//i, 'https://')
+    .replace(/^ws:\/\//i, 'http://');
+  return new URL(httpUrl).hostname.toLowerCase();
+}
+
+// Trust an operator-provided default (TALLY_DEFAULT_RELAY_URL is set at deploy
+// time, not attacker-controllable). The official host is already in the set.
+try {
+  ALLOWED_RELAY_HOSTS.add(relayHostname(DEFAULT_RELAY_URL));
+} catch { /* malformed default; ignore */ }
+
+function isRelayHostAllowed(url) {
+  try {
+    return ALLOWED_RELAY_HOSTS.has(relayHostname(url));
+  } catch {
+    return false;
+  }
+}
+
 function enforceRelayPolicy(url) {
-  return normalizeRelayUrl(url || DEFAULT_RELAY_URL);
+  const normalized = normalizeRelayUrl(url || DEFAULT_RELAY_URL);
+  if (isRelayHostAllowed(normalized)) return normalized;
+  console.warn(`[relay] Refusing disallowed relay host "${normalized}" — falling back to ${DEFAULT_RELAY_URL}`);
+  return normalizeRelayUrl(DEFAULT_RELAY_URL);
 }
 
 function relayHttpUrl(url) {
@@ -547,6 +584,7 @@ module.exports = {
   normalizeRelayUrl,
   isLocalRelayUrl,
   enforceRelayPolicy,
+  isRelayHostAllowed,
   relayHttpUrl,
   decodeChurchIdFromToken,
   checkTokenWithRelay,
