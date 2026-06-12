@@ -280,6 +280,7 @@ const { createSharedRuntimeState } = require('./src/sharedRuntimeState');
 const createAuthMiddleware = require('./src/routes/authMiddleware');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
+const { encryptSecret: encryptStreamSecret, decryptSecret: decryptStreamSecret } = require('./src/secretCrypto');
 
 console.log(`[boot] Modules loaded in ${Math.round(process.uptime() * 1000)}ms — NODE_ENV=${process.env.NODE_ENV || '(unset)'} DB_DRIVER=${process.env.DATABASE_DRIVER || '(unset)'}`);
 
@@ -6716,10 +6717,10 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, async (req, res) => {
   );
   if (!church) return res.status(404).json({ error: 'Church not found' });
 
-  let key = church.ingest_stream_key;
+  let key = decryptStreamSecret(church.ingest_stream_key);
   if (!key) {
     key = generateStreamKey();
-    await queryClient.run('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [key, church.churchId]);
+    await queryClient.run('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [encryptStreamSecret(key), church.churchId]);
   }
 
   // Include per-room stream keys
@@ -6740,11 +6741,12 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, async (req, res) => {
     const roomActive = isIngestActive(r.id);
     const roomInfo = roomActive ? getStreamInfo(r.id) : null;
     const roomHlsToken = createHlsToken(r.id);
+    const roomStreamKey = decryptStreamSecret(r.stream_key);
     return {
       roomId: r.id,
       roomName: r.name,
-      streamKey: r.stream_key,
-      rtmpUrl: `${rtmpHost}/live/${r.stream_key}`,
+      streamKey: roomStreamKey,
+      rtmpUrl: `${rtmpHost}/live/${roomStreamKey}`,
       active: roomActive,
       meta: roomInfo?.meta || null,
       startedAt: roomInfo?.startedAt || null,
@@ -6777,7 +6779,7 @@ app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, async (req,
   disconnectStream(church.churchId);
 
   const key = generateStreamKey();
-  await queryClient.run('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [key, church.churchId]);
+  await queryClient.run('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [encryptStreamSecret(key), church.churchId]);
 
   const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
   const rtmpUrl = `${rtmpHost}/live/${key}`;
@@ -6796,7 +6798,7 @@ app.post('/api/admin/stream/:churchId/room/:roomId/key/regenerate', requireAdmin
   disconnectStream(roomId);
 
   const key = generateStreamKey();
-  await queryClient.run('UPDATE rooms SET stream_key = ? WHERE id = ?', [key, roomId]);
+  await queryClient.run('UPDATE rooms SET stream_key = ? WHERE id = ?', [encryptStreamSecret(key), roomId]);
 
   const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
   res.json({ roomId, streamKey: key, rtmpUrl: `${rtmpHost}/live/${key}` });

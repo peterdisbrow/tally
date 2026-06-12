@@ -9,6 +9,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
 const { SqliteQueryClient } = require('../src/db/queryClient');
+const { decryptSecret } = require('../src/secretCrypto');
 
 // ─── Pure function tests (no mocks needed) ────────────────────────────────
 
@@ -621,7 +622,8 @@ describe('setupBroadcastMonitor', () => {
     await monitor.pollAll();
 
     const refreshed = await queryClient.queryOne('SELECT yt_access_token FROM churches WHERE churchId = ?', ['c1']);
-    expect(refreshed?.yt_access_token).toBe('refreshed-token');
+    // Refreshed token is encrypted at rest; decrypts back to the new value.
+    expect(decryptSecret(refreshed?.yt_access_token)).toBe('refreshed-token');
     expect(churches.get('c1').broadcastHealth.youtube.status).toBe('good');
     expect(churches.get('c1').broadcastHealth.facebook.status).toBe('good');
     expect(notifyUpdate).toHaveBeenCalledWith('c1');

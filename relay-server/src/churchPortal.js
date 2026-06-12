@@ -48,6 +48,7 @@ const { createRateLimit } = require('./rateLimit');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { escapeHtml } = require('./escapeHtml');
 const { generateCsrfToken, setCsrfCookie } = require('./csrf');
+const { encryptSecret, decryptSecret } = require('./secretCrypto');
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -710,10 +711,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     return qOne('SELECT equipment FROM room_equipment WHERE room_id = ? AND church_id = ?', [roomId, churchId]);
   }
   async function getRoomById(roomId, churchId) {
-    return qOne('SELECT id, name, campus_id, description, created_at, deleted_at, stream_key FROM rooms WHERE id = ? AND campus_id = ?', [roomId, churchId]);
+    const room = await qOne('SELECT id, name, campus_id, description, created_at, deleted_at, stream_key FROM rooms WHERE id = ? AND campus_id = ?', [roomId, churchId]);
+    if (room && room.stream_key) room.stream_key = decryptSecret(room.stream_key);
+    return room;
   }
   async function getRoomByIdIncludingDeleted(roomId, churchId) {
-    return qOne('SELECT id, name, campus_id, description, created_at, deleted_at, stream_key FROM rooms WHERE id = ? AND campus_id = ?', [roomId, churchId]);
+    const room = await qOne('SELECT id, name, campus_id, description, created_at, deleted_at, stream_key FROM rooms WHERE id = ? AND campus_id = ?', [roomId, churchId]);
+    if (room && room.stream_key) room.stream_key = decryptSecret(room.stream_key);
+    return room;
   }
   async function getRoomAssignmentCount(churchId) {
     return qValue('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL', [churchId]);
@@ -1693,7 +1698,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const newKey = require('crypto').randomBytes(16).toString('hex');
-      await qRun('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [newKey, churchId]);
+      await qRun('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?', [encryptSecret(newKey), churchId]);
       res.json({ ok: true, ingestStreamKey: newKey });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -1783,7 +1788,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       disconnectStream(roomId);
 
       const newKey = require('crypto').randomBytes(16).toString('hex');
-      await qRun('UPDATE rooms SET stream_key = ? WHERE id = ?', [newKey, roomId]);
+      await qRun('UPDATE rooms SET stream_key = ? WHERE id = ?', [encryptSecret(newKey), roomId]);
       res.json({ ok: true, streamKey: newKey, roomId });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -1930,7 +1935,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           campusId: r.campus_id,
           name: r.name,
           description: r.description || '',
-          streamKey: r.stream_key || null,
+          streamKey: decryptSecret(r.stream_key) || null,
           assignedDesktops: assigned.map(a => ({ churchId: a.churchId, name: a.name })),
           connected: !!(instanceWs && instanceWs.readyState === 1),
           instanceName,
@@ -1968,7 +1973,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const created_at = new Date().toISOString();
       const stream_key = crypto.randomBytes(16).toString('hex');
       await qRun('INSERT INTO rooms (id, campus_id, church_id, name, description, created_at, stream_key) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-        id, churchId, churchId, name, description, created_at, stream_key,
+        id, churchId, churchId, name, description, created_at, encryptSecret(stream_key),
       ]);
       onRoomCreated(churchId, id);
       res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at, streamKey: stream_key });
