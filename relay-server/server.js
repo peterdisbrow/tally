@@ -1598,14 +1598,23 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
 // Schedule timer — check every minute for schedule_timer triggers
 _intervals.push(setInterval(() => {
   for (const [churchId] of churches) {
-    if (!scheduleEngine.isServiceWindow(churchId)) continue;
-    // Use session start time to calculate minutes into service
-    const session = sessionRecap.activeSessions.get(churchId);
-    if (!session?.startedAt) continue;
-    const minutesIn = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
-    autoPilot.onScheduleTick(churchId, minutesIn).catch(e =>
-      console.error(`[AutoPilot] Schedule tick error for ${churchId}:`, e.message)
-    );
+    // Per-tenant isolation: a synchronous throw for one church (bad session
+    // row, malformed date, scheduleEngine error) must not abort the tick for
+    // every other church — or, worse, surface as an uncaughtException that
+    // crashes the relay mid-service. The .catch() below only covers the async
+    // onScheduleTick; this try/catch covers the surrounding synchronous work.
+    try {
+      if (!scheduleEngine.isServiceWindow(churchId)) continue;
+      // Use session start time to calculate minutes into service
+      const session = sessionRecap.activeSessions.get(churchId);
+      if (!session?.startedAt) continue;
+      const minutesIn = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
+      autoPilot.onScheduleTick(churchId, minutesIn).catch(e =>
+        console.error(`[AutoPilot] Schedule tick error for ${churchId}:`, e.message)
+      );
+    } catch (e) {
+      console.error(`[AutoPilot] Schedule tick (sync) error for ${churchId}:`, e?.message);
+    }
   }
 }, 60000));
 

@@ -1089,11 +1089,17 @@ class PreServiceRundown {
 
       this._clearTimer(churchId, instanceName, roomId);
       const timer = setInterval(async () => {
-        if (this.isConfirmed(churchId, instanceName, roomId) || !this.scheduleEngine.isServiceWindow(churchId)) {
-          this._clearTimer(churchId, instanceName, roomId);
-          return;
+        // Isolate this tick: a throw/rejection here must not become an
+        // uncaughtException (which would crash the whole relay mid-service).
+        try {
+          if (this.isConfirmed(churchId, instanceName, roomId) || !this.scheduleEngine.isServiceWindow(churchId)) {
+            this._clearTimer(churchId, instanceName, roomId);
+            return;
+          }
+          await this.refresh(churchId, instanceName, roomId);
+        } catch (e) {
+          console.error(`[PreServiceRundown] Refresh tick error (church=${churchId}, instance=${instanceName}, room=${roomId}):`, e?.message);
         }
-        await this.refresh(churchId, instanceName, roomId);
       }, 5 * 60 * 1000);
       this._timers.set(this._compositeKey(churchId, instanceName, roomId), timer);
 
@@ -1154,33 +1160,39 @@ class PreServiceRundown {
 
     // Schedule escalation checks every minute
     const timer = setInterval(() => {
-      if (this.isConfirmed(churchId, instanceName, roomId)) {
-        this._clearEscalationTimer(churchId, instanceName, roomId);
-        return;
-      }
+      // Isolate this tick: a throw here (e.g. a malformed schedule for one
+      // church) must not become an uncaughtException that crashes the relay.
+      try {
+        if (this.isConfirmed(churchId, instanceName, roomId)) {
+          this._clearEscalationTimer(churchId, instanceName, roomId);
+          return;
+        }
 
-      const current = this._getRundown(churchId, instanceName, roomId);
-      if (!current) return;
+        const current = this._getRundown(churchId, instanceName, roomId);
+        if (!current) return;
 
-      const nextService = this.scheduleEngine.getNextService(churchId);
-      const minutesUntil = nextService?.minutesUntil ?? Infinity;
+        const nextService = this.scheduleEngine.getNextService(churchId);
+        const minutesUntil = nextService?.minutesUntil ?? Infinity;
 
-      if (minutesUntil <= timing.unconfirmed && current.confirmation.escalationLevel < ESCALATION_LEVELS.UNCONFIRMED) {
-        current.confirmation.escalationLevel = ESCALATION_LEVELS.UNCONFIRMED;
-        console.log(`[PreServiceRundown] ${current.churchName} — T-${Math.round(minutesUntil)}: UNCONFIRMED START`);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.UNCONFIRMED, current.roomId);
-      } else if (minutesUntil <= timing.pastor && current.confirmation.escalationLevel < ESCALATION_LEVELS.PASTOR) {
-        current.confirmation.escalationLevel = ESCALATION_LEVELS.PASTOR;
-        this._notifyEscalationContact(churchId, 'pastor', current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.PASTOR, current.roomId);
-      } else if (minutesUntil <= timing.backup && current.confirmation.escalationLevel < ESCALATION_LEVELS.BACKUP_TD) {
-        current.confirmation.escalationLevel = ESCALATION_LEVELS.BACKUP_TD;
-        this._notifyEscalationContact(churchId, 'backup_td', current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.BACKUP_TD, current.roomId);
-      } else if (minutesUntil <= timing.remind && current.confirmation.escalationLevel < ESCALATION_LEVELS.TD_REMINDER) {
-        current.confirmation.escalationLevel = ESCALATION_LEVELS.TD_REMINDER;
-        this._sendTdReminder(churchId, current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.TD_REMINDER, current.roomId);
+        if (minutesUntil <= timing.unconfirmed && current.confirmation.escalationLevel < ESCALATION_LEVELS.UNCONFIRMED) {
+          current.confirmation.escalationLevel = ESCALATION_LEVELS.UNCONFIRMED;
+          console.log(`[PreServiceRundown] ${current.churchName} — T-${Math.round(minutesUntil)}: UNCONFIRMED START`);
+          this._broadcastEscalation(churchId, ESCALATION_LEVELS.UNCONFIRMED, current.roomId);
+        } else if (minutesUntil <= timing.pastor && current.confirmation.escalationLevel < ESCALATION_LEVELS.PASTOR) {
+          current.confirmation.escalationLevel = ESCALATION_LEVELS.PASTOR;
+          this._notifyEscalationContact(churchId, 'pastor', current);
+          this._broadcastEscalation(churchId, ESCALATION_LEVELS.PASTOR, current.roomId);
+        } else if (minutesUntil <= timing.backup && current.confirmation.escalationLevel < ESCALATION_LEVELS.BACKUP_TD) {
+          current.confirmation.escalationLevel = ESCALATION_LEVELS.BACKUP_TD;
+          this._notifyEscalationContact(churchId, 'backup_td', current);
+          this._broadcastEscalation(churchId, ESCALATION_LEVELS.BACKUP_TD, current.roomId);
+        } else if (minutesUntil <= timing.remind && current.confirmation.escalationLevel < ESCALATION_LEVELS.TD_REMINDER) {
+          current.confirmation.escalationLevel = ESCALATION_LEVELS.TD_REMINDER;
+          this._sendTdReminder(churchId, current);
+          this._broadcastEscalation(churchId, ESCALATION_LEVELS.TD_REMINDER, current.roomId);
+        }
+      } catch (e) {
+        console.error(`[PreServiceRundown] Escalation tick error (church=${churchId}, instance=${instanceName}, room=${roomId}):`, e?.message);
       }
     }, 60 * 1000);
 
