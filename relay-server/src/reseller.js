@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { createQueryClient } = require('./db');
 const { getJwtSecret } = require('./jwtSecret');
+const { encryptSecret, decryptSecret, isEncrypted, lookupHash } = require('./secretCrypto');
 
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
@@ -52,6 +53,7 @@ class ResellerSystem {
 
   async _init() {
     await this._ensureSchemaAsync();
+    await this._backfillApiKeyEncryptionAsync();
     await this._loadCache();
   }
 
@@ -65,6 +67,7 @@ class ResellerSystem {
         id             TEXT PRIMARY KEY,
         name           TEXT NOT NULL,
         api_key        TEXT NOT NULL UNIQUE,
+        api_key_hash   TEXT,
         brand_name     TEXT,
         support_email  TEXT,
         logo_url       TEXT,
@@ -88,6 +91,7 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT",
       "ALTER TABLE resellers ADD COLUMN portal_password TEXT",
       "ALTER TABLE resellers ADD COLUMN commission_rate REAL",
+      "ALTER TABLE resellers ADD COLUMN api_key_hash TEXT",
     ];
     for (const col of newColumns) {
       try { this.db.exec(col); } catch { /* column already exists */ }
@@ -104,6 +108,42 @@ class ResellerSystem {
     try {
       this.db.exec('ALTER TABLE churches ADD COLUMN registration_code TEXT');
     } catch { /* already exists */ }
+
+    this._backfillApiKeyEncryptionSync();
+  }
+
+  // Encrypt any plaintext api_key at rest and populate api_key_hash. Idempotent:
+  // already-encrypted rows are re-derived from their decrypted plaintext, so
+  // re-running is safe. Runs once at startup.
+  _backfillApiKeyEncryptionSync() {
+    try {
+      const rows = this.db.prepare('SELECT id, api_key, api_key_hash FROM resellers').all();
+      const update = this.db.prepare('UPDATE resellers SET api_key = ?, api_key_hash = ? WHERE id = ?');
+      for (const row of rows) {
+        if (!row.api_key) continue;
+        if (isEncrypted(row.api_key) && row.api_key_hash) continue;
+        const plaintext = decryptSecret(row.api_key);
+        if (plaintext == null) continue;
+        update.run(encryptSecret(plaintext), lookupHash(plaintext), row.id);
+      }
+    } catch (e) {
+      console.warn(`[ResellerSystem] api_key backfill skipped: ${e.message}`);
+    }
+  }
+
+  async _backfillApiKeyEncryptionAsync() {
+    try {
+      const rows = await this._all('SELECT id, api_key, api_key_hash FROM resellers');
+      for (const row of rows) {
+        if (!row.api_key) continue;
+        if (isEncrypted(row.api_key) && row.api_key_hash) continue;
+        const plaintext = decryptSecret(row.api_key);
+        if (plaintext == null) continue;
+        await this._run('UPDATE resellers SET api_key = ?, api_key_hash = ? WHERE id = ?', [encryptSecret(plaintext), lookupHash(plaintext), row.id]);
+      }
+    } catch (e) {
+      console.warn(`[ResellerSystem] api_key backfill skipped: ${e.message}`);
+    }
   }
 
   async _ensureSchemaAsync() {
@@ -113,6 +153,7 @@ class ResellerSystem {
         id             TEXT PRIMARY KEY,
         name           TEXT NOT NULL,
         api_key        TEXT NOT NULL UNIQUE,
+        api_key_hash   TEXT,
         brand_name     TEXT,
         support_email  TEXT,
         logo_url       TEXT,
@@ -136,6 +177,7 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT",
       "ALTER TABLE resellers ADD COLUMN portal_password TEXT",
       "ALTER TABLE resellers ADD COLUMN commission_rate REAL",
+      "ALTER TABLE resellers ADD COLUMN api_key_hash TEXT",
     ];
     for (const col of newColumns) {
       try { await client.exec(col); } catch { /* column already exists */ }
@@ -214,6 +256,15 @@ class ResellerSystem {
 
   _cloneRow(row) {
     return row ? { ...row } : null;
+  }
+
+  // Reseller rows store api_key encrypted at rest (with a deterministic
+  // api_key_hash column for equality lookups). Decrypt api_key when returning a
+  // row to a caller — the admin/reseller portals display it. decryptSecret is a
+  // no-op on legacy plaintext, so this is safe pre-backfill.
+  _withDecryptedApiKey(row) {
+    if (row && row.api_key) row.api_key = decryptSecret(row.api_key);
+    return row;
   }
 
   _normalizeResellerRow(row = {}) {
@@ -344,16 +395,17 @@ class ResellerSystem {
 
     const resellerId = uuidv4();
     const apiKey = 'rsl_' + crypto.randomBytes(20).toString('hex');
+    const apiKeyHash = lookupHash(apiKey);
     const createdAt = new Date().toISOString();
     const finalSlug = this._uniqueSlugSync(slug || this._slugify(name));
     const finalColor = primaryColor || '#22c55e';
 
     this.db.prepare(`
       INSERT INTO resellers
-        (id, name, api_key, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active, commission_rate)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        (id, name, api_key, api_key_hash, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active, commission_rate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
-      resellerId, name, apiKey,
+      resellerId, name, encryptSecret(apiKey), apiKeyHash,
       brandName || null, supportEmail || null, logoUrl || null, webhookUrl || null,
       churchLimit, createdAt, finalSlug, finalColor, customDomain || null,
       commissionRate != null ? commissionRate : null
@@ -368,16 +420,17 @@ class ResellerSystem {
 
     const resellerId = uuidv4();
     const apiKey = 'rsl_' + crypto.randomBytes(20).toString('hex');
+    const apiKeyHash = lookupHash(apiKey);
     const createdAt = new Date().toISOString();
     const finalSlug = await this._uniqueSlugAsync(slug || this._slugify(name));
     const finalColor = primaryColor || '#22c55e';
 
     await this._run(`
       INSERT INTO resellers
-        (id, name, api_key, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active, commission_rate)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        (id, name, api_key, api_key_hash, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active, commission_rate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `, [
-      resellerId, name, apiKey,
+      resellerId, name, encryptSecret(apiKey), apiKeyHash,
       brandName || null, supportEmail || null, logoUrl || null, webhookUrl || null,
       churchLimit, createdAt, finalSlug, finalColor, customDomain || null,
       commissionRate != null ? commissionRate : null,
@@ -392,6 +445,7 @@ class ResellerSystem {
 
     const resellerId = uuidv4();
     const apiKey = 'rsl_' + crypto.randomBytes(20).toString('hex');
+    const apiKeyHash = lookupHash(apiKey);
     const createdAt = new Date().toISOString();
     const finalSlug = this._uniqueSlugFromCache(slug || this._slugify(name));
     const finalColor = primaryColor || '#22c55e';
@@ -399,7 +453,8 @@ class ResellerSystem {
     this._cacheReseller({
       id: resellerId,
       name,
-      api_key: apiKey,
+      api_key: encryptSecret(apiKey),
+      api_key_hash: apiKeyHash,
       brand_name: brandName || null,
       support_email: supportEmail || null,
       logo_url: logoUrl || null,
@@ -439,14 +494,27 @@ class ResellerSystem {
 
   getReseller(apiKey) {
     if (!apiKey) return null;
-    if (this.db) return this.db.prepare('SELECT * FROM resellers WHERE api_key = ?').get(apiKey) || null;
-    return this._cloneRow([...this._resellerCache.values()].find(r => r.api_key === apiKey) || null);
+    const hash = lookupHash(apiKey);
+    if (this.db) {
+      // Hash lookup for encrypted keys; fall back to plaintext for any rows not
+      // yet backfilled. Decrypt api_key on the way out.
+      const row = this.db.prepare('SELECT * FROM resellers WHERE api_key_hash = ?').get(hash)
+        || this.db.prepare('SELECT * FROM resellers WHERE api_key = ?').get(apiKey)
+        || null;
+      return this._withDecryptedApiKey(this._cloneRow(row));
+    }
+    const found = [...this._resellerCache.values()].find(r =>
+      (r.api_key_hash && r.api_key_hash === hash)
+      || r.api_key === apiKey
+      || decryptSecret(r.api_key) === apiKey
+    ) || null;
+    return this._withDecryptedApiKey(this._cloneRow(found));
   }
 
   getResellerById(id) {
     if (!id) return null;
-    if (this.db) return this.db.prepare('SELECT * FROM resellers WHERE id = ?').get(id) || null;
-    return this._cloneRow(this._getCachedResellerById(id));
+    if (this.db) return this._withDecryptedApiKey(this.db.prepare('SELECT * FROM resellers WHERE id = ?').get(id) || null);
+    return this._withDecryptedApiKey(this._cloneRow(this._getCachedResellerById(id)));
   }
 
   getResellerBySlug(slug) {

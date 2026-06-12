@@ -58,6 +58,7 @@ function makeDb() {
       id TEXT PRIMARY KEY,
       name TEXT,
       api_key TEXT UNIQUE,
+      api_key_hash TEXT,
       active INTEGER DEFAULT 1
     )
   `);
