@@ -14,18 +14,20 @@
  */
 
 // ─── CRASH GUARD ────────────────────────────────────────────────────────────
-// Log unhandled rejections and uncaught exceptions with full detail so Railway
-// deploy logs show exactly why the process died.
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[WARN] Unhandled promise rejection (non-fatal):', reason);
-  if (reason?.stack) console.error(reason.stack);
-  // Do NOT exit — unhandled rejections are usually from background tasks and shouldn't kill the server
-});
-process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught synchronous exception — process must exit:', err.message);
-  if (err.stack) console.error(err.stack);
-  process.exit(1);
-});
+// The process-level handlers for unhandledRejection / uncaughtException are
+// registered exactly ONCE, near the end of this file, after gracefulShutdown()
+// and the structured logger are defined (search "SAFETY NET").
+//
+// They used to ALSO be duplicated here. Node invokes every registered listener,
+// and this early uncaughtException handler did a *synchronous* process.exit(1)
+// that won the listener race and killed the process before the graceful handler
+// could drain connections / flush the DB — turning every transient error into
+// an abrupt Railway crash (exit 1 → crash-loop). The early handler also could
+// not safely call gracefulShutdown(), which isn't defined this early in load.
+//
+// During the brief startup/module-load window before the real handlers
+// register, Node's default behavior (print the stack, exit 1) is the correct
+// fail-loud response for a startup crash.
 
 const express = require('express');
 const helmet = require('helmet');
