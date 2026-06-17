@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
-    "@sentry/node": "^10.43.0",
+    "@sentry/node": "^10.58.0",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^11.0.0",
     "cookie-parser": "^1.4.7",
