@@ -40,7 +40,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^10.0.2",
-    "nodemon": "^3.0.0",
+    "nodemon": "^3.1.14",
     "vitest": "^4.0.18"
   },
   "engines": {
