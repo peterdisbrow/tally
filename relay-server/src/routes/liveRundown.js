@@ -444,10 +444,64 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     return toLegacyLiveShowState(state, extra.plan || plan);
   }
 
+  async function finalizeEndedSession(churchId, summary) {
+    if (!summary?.planId) return summary;
+    try {
+      const plan = await manualRundown.getPlan(summary.planId);
+      if (plan && plan.status === 'live') {
+        await manualRundown.updateStatus(summary.planId, 'show_ready');
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
+      }
+      if (plan && plan.lockedBy) {
+        await manualRundown.unlockPlan(summary.planId);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, lockedBy: null, lockedAt: null } });
+        broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId: summary.planId });
+      }
+      if (plan && summary.itemTimings && summary.itemTimings.length > 0) {
+        const totalPlannedMs = (summary.totalPlannedDuration || 0);
+        const totalActualMs = summary.totalDuration || 0;
+        const itemTimingsForReport = (summary.itemTimings || []).map((t) => {
+          const planItem = plan.items[t.index] || {};
+          return {
+            index: t.index,
+            itemId: planItem.id || '',
+            title: planItem.title || `Item ${t.index + 1}`,
+            plannedDuration: (t.plannedDuration || 0) * 1000,
+            actualDuration: t.actualDuration || 0,
+            variance: (t.actualDuration || 0) - ((t.plannedDuration || 0) * 1000),
+          };
+        });
+        try {
+          const savedReport = await manualRundown.createShowReport(summary.planId, churchId, {
+            sessionStartedAt: summary.startedAt || (Date.now() - totalActualMs),
+            sessionEndedAt: Date.now(),
+            totalPlannedMs,
+            totalActualMs,
+            itemTimings: itemTimingsForReport,
+            report: {
+              planTitle: plan.title,
+              serviceDate: plan.serviceDate,
+              totalPlannedMs,
+              totalActualMs,
+              totalVarianceMs: totalActualMs - totalPlannedMs,
+              overtimeItemCount: itemTimingsForReport.filter((t) => t.variance > 0).length,
+              items: itemTimingsForReport,
+            },
+          });
+          summary.showReport = savedReport;
+        } catch (reportErr) {
+          console.error('[rundown] post-show report generation warning:', reportErr.message);
+        }
+      }
+    } catch { /* non-critical */ }
+    return summary;
+  }
+
   async function endCanonicalSession(plan, extra = {}) {
     const roomId = resolveSessionRoom(liveRundown, plan, extra.roomId);
     const summary = liveRundown.endSession(plan.churchId, roomId);
-    return summary;
+    if (!summary) return null;
+    return finalizeEndedSession(plan.churchId, summary);
   }
 
   function requireOperatorShareOr403(access, res) {
@@ -628,63 +682,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       if (!summary) {
         return res.status(400).json({ error: 'No active rundown session' });
       }
-
-      // Auto-revert manual plan status from 'live' back to 'show_ready'
-      if (summary.planId) {
-        try {
-          const plan = await manualRundown.getPlan(summary.planId);
-          if (plan && plan.status === 'live') {
-            await manualRundown.updateStatus(summary.planId, 'show_ready');
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
-          }
-          // 9.3: Auto-unlock plan when show ends
-          if (plan && plan.lockedBy) {
-            await manualRundown.unlockPlan(summary.planId);
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, lockedBy: null, lockedAt: null } });
-            broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId: summary.planId });
-          }
-          // 9.5: Auto-generate post-show timing report
-          if (plan && summary.itemTimings && summary.itemTimings.length > 0) {
-            const totalPlannedMs = (summary.totalPlannedDuration || 0);
-            const totalActualMs = summary.totalDuration || 0;
-            const itemTimingsForReport = (summary.itemTimings || []).map((t, idx) => {
-              const planItem = plan.items[t.index] || {};
-              return {
-                index: t.index,
-                itemId: planItem.id || '',
-                title: planItem.title || `Item ${t.index + 1}`,
-                plannedDuration: (t.plannedDuration || 0) * 1000,
-                actualDuration: t.actualDuration || 0,
-                variance: (t.actualDuration || 0) - ((t.plannedDuration || 0) * 1000),
-              };
-            });
-            const overtimeItems = itemTimingsForReport.filter(t => t.variance > 0);
-            const report = {
-              planTitle: plan.title,
-              serviceDate: plan.serviceDate,
-              totalPlannedMs,
-              totalActualMs,
-              totalVarianceMs: totalActualMs - totalPlannedMs,
-              overtimeItemCount: overtimeItems.length,
-              items: itemTimingsForReport,
-            };
-            try {
-              const savedReport = await manualRundown.createShowReport(summary.planId, churchId, {
-                sessionStartedAt: summary.startedAt || (Date.now() - totalActualMs),
-                sessionEndedAt: Date.now(),
-                totalPlannedMs,
-                totalActualMs,
-                itemTimings: itemTimingsForReport,
-                report,
-              });
-              summary.showReport = savedReport;
-            } catch (reportErr) {
-              console.error('[rundown] post-show report generation warning:', reportErr.message);
-            }
-          }
-        } catch { /* non-critical */ }
-      }
-
+      await finalizeEndedSession(churchId, summary);
       res.json(summary);
     }
   );
