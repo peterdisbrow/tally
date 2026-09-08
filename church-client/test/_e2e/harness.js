@@ -63,6 +63,9 @@ async function waitFor(predicate, { timeoutMs = 15_000, intervalMs = 100, label 
       if (result) return result;
     } catch (err) {
       lastErr = err;
+      // Fatal errors (e.g. relay process already dead) must not be retried
+      // for the full timeout — that was 20s of dead air on every CI run.
+      if (err && err.fatal) throw err;
     }
     await sleep(intervalMs);
   }
@@ -104,7 +107,14 @@ async function startAllMocks() {
 }
 
 async function stopAllMocks(handles) {
-  await Promise.allSettled(Object.values(handles).map((h) => h.stop?.()));
+  if (!handles) return;
+  await Promise.allSettled(Object.values(handles).map(async (h) => {
+    if (!h?.stop) return;
+    await Promise.race([
+      h.stop(),
+      sleep(3000).then(() => { throw new Error('mock stop timed out'); }),
+    ]).catch(() => {});
+  }));
 }
 
 async function mockAction(controlUrl, action, args) {
@@ -161,13 +171,22 @@ async function startRelay({ port, jwtSecret, adminApiKey, dataDir }) {
   // Wait for the listener (the log line is "Tally Relay listening on port N").
   // Falling back to polling /health/deep so we don't depend on log format.
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitFor(async () => {
-    if (!proc.pid || proc.exitCode != null) {
-      throw new Error(`relay exited early: stderr=${stderr.join('').slice(-500)}`);
+  try {
+    await waitFor(async () => {
+      if (!proc.pid || proc.exitCode != null) {
+        const err = new Error(`relay exited early: stderr=${stderr.join('').slice(-500)}`);
+        err.fatal = true;
+        throw err;
+      }
+      const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+      return res && res.ok;
+    }, { timeoutMs: 20_000, label: 'relay /health to be ready' });
+  } catch (err) {
+    if (proc.exitCode == null) {
+      try { proc.kill('SIGKILL'); } catch { /* already gone */ }
     }
-    const res = await fetch(`${baseUrl}/health`).catch(() => null);
-    return res && res.ok;
-  }, { timeoutMs: 20_000, label: 'relay /health to be ready' });
+    throw err;
+  }
 
   return {
     proc,
@@ -190,9 +209,17 @@ async function startRelay({ port, jwtSecret, adminApiKey, dataDir }) {
 
 function adminClient(baseUrl, apiKey) {
   const headers = { 'x-api-key': apiKey, 'Content-Type': 'application/json' };
+  const fetchOpts = (method, body) => ({
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body || {}) : undefined,
+    // Bare fetch() has no default timeout. A hung relay used to stall
+    // bootHarness forever and leak the in-process mock servers.
+    signal: AbortSignal.timeout(10_000),
+  });
   return {
     async post(path, body) {
-      const res = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+      const res = await fetch(`${baseUrl}${path}`, fetchOpts('POST', body));
       const text = await res.text();
       let parsed = text;
       try { parsed = JSON.parse(text); } catch { /* keep raw */ }
@@ -200,7 +227,7 @@ function adminClient(baseUrl, apiKey) {
       return parsed;
     },
     async get(path) {
-      const res = await fetch(`${baseUrl}${path}`, { headers });
+      const res = await fetch(`${baseUrl}${path}`, fetchOpts('GET'));
       const text = await res.text();
       try { return JSON.parse(text); } catch { return text; }
     },
@@ -273,20 +300,64 @@ async function startAgent({ relayHttpUrl, wsToken, churchName, roomId, equipment
 
 // ─── Top-level lifecycle ─────────────────────────────────────────────────────
 
+/**
+ * True when the sibling relay-server is installed and e2e has not been
+ * explicitly skipped. Church-client CI only runs `npm ci` in church-client/,
+ * so command-e2e must skip there instead of booting mocks and hanging.
+ */
+function isRelayAvailable() {
+  if (process.env.TALLY_SKIP_E2E === '1' || process.env.TALLY_SKIP_E2E === 'true') {
+    return false;
+  }
+  try {
+    fs.accessSync(path.join(RELAY_DIR, 'server.js'));
+    fs.accessSync(path.join(RELAY_DIR, 'node_modules', 'express'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function skipCommandE2EReason() {
+  if (isRelayAvailable()) return false;
+  if (process.env.TALLY_SKIP_E2E === '1' || process.env.TALLY_SKIP_E2E === 'true') {
+    return 'TALLY_SKIP_E2E is set';
+  }
+  return 'relay-server dependencies not installed (run npm ci in relay-server/)';
+}
+
 async function bootHarness({ churchName = `E2E-${Date.now()}` } = {}) {
   // Find a free port and mint admin credentials.
   const relayPort = await findFreePort();
   const adminApiKey = `e2e-admin-${crypto.randomBytes(8).toString('hex')}`;
   const jwtSecret = crypto.randomBytes(32).toString('hex');
 
+  // Track anything we start so a mid-boot failure can tear it down.
+  // Without this, leaked HTTP/WS/TCP mock servers keep node --test alive
+  // forever (the church-client CI hang).
+  const started = { mocks: null, relay: null, agent: null, dataDir: null };
+
+  const stopPartial = async () => {
+    try { await started.agent?.stop(); } catch { /* */ }
+    try { await started.relay?.stop(); } catch { /* */ }
+    try { await stopAllMocks(started.mocks); } catch { /* */ }
+    if (started.dataDir) {
+      await fsp.rm(started.dataDir, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+
+  try {
   // Ephemeral data dir for SQLite + backups.
   const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tally-relay-e2e-'));
+  started.dataDir = dataDir;
 
   // Boot all mocks.
   const mocks = await startAllMocks();
+  started.mocks = mocks;
 
   // Boot the relay subprocess.
   const relay = await startRelay({ port: relayPort, jwtSecret, adminApiKey, dataDir });
+  started.relay = relay;
   const admin = adminClient(relay.baseUrl, adminApiKey);
 
   // Register the test church.
@@ -343,6 +414,7 @@ async function bootHarness({ churchName = `E2E-${Date.now()}` } = {}) {
     equipment,
     logBuf,
   });
+  started.agent = agent;
 
   // Wait for the agent to register on the relay's churches map (i.e., the
   // WebSocket landed and is OPEN). Poll the admin /api/churches/:id/status
@@ -369,12 +441,7 @@ async function bootHarness({ churchName = `E2E-${Date.now()}` } = {}) {
     dispatch: (command, params = {}) =>
       admin.post('/api/command', { churchId: church.churchId, command, params }),
     /** Tear everything down. Safe to call multiple times. */
-    stop: async () => {
-      try { await agent.stop(); } catch { /* */ }
-      try { await relay.stop(); } catch { /* */ }
-      try { await stopAllMocks(mocks); } catch { /* */ }
-      await fsp.rm(dataDir, { recursive: true, force: true }).catch(() => {});
-    },
+    stop: stopPartial,
     /** Snapshot the captured agent + relay logs for failure diagnostics. */
     snapshotLogs: () => ({
       agentStdout: logBuf.stdout.join(''),
@@ -382,6 +449,10 @@ async function bootHarness({ churchName = `E2E-${Date.now()}` } = {}) {
       ...relay.captureLogs(),
     }),
   };
+  } catch (err) {
+    await stopPartial();
+    throw err;
+  }
 }
 
-module.exports = { bootHarness, waitFor, sleep, findFreePort };
+module.exports = { bootHarness, waitFor, sleep, findFreePort, isRelayAvailable, skipCommandE2EReason };

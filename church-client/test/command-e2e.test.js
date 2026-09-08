@@ -26,11 +26,21 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { bootHarness, waitFor, sleep } = require('./_e2e/harness');
+const { bootHarness, waitFor, sleep, skipCommandE2EReason } = require('./_e2e/harness');
+
+const SKIP = skipCommandE2EReason();
+if (SKIP) {
+  console.log(`[command-e2e] skipped: ${SKIP}`);
+}
+
+function e2e(name, fn) {
+  return test(name, { skip: SKIP }, fn);
+}
 
 let h = null;
 
 before(async () => {
+  if (SKIP) return;
   h = await bootHarness({ churchName: `cmd-e2e-${Date.now()}` });
   // Some bridges (Companion, OBS, Resolume, ProPresenter, TriCaster) finish
   // their connect handshake asynchronously after the WS lands. A short pause
@@ -63,7 +73,7 @@ after(async () => {
 // successful local delivery. Positive-path device-state coverage for ATEM
 // already lives in atem-commands.test.js with the in-process fakeAtem.
 
-test('atem.cut → relay accepts and dispatches', async () => {
+e2e('atem.cut → relay accepts and dispatches', async () => {
   await h.resetMocks();
   // ATEM agent isn't connected to a real switcher, so this command will fail
   // at the bridge layer with "not connected". That's a useful coverage point —
@@ -78,7 +88,7 @@ test('atem.cut → relay accepts and dispatches', async () => {
 
 // ─── VideoHub ────────────────────────────────────────────────────────────────
 
-test('videohub.route → mock applies new routing', async () => {
+e2e('videohub.route → mock applies new routing', async () => {
   await h.resetMocks();
   // Connect the bridge first (the agent does this on startup, but a route
   // command issued before the initial state-dump arrives can race). Wait
@@ -105,7 +115,7 @@ test('videohub.route → mock applies new routing', async () => {
 
 // ─── ProPresenter ────────────────────────────────────────────────────────────
 
-test('propresenter.next → mock advances slide', async () => {
+e2e('propresenter.next → mock advances slide', async () => {
   await h.resetMocks();
   const before = (await h.mocks.propresenter.readState()).slide.slideIndex;
 
@@ -124,7 +134,7 @@ test('propresenter.next → mock advances slide', async () => {
     'exactly one trigger should have fired (no double-dispatch)');
 });
 
-test('propresenter.previous → mock goes back one slide', async () => {
+e2e('propresenter.previous → mock goes back one slide', async () => {
   await h.resetMocks();
   // Push to slide index 3 first.
   await h.mocks.propresenter.action('setSlide', { slideIndex: 3 });
@@ -138,7 +148,7 @@ test('propresenter.previous → mock goes back one slide', async () => {
   }, { timeoutMs: 4000, label: 'propresenter slide to go back' });
 });
 
-test('propresenter.goToSlide → mock jumps to target index', async () => {
+e2e('propresenter.goToSlide → mock jumps to target index', async () => {
   await h.resetMocks();
   // The PP command is 1-based for users, the bridge subtracts 1 before
   // hitting /v1/presentation/focused/<N>/trigger. So goToSlide(7) → mock
@@ -154,7 +164,7 @@ test('propresenter.goToSlide → mock jumps to target index', async () => {
 
 // ─── Companion ───────────────────────────────────────────────────────────────
 
-test('companion.pressButton → mock records exactly one press', async () => {
+e2e('companion.pressButton → mock records exactly one press', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('companion.pressButton', { page: 1, row: 0, col: 2 });
@@ -172,7 +182,7 @@ test('companion.pressButton → mock records exactly one press', async () => {
   assert.equal(state.pressLog[0].col, 2);
 });
 
-test('companion.setCustomVariable → mock stores the value', async () => {
+e2e('companion.setCustomVariable → mock stores the value', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('companion.setCustomVariable', {
@@ -188,7 +198,7 @@ test('companion.setCustomVariable → mock stores the value', async () => {
 
 // ─── SQ Mixer ────────────────────────────────────────────────────────────────
 
-test('mixer.mute / mixer.unmute → mock sees NRPN state change', async () => {
+e2e('mixer.mute / mixer.unmute → mock sees NRPN state change', async () => {
   await h.resetMocks();
 
   const muteResult = await h.dispatch('mixer.mute', { channel: 5 });
@@ -217,7 +227,7 @@ test('mixer.mute / mixer.unmute → mock sees NRPN state change', async () => {
   assert.equal(state.mutes['input:4'], false, 'channel 5 should be unmuted');
 });
 
-test('mixer.setFader → mock sees fader 14-bit value', async () => {
+e2e('mixer.setFader → mock sees fader 14-bit value', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('mixer.setFader', { channel: 1, level: 0.75 });
@@ -237,7 +247,7 @@ test('mixer.setFader → mock sees fader 14-bit value', async () => {
 
 // ─── BirdDog / VISCA PTZ ─────────────────────────────────────────────────────
 
-test('ptz.preset → VISCA mock records preset recall', async () => {
+e2e('ptz.preset → VISCA mock records preset recall', async () => {
   await h.resetMocks();
 
   // `zeroBasedPreset: true` so the on-wire byte equals the user-facing number.
@@ -257,7 +267,7 @@ test('ptz.preset → VISCA mock records preset recall', async () => {
     'exactly one preset recall (no double-dispatch)');
 });
 
-test('ptz.pan → VISCA mock records pan motion', async () => {
+e2e('ptz.pan → VISCA mock records pan motion', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('ptz.pan', { camera: 1, speed: 0.5, durationMs: 50 });
@@ -278,7 +288,7 @@ test('ptz.pan → VISCA mock records pan motion', async () => {
 
 // ─── OBS ─────────────────────────────────────────────────────────────────────
 
-test('obs.setScene → mock switches program scene', async () => {
+e2e('obs.setScene → mock switches program scene', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('obs.setScene', { scene: 'Scene 3' });
@@ -290,7 +300,7 @@ test('obs.setScene → mock switches program scene', async () => {
   }, { timeoutMs: 4000, label: 'OBS program scene to update' });
 });
 
-test('obs.startStream / obs.stopStream → mock toggles streaming.outputActive', async () => {
+e2e('obs.startStream / obs.stopStream → mock toggles streaming.outputActive', async () => {
   await h.resetMocks();
 
   const startResult = await h.dispatch('obs.startStream', {});
@@ -308,7 +318,7 @@ test('obs.startStream / obs.stopStream → mock toggles streaming.outputActive',
   }, { timeoutMs: 4000, label: 'OBS streaming to stop' });
 });
 
-test('obs.startRecording / obs.stopRecording → mock toggles recording.outputActive', async () => {
+e2e('obs.startRecording / obs.stopRecording → mock toggles recording.outputActive', async () => {
   await h.resetMocks();
 
   const startResult = await h.dispatch('obs.startRecording', {});
@@ -328,7 +338,7 @@ test('obs.startRecording / obs.stopRecording → mock toggles recording.outputAc
 
 // ─── Resolume ────────────────────────────────────────────────────────────────
 
-test('resolume.playClip → mock connects the target clip', async () => {
+e2e('resolume.playClip → mock connects the target clip', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('resolume.playClip', { layer: 1, clip: 2 });
@@ -345,7 +355,7 @@ test('resolume.playClip → mock connects the target clip', async () => {
     `layer 1 clip 2 should be connected (clips=${JSON.stringify(layer.clips)})`);
 });
 
-test('resolume.setLayerOpacity → mock applies the new opacity', async () => {
+e2e('resolume.setLayerOpacity → mock applies the new opacity', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('resolume.setLayerOpacity', { layer: 1, value: 0.42 });
@@ -359,7 +369,7 @@ test('resolume.setLayerOpacity → mock applies the new opacity', async () => {
 
 // ─── TriCaster ───────────────────────────────────────────────────────────────
 
-test('switcher.setProgram → TriCaster mock records main_a_row shortcut', async () => {
+e2e('switcher.setProgram → TriCaster mock records main_a_row shortcut', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('switcher.setProgram', { switcherId: 'tc-1', input: 3 });
@@ -375,7 +385,7 @@ test('switcher.setProgram → TriCaster mock records main_a_row shortcut', async
   assert.ok(lastRow, 'main_a_row shortcut should have been called');
 });
 
-test('switcher.cut → TriCaster mock records main_take shortcut', async () => {
+e2e('switcher.cut → TriCaster mock records main_take shortcut', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('switcher.cut', { switcherId: 'tc-1' });
@@ -387,7 +397,7 @@ test('switcher.cut → TriCaster mock records main_take shortcut', async () => {
   }, { timeoutMs: 4000, label: 'tricaster main_take shortcut' });
 });
 
-test('tricaster.stream → TriCaster mock toggles streaming_toggle shortcut', async () => {
+e2e('tricaster.stream → TriCaster mock toggles streaming_toggle shortcut', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('tricaster.stream', { state: true });
