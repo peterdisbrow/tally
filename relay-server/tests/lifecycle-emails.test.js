@@ -97,12 +97,51 @@ describe('LifecycleEmails', () => {
       expect(result.text).toContain('Grace Community');
     });
 
-    it('includes download link in setup reminder', () => {
+    it('includes current latest-release download links, not the v1.0.1 installer', () => {
+      const {
+        DOWNLOAD_MAC_ARM64_URL,
+        DOWNLOAD_MAC_X64_URL,
+        DOWNLOAD_WIN_URL,
+      } = require('../src/lifecycleEmails');
       const church = mockChurch();
-      const result = emails._buildSetupReminderEmail(church);
+      const builders = [
+        emails._buildSetupReminderEmail(church),
+        emails._buildRegistrationEmail(church),
+        emails._buildActivationEscalationEmail(church),
+      ];
 
-      expect(result.html).toContain('github.com/peterdisbrow/tally/releases/download');
-      expect(result.text).toContain('github.com/peterdisbrow/tally/releases/download');
+      expect(DOWNLOAD_MAC_ARM64_URL).toBe(
+        'https://github.com/peterdisbrow/tally/releases/latest/download/Tally-arm64.dmg'
+      );
+      expect(DOWNLOAD_MAC_X64_URL).toBe(
+        'https://github.com/peterdisbrow/tally/releases/latest/download/Tally-x64.dmg'
+      );
+      expect(DOWNLOAD_WIN_URL).toMatch(
+        /^https:\/\/github\.com\/peterdisbrow\/tally\/releases\/latest\/download\/Tally-Setup-\d+\.\d+\.\d+\.exe$/
+      );
+      expect(DOWNLOAD_WIN_URL).not.toContain('1.0.1');
+
+      for (const result of builders) {
+        expect(result.html).toContain(DOWNLOAD_MAC_ARM64_URL);
+        expect(result.html).toContain(DOWNLOAD_MAC_X64_URL);
+        expect(result.html).toContain(DOWNLOAD_WIN_URL);
+        expect(result.text).toContain(DOWNLOAD_MAC_ARM64_URL);
+        expect(result.text).toContain(DOWNLOAD_MAC_X64_URL);
+        expect(result.text).toContain(DOWNLOAD_WIN_URL);
+        expect(result.html).not.toContain('v1.0.1');
+        expect(result.html).not.toContain('Tally-signed.dmg');
+        expect(result.text).not.toContain('v1.0.1');
+        expect(result.text).not.toContain('Tally-signed.dmg');
+      }
+
+      for (const emailType of ['setup-reminder', 'registration-confirmation', 'activation-escalation', 'welcome-verified']) {
+        const preview = emails.getPreview(emailType);
+        expect(preview.html).toContain(DOWNLOAD_MAC_ARM64_URL);
+        expect(preview.html).toContain(DOWNLOAD_MAC_X64_URL);
+        expect(preview.html).toContain(DOWNLOAD_WIN_URL);
+        expect(preview.html).not.toContain('v1.0.1');
+        expect(preview.html).not.toContain('Tally-signed.dmg');
+      }
     });
 
     it('sends setup reminder via sendEmail and records it', async () => {
