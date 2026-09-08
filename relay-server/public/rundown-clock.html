@@ -203,12 +203,39 @@
     display: none;
   }
   .connection-lost.visible { display: block; }
+
+  .expired-state {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    max-width: 480px;
+    padding: 24px;
+  }
+  .expired-state.visible { display: flex; }
+  .expired-title {
+    font-size: clamp(22px, 4vw, 32px);
+    font-weight: 800;
+    color: var(--text);
+  }
+  .expired-msg {
+    font-size: 15px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .container.hidden { display: none; }
 </style>
 </head>
 <body>
   <div class="connection-lost" id="conn-banner">Connection lost - reconnecting...</div>
 
-  <div class="container">
+  <div class="expired-state" id="expired-state">
+    <div class="expired-title">Link expired / invalid</div>
+    <div class="expired-msg">This Studio Clock share link is no longer valid. Ask the control room for a new link.</div>
+  </div>
+
+  <div class="container" id="clock-container">
     <div class="wall-clock-label">CURRENT TIME</div>
     <div class="wall-clock" id="wall-clock">--:--</div>
 
@@ -232,8 +259,10 @@
   <div class="status-bar">
     <div class="status-dot" id="status-dot"></div>
     <span id="status-text">Connecting...</span>
+    <span id="sync-text">local</span>
   </div>
 
+<script src="/tools/studio-clock-sync.js"></script>
 <script>
 (function() {
   'use strict';
@@ -262,12 +291,25 @@
   var statusDot = document.getElementById('status-dot');
   var statusText = document.getElementById('status-text');
   var connBanner = document.getElementById('conn-banner');
+  var syncText = document.getElementById('sync-text');
+  var expiredState = document.getElementById('expired-state');
+  var clockContainer = document.getElementById('clock-container');
 
   var ws = null;
   var reconnectTimer = null;
   var reconnectDelay = 1000;
   var lastState = null;
   var heartbeat = null;
+  var tokenInvalid = false;
+  var timeSync = { offsetMs: 0, hasOffset: false, driftMs: null };
+  var syncT0 = 0;
+  var ClockSync = window.TallyStudioClockSync || {
+    applyServerTimestamp: function(_prev, _ts) { return { offsetMs: 0, hasOffset: false, driftMs: null }; },
+    wallNow: function(_sync, now) { return new Date(now || Date.now()); },
+    isInvalidTokenClose: function(code, reason) {
+      return code === 1008 || /invalid share token|token required/i.test(String(reason || ''));
+    }
+  };
 
   function formatTime(seconds) {
     if (seconds == null || seconds < 0) seconds = 0;
@@ -286,9 +328,50 @@
     try { localStorage.setItem('tally.clock-theme:' + token, theme); } catch(e) {}
   }
 
-  // Wall clock tick
+  function markSyncProbe() {
+    syncT0 = Date.now();
+  }
+
+  function applyServerStamp(serverTs) {
+    timeSync = ClockSync.applyServerTimestamp(timeSync, serverTs, Date.now(), syncT0);
+    syncT0 = 0;
+    updateSyncLabel();
+  }
+
+  function updateSyncLabel() {
+    if (!syncText) return;
+    if (!timeSync.hasOffset) {
+      syncText.textContent = 'local';
+      return;
+    }
+    var driftMs = timeSync.driftMs || 0;
+    var driftSec = Math.round(Math.abs(driftMs) / 1000);
+    if (driftSec >= 1) {
+      syncText.textContent = 'server · display was ' + (driftMs > 0 ? '+' : '-') + driftSec + 's';
+    } else {
+      syncText.textContent = 'server';
+    }
+  }
+
+  function showExpiredState() {
+    tokenInvalid = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+    if (clockContainer) clockContainer.classList.add('hidden');
+    if (expiredState) expiredState.classList.add('visible');
+    if (connBanner) connBanner.classList.remove('visible');
+    if (statusDot) statusDot.classList.remove('connected');
+    if (statusText) statusText.textContent = 'Link expired';
+    if (syncText) syncText.textContent = '';
+  }
+
+  // Wall clock tick — server_timestamp + half-RTT when available, else local Date
   function updateWallClock() {
-    var now = new Date();
+    var now = ClockSync.wallNow(timeSync, Date.now());
     var h = now.getHours();
     var m = now.getMinutes();
     var s = now.getSeconds();
@@ -357,9 +440,11 @@
 
   // WebSocket
   function connect() {
+    if (tokenInvalid) return;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var wsUrl = proto + '//' + location.host + '/rundown-clock?token=' + encodeURIComponent(token);
+    markSyncProbe();
     try { ws = new WebSocket(wsUrl); } catch(e) { scheduleReconnect(); return; }
 
     ws.onopen = function() {
@@ -373,15 +458,22 @@
       try {
         var msg = JSON.parse(event.data);
         if (msg.type === 'timer_state' || msg.type === 'rundown_timer') {
+          applyServerStamp(msg.server_timestamp);
           updateDisplay(msg);
         } else if (msg.type === 'rundown_ended') {
+          applyServerStamp(msg.server_timestamp);
           updateDisplay({ is_live: false, plan_title: lastState ? lastState.plan_title : '' });
         }
       } catch(e) {}
     };
 
-    ws.onclose = function() {
+    ws.onclose = function(event) {
       ws = null;
+      if (tokenInvalid) return;
+      if (ClockSync.isInvalidTokenClose(event && event.code, event && event.reason)) {
+        showExpiredState();
+        return;
+      }
       statusDot.classList.remove('connected');
       statusText.textContent = 'Disconnected';
       connBanner.classList.add('visible');
@@ -392,7 +484,13 @@
 
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = setInterval(function() {
+      if (tokenInvalid) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+        return;
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
+        markSyncProbe();
         ws.send(JSON.stringify({ type: 'ping' }));
       } else {
         clearInterval(heartbeat);
@@ -402,6 +500,7 @@
   }
 
   function scheduleReconnect() {
+    if (tokenInvalid) return;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);

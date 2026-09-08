@@ -109,6 +109,9 @@ app.use(express.json({
 app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal'), { maxAge: '1h', setHeaders(res, filePath) { if (/\.(css|js|png|jpg|svg|woff2?)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=3600'); } }));
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin'), { maxAge: '1h' }));
+// Booth default: the SPA home at /tools/clock/ is a quote/marketing page.
+// Operators should land on the Production Clock. Quote page stays at /tools/clock/index.html.
+app.get(['/tools/clock', '/tools/clock/'], (_req, res) => res.redirect(302, '/tools/clock/clock'));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools'), { maxAge: '1h' }));
 app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/clock'));
 
