@@ -279,6 +279,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.live_rundown.title': 'Live Rundown',
         'overview.live_rundown.desc': 'One Start Live. One GO. Timers, show mode, Companion, and the desktop app all follow this session.',
         'overview.live_rundown.cta': 'Open Live Rundown',
+        'overview.live_rundown.now': 'Now',
+        'overview.live_rundown.open_live': 'Go to Live Session',
         'overview.activity.title': 'Activity Feed',
         'overview.engineer.title': 'AI Assistant',
         'overview.schedule.title': 'Service Schedule',
@@ -646,6 +648,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.live_rundown.title': 'Rundown en Vivo',
         'overview.live_rundown.desc': 'Un Start Live. Un GO. Timers, modo show, Companion y la app de escritorio siguen esta sesi\u00f3n.',
         'overview.live_rundown.cta': 'Abrir Rundown en Vivo',
+        'overview.live_rundown.now': 'Ahora',
+        'overview.live_rundown.open_live': 'Ir a la sesi\u00f3n en vivo',
         'overview.activity.title': 'Actividad Reciente',
         'overview.engineer.title': 'AI Assistant',
         'overview.schedule.title': 'Horario de Servicio',
@@ -1515,6 +1519,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (_eqCard) _eqCard.style.display = hasEverConnected ? '' : 'none';
         if (_pscCard) _pscCard.style.display = hasEverConnected ? '' : 'none';
         if (_liveRundownCta) _liveRundownCta.style.display = '';
+        refreshLiveRundownOverviewCta();
         // Legacy equipment checklist stays out of normal Sunday UI
         if (_rundownCard) _rundownCard.style.display = (hasEverConnected && _isAdvancedMode) ? '' : 'none';
         if (_actFeedCard) _actFeedCard.style.display = hasEverConnected ? '' : 'none';
@@ -9012,6 +9017,48 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _liveShowState = null; // canonical live session mapped for the editor GO bar
     var _liveShowTimer = null;
     var _liveAutoAdvanceTimer = null;
+
+    function refreshLiveRundownOverviewCta() {
+      var badge = document.getElementById('live-rundown-cta-badge');
+      var desc = document.getElementById('live-rundown-cta-desc');
+      var liveMeta = document.getElementById('live-rundown-cta-live');
+      var planEl = document.getElementById('live-rundown-cta-plan');
+      var cueEl = document.getElementById('live-rundown-cta-cue');
+      var ctaBtn = document.querySelector('#live-rundown-cta-card [data-action="showPage"]');
+      if (!CHURCH_ID) return;
+      api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state?all=1').then(function(data) {
+        var sessions = (data && data.sessions) || [];
+        var live = null;
+        for (var i = 0; i < sessions.length; i++) {
+          var state = sessions[i] && sessions[i].state;
+          if (state && (state.isLive || state.state === 'active' || state.active)) {
+            live = state;
+            break;
+          }
+        }
+        if (live) {
+          if (badge) badge.style.display = '';
+          if (desc) desc.style.display = 'none';
+          if (liveMeta) liveMeta.style.display = '';
+          if (planEl) planEl.textContent = live.planTitle || live.planId || 'Live session';
+          if (cueEl) {
+            var cueTitle = (live.currentItem && live.currentItem.title) || '';
+            var cueIndex = (live.currentCueIndex != null ? live.currentCueIndex : live.currentIndex);
+            var total = live.totalItems || 0;
+            var nowLabel = pt('overview.live_rundown.now');
+            cueEl.textContent = cueTitle
+              ? nowLabel + ' · ' + cueTitle + (total ? '  (' + (Number(cueIndex) + 1) + '/' + total + ')' : '')
+              : nowLabel;
+          }
+          if (ctaBtn) ctaBtn.textContent = pt('overview.live_rundown.open_live');
+        } else {
+          if (badge) badge.style.display = 'none';
+          if (desc) desc.style.display = '';
+          if (liveMeta) liveMeta.style.display = 'none';
+          if (ctaBtn) ctaBtn.textContent = pt('overview.live_rundown.cta');
+        }
+      }).catch(function() {});
+    }
     // Cache of companion actions keyed by itemId, loaded when plan is known
     var _companionActionsCache = {}; // { [itemId]: Action[] }
     var _companionActionsPlanId = null; // planId for which cache was loaded
@@ -15384,6 +15431,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         renderRundownEditor(_rundownSelectedPlan);
         _startLiveShowTimer();
+        refreshLiveRundownOverviewCta();
         toast('Live started');
       }).catch(function(e) { toast('Failed to start: ' + e.message, true); });
     }
@@ -15399,6 +15447,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           delete _rundownStatsByRoom[roomId];
           _rundownState = null;
           renderRundownEditor(_rundownSelectedPlan);
+          refreshLiveRundownOverviewCta();
           toast('Live ended');
         }).catch(function(e) { toast('Failed: ' + e.message, true); });
       });

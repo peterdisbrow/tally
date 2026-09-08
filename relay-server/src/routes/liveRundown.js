@@ -42,7 +42,6 @@ const fs = require('fs');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse = require('pdf-parse');
-const { buildManualPlanTimerState } = require('../rundownPublic');
 const { escapeHtml } = require('../escapeHtml');
 const {
   normalizeShareRole,
@@ -340,14 +339,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       stopManualLiveTimer(planId);
       return;
     }
-    const liveState = await manualRundown.getLiveState(planId);
-    if (!liveState || !liveState.isLive) {
+    const found = liveRundown.findSessionByPlanId(planId);
+    if (!found) {
+      stopManualLiveTimer(planId, plan.title);
+      return;
+    }
+    const timer = liveRundown.getTimerState(found.churchId, found.roomId, planId);
+    if (!timer || !timer.is_live) {
       stopManualLiveTimer(planId, plan.title);
       return;
     }
     broadcastPublicRundownTimer(planId, {
       type: 'timer_state',
-      ...buildManualPlanTimerState(plan, liveState),
+      ...timer,
     });
   }
 
@@ -368,17 +372,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     if (!plan) return null;
     const found = liveRundown.findSessionByPlanId(plan.id);
     if (found) {
+      if (!manualLiveTimerIntervals.has(plan.id)) ensureManualLiveTimer(plan.id);
       return liveRundown.getTimerState(found.churchId, found.roomId, plan.id) || {
         is_live: false,
         plan_id: plan.id,
         plan_title: plan.title,
       };
     }
-    const liveState = await manualRundown.getLiveState(plan.id);
-    if (liveState?.isLive && !manualLiveTimerIntervals.has(plan.id)) {
-      ensureManualLiveTimer(plan.id);
-    }
-    return buildManualPlanTimerState(plan, liveState);
+    stopManualLiveTimer(plan.id, plan.title, { broadcastEnded: false });
+    return {
+      is_live: false,
+      plan_id: plan.id,
+      plan_title: plan.title,
+    };
   }
 
   // ─── Helper: load companion actions for a plan from DB ──────────────────────
@@ -428,6 +434,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     if (plan.source !== 'pco') {
       await markManualPlanLive(churchId, plan.id, callerName, req);
     }
+    try { await manualRundown.stopLive(plan.id); } catch { /* leftover dual-state row */ }
+    ensureManualLiveTimer(plan.id);
     return toLegacyLiveShowState(state, plan);
   }
 
@@ -446,6 +454,8 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   async function finalizeEndedSession(churchId, summary) {
     if (!summary?.planId) return summary;
+    try { await manualRundown.stopLive(summary.planId); } catch { /* leftover dual-state row */ }
+    stopManualLiveTimer(summary.planId, summary.planTitle);
     try {
       const plan = await manualRundown.getPlan(summary.planId);
       if (plan && plan.status === 'live') {

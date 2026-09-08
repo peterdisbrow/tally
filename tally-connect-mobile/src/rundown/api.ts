@@ -143,28 +143,50 @@ export async function fetchPlanningCenterNextService(churchId: string, signal?: 
   return payload.plan || null;
 }
 
-export async function fetchManualLiveState(churchId: string, planId: string, signal?: AbortSignal): Promise<ManualRundownLiveState | null> {
+export interface CanonicalLiveSession {
+  roomId?: string;
+  state?: LegacyRundownState & ManualRundownLiveState & { planTitle?: string; totalItems?: number };
+}
+
+function isCanonicalLive(payload: { isLive?: boolean; active?: boolean; state?: string } | null | undefined): boolean {
+  return !!(payload && (payload.isLive || payload.active || payload.state === 'active'));
+}
+
+export async function fetchCanonicalLiveState(churchId: string, planId: string, signal?: AbortSignal): Promise<(ManualRundownLiveState & LegacyRundownState) | null> {
   try {
-    const payload = await api<ManualRundownLiveState & { plan?: ManualRundownPlan }>(
+    const payload = await api<ManualRundownLiveState & LegacyRundownState>(
       `/api/churches/${churchId}/live-rundown/state?planId=${encodeURIComponent(planId)}`,
       { signal }
     );
-    return payload?.isLive ? payload : null;
+    return isCanonicalLive(payload) ? payload : null;
   } catch {
     return null;
   }
 }
 
-export async function fetchLegacyLiveState(churchId: string, signal?: AbortSignal): Promise<LegacyRundownState | null> {
+export async function fetchCanonicalLiveSessions(churchId: string, signal?: AbortSignal): Promise<CanonicalLiveSession[]> {
   try {
-    const payload = await api<LegacyRundownState & { active?: boolean }>(
-      `/api/churches/${churchId}/live-rundown/state`,
+    const payload = await api<{ sessions?: CanonicalLiveSession[] }>(
+      `/api/churches/${churchId}/live-rundown/state?all=1`,
       { signal }
     );
-    return payload?.active || payload?.state === 'active' ? payload : null;
+    return (payload.sessions || []).filter((entry) => isCanonicalLive(entry.state));
   } catch {
-    return null;
+    return [];
   }
+}
+
+export async function fetchManualLiveState(churchId: string, planId: string, signal?: AbortSignal): Promise<ManualRundownLiveState | null> {
+  return fetchCanonicalLiveState(churchId, planId, signal);
+}
+
+export async function fetchLegacyLiveState(churchId: string, planId?: string, signal?: AbortSignal): Promise<LegacyRundownState | null> {
+  if (planId) {
+    return fetchCanonicalLiveState(churchId, planId, signal);
+  }
+  const sessions = await fetchCanonicalLiveSessions(churchId, signal);
+  const first = sessions[0]?.state || null;
+  return first || null;
 }
 
 export async function startManualLive(churchId: string, planId: string, roomId?: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {

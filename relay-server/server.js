@@ -262,7 +262,7 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { LiveRundownManager } = require('./src/liveRundown');
 const { ManualRundownStore } = require('./src/manualRundown');
-const { buildManualPlanTimerState, buildPublicRundownPayload } = require('./src/rundownPublic');
+const { buildPublicRundownPayload } = require('./src/rundownPublic');
 const { manualPlanToLivePlan, toLegacyLiveShowState, isOperatorShare } = require('./src/rundownCanonical');
 const { RundownScheduler } = require('./src/scheduler');
 const { PushNotificationService } = require('./src/pushNotifications');
@@ -3493,8 +3493,11 @@ async function buildPublicTimerStateForPlan(plan) {
       plan_title: plan.title,
     };
   }
-  const liveState = await manualRundown.getLiveState(plan.id);
-  return buildManualPlanTimerState(plan, liveState);
+  return {
+    is_live: false,
+    plan_id: plan.id,
+    plan_title: plan.title,
+  };
 }
 
 // ─── Public rundown data endpoint (no auth) ──────────────────────────────────
@@ -3517,8 +3520,6 @@ app.get('/api/public/rundown/:token', async (req, res) => {
     let liveState = null;
     if (found) {
       liveState = toLegacyLiveShowState(liveRundown.getState(found.churchId, found.roomId), plan);
-    } else {
-      liveState = await manualRundown.getLiveState(plan.id);
     }
     // Look up room name if plan is assigned to a room
     let roomName = '';

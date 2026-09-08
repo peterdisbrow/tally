@@ -42,8 +42,8 @@ import {
   computeManualTimings,
   createManualRundownItem,
   deleteManualRundownItem,
-  fetchLegacyLiveState,
-  fetchManualLiveState,
+  fetchCanonicalLiveSessions,
+  fetchCanonicalLiveState,
   fetchManualPlanDetail,
   fetchPlanningCenterNextService,
   fetchPcoPlanDetail,
@@ -210,13 +210,10 @@ export default function RundownScreen() {
 
       if (summary.source === 'manual') {
         detail = await fetchManualPlanDetail(resolvedChurchId, summary.id);
-        manualState = manualState || await fetchManualLiveState(resolvedChurchId, summary.id);
+        manualState = manualState || await fetchCanonicalLiveState(resolvedChurchId, summary.id);
       } else {
         detail = await fetchPcoPlanDetail(resolvedChurchId, summary.id);
-        legacyState = legacyState || await fetchLegacyLiveState(resolvedChurchId);
-        if (legacyState && legacyState.planId !== summary.id) {
-          legacyState = null;
-        }
+        legacyState = legacyState || await fetchCanonicalLiveState(resolvedChurchId, summary.id);
       }
 
       cacheRef.current.set(cacheKey, {
@@ -271,17 +268,10 @@ export default function RundownScreen() {
       planSummaries = sortSummaries(planSummaries);
 
       const manualSummaries = planSummaries.filter((plan) => plan.source === 'manual' && !plan.isTemplate);
-      const manualStates = await Promise.all(
-        manualSummaries.map(async (summary) => ({
-          summary,
-          state: await fetchManualLiveState(currentChurchId, summary.id, signal),
-        }))
-      );
-
-      const liveManual = manualStates.find((entry) => entry.state?.isLive);
-      const legacyState = await fetchLegacyLiveState(currentChurchId, signal);
-      const liveLegacySummary = legacyState?.planId
-        ? planSummaries.find((plan) => plan.source === 'pco' && plan.id === legacyState.planId)
+      const liveSessions = await fetchCanonicalLiveSessions(currentChurchId, signal);
+      const liveSession = liveSessions[0]?.state || null;
+      const liveSummary = liveSession?.planId
+        ? planSummaries.find((plan) => plan.id === liveSession.planId) || null
         : null;
 
       if (loadTokenRef.current !== myLoad) return;
@@ -291,15 +281,12 @@ export default function RundownScreen() {
       if (selectedIdRef.current) {
         const stillThere = planSummaries.find((plan) => plan.id === selectedIdRef.current);
         if (stillThere) {
-          const manualHint = stillThere.source === 'manual'
-            ? manualStates.find((entry) => entry.summary.id === stillThere.id)?.state || null
-            : null;
-          const legacyHint = stillThere.source === 'pco' && legacyState?.planId === stillThere.id
-            ? legacyState
-            : null;
+          const liveHint = liveSession && liveSession.planId === stillThere.id ? liveSession : null;
           await loadSelectedPlan(
             stillThere,
-            stillThere.source === 'manual' ? { manualLiveState: manualHint } : { legacyLiveState: legacyHint },
+            stillThere.source === 'manual'
+              ? { manualLiveState: liveHint as ManualRundownLiveState | null }
+              : { legacyLiveState: liveHint as LegacyRundownState | null },
             { scrollToTop: false, churchIdOverride: currentChurchId }
           );
           setState('ready');
@@ -307,17 +294,12 @@ export default function RundownScreen() {
         }
       }
 
-      const initialSummary = liveManual?.summary
-        || liveLegacySummary
+      const initialSummary = liveSummary
         || pickMostRelevantManual(manualSummaries)
         || pickMostRelevantPco(planSummaries.filter((plan) => plan.source === 'pco'));
 
       if (initialSummary) {
-        const liveHint = initialSummary.source === 'manual'
-          ? manualStates.find((entry) => entry.summary.id === initialSummary.id)?.state || null
-          : legacyState && legacyState.planId === initialSummary.id
-            ? legacyState
-            : null;
+        const liveHint = liveSession && liveSession.planId === initialSummary.id ? liveSession : null;
         await loadSelectedPlan(initialSummary, initialSummary.source === 'manual'
           ? { manualLiveState: liveHint as ManualRundownLiveState | null }
           : { legacyLiveState: liveHint as LegacyRundownState | null }, { scrollToTop: false, churchIdOverride: currentChurchId });
@@ -403,18 +385,12 @@ export default function RundownScreen() {
     let cancelled = false;
     const poll = async () => {
       try {
+        const state = await fetchCanonicalLiveState(churchId, selectedSummary.id);
+        if (cancelled) return;
         if (selectedSummary.source === 'manual') {
-          const state = await fetchManualLiveState(churchId, selectedSummary.id);
-          if (cancelled) return;
           setManualLiveState(state);
         } else {
-          const state = await fetchLegacyLiveState(churchId);
-          if (cancelled) return;
-          if (state && state.planId === selectedSummary.id) {
-            setLegacyLiveState(state);
-          } else {
-            setLegacyLiveState(null);
-          }
+          setLegacyLiveState(state);
         }
       } catch {
         if (!cancelled) return;
@@ -458,19 +434,19 @@ export default function RundownScreen() {
       } else if (action === 'back') {
         const result = await backManualLive(churchId, planId, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'next') {
         const result = await advanceManualLive(churchId, planId, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'goto' && typeof index === 'number') {
         const result = await gotoManualLive(churchId, planId, index, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       }

@@ -492,8 +492,15 @@
       <div class="card" id="live-rundown-cta-card" data-section-id="live-rundown-cta-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
           <div style="min-width:0;flex:1">
-            <div class="card-title" style="margin:0 0 6px"><span data-i18n="overview.live_rundown.title">Live Rundown</span></div>
-            <div style="font-size:13px;color:#8B9DAF;line-height:1.5" data-i18n="overview.live_rundown.desc">One Start Live. One GO. Timers, show mode, Companion, and the desktop app all follow this session.</div>
+            <div style="display:flex;align-items:center;gap:10px;margin:0 0 6px;flex-wrap:wrap">
+              <div class="card-title" style="margin:0"><span data-i18n="overview.live_rundown.title">Live Rundown</span></div>
+              <span id="live-rundown-cta-badge" class="live-badge-pulse" style="display:none">LIVE</span>
+            </div>
+            <div id="live-rundown-cta-desc" style="font-size:13px;color:#8B9DAF;line-height:1.5" data-i18n="overview.live_rundown.desc">One Start Live. One GO. Timers, show mode, Companion, and the desktop app all follow this session.</div>
+            <div id="live-rundown-cta-live" style="display:none;margin-top:10px">
+              <div id="live-rundown-cta-plan" style="font-size:15px;font-weight:800;color:#F0F2F4"></div>
+              <div id="live-rundown-cta-cue" style="font-size:13px;color:#8B9DAF;margin-top:2px"></div>
+            </div>
           </div>
           <button class="btn-primary" data-action="showPage" data-page="rundown" style="font-size:13px;padding:10px 18px;font-weight:700;white-space:nowrap" data-i18n="overview.live_rundown.cta">Open Live Rundown</button>
         </div>

@@ -193,4 +193,32 @@ describe('display-token 403 on public live mutate + item PUT', () => {
     expect(displayGo.status).toBe(403);
     expect(liveRundown.getState('church-1', 'sanctuary').currentIndex).toBe(goRes.body.currentCueIndex);
   });
+
+  it('ignores leftover rundown_live_state so public timer follows only LiveRundownManager', async () => {
+    const { displayToken, operatorToken, plan } = await seedPlanWithShares();
+    await store.startLive(plan.id, 'church-1');
+    expect((await store.getLiveState(plan.id))?.isLive).toBe(true);
+
+    const leftoverTimer = await client.get(`/api/public/rundown/${displayToken}/timer`);
+    expect(leftoverTimer.status).toBe(200);
+    expect(leftoverTimer.body.is_live).toBeFalsy();
+    expect(liveRundown.findSessionByPlanId(plan.id)).toBeNull();
+
+    const startRes = await client.post(`/api/public/rundown/${operatorToken}/live/start`, { body: {} });
+    expect(startRes.status).toBe(200);
+    expect(await store.getLiveState(plan.id)).toBeNull();
+
+    const liveTimer = await client.get(`/api/public/rundown/${displayToken}/timer`);
+    expect(liveTimer.body.is_live).toBe(true);
+    expect(liveTimer.body.plan_id).toBe(plan.id);
+    expect(liveTimer.body.cue_title).toBe('Welcome');
+
+    const stopRes = await client.post(`/api/public/rundown/${operatorToken}/live/stop`, { body: {} });
+    expect(stopRes.status).toBe(200);
+
+    const endedTimer = await client.get(`/api/public/rundown/${displayToken}/timer`);
+    expect(endedTimer.body.is_live).toBeFalsy();
+    expect(await store.getLiveState(plan.id)).toBeNull();
+    expect(liveRundown.findSessionByPlanId(plan.id)).toBeNull();
+  });
 });
