@@ -488,10 +488,21 @@
 
       <!-- System Health Check Card (legacy placeholder — real card is at top of overview) -->
 
-      <!-- Service Checklist Card -->
-      <div class="card" id="rundown-card" data-section-id="rundown-card">
+      <!-- Live Rundown CTA — Sunday operator path -->
+      <div class="card" id="live-rundown-cta-card" data-section-id="live-rundown-cta-card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div style="min-width:0;flex:1">
+            <div class="card-title" style="margin:0 0 6px"><span data-i18n="overview.live_rundown.title">Live Rundown</span></div>
+            <div style="font-size:13px;color:#8B9DAF;line-height:1.5" data-i18n="overview.live_rundown.desc">One Start Live. One GO. Timers, show mode, Companion, and the desktop app all follow this session.</div>
+          </div>
+          <button class="btn-primary" data-action="showPage" data-page="rundown" style="font-size:13px;padding:10px 18px;font-weight:700;white-space:nowrap" data-i18n="overview.live_rundown.cta">Open Live Rundown</button>
+        </div>
+      </div>
+
+      <!-- Legacy Service Checklist — advanced-only, hidden from normal Sunday UI -->
+      <div class="card advanced-only" id="rundown-card" data-section-id="rundown-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Service Checklist</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Legacy equipment scheduler. Sunday cueing lives in Live Rundown." data-i18n="overview.rundown.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Service Checklist</span></div>
           <span id="rundown-status-badge" class="badge badge-gray">—</span>
         </div>
         <div id="rundown-body">
@@ -2484,7 +2495,6 @@
             <div id="rundown-start-show-area" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 0;flex-wrap:wrap">
               <button class="btn-primary" data-action="liveShowStart" style="font-size:15px;padding:10px 32px;font-weight:700">Start Live</button>
               <button class="btn-secondary" data-action="rundownStartRehearsal" style="font-size:13px;padding:8px 20px">Rehearsal</button>
-              <button class="btn-secondary" data-action="rundownStartLive" style="font-size:13px;padding:8px 20px">Start Live Session</button>
             </div>
             <!-- Lock indicator bar (shown when plan is locked) -->
             <div id="rundown-lock-bar" style="display:none;background:rgba(255,215,64,0.08);border:1px solid rgba(255,215,64,0.2);border-radius:8px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">

@@ -2022,7 +2022,12 @@ function renderRundownPanel(data) {
 
   // Disable advance on last step
   const advBtn = document.getElementById('rundown-advance-btn');
-  if (advBtn) advBtn.disabled = currentIdx >= steps.length - 1;
+  if (advBtn) {
+    advBtn.disabled = currentIdx >= steps.length - 1;
+    advBtn.textContent = data.canonical ? 'GO' : 'Next Step';
+  }
+  const execBtn = document.getElementById('rundown-exec-btn');
+  if (execBtn) execBtn.style.display = data.canonical ? 'none' : '';
 
   // Steps list with icons, click-to-jump, and checked state
   const listEl = document.getElementById('rundown-steps-list');

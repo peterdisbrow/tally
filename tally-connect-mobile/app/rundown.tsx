@@ -367,13 +367,26 @@ export default function RundownScreen() {
 
       if (msg.type === 'rundown_state' || msg.type === 'rundown_position' || msg.type === 'rundown_tick') {
         const stateMsg = msg as RundownState;
-        if (selectedSummary.source === 'pco' && stateMsg.planId === selectedSummary.id) {
-          setLegacyLiveState(stateMsg as LegacyRundownState);
+        if (stateMsg.planId === selectedSummary.id) {
+          if (selectedSummary.source === 'manual') {
+            setManualLiveState({
+              isLive: true,
+              planId: stateMsg.planId,
+              currentCueIndex: (stateMsg as { currentCueIndex?: number; currentIndex?: number }).currentCueIndex
+                ?? (stateMsg as { currentIndex?: number }).currentIndex
+                ?? 0,
+              startedAt: (stateMsg as { startedAt?: number }).startedAt || Date.now(),
+              currentCueStartedAt: (stateMsg as { currentItemStartedAt?: number }).currentItemStartedAt,
+            });
+          } else {
+            setLegacyLiveState(stateMsg as LegacyRundownState);
+          }
           setErrorMessage(null);
         }
       } else if (msg.type === 'rundown_ended') {
         const ended = msg as { planId?: string };
-        if (selectedSummary.source === 'pco' && ended.planId === selectedSummary.id) {
+        if (!ended.planId || ended.planId === selectedSummary.id) {
+          setManualLiveState(null);
           setLegacyLiveState(null);
         }
       } else if (msg.type === 'rundown_error') {
@@ -430,29 +443,32 @@ export default function RundownScreen() {
   const performManualAction = useCallback(async (action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
     if (!churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
     const planId = selectedSummary.id;
+    const roomId = selectedSummary.roomId
+      || (selectedDetail?.source === 'manual' ? selectedDetail.roomId : '')
+      || '';
     setActionBusy(action);
     setErrorMessage(null);
     try {
       if (action === 'start') {
-        const result = await startManualLive(churchId, planId);
+        const result = await startManualLive(churchId, planId, roomId);
         setManualLiveState(result as ManualRundownLiveState);
       } else if (action === 'stop') {
-        await stopManualLive(churchId, planId);
+        await stopManualLive(churchId, planId, roomId);
         setManualLiveState(null);
       } else if (action === 'back') {
-        const result = await backManualLive(churchId, planId);
+        const result = await backManualLive(churchId, planId, roomId);
         if (result) {
           const live = await fetchManualLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'next') {
-        const result = await advanceManualLive(churchId, planId);
+        const result = await advanceManualLive(churchId, planId, roomId);
         if (result) {
           const live = await fetchManualLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'goto' && typeof index === 'number') {
-        const result = await gotoManualLive(churchId, planId, index);
+        const result = await gotoManualLive(churchId, planId, index, roomId);
         if (result) {
           const live = await fetchManualLiveState(churchId, planId);
           setManualLiveState(live);
@@ -465,7 +481,7 @@ export default function RundownScreen() {
     } finally {
       setActionBusy(null);
     }
-  }, [churchId, selectedSummary]);
+  }, [churchId, selectedSummary, selectedDetail]);
 
   const performLegacyAction = useCallback((action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
     if (!selectedSummary || selectedSummary.source !== 'pco') return;
@@ -474,32 +490,38 @@ export default function RundownScreen() {
     setErrorMessage(null);
 
     try {
+      const roomId = selectedSummary.roomId || '';
       if (action === 'start') {
         tallySocket.send({
           type: 'rundown_start',
           planId: selectedSummary.id,
           callerName: 'Mobile TD',
+          roomId,
           messageId,
         });
       } else if (action === 'stop') {
         tallySocket.send({
           type: 'rundown_end',
+          roomId,
           messageId,
         });
       } else if (action === 'back') {
         tallySocket.send({
           type: 'rundown_back',
+          roomId,
           messageId,
         });
       } else if (action === 'next') {
         tallySocket.send({
           type: 'rundown_advance',
+          roomId,
           messageId,
         });
       } else if (action === 'goto' && typeof index === 'number') {
         tallySocket.send({
           type: 'rundown_goto',
           index,
+          roomId,
           messageId,
         });
       }
@@ -950,7 +972,7 @@ export default function RundownScreen() {
           <View style={styles.actionGrid}>
             {!isLive ? (
               <ActionButton
-                label={actionBusy === 'start' ? 'Starting...' : 'Start legacy live'}
+                label={actionBusy === 'start' ? 'Starting...' : 'Start Live'}
                 icon="play"
                 tone="primary"
                 colors={colors}

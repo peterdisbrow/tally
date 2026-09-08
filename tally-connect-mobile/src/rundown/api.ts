@@ -146,7 +146,7 @@ export async function fetchPlanningCenterNextService(churchId: string, signal?: 
 export async function fetchManualLiveState(churchId: string, planId: string, signal?: AbortSignal): Promise<ManualRundownLiveState | null> {
   try {
     const payload = await api<ManualRundownLiveState & { plan?: ManualRundownPlan }>(
-      `/api/churches/${churchId}/rundown-plans/${planId}/live/state`,
+      `/api/churches/${churchId}/live-rundown/state?planId=${encodeURIComponent(planId)}`,
       { signal }
     );
     return payload?.isLive ? payload : null;
@@ -167,24 +167,39 @@ export async function fetchLegacyLiveState(churchId: string, signal?: AbortSigna
   }
 }
 
-export async function startManualLive(churchId: string, planId: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
-  return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/start`, { method: 'POST' });
+export async function startManualLive(churchId: string, planId: string, roomId?: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
+  return api(`/api/churches/${churchId}/live-rundown/start`, {
+    method: 'POST',
+    body: { planId, source: 'manual', callerName: 'Mobile TD', roomId: roomId || '' },
+  });
 }
 
-export async function stopManualLive(churchId: string, planId: string): Promise<{ ok: boolean }> {
-  return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/stop`, { method: 'POST' });
+export async function stopManualLive(churchId: string, planId: string, roomId?: string): Promise<{ ok: boolean }> {
+  return api(`/api/churches/${churchId}/live-rundown/end`, {
+    method: 'POST',
+    body: { roomId: roomId || '' },
+  });
 }
 
-export async function advanceManualLive(churchId: string, planId: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
-  return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/go`, { method: 'POST' });
+export async function advanceManualLive(churchId: string, planId: string, roomId?: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
+  return api(`/api/churches/${churchId}/live-rundown/advance`, {
+    method: 'POST',
+    body: { roomId: roomId || '' },
+  });
 }
 
-export async function backManualLive(churchId: string, planId: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
-  return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/back`, { method: 'POST' });
+export async function backManualLive(churchId: string, planId: string, roomId?: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
+  return api(`/api/churches/${churchId}/live-rundown/back`, {
+    method: 'POST',
+    body: { roomId: roomId || '' },
+  });
 }
 
-export async function gotoManualLive(churchId: string, planId: string, index: number): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
-  return api(`/api/churches/${churchId}/rundown-plans/${planId}/live/goto/${index}`, { method: 'POST' });
+export async function gotoManualLive(churchId: string, planId: string, index: number, roomId?: string): Promise<ManualRundownLiveState & { plan?: ManualRundownPlan }> {
+  return api(`/api/churches/${churchId}/live-rundown/goto`, {
+    method: 'POST',
+    body: { index, roomId: roomId || '' },
+  });
 }
 
 export interface ManualRundownItemInput {

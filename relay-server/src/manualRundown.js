@@ -16,6 +16,13 @@ const { v4: uuidv4 } = require('uuid');
 const VALID_COLUMN_TYPES = new Set(['text', 'dropdown']);
 const VALID_COLLABORATOR_ROLES = new Set(['owner', 'editor', 'viewer']);
 const VALID_COLLABORATOR_STATUSES = new Set(['active', 'offline', 'revoked']);
+const VALID_SHARE_ROLES = new Set(['display', 'operator']);
+
+function normalizeShareRole(role, fallback = 'operator') {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (VALID_SHARE_ROLES.has(normalized)) return normalized;
+  return fallback;
+}
 
 class ManualRundownStore {
   constructor({ queryClient, log = console.log } = {}) {
@@ -37,7 +44,8 @@ class ManualRundownStore {
         token TEXT NOT NULL UNIQUE,
         created_at BIGINT NOT NULL,
         expires_at BIGINT NOT NULL,
-        is_active INTEGER NOT NULL DEFAULT 1
+        is_active INTEGER NOT NULL DEFAULT 1,
+        role TEXT NOT NULL DEFAULT 'operator'
       )
     `);
     await this._db.exec(`
@@ -46,6 +54,9 @@ class ManualRundownStore {
     await this._db.exec(`
       CREATE INDEX IF NOT EXISTS idx_rs_plan ON rundown_shares(plan_id)
     `);
+    try {
+      await this._db.exec(`ALTER TABLE rundown_shares ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'`);
+    } catch { /* column already exists */ }
     await this._db.exec(`
       CREATE TABLE IF NOT EXISTS manual_rundown_plans (
         id TEXT PRIMARY KEY,
@@ -1207,22 +1218,32 @@ class ManualRundownStore {
 
   // ─── SHARES ────────────────────────────────────────────────────────────────
 
-  async createShare(planId, churchId, { expiresInDays = 7 } = {}) {
+  async createShare(planId, churchId, { expiresInDays = 7, role = 'operator' } = {}) {
     await this.ready;
-    // Deactivate any existing active share for this plan
+    const shareRole = normalizeShareRole(role, 'operator');
+    // Deactivate only the same-role share so display + operator can coexist
     await this._db.run(
-      `UPDATE rundown_shares SET is_active = 0 WHERE plan_id = ? AND church_id = ?`,
-      [planId, churchId]
+      `UPDATE rundown_shares SET is_active = 0 WHERE plan_id = ? AND church_id = ? AND COALESCE(role, 'operator') = ?`,
+      [planId, churchId, shareRole]
     );
     const id = uuidv4();
     const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, ''); // 64-char token
     const now = Date.now();
     const expiresAt = now + expiresInDays * 24 * 60 * 60 * 1000;
     await this._db.run(
-      `INSERT INTO rundown_shares (id, plan_id, church_id, token, created_at, expires_at, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [id, planId, churchId, token, now, expiresAt]
+      `INSERT INTO rundown_shares (id, plan_id, church_id, token, created_at, expires_at, is_active, role) VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [id, planId, churchId, token, now, expiresAt, shareRole]
     );
-    return this._toShare({ id, plan_id: planId, church_id: churchId, token, created_at: now, expires_at: expiresAt, is_active: 1 });
+    return this._toShare({
+      id,
+      plan_id: planId,
+      church_id: churchId,
+      token,
+      created_at: now,
+      expires_at: expiresAt,
+      is_active: 1,
+      role: shareRole,
+    });
   }
 
   async getShareByToken(token) {
@@ -1235,14 +1256,45 @@ class ManualRundownStore {
     return this._toShare(row);
   }
 
-  async getShareByPlanId(planId) {
+  async getShareByPlanId(planId, role) {
     await this.ready;
+    if (role) {
+      const wanted = normalizeShareRole(role, 'operator');
+      const row = await this._db.queryOne(
+        `SELECT * FROM rundown_shares WHERE plan_id = ? AND is_active = 1 AND COALESCE(role, 'operator') = ? ORDER BY created_at DESC LIMIT 1`,
+        [planId, wanted]
+      );
+      if (!row) return null;
+      return this._toShare(row);
+    }
     const row = await this._db.queryOne(
       `SELECT * FROM rundown_shares WHERE plan_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1`,
       [planId]
     );
     if (!row) return null;
     return this._toShare(row);
+  }
+
+  async getSharesByPlanId(planId) {
+    await this.ready;
+    const rows = await this._db.query(
+      `SELECT * FROM rundown_shares WHERE plan_id = ? AND is_active = 1 ORDER BY created_at DESC`,
+      [planId]
+    );
+    const shares = { display: null, operator: null };
+    for (const row of rows || []) {
+      const share = this._toShare(row);
+      if (!shares[share.role]) shares[share.role] = share;
+    }
+    return shares;
+  }
+
+  async revokeSharesForPlan(planId, churchId) {
+    await this.ready;
+    await this._db.run(
+      `UPDATE rundown_shares SET is_active = 0 WHERE plan_id = ? AND church_id = ?`,
+      [planId, churchId]
+    );
   }
 
   async revokeShare(shareId) {
@@ -1369,6 +1421,7 @@ class ManualRundownStore {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       isActive: !!row.is_active,
+      role: normalizeShareRole(row.role, 'operator'),
     };
   }
 

@@ -817,9 +817,9 @@ export function getActions(self: TallyConnectInstance): CompanionActionDefinitio
 
 		rundown_start: {
 			name: 'Rundown: Start Session',
-			description: 'Start a live rundown session with a PCO plan ID',
+			description: 'Start the canonical live rundown session (manual or PCO plan ID). GO follows this session.',
 			options: [
-				{ id: 'planId', type: 'textinput', label: 'PCO Plan ID', default: '' },
+				{ id: 'planId', type: 'textinput', label: 'Plan ID (manual or PCO)', default: '' },
 				{ id: 'callerName', type: 'textinput', label: 'Caller Name', default: 'Companion' },
 			],
 			callback: async (action) => {
