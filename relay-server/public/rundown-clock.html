@@ -267,6 +267,7 @@
   var reconnectTimer = null;
   var reconnectDelay = 1000;
   var lastState = null;
+  var heartbeat = null;
 
   function formatTime(seconds) {
     if (seconds == null || seconds < 0) seconds = 0;
@@ -389,11 +390,13 @@
 
     ws.onerror = function() {};
 
-    var heartbeat = setInterval(function() {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = setInterval(function() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
       } else {
         clearInterval(heartbeat);
+        heartbeat = null;
       }
     }, 25000);
   }

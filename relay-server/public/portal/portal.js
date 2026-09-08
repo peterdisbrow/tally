@@ -13280,8 +13280,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (token) {
         prompterUrl = _rundownNormalizeShareUrl(new URL('/rundown/prompter/' + token, window.location.origin).href);
       }
+      var clockUrl = '';
+      if (token) {
+        clockUrl = _rundownNormalizeShareUrl(new URL('/rundown/clock/' + token, window.location.origin).href);
+      }
       var readonlyShowUrl = showUrl ? _rundownBuildModeUrl(showUrl, '', { readonly: '1' }) : '';
-      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, prompterUrl: prompterUrl, readonlyShowUrl: readonlyShowUrl };
+      return { token: token, publicUrl: publicUrl, timerUrl: timerUrl, showUrl: showUrl, prompterUrl: prompterUrl, clockUrl: clockUrl, readonlyShowUrl: readonlyShowUrl };
     }
 
     function _rundownShareCopyFeedback(buttonEl, defaultLabel) {
@@ -13603,8 +13607,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             _rundownBuildOutputCard({
               kicker: 'Studio utility',
               title: 'Studio Clock',
-              description: 'Large wall-clock display with current time, service elapsed time, and current cue countdown. Perfect for control rooms.',
-              url: _rundownBuildModeUrl(publicUrl, 'clock', {}),
+              description: 'Large wall-clock display with current time and current cue countdown. Opened as a dedicated studio clock page.',
+              url: urls.clockUrl || _rundownBuildModeUrl(publicUrl, 'clock', {}),
               badge: 'Utility',
               badgeBg: 'rgba(255,167,38,0.10)',
               badgeColor: '#FFB74D',

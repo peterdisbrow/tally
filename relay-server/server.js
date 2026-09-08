@@ -113,7 +113,15 @@ app.use('/tools', express.static(require('path').join(__dirname, 'public/tools')
 app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/clock'));
 
 // Public rundown view — no auth required
-app.get('/rundown/view/:token', (_req, res) => {
+app.get('/rundown/view/:token', (req, res) => {
+  // Studio Clock is a dedicated page; portal historically linked ?mode=clock
+  // on the public view, which rundown-view.html does not implement.
+  if (String(req.query.mode || '').toLowerCase() === 'clock') {
+    const params = new URLSearchParams(req.query);
+    params.delete('mode');
+    const qs = params.toString();
+    return res.redirect(302, `/rundown/clock/${encodeURIComponent(req.params.token)}${qs ? `?${qs}` : ''}`);
+  }
   res.sendFile(require('path').join(__dirname, 'public/rundown-view.html'));
 });
 

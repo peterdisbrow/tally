@@ -19,13 +19,26 @@ module.exports = function setupClockLayoutRoutes(app, ctx) {
     hasQueryClient ? ctx.queryClient.run(sql, params) : ctx.db.prepare(sql).run(...params)
   );
 
+  function churchIdOf(req) {
+    return req.churchId || req.church?.churchId || null;
+  }
+
+  function logLayoutError(message, err) {
+    const text = `${message}: ${err && err.message ? err.message : err}`;
+    if (typeof log === 'function') log(text);
+    else if (log && typeof log.error === 'function') log.error(text);
+    else console.error(text);
+  }
+
   // ─── LIST saved layouts ──────────────────────────────────────────
   app.get('/api/church/app/clock-layouts', requireChurchAppAuth, async (req, res) => {
     try {
+      const churchId = churchIdOf(req);
+      if (!churchId) return res.status(401).json({ error: 'unauthorized' });
       const rows = await qAll(
         `SELECT id, name, layout_mode AS "layoutMode", cells, created_at AS "createdAt"
          FROM clock_layouts WHERE church_id = ? ORDER BY created_at DESC`,
-        [req.churchId]
+        [churchId]
       );
       const layouts = rows.map(r => ({
         id: r.id,
@@ -36,7 +49,7 @@ module.exports = function setupClockLayoutRoutes(app, ctx) {
       }));
       res.json({ layouts });
     } catch (err) {
-      log.error('clock-layouts', 'list error', err.message);
+      logLayoutError('clock-layouts list error', err);
       res.status(500).json({ error: 'Failed to load layouts' });
     }
   });
@@ -44,11 +57,14 @@ module.exports = function setupClockLayoutRoutes(app, ctx) {
   // ─── SAVE a layout ───────────────────────────────────────────────
   app.post('/api/church/app/clock-layouts', requireChurchAppAuth, rateLimit(30, 60 * 1000), async (req, res) => {
     try {
+      const churchId = churchIdOf(req);
+      if (!churchId) return res.status(401).json({ error: 'unauthorized' });
+      if (req.churchReadonly) return res.status(403).json({ error: 'Read-only token' });
       const { name, layoutMode, cells } = req.body || {};
       if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'Layout name is required' });
       }
-      if (!layoutMode || !cells || !Array.isArray(cells)) {
+      if (!layoutMode || typeof layoutMode !== 'string' || !cells || !Array.isArray(cells)) {
         return res.status(400).json({ error: 'layoutMode and cells are required' });
       }
       const id = uuidv4();
@@ -56,11 +72,11 @@ module.exports = function setupClockLayoutRoutes(app, ctx) {
       await qRun(
         `INSERT INTO clock_layouts (id, church_id, name, layout_mode, cells, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, req.churchId, name.trim(), layoutMode, JSON.stringify(cells), now]
+        [id, churchId, name.trim(), layoutMode, JSON.stringify(cells), now]
       );
       res.status(201).json({ id, name: name.trim(), layoutMode, cells, createdAt: now });
     } catch (err) {
-      log.error('clock-layouts', 'save error', err.message);
+      logLayoutError('clock-layouts save error', err);
       res.status(500).json({ error: 'Failed to save layout' });
     }
   });
@@ -68,15 +84,18 @@ module.exports = function setupClockLayoutRoutes(app, ctx) {
   // ─── DELETE a layout ─────────────────────────────────────────────
   app.delete('/api/church/app/clock-layouts/:id', requireChurchAppAuth, async (req, res) => {
     try {
+      const churchId = churchIdOf(req);
+      if (!churchId) return res.status(401).json({ error: 'unauthorized' });
+      if (req.churchReadonly) return res.status(403).json({ error: 'Read-only token' });
       const row = await qOne(
         'SELECT id FROM clock_layouts WHERE id = ? AND church_id = ?',
-        [req.params.id, req.churchId]
+        [req.params.id, churchId]
       );
       if (!row) return res.status(404).json({ error: 'Layout not found' });
-      await qRun('DELETE FROM clock_layouts WHERE id = ?', [req.params.id]);
+      await qRun('DELETE FROM clock_layouts WHERE id = ? AND church_id = ?', [req.params.id, churchId]);
       res.json({ deleted: true });
     } catch (err) {
-      log.error('clock-layouts', 'delete error', err.message);
+      logLayoutError('clock-layouts delete error', err);
       res.status(500).json({ error: 'Failed to delete layout' });
     }
   });

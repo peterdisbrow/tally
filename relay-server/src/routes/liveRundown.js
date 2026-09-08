@@ -1750,6 +1750,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           url: `${baseUrl}/rundown/view/${share.token}`,
           share_token: share.token,
           timer_url: `${baseUrl}/rundown/timer/${share.token}`,
+          clock_url: `${baseUrl}/rundown/clock/${share.token}`,
         });
       } catch (e) {
         console.error('[rundown] share error:', e);
@@ -1786,6 +1787,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
             url: `${baseUrl}/rundown/view/${share.token}`,
             share_token: share.token,
             timer_url: `${baseUrl}/rundown/timer/${share.token}`,
+            clock_url: `${baseUrl}/rundown/clock/${share.token}`,
           },
         });
       } catch (e) {
