@@ -255,6 +255,27 @@ describe('GET /api/health — detailed health', () => {
     sqlite.close();
   });
 
+  it('does not leak church names on the public probe', () => {
+    const spamName = 'Visit bit.ly/casino-bonus now';
+    const realName = 'Grace Chapel';
+    const churches = new Map([
+      ['c1', { ...makeChurch(1), name: spamName }],
+      ['c2', { ...makeChurch(3), name: realName }],
+    ]);
+    const ctx = makeCtx({ churches });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = callRoute(routes, '/api/health');
+    const raw = JSON.stringify(body);
+    expect(body.registeredChurches).toBe(2);
+    expect(body.connectedChurches).toBe(1);
+    expect(raw).not.toContain(spamName);
+    expect(raw).not.toContain('bit.ly');
+    expect(raw).not.toContain('casino-bonus');
+    expect(raw).not.toContain(realName);
+    expect(body.churches).toBeUndefined();
+  });
+
   it('includes realtime socket, queue, and coordination details when runtime metrics are available', () => {
     const controllerA = { _previewSubscriptions: new Set(['church-1', 'church-2']) };
     const controllerB = { _previewSubscriptions: new Set(['church-3']) };
@@ -315,6 +336,35 @@ describe('GET /api/health — detailed health', () => {
 });
 
 // ─── GET /health — mirrors /api/health ────────────────────────────────────────
+
+describe('GET /health and /health/deep — tenant name redaction', () => {
+  it('omits church names from /health', () => {
+    const churches = new Map([
+      ['c1', { ...makeChurch(1), name: 'Visit bit.ly/casino-bonus now' }],
+    ]);
+    const ctx = makeCtx({ churches });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const raw = JSON.stringify(callRoute(routes, '/health').body);
+    expect(raw).not.toContain('bit.ly');
+    expect(raw).not.toContain('casino-bonus');
+  });
+
+  it('omits church names from /health/deep', async () => {
+    const churches = new Map([
+      ['c1', { ...makeChurch(1), name: 'Visit bit.ly/casino-bonus now' }],
+    ]);
+    const ctx = makeCtx({ churches });
+    const { app, routes } = makeApp();
+    setupHealthRoutes(app, ctx);
+    const { body } = await callRouteAsync(routes, '/health/deep');
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain('bit.ly');
+    expect(raw).not.toContain('casino-bonus');
+    expect(body.churches).toBeUndefined();
+    expect(body.registeredChurches).toBe(1);
+  });
+});
 
 describe('GET /health — same handler as /api/health', () => {
   it('is registered as a route', () => {

@@ -5,6 +5,8 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { validateChurchName } = require('../churchNameValidation');
+
 module.exports = function setupChurchAuthRoutes(app, ctx) {
   const { hasOpenSocket } = require('../runtimeSockets');
   const { db, churches, requireAdmin, requireChurchAppAuth, requireChurchWriteAccess, rateLimit,
@@ -38,7 +40,9 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   app.post('/api/church/app/onboard', rateLimit(10, 60 * 60 * 1000), async (req, res) => {
     const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode, locale } = req.body || {};
     const cleanLocale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(String(locale)) ? String(locale) : null;
-    const cleanName = String(name || '').trim();
+    const nameCheck = validateChurchName(name);
+    if (!nameCheck.ok) return res.status(400).json({ error: nameCheck.error });
+    const cleanName = nameCheck.name;
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanReferralCode = String(referralCode || '').trim().toUpperCase();
     const planTier = String(tier || 'connect').toLowerCase();
@@ -48,7 +52,6 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       planTier === 'event' ? 'one_time' : 'monthly',
     );
 
-    if (!cleanName) return res.status(400).json({ error: 'name required' });
     if (!cleanEmail) return res.status(400).json({ error: 'email required' });
     if (!password || String(password).length < 8) {
       return res.status(400).json({ error: 'password must be at least 8 characters' });

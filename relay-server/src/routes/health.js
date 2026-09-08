@@ -3,7 +3,7 @@
  *
  * Endpoints:
  *   GET /                  Basic liveness (service name, counts)
- *   GET /health            Detailed health — DB connectivity, memory, per-church lastSeen
+ *   GET /health            Detailed health — DB connectivity, memory, church counts
  *   GET /api/health        Same as /health (alias for load-balancers)
  *   GET /health/deep       Thorough check — includes a DB write round-trip test
  *   GET /api/status        Machine-readable status for uptime monitors (BetterUptime, etc.)
@@ -173,19 +173,6 @@ module.exports = function setupHealthRoutes(app, ctx) {
   }
 
   /**
-   * Per-church connection summary for Sunday morning monitoring.
-   * Only includes name + operational fields — no tokens or internal IDs.
-   */
-  function churchSummary() {
-    return listObservedChurches().map(c => ({
-      name:           c.name,
-      connected:      isConnected(c),
-      lastSeen:       c.lastSeen       || null,
-      disconnectedAt: c.disconnectedAt || null,
-    }));
-  }
-
-  /**
    * Derive an overall health status word from server-side signals.
    * healthy   — relay process is running normally and DB is responsive
    * degraded  — DB is slow but still responding (>500ms read latency)
@@ -218,13 +205,8 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   // ─── GET /health and /api/health — detailed operational health ───────────────
   //
-  // Returns everything the admin team needs to know on Sunday morning without logging
-  // in to the dashboard:
-  //   • server uptime & memory
-  //   • database connectivity + read latency
-  //   • connected vs. registered church counts
-  //   • per-church name, lastSeen timestamp, and connection status
-  //   • overall health summary word (healthy / degraded / unhealthy)
+  // Public probe: counts and process health only — never tenant names.
+  // Per-church lastSeen lives on authenticated admin church list endpoints.
 
   function detailedHealth(_req, res) {
     const connectedCount = countConnected();
@@ -241,7 +223,6 @@ module.exports = function setupHealthRoutes(app, ctx) {
       memoryUsage:         memUsage(),
       database:            dbStatus,
       realtime:            realtimeSummary(),
-      churches:            churchSummary(),
     });
     const maybeDbStatus = dbReadCheck();
     if (maybeDbStatus && typeof maybeDbStatus.then === 'function') {
@@ -282,7 +263,6 @@ module.exports = function setupHealthRoutes(app, ctx) {
           write: dbWrite,
         },
         realtime: realtimeSummary(),
-        churches: churchSummary(),
       });
     };
 

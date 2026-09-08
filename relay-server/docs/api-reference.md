@@ -106,7 +106,7 @@ Basic service liveness check — no auth required.
 ---
 
 ### `GET /api/health`
-Detailed health including uptime and relay counters.
+Detailed health including uptime and relay counters. Public response is counts and process health only — it does not include church names.
 
 **Response**
 ```json
