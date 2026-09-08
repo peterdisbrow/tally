@@ -1,7 +1,7 @@
 {
   "name": "tally-connect",
-  "version": "1.1.66",
-  "description": "Tally Connect — Remote monitoring for church production teams",
+  "version": "1.1.67",
+  "description": "Tally Connect \u2014 Remote monitoring for church production teams",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -24,7 +24,7 @@
   "build": {
     "appId": "com.tallyconnect.tally",
     "productName": "Tally",
-    "copyright": "Copyright © 2026 Tally Connect",
+    "copyright": "Copyright \u00a9 2026 Tally Connect",
     "directories": {
       "output": "dist"
     },
