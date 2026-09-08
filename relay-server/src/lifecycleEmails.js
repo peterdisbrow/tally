@@ -17,7 +17,15 @@
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('./jwtSecret');
 
-const DOWNLOAD_MAC_URL = 'https://github.com/peterdisbrow/tally/releases/download/v1.0.1/Tally-signed.dmg';
+// Latest GitHub release assets. Mac DMGs are versionless (`Tally-arm64.dmg` /
+// `Tally-x64.dmg`) so /releases/latest/download/ stays valid across tags.
+// The Windows installer filename is versioned by electron-builder — bump
+// DOWNLOAD_WIN_URL when shipping a new .exe.
+const LATEST_DOWNLOAD_BASE = 'https://github.com/peterdisbrow/tally/releases/latest/download';
+const DOWNLOAD_MAC_ARM64_URL = `${LATEST_DOWNLOAD_BASE}/Tally-arm64.dmg`;
+const DOWNLOAD_MAC_X64_URL = `${LATEST_DOWNLOAD_BASE}/Tally-x64.dmg`;
+const DOWNLOAD_WIN_URL = `${LATEST_DOWNLOAD_BASE}/Tally-Setup-1.1.67.exe`;
+const DOWNLOAD_MAC_URL = DOWNLOAD_MAC_ARM64_URL;
 
 class LifecycleEmails {
   constructor(db, { resendApiKey, fromEmail, appUrl, queryClient } = {}) {
@@ -1299,6 +1307,26 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>`;
   }
 
+  _downloadLink(href, label) {
+    return `<a href="${href}" style="color: #22c55e; text-decoration: none;">${label}</a>`;
+  }
+
+  _downloadOptionsHtml() {
+    return [
+      this._downloadLink(DOWNLOAD_MAC_ARM64_URL, 'Mac (Apple Silicon)'),
+      this._downloadLink(DOWNLOAD_MAC_X64_URL, 'Mac (Intel)'),
+      this._downloadLink(DOWNLOAD_WIN_URL, 'Windows'),
+    ].join(' &middot; ');
+  }
+
+  _downloadOptionsText() {
+    return [
+      `Mac (Apple Silicon): ${DOWNLOAD_MAC_ARM64_URL}`,
+      `Mac (Intel): ${DOWNLOAD_MAC_X64_URL}`,
+      `Windows: ${DOWNLOAD_WIN_URL}`,
+    ].join('\n');
+  }
+
   // ── 1. Setup Reminder ──
 
   _buildSetupReminderEmail(church) {
@@ -1312,7 +1340,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
         <div style="font-size: 14px; color: #333; line-height: 2;">
-          <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>1.</strong> Download the Tally app on your booth computer &mdash; ${this._downloadOptionsHtml()}<br>
           <strong>2.</strong> Sign in with your registration code<br>
           <strong>3.</strong> Chat with our setup assistant &mdash; tell it your gear and service times, and it configures everything
         </div>
@@ -1334,7 +1362,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 Hi! You signed up for Tally at ${church.name} but we haven't seen your booth computer connect yet.
 
 Setup takes about 5 minutes — our AI assistant handles most of it:
-1. Download the Tally app: ${downloadUrl}
+1. Download the Tally app:
+${this._downloadOptionsText()}
 2. Sign in with your registration code
 3. Chat with our setup assistant — tell it your gear and service times
 
@@ -2148,7 +2177,6 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   _buildRegistrationEmail(church) {
     const portalUrl = `${this.appUrl}/portal`;
-    const downloadUrl = DOWNLOAD_MAC_URL;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Sunday production safety net starts here</h1>
@@ -2160,7 +2188,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Quick start:</div>
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>1.</strong> Download the Tally app on your booth computer &mdash; ${this._downloadOptionsHtml()}<br>
           <strong>2.</strong> Sign in with your registration code<br>
           <strong>3.</strong> Our AI setup assistant will walk you through the rest &mdash; just tell it about your gear, service times, and team in a quick conversation
         </div>
@@ -2177,7 +2205,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Your Sunday production safety net starts here\n\n${church.name} has been registered and your 30-day free trial is active.\n\nQuick start:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `Your Sunday production safety net starts here\n\n${church.name} has been registered and your 30-day free trial is active.\n\nQuick start:\n1. Download the Tally app:\n${this._downloadOptionsText()}\n2. Sign in with your registration code\n3. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -2916,7 +2944,6 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
     const portalUrl = `${this.appUrl}/portal`;
-    const downloadUrl = DOWNLOAD_MAC_URL;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
@@ -2927,7 +2954,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Next steps:</div>
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>1.</strong> Download the Tally app on your booth computer &mdash; ${this._downloadOptionsHtml()}<br>
           <strong>2.</strong> Sign in with your registration code<br>
           <strong>3.</strong> Set up <strong>Telegram alerts</strong> so your TDs get notified on their phones<br>
           <strong>4.</strong> Set your <strong>service schedule</strong> for automatic pre-flight checks
@@ -2945,7 +2972,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `You're all set!\n\nYour email has been verified for ${church.name}. Welcome to Tally!\n\nNext steps:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Set up Telegram alerts\n4. Set your service schedule\n\nYour trial has started — full access to everything.\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `You're all set!\n\nYour email has been verified for ${church.name}. Welcome to Tally!\n\nNext steps:\n1. Download the Tally app:\n${this._downloadOptionsText()}\n2. Sign in with your registration code\n3. Set up Telegram alerts\n4. Set your service schedule\n\nYour trial has started — full access to everything.\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -3195,6 +3222,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         Or download the app again and try the setup assistant fresh:
       </p>
 
+      <p style="font-size: 14px; color: #333; line-height: 1.6;">
+        ${this._downloadOptionsHtml()}
+      </p>
+
       ${this._cta('Download Tally', downloadUrl)}
 
       <p style="font-size: 14px; color: #666;">
@@ -3202,7 +3233,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Your setup isn't complete yet\n\nYour trial at ${church.name} is almost over and we haven't seen your booth computer connect yet.\n\nCommon blockers:\n1. App downloaded but didn't run — look in Applications and double-click Tally\n2. Registration code not accepted — reply and we'll resend it\n3. Firewall blocking the connection — Tally needs outbound port 443\n\nReply to this email with your question — our team will help. Or try again: ${downloadUrl}\n\n— The Tally Team`;
+    const text = `Your setup isn't complete yet\n\nYour trial at ${church.name} is almost over and we haven't seen your booth computer connect yet.\n\nCommon blockers:\n1. App downloaded but didn't run — look in Applications and double-click Tally\n2. Registration code not accepted — reply and we'll resend it\n3. Firewall blocking the connection — Tally needs outbound port 443\n\nReply to this email with your question — our team will help. Or try again:\n${this._downloadOptionsText()}\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -4461,11 +4492,13 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'review-request':          () => ({ ...this._buildReviewRequestEmail(sampleChurch, { sessionCount: 12, cleanCount: 9 }), subject: 'Sample Church is crushing it — mind sharing a quick review?' }),
       'welcome-verified':        () => {
         const portalUrl = `${this.appUrl}/portal`;
-        const downloadUrl = DOWNLOAD_MAC_URL;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
             Your email has been verified for <strong>Sample Church</strong>. Welcome to Tally!
+          </p>
+          <p style="font-size: 14px; color: #333; line-height: 1.6;">
+            Download the Tally app: ${this._downloadOptionsHtml()}
           </p>
           ${this._cta('Open Your Portal', portalUrl)}
         `);
@@ -4631,4 +4664,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 }
 
-module.exports = { LifecycleEmails };
+module.exports = {
+  LifecycleEmails,
+  DOWNLOAD_MAC_ARM64_URL,
+  DOWNLOAD_MAC_X64_URL,
+  DOWNLOAD_WIN_URL,
+};
