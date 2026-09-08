@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { createQueryClient } = require('./db');
+const { encryptSecret, decryptSecret } = require('./secretCrypto');
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ class StreamPlatformOAuth {
           yt_refresh_token = COALESCE(?, yt_refresh_token),
           yt_token_expires_at = ?
         WHERE churchId = ?
-      `, [tokens.access_token, tokens.refresh_token || null, expiresAt, churchId]);
+      `, [encryptSecret(tokens.access_token), encryptSecret(tokens.refresh_token || null), expiresAt, churchId]);
 
       // Fetch channel name (YouTube Data API) or fall back to Google user profile
       let channelName = '';
@@ -253,6 +254,7 @@ class StreamPlatformOAuth {
     await this.ready;
     const church = await this._one('SELECT yt_refresh_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.yt_refresh_token) return false;
+    church.yt_refresh_token = decryptSecret(church.yt_refresh_token);
 
     const clientId = process.env.YOUTUBE_CLIENT_ID;
     const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
@@ -277,7 +279,7 @@ class StreamPlatformOAuth {
 
       await this._run(`
         UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?
-      `, [tokens.access_token, expiresAt, churchId]);
+      `, [encryptSecret(tokens.access_token), expiresAt, churchId]);
 
       console.log(`[StreamOAuth] YouTube token refreshed for ${churchId}`);
       return true;
@@ -297,7 +299,7 @@ class StreamPlatformOAuth {
     await this.ready;
     if (!accessToken) {
       const church = await this._one('SELECT yt_access_token FROM churches WHERE churchId = ?', [churchId]);
-      accessToken = church?.yt_access_token;
+      accessToken = decryptSecret(church?.yt_access_token);
     }
     if (!accessToken) return {};
 
@@ -316,7 +318,7 @@ class StreamPlatformOAuth {
       const streamUrl = stream.cdn?.ingestionInfo?.ingestionAddress || '';
 
       if (streamKey) {
-        await this._run('UPDATE churches SET yt_stream_key = ?, yt_stream_url = ? WHERE churchId = ?', [streamKey, streamUrl, churchId]);
+        await this._run('UPDATE churches SET yt_stream_key = ?, yt_stream_url = ? WHERE churchId = ?', [encryptSecret(streamKey), streamUrl, churchId]);
       }
 
       return { streamKey, streamUrl };
@@ -405,7 +407,7 @@ class StreamPlatformOAuth {
       // Store token
       await this._run(`
         UPDATE churches SET fb_access_token = ?, fb_token_expires_at = ? WHERE churchId = ?
-      `, [longData.access_token, expiresAt, churchId]);
+      `, [encryptSecret(longData.access_token), expiresAt, churchId]);
 
       // Fetch user name + pages the user manages
       const pages = await this._listFacebookPages(longData.access_token);
@@ -461,6 +463,7 @@ class StreamPlatformOAuth {
     await this.ready;
     const church = await this._one('SELECT fb_access_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
+    church.fb_access_token = decryptSecret(church.fb_access_token);
 
     try {
       let token, pageName;
@@ -543,7 +546,7 @@ class StreamPlatformOAuth {
       }
 
       if (streamKey) {
-        await this._run('UPDATE churches SET fb_stream_key = ?, fb_stream_url = ? WHERE churchId = ?', [streamKey, rtmpServer, churchId]);
+        await this._run('UPDATE churches SET fb_stream_key = ?, fb_stream_url = ? WHERE churchId = ?', [encryptSecret(streamKey), rtmpServer, churchId]);
       }
 
       return { streamKey, streamUrl: rtmpServer };
@@ -566,6 +569,7 @@ class StreamPlatformOAuth {
       [churchId]
     );
     if (!church?.fb_access_token || !church?.fb_page_id) return {};
+    church.fb_access_token = decryptSecret(church.fb_access_token);
 
     // Get page token
     const pages = await this._listFacebookPages(church.fb_access_token);
@@ -642,6 +646,7 @@ class StreamPlatformOAuth {
     await this.ready;
     const church = await this._one('SELECT fb_access_token FROM churches WHERE churchId = ?', [churchId]);
     if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
+    church.fb_access_token = decryptSecret(church.fb_access_token);
     const pages = await this._listFacebookPages(church.fb_access_token);
     let userName = 'My Account';
     try {
@@ -754,9 +759,11 @@ class StreamPlatformOAuth {
 
     if (!church) return { youtube: null, facebook: null };
 
+    const ytKey = decryptSecret(church.yt_stream_key);
+    const fbKey = decryptSecret(church.fb_stream_key);
     return {
-      youtube: church.yt_stream_key ? { url: church.yt_stream_url, key: church.yt_stream_key } : null,
-      facebook: church.fb_stream_key ? { url: church.fb_stream_url, key: church.fb_stream_key } : null,
+      youtube: ytKey ? { url: church.yt_stream_url, key: ytKey } : null,
+      facebook: fbKey ? { url: church.fb_stream_url, key: fbKey } : null,
     };
   }
 
@@ -769,9 +776,11 @@ class StreamPlatformOAuth {
 
     if (!church) return { youtube: null, facebook: null };
 
+    const ytKey = decryptSecret(church.yt_stream_key);
+    const fbKey = decryptSecret(church.fb_stream_key);
     return {
-      youtube: church.yt_stream_key ? { url: church.yt_stream_url, key: church.yt_stream_key } : null,
-      facebook: church.fb_stream_key ? { url: church.fb_stream_url, key: church.fb_stream_key } : null,
+      youtube: ytKey ? { url: church.yt_stream_url, key: ytKey } : null,
+      facebook: fbKey ? { url: church.fb_stream_url, key: fbKey } : null,
     };
   }
 
@@ -791,6 +800,9 @@ class StreamPlatformOAuth {
       FROM churches WHERE churchId = ?
     `, [churchId]);
     if (!church) return {};
+    church.yt_access_token = decryptSecret(church.yt_access_token);
+    church.yt_refresh_token = decryptSecret(church.yt_refresh_token);
+    church.fb_access_token = decryptSecret(church.fb_access_token);
 
     const result = {};
 
@@ -802,7 +814,7 @@ class StreamPlatformOAuth {
         if (expiresAt && expiresAt <= new Date()) {
           await this.refreshYouTubeToken(churchId);
           const refreshed = await this._one('SELECT yt_access_token FROM churches WHERE churchId = ?', [churchId]);
-          if (refreshed) church.yt_access_token = refreshed.yt_access_token;
+          if (refreshed) church.yt_access_token = decryptSecret(refreshed.yt_access_token);
         }
 
         const resp = await fetch(`${YT_BROADCASTS_URL}?part=status,snippet,statistics&broadcastStatus=active&mine=true`, {

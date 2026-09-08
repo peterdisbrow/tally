@@ -16,6 +16,7 @@ const YT_TOKEN_URL      = 'https://oauth2.googleapis.com/token';
 const FB_GRAPH_URL      = 'https://graph.facebook.com/v19.0';
 const { SqliteQueryClient } = require('./db/queryClient');
 const { runWithConcurrency } = require('./asyncPool');
+const { encryptSecret, decryptSecret, decryptFields } = require('./secretCrypto');
 
 const POLL_INTERVAL_MS  = 60_000;  // poll every 60s (API quota friendly)
 const ALERT_THROTTLE_MS = 5 * 60 * 1000; // 5 min between repeated alerts
@@ -134,6 +135,11 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
          FROM churches
          WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL`
       );
+      // Decrypt at-rest secrets once; the cached rows are used (and updated with
+      // plaintext on refresh) by the pollers, so the cache holds plaintext.
+      for (const r of churchConfigCacheRows || []) {
+        decryptFields(r, ['yt_access_token', 'yt_refresh_token', 'fb_access_token']);
+      }
       churchConfigCacheFetchedAt = now;
       schemaNotReadyLogged = false;
       return churchConfigCacheRows;
@@ -172,7 +178,7 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       if (!resp.ok) return null;
       const tokens = await resp.json();
       const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
-      await qRun('UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?', [tokens.access_token, expiresAt, churchId]);
+      await qRun('UPDATE churches SET yt_access_token = ?, yt_token_expires_at = ? WHERE churchId = ?', [encryptSecret(tokens.access_token), expiresAt, churchId]);
       if (churchRow) {
         churchRow.yt_access_token = tokens.access_token;
         churchRow.yt_token_expires_at = expiresAt;
@@ -193,6 +199,9 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       [churchId]
     );
     if (!row?.yt_access_token) return;
+    // row may be a cached (already-decrypted) churchRow or a fresh DB read;
+    // decryptSecret is idempotent on plaintext, so this is safe either way.
+    decryptFields(row, ['yt_access_token', 'yt_refresh_token']);
 
     let accessToken = row.yt_access_token;
 
@@ -320,6 +329,7 @@ function setupBroadcastMonitor(dbOrClient, relay, alertEngine, notifyUpdate) {
       [churchId]
     );
     if (!row?.fb_access_token) return;
+    decryptFields(row, ['fb_access_token']);
 
     const cs = getState(churchId, instanceName);
     const target = row.fb_page_id || 'me';

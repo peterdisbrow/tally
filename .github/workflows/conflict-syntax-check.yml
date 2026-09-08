@@ -1,0 +1,52 @@
+name: Conflict & Syntax Check
+
+# Fast, dependency-free gate that blocks two failure modes which have caused
+# production outages:
+#   1. Unresolved git merge-conflict markers committed to source files.
+#   2. JavaScript that fails to parse (syntax errors) in the relay server,
+#      which crash-loops the process at boot before it can listen.
+#
+# Runs on every push and PR with NO path filter — conflict markers must never
+# merge into any file, anywhere.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: conflict-syntax-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conflict-syntax:
+    name: Conflict markers & JS syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fail on git conflict markers (tracked files)
+        run: |
+          # git grep searches only tracked files, so node_modules / worktrees /
+          # build output (all gitignored) are skipped automatically.
+          # Patterns are precise to git conflict markers to avoid matching
+          # Markdown "=====" underlines: opener/closer require a trailing space
+          # (git appends the branch name), and the separator is exactly 7 '='.
+          if git grep -nE '^(<{7} |={7}$|>{7} )' -- ':!*.yml' ':!*.yaml'; then
+            echo "::error::Unresolved git conflict markers found in tracked files (see matches above)."
+            exit 1
+          fi
+          echo "No conflict markers found."
+
+      - name: Syntax-check all relay-server source files
+        run: |
+          # node --check parses without executing. find exits non-zero if any
+          # invocation fails, so a single syntax error fails the job.
+          find relay-server/src -name '*.js' -exec node --check {} \;
+          echo "All relay-server/src JS files parse cleanly."

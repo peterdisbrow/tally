@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const NodeMediaServer = require('node-media-server');
+const { decryptSecret } = require('./secretCrypto');
 
 const HLS_TEMP_DIR = process.env.HLS_TEMP_DIR || path.join(require('os').tmpdir(), 'tally-hls');
 const RTMP_PORT = Number(process.env.RTMP_PORT || 1935);
@@ -63,7 +64,7 @@ function initRtmpIngest(db, broadcastToSSE) {
           WHERE r.deleted_at IS NULL
         `);
         for (const row of roomRows) {
-          _roomAuthCache.set(String(row.stream_key || ''), {
+          _roomAuthCache.set(String(decryptSecret(row.stream_key) || ''), {
             churchId: row.churchId,
             churchName: row.churchName,
             roomId: row.roomId,
@@ -74,7 +75,7 @@ function initRtmpIngest(db, broadcastToSSE) {
           'SELECT churchId, name, ingest_stream_key FROM churches WHERE ingest_stream_key IS NOT NULL AND ingest_stream_key != \'\''
         );
         for (const row of churchRows) {
-          _churchAuthCache.set(String(row.ingest_stream_key || ''), {
+          _churchAuthCache.set(String(decryptSecret(row.ingest_stream_key) || ''), {
             churchId: row.churchId,
             churchName: row.name,
           });
@@ -93,7 +94,7 @@ function initRtmpIngest(db, broadcastToSSE) {
           WHERE r.deleted_at IS NULL
         `).all();
         for (const row of roomRows) {
-          _roomAuthCache.set(String(row.stream_key || ''), {
+          _roomAuthCache.set(String(decryptSecret(row.stream_key) || ''), {
             churchId: row.churchId,
             churchName: row.churchName,
             roomId: row.roomId,
@@ -104,7 +105,7 @@ function initRtmpIngest(db, broadcastToSSE) {
           'SELECT churchId, name, ingest_stream_key FROM churches WHERE ingest_stream_key IS NOT NULL AND ingest_stream_key != \'\''
         ).all();
         for (const row of churchRows) {
-          _churchAuthCache.set(String(row.ingest_stream_key || ''), {
+          _churchAuthCache.set(String(decryptSecret(row.ingest_stream_key) || ''), {
             churchId: row.churchId,
             churchName: row.name,
           });

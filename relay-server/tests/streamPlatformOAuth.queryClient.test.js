@@ -5,6 +5,7 @@ import { createQueryClient } from '../src/db/queryClient.js';
 
 const require = createRequire(import.meta.url);
 const { StreamPlatformOAuth } = require('../src/streamPlatformOAuth');
+const { decryptSecret, isEncrypted } = require('../src/secretCrypto');
 
 function createDb() {
   const db = new Database(':memory:');
@@ -89,9 +90,13 @@ describe('StreamPlatformOAuth query client', () => {
     `, ['church-1']);
 
     expect(result.success).toBe(true);
-    expect(stored.yt_access_token).toBe('yt-access');
-    expect(stored.yt_refresh_token).toBe('yt-refresh');
-    expect(stored.yt_stream_key).toBe('stream-key-123');
+    // Secrets are encrypted at rest (enc:v1: prefix) and decrypt to plaintext.
+    expect(isEncrypted(stored.yt_access_token)).toBe(true);
+    expect(isEncrypted(stored.yt_refresh_token)).toBe(true);
+    expect(isEncrypted(stored.yt_stream_key)).toBe(true);
+    expect(decryptSecret(stored.yt_access_token)).toBe('yt-access');
+    expect(decryptSecret(stored.yt_refresh_token)).toBe('yt-refresh');
+    expect(decryptSecret(stored.yt_stream_key)).toBe('stream-key-123');
     expect(stored.yt_stream_url).toBe('rtmp://youtube/live2');
     expect(stored.yt_channel_name).toBe('Grace Channel');
 

@@ -2842,6 +2842,28 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
+  // Last-resort safety nets. Without these a single unhandled throw/rejection
+  // deep in a device library (OSC, ATEM, ws) silently kills the whole agent,
+  // blacking out all device/tally/streaming monitoring mid-service.
+  process.on('unhandledRejection', (reason) => {
+    // Background async failure — log and keep everything else running.
+    console.error('[Agent] Unhandled promise rejection (non-fatal):', reason?.message || reason);
+    if (reason?.stack) console.error(reason.stack);
+  });
+
+  process.on('uncaughtException', async (err) => {
+    // After an uncaught exception the process is in an undefined state. Log it,
+    // stop cleanly, and exit non-zero so the supervisor (Electron main process
+    // / process manager) restarts a fresh agent rather than leaving it
+    // half-dead. Avoids both silent death and running in a corrupt state.
+    console.error('[Agent] Uncaught exception — stopping for supervised restart:', err?.message);
+    if (err?.stack) console.error(err.stack);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try { await agent.stop(); } catch { /* ignore */ }
+    process.exit(1);
+  });
+
   await agent.start();
 }
 

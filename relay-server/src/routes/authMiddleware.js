@@ -7,6 +7,7 @@
  * @param {object} ctx - Shared server context
  */
 const jwt = require('jsonwebtoken');
+const { decryptSecret, lookupHash } = require('../secretCrypto');
 
 module.exports = function createAuthMiddleware(ctx) {
   const { db, queryClient, JWT_SECRET, ADMIN_API_KEY, safeCompareKey, resolveAdminKey } = ctx;
@@ -145,11 +146,17 @@ module.exports = function createAuthMiddleware(ctx) {
       return (async () => {
         const key = req.headers['x-reseller-key'];
         if (!key) return res.status(401).json({ error: 'Reseller API key required' });
+        // api_key is encrypted at rest; look up by deterministic hash, with a
+        // fallback to plaintext for any not-yet-backfilled rows.
         const reseller = await queryClient.queryOne(
+          'SELECT * FROM resellers WHERE api_key_hash = ? AND active = 1',
+          [lookupHash(key)],
+        ) || await queryClient.queryOne(
           'SELECT * FROM resellers WHERE api_key = ? AND active = 1',
           [key],
         );
         if (!reseller) return res.status(403).json({ error: 'Invalid or deactivated reseller key' });
+        if (reseller.api_key) reseller.api_key = decryptSecret(reseller.api_key);
         req.reseller = reseller;
         next();
       })().catch(next);
@@ -157,8 +164,10 @@ module.exports = function createAuthMiddleware(ctx) {
 
     const key = req.headers['x-reseller-key'];
     if (!key) return res.status(401).json({ error: 'Reseller API key required' });
-    const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ? AND active = 1').get(key);
+    const reseller = db.prepare('SELECT * FROM resellers WHERE api_key_hash = ? AND active = 1').get(lookupHash(key))
+      || db.prepare('SELECT * FROM resellers WHERE api_key = ? AND active = 1').get(key);
     if (!reseller) return res.status(403).json({ error: 'Invalid or deactivated reseller key' });
+    if (reseller.api_key) reseller.api_key = decryptSecret(reseller.api_key);
     req.reseller = reseller;
     next();
   }
