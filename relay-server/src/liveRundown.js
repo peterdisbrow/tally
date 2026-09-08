@@ -777,8 +777,12 @@ class LiveRundownManager {
       planTitle: session.planTitle,
       callerName: session.callerName,
       state: session.state,
+      isLive: session.state === 'active',
       currentIndex: session.currentIndex,
       currentCueIndex: session.currentIndex,
+      currentItemStartedAt: session.isPaused
+        ? now - ((session.pausedElapsed || 0) * 1000)
+        : session.currentItemStartedAt,
       totalItems: session.items.length,
       currentItem: currentItem ? {
         ...currentItem,

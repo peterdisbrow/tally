@@ -708,6 +708,7 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 		const msg: Record<string, unknown> = {
 			type,
 			churchId: this.config.church_id,
+			roomId: this.config.room_id || '',
 			...params,
 		}
 

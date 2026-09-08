@@ -262,7 +262,8 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { LiveRundownManager } = require('./src/liveRundown');
 const { ManualRundownStore } = require('./src/manualRundown');
-const { buildManualPlanTimerState, buildPublicRundownPayload } = require('./src/rundownPublic');
+const { buildPublicRundownPayload } = require('./src/rundownPublic');
+const { manualPlanToLivePlan, toLegacyLiveShowState, isOperatorShare } = require('./src/rundownCanonical');
 const { RundownScheduler } = require('./src/scheduler');
 const { PushNotificationService } = require('./src/pushNotifications');
 const { createMobileWebSocketHandler } = require('./src/mobileWebSocket');
@@ -3492,8 +3493,11 @@ async function buildPublicTimerStateForPlan(plan) {
       plan_title: plan.title,
     };
   }
-  const liveState = await manualRundown.getLiveState(plan.id);
-  return buildManualPlanTimerState(plan, liveState);
+  return {
+    is_live: false,
+    plan_id: plan.id,
+    plan_title: plan.title,
+  };
 }
 
 // ─── Public rundown data endpoint (no auth) ──────────────────────────────────
@@ -3507,12 +3511,16 @@ app.get('/api/public/rundown/:token', async (req, res) => {
     }
     const plan = await manualRundown.getPlan(share.planId);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
-    const [columns, values, attachments, liveState] = await Promise.all([
+    const [columns, values, attachments] = await Promise.all([
       manualRundown.getColumns(plan.id),
       manualRundown.getColumnValues(plan.id),
       manualRundown.getAttachmentsByPlan(plan.id),
-      manualRundown.getLiveState(plan.id),
     ]);
+    const found = liveRundown.findSessionByPlanId(plan.id);
+    let liveState = null;
+    if (found) {
+      liveState = toLegacyLiveShowState(liveRundown.getState(found.churchId, found.roomId), plan);
+    }
     // Look up room name if plan is assigned to a room
     let roomName = '';
     if (plan.roomId) {
@@ -3533,6 +3541,8 @@ app.get('/api/public/rundown/:token', async (req, res) => {
     });
     if (roomName) payload.roomName = roomName;
     payload.server_timestamp = Date.now();
+    payload.shareRole = share.role || 'operator';
+    payload.canControl = isOperatorShare(share);
     res.json(payload);
   } catch (e) {
     console.error('[rundown-public] error:', e);
@@ -5233,14 +5243,28 @@ function _handleRundownWsMessage(churchId, msg, ws) {
         _send({ type: 'rundown_error', error: 'planId is required', messageId: msg.messageId });
         break;
       }
-      const plan = planningCenter.getCachedPlan(msg.planId);
-      if (!plan || plan.churchId !== churchId) {
-        _send({ type: 'rundown_error', error: 'Plan not found', messageId: msg.messageId });
-        break;
-      }
-      const wsRoomId = msg.roomId || '';
-      const state = liveRundown.startSession(churchId, wsRoomId, plan, msg.callerName || 'TD');
-      _send({ type: 'rundown_state', messageId: msg.messageId, ...state });
+      (async () => {
+        let plan = null;
+        const manualPlan = await manualRundown.getPlan(msg.planId);
+        if (manualPlan && manualPlan.churchId === churchId) {
+          plan = manualPlanToLivePlan(manualPlan);
+        } else {
+          const pcoPlan = planningCenter.getCachedPlan(msg.planId);
+          if (pcoPlan && pcoPlan.churchId === churchId) {
+            plan = { ...pcoPlan, source: 'pco' };
+          }
+        }
+        if (!plan) {
+          _send({ type: 'rundown_error', error: 'Plan not found', messageId: msg.messageId });
+          return;
+        }
+        const wsRoomId = msg.roomId || plan.roomId || '';
+        const state = liveRundown.startSession(churchId, wsRoomId, plan, msg.callerName || 'TD');
+        _send({ type: 'rundown_state', messageId: msg.messageId, ...toLegacyLiveShowState(state, plan) });
+      })().catch((error) => {
+        console.error('[rundown] ws start error:', error);
+        _send({ type: 'rundown_error', error: 'Failed to start rundown', messageId: msg.messageId });
+      });
       break;
     }
     case 'rundown_advance': {

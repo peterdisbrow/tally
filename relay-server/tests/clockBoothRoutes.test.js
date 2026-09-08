@@ -17,6 +17,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const serverSrc = fs.readFileSync(path.join(here, '../server.js'), 'utf8');
 const clockHtml = fs.readFileSync(path.join(here, '../public/rundown-clock.html'), 'utf8');
 const liveRundownSrc = fs.readFileSync(path.join(here, '../src/routes/liveRundown.js'), 'utf8');
+const rundownCanonicalSrc = fs.readFileSync(path.join(here, '../src/rundownCanonical.js'), 'utf8');
 
 function buildBoothClockApp() {
   const app = express();
@@ -92,6 +93,8 @@ describe('studio clock client contracts', () => {
   });
 
   it('includes clock_url on rundown share API payloads', () => {
-    expect(liveRundownSrc).toContain('clock_url: `${baseUrl}/rundown/clock/${share.token}`');
+    expect(rundownCanonicalSrc).toContain('clock_url: `${root}/rundown/clock/${token}`');
+    expect(liveRundownSrc).toContain('packShareBundle');
+    expect(liveRundownSrc).toContain('decorateShare');
   });
 });

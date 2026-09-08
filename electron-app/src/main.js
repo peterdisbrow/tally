@@ -1819,11 +1819,62 @@ ipcMain.handle('fix-all-preservice', async () => {
 });
 
 // ─── RUNDOWN IPC ──────────────────────────────────────────────────────────────
+let _canonicalLiveRoomId = '';
+
+async function fetchCanonicalLiveSession(config) {
+  const churchId = decodeChurchIdFromToken(config.token);
+  if (!churchId) return null;
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  const roomId = config.roomId || config.roomName || '';
+  const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : '';
+  const resp = await fetch(`${relayHttp}/api/churches/${encodeURIComponent(churchId)}/live-rundown/state${query}`, {
+    headers: { 'Authorization': `Bearer ${config.token}` },
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  if (!data || !(data.active || data.isLive || data.state === 'active')) {
+    if (!roomId) return null;
+    const allResp = await fetch(`${relayHttp}/api/churches/${encodeURIComponent(churchId)}/live-rundown/state?all=1`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    if (!allResp.ok) return null;
+    const all = await allResp.json();
+    const first = Array.isArray(all.sessions) && all.sessions[0] ? all.sessions[0].state : null;
+    return first && (first.isLive || first.state === 'active') ? first : null;
+  }
+  return data;
+}
+
+function mapCanonicalToRundownPanel(state) {
+  if (!state) return null;
+  const items = Array.isArray(state.items) ? state.items : [];
+  const currentIdx = state.currentCueIndex ?? state.currentIndex ?? 0;
+  _canonicalLiveRoomId = state.roomId || '';
+  return {
+    active: true,
+    canonical: true,
+    rundownName: state.planTitle || 'Live Rundown',
+    currentStep: currentIdx,
+    roomId: state.roomId || '',
+    rundown: {
+      name: state.planTitle || 'Live Rundown',
+      steps: items.map((item) => ({
+        label: item.title || 'Item',
+        type: item.itemType || 'other',
+        notes: Array.isArray(item.notes) ? item.notes.join(' ') : (item.notes || ''),
+      })),
+    },
+  };
+}
+
 ipcMain.handle('get-active-rundown', async () => {
   const config = loadConfig();
   if (!config.token) return { active: false };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
+    const canonical = await fetchCanonicalLiveSession(config);
+    if (canonical) return mapCanonicalToRundownPanel(canonical);
+    _canonicalLiveRoomId = '';
     const resp = await fetch(`${relayHttp}/api/church/rundown/active`, {
       headers: { 'Authorization': `Bearer ${config.token}` },
     });
@@ -1851,6 +1902,19 @@ ipcMain.handle('advance-rundown-step', async () => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
+    const churchId = decodeChurchIdFromToken(config.token);
+    if (churchId && _canonicalLiveRoomId !== undefined && _canonicalLiveRoomId !== null) {
+      const canonical = await fetchCanonicalLiveSession(config);
+      if (canonical) {
+        const resp = await fetch(`${relayHttp}/api/churches/${encodeURIComponent(churchId)}/live-rundown/advance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+          body: JSON.stringify({ roomId: canonical.roomId || _canonicalLiveRoomId || '' }),
+        });
+        if (!resp.ok) return { error: `Server returned ${resp.status}` };
+        return await resp.json();
+      }
+    }
     const resp = await fetch(`${relayHttp}/api/church/rundown/advance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
@@ -1865,6 +1929,17 @@ ipcMain.handle('jump-to-rundown-step', async (_, idx) => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
+    const churchId = decodeChurchIdFromToken(config.token);
+    const canonical = churchId ? await fetchCanonicalLiveSession(config) : null;
+    if (canonical && churchId) {
+      const resp = await fetch(`${relayHttp}/api/churches/${encodeURIComponent(churchId)}/live-rundown/goto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+        body: JSON.stringify({ index: idx, roomId: canonical.roomId || _canonicalLiveRoomId || '' }),
+      });
+      if (!resp.ok) return { error: `Server returned ${resp.status}` };
+      return await resp.json();
+    }
     const resp = await fetch(`${relayHttp}/api/church/rundown/jump`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
@@ -1880,6 +1955,18 @@ ipcMain.handle('deactivate-rundown', async () => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
+    const churchId = decodeChurchIdFromToken(config.token);
+    const canonical = churchId ? await fetchCanonicalLiveSession(config) : null;
+    if (canonical && churchId) {
+      const resp = await fetch(`${relayHttp}/api/churches/${encodeURIComponent(churchId)}/live-rundown/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+        body: JSON.stringify({ roomId: canonical.roomId || _canonicalLiveRoomId || '' }),
+      });
+      if (!resp.ok) return { error: `Server returned ${resp.status}` };
+      _canonicalLiveRoomId = '';
+      return await resp.json();
+    }
     const resp = await fetch(`${relayHttp}/api/church/rundown/deactivate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },

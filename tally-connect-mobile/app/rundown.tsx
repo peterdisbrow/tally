@@ -42,8 +42,8 @@ import {
   computeManualTimings,
   createManualRundownItem,
   deleteManualRundownItem,
-  fetchLegacyLiveState,
-  fetchManualLiveState,
+  fetchCanonicalLiveSessions,
+  fetchCanonicalLiveState,
   fetchManualPlanDetail,
   fetchPlanningCenterNextService,
   fetchPcoPlanDetail,
@@ -210,13 +210,10 @@ export default function RundownScreen() {
 
       if (summary.source === 'manual') {
         detail = await fetchManualPlanDetail(resolvedChurchId, summary.id);
-        manualState = manualState || await fetchManualLiveState(resolvedChurchId, summary.id);
+        manualState = manualState || await fetchCanonicalLiveState(resolvedChurchId, summary.id);
       } else {
         detail = await fetchPcoPlanDetail(resolvedChurchId, summary.id);
-        legacyState = legacyState || await fetchLegacyLiveState(resolvedChurchId);
-        if (legacyState && legacyState.planId !== summary.id) {
-          legacyState = null;
-        }
+        legacyState = legacyState || await fetchCanonicalLiveState(resolvedChurchId, summary.id);
       }
 
       cacheRef.current.set(cacheKey, {
@@ -271,17 +268,10 @@ export default function RundownScreen() {
       planSummaries = sortSummaries(planSummaries);
 
       const manualSummaries = planSummaries.filter((plan) => plan.source === 'manual' && !plan.isTemplate);
-      const manualStates = await Promise.all(
-        manualSummaries.map(async (summary) => ({
-          summary,
-          state: await fetchManualLiveState(currentChurchId, summary.id, signal),
-        }))
-      );
-
-      const liveManual = manualStates.find((entry) => entry.state?.isLive);
-      const legacyState = await fetchLegacyLiveState(currentChurchId, signal);
-      const liveLegacySummary = legacyState?.planId
-        ? planSummaries.find((plan) => plan.source === 'pco' && plan.id === legacyState.planId)
+      const liveSessions = await fetchCanonicalLiveSessions(currentChurchId, signal);
+      const liveSession = liveSessions[0]?.state || null;
+      const liveSummary = liveSession?.planId
+        ? planSummaries.find((plan) => plan.id === liveSession.planId) || null
         : null;
 
       if (loadTokenRef.current !== myLoad) return;
@@ -291,15 +281,12 @@ export default function RundownScreen() {
       if (selectedIdRef.current) {
         const stillThere = planSummaries.find((plan) => plan.id === selectedIdRef.current);
         if (stillThere) {
-          const manualHint = stillThere.source === 'manual'
-            ? manualStates.find((entry) => entry.summary.id === stillThere.id)?.state || null
-            : null;
-          const legacyHint = stillThere.source === 'pco' && legacyState?.planId === stillThere.id
-            ? legacyState
-            : null;
+          const liveHint = liveSession && liveSession.planId === stillThere.id ? liveSession : null;
           await loadSelectedPlan(
             stillThere,
-            stillThere.source === 'manual' ? { manualLiveState: manualHint } : { legacyLiveState: legacyHint },
+            stillThere.source === 'manual'
+              ? { manualLiveState: liveHint as ManualRundownLiveState | null }
+              : { legacyLiveState: liveHint as LegacyRundownState | null },
             { scrollToTop: false, churchIdOverride: currentChurchId }
           );
           setState('ready');
@@ -307,17 +294,12 @@ export default function RundownScreen() {
         }
       }
 
-      const initialSummary = liveManual?.summary
-        || liveLegacySummary
+      const initialSummary = liveSummary
         || pickMostRelevantManual(manualSummaries)
         || pickMostRelevantPco(planSummaries.filter((plan) => plan.source === 'pco'));
 
       if (initialSummary) {
-        const liveHint = initialSummary.source === 'manual'
-          ? manualStates.find((entry) => entry.summary.id === initialSummary.id)?.state || null
-          : legacyState && legacyState.planId === initialSummary.id
-            ? legacyState
-            : null;
+        const liveHint = liveSession && liveSession.planId === initialSummary.id ? liveSession : null;
         await loadSelectedPlan(initialSummary, initialSummary.source === 'manual'
           ? { manualLiveState: liveHint as ManualRundownLiveState | null }
           : { legacyLiveState: liveHint as LegacyRundownState | null }, { scrollToTop: false, churchIdOverride: currentChurchId });
@@ -367,13 +349,26 @@ export default function RundownScreen() {
 
       if (msg.type === 'rundown_state' || msg.type === 'rundown_position' || msg.type === 'rundown_tick') {
         const stateMsg = msg as RundownState;
-        if (selectedSummary.source === 'pco' && stateMsg.planId === selectedSummary.id) {
-          setLegacyLiveState(stateMsg as LegacyRundownState);
+        if (stateMsg.planId === selectedSummary.id) {
+          if (selectedSummary.source === 'manual') {
+            setManualLiveState({
+              isLive: true,
+              planId: stateMsg.planId,
+              currentCueIndex: (stateMsg as { currentCueIndex?: number; currentIndex?: number }).currentCueIndex
+                ?? (stateMsg as { currentIndex?: number }).currentIndex
+                ?? 0,
+              startedAt: (stateMsg as { startedAt?: number }).startedAt || Date.now(),
+              currentCueStartedAt: (stateMsg as { currentItemStartedAt?: number }).currentItemStartedAt,
+            });
+          } else {
+            setLegacyLiveState(stateMsg as LegacyRundownState);
+          }
           setErrorMessage(null);
         }
       } else if (msg.type === 'rundown_ended') {
         const ended = msg as { planId?: string };
-        if (selectedSummary.source === 'pco' && ended.planId === selectedSummary.id) {
+        if (!ended.planId || ended.planId === selectedSummary.id) {
+          setManualLiveState(null);
           setLegacyLiveState(null);
         }
       } else if (msg.type === 'rundown_error') {
@@ -390,18 +385,12 @@ export default function RundownScreen() {
     let cancelled = false;
     const poll = async () => {
       try {
+        const state = await fetchCanonicalLiveState(churchId, selectedSummary.id);
+        if (cancelled) return;
         if (selectedSummary.source === 'manual') {
-          const state = await fetchManualLiveState(churchId, selectedSummary.id);
-          if (cancelled) return;
           setManualLiveState(state);
         } else {
-          const state = await fetchLegacyLiveState(churchId);
-          if (cancelled) return;
-          if (state && state.planId === selectedSummary.id) {
-            setLegacyLiveState(state);
-          } else {
-            setLegacyLiveState(null);
-          }
+          setLegacyLiveState(state);
         }
       } catch {
         if (!cancelled) return;
@@ -430,31 +419,34 @@ export default function RundownScreen() {
   const performManualAction = useCallback(async (action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
     if (!churchId || !selectedSummary || selectedSummary.source !== 'manual') return;
     const planId = selectedSummary.id;
+    const roomId = selectedSummary.roomId
+      || (selectedDetail?.source === 'manual' ? selectedDetail.roomId : '')
+      || '';
     setActionBusy(action);
     setErrorMessage(null);
     try {
       if (action === 'start') {
-        const result = await startManualLive(churchId, planId);
+        const result = await startManualLive(churchId, planId, roomId);
         setManualLiveState(result as ManualRundownLiveState);
       } else if (action === 'stop') {
-        await stopManualLive(churchId, planId);
+        await stopManualLive(churchId, planId, roomId);
         setManualLiveState(null);
       } else if (action === 'back') {
-        const result = await backManualLive(churchId, planId);
+        const result = await backManualLive(churchId, planId, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'next') {
-        const result = await advanceManualLive(churchId, planId);
+        const result = await advanceManualLive(churchId, planId, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       } else if (action === 'goto' && typeof index === 'number') {
-        const result = await gotoManualLive(churchId, planId, index);
+        const result = await gotoManualLive(churchId, planId, index, roomId);
         if (result) {
-          const live = await fetchManualLiveState(churchId, planId);
+          const live = await fetchCanonicalLiveState(churchId, planId);
           setManualLiveState(live);
         }
       }
@@ -465,7 +457,7 @@ export default function RundownScreen() {
     } finally {
       setActionBusy(null);
     }
-  }, [churchId, selectedSummary]);
+  }, [churchId, selectedSummary, selectedDetail]);
 
   const performLegacyAction = useCallback((action: 'start' | 'stop' | 'back' | 'next' | 'goto', index?: number) => {
     if (!selectedSummary || selectedSummary.source !== 'pco') return;
@@ -474,32 +466,38 @@ export default function RundownScreen() {
     setErrorMessage(null);
 
     try {
+      const roomId = selectedSummary.roomId || '';
       if (action === 'start') {
         tallySocket.send({
           type: 'rundown_start',
           planId: selectedSummary.id,
           callerName: 'Mobile TD',
+          roomId,
           messageId,
         });
       } else if (action === 'stop') {
         tallySocket.send({
           type: 'rundown_end',
+          roomId,
           messageId,
         });
       } else if (action === 'back') {
         tallySocket.send({
           type: 'rundown_back',
+          roomId,
           messageId,
         });
       } else if (action === 'next') {
         tallySocket.send({
           type: 'rundown_advance',
+          roomId,
           messageId,
         });
       } else if (action === 'goto' && typeof index === 'number') {
         tallySocket.send({
           type: 'rundown_goto',
           index,
+          roomId,
           messageId,
         });
       }
@@ -950,7 +948,7 @@ export default function RundownScreen() {
           <View style={styles.actionGrid}>
             {!isLive ? (
               <ActionButton
-                label={actionBusy === 'start' ? 'Starting...' : 'Start legacy live'}
+                label={actionBusy === 'start' ? 'Starting...' : 'Start Live'}
                 icon="play"
                 tone="primary"
                 colors={colors}

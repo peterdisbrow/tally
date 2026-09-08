@@ -188,4 +188,19 @@ describe('ManualRundownStore column metadata', () => {
       expect.objectContaining({ collaboratorKey: 'viewer-session', role: 'viewer', status: 'active' }),
     ]));
   });
+
+  it('keeps display and operator shares independent', async () => {
+    const plan = await store.createPlan('church-1', { title: 'Sunday Service' });
+    const display = await store.createShare(plan.id, 'church-1', { role: 'display' });
+    const operator = await store.createShare(plan.id, 'church-1', { role: 'operator' });
+    expect(display.role).toBe('display');
+    expect(operator.role).toBe('operator');
+    expect(display.token).not.toBe(operator.token);
+
+    const replacedDisplay = await store.createShare(plan.id, 'church-1', { role: 'display' });
+    const shares = await store.getSharesByPlanId(plan.id);
+    expect(shares.display.token).toBe(replacedDisplay.token);
+    expect(shares.operator.token).toBe(operator.token);
+    expect(shares.display.token).not.toBe(shares.operator.token);
+  });
 });

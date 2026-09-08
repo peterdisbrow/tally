@@ -1682,6 +1682,7 @@
     var token = location.pathname.split('/').pop();
     var query = new URLSearchParams(location.search);
     var isReadOnly = query.get('readonly') === '1';
+    var shareCanControl = true;
     // Follow-room mode: subscribe to a specific room's live state regardless of the plan token.
     var followRoomId = query.get('follow') || null; // e.g. ?follow=main-sanctuary
     var apiBase = location.origin;
@@ -2012,6 +2013,8 @@
           columns = data.columns || [];
           liveState = data.liveState || { isLive: false, currentCueIndex: -1 };
           roomName = data.roomName || '';
+          shareCanControl = data.canControl !== false && data.shareRole !== 'display';
+          if (!shareCanControl) isReadOnly = true;
           // 12.1: Cache for offline use
           try { window.localStorage.setItem(planCacheKey, JSON.stringify(data)); } catch(e) {}
           return data;

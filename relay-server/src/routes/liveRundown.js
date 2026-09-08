@@ -42,8 +42,15 @@ const fs = require('fs');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse = require('pdf-parse');
-const { buildManualPlanTimerState } = require('../rundownPublic');
 const { escapeHtml } = require('../escapeHtml');
+const {
+  normalizeShareRole,
+  isOperatorShare,
+  manualPlanToLivePlan,
+  toLegacyLiveShowState,
+  resolveSessionRoom,
+  decorateShare,
+} = require('../rundownCanonical');
 
 const VALID_RUNDOWN_COLUMN_TYPES = new Set(['text', 'dropdown']);
 const VALID_RUNDOWN_COLLABORATOR_ROLES = new Set(['owner', 'editor', 'viewer']);
@@ -332,14 +339,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       stopManualLiveTimer(planId);
       return;
     }
-    const liveState = await manualRundown.getLiveState(planId);
-    if (!liveState || !liveState.isLive) {
+    const found = liveRundown.findSessionByPlanId(planId);
+    if (!found) {
+      stopManualLiveTimer(planId, plan.title);
+      return;
+    }
+    const timer = liveRundown.getTimerState(found.churchId, found.roomId, planId);
+    if (!timer || !timer.is_live) {
       stopManualLiveTimer(planId, plan.title);
       return;
     }
     broadcastPublicRundownTimer(planId, {
       type: 'timer_state',
-      ...buildManualPlanTimerState(plan, liveState),
+      ...timer,
     });
   }
 
@@ -360,17 +372,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     if (!plan) return null;
     const found = liveRundown.findSessionByPlanId(plan.id);
     if (found) {
+      if (!manualLiveTimerIntervals.has(plan.id)) ensureManualLiveTimer(plan.id);
       return liveRundown.getTimerState(found.churchId, found.roomId, plan.id) || {
         is_live: false,
         plan_id: plan.id,
         plan_title: plan.title,
       };
     }
-    const liveState = await manualRundown.getLiveState(plan.id);
-    if (liveState?.isLive && !manualLiveTimerIntervals.has(plan.id)) {
-      ensureManualLiveTimer(plan.id);
-    }
-    return buildManualPlanTimerState(plan, liveState);
+    stopManualLiveTimer(plan.id, plan.title, { broadcastEnded: false });
+    return {
+      is_live: false,
+      plan_id: plan.id,
+      plan_title: plan.title,
+    };
   }
 
   // ─── Helper: load companion actions for a plan from DB ──────────────────────
@@ -387,6 +401,127 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     } catch {
       return {};
     }
+  }
+
+  function shareBaseUrl() {
+    return process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
+  }
+
+  async function markManualPlanLive(churchId, planId, callerName, req) {
+    try {
+      await manualRundown.updateStatus(planId, 'live');
+      const actor = getRundownActor(req || {});
+      const lockedBy = actor.sessionId || actor.displayName || callerName || 'TD';
+      await manualRundown.lockPlan(planId, lockedBy);
+      broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live', lockedBy, lockedAt: Date.now() } });
+      broadcastRundownEvent(churchId, 'rundown_plan_locked', { planId, lockedBy, lockedAt: Date.now() });
+    } catch { /* non-critical */ }
+  }
+
+  async function startCanonicalSession(churchId, plan, { roomId, callerName, req } = {}) {
+    const livePlan = plan.source === 'pco' ? { ...plan, source: 'pco' } : manualPlanToLivePlan(plan);
+    const effectiveRoomId = roomId != null && roomId !== undefined
+      ? roomId
+      : (livePlan.roomId || plan.roomId || '');
+    const companionActionsMap = loadPlanActions(churchId, plan.id);
+    const state = liveRundown.startSession(
+      churchId,
+      effectiveRoomId,
+      livePlan,
+      callerName || 'TD',
+      companionActionsMap
+    );
+    if (plan.source !== 'pco') {
+      await markManualPlanLive(churchId, plan.id, callerName, req);
+    }
+    try { await manualRundown.stopLive(plan.id); } catch { /* leftover dual-state row */ }
+    ensureManualLiveTimer(plan.id);
+    return toLegacyLiveShowState(state, plan);
+  }
+
+  function controlCanonicalSession(plan, action, extra = {}) {
+    const roomId = resolveSessionRoom(liveRundown, plan, extra.roomId);
+    let state = null;
+    if (action === 'advance') state = liveRundown.advance(plan.churchId, roomId);
+    else if (action === 'back') state = liveRundown.back(plan.churchId, roomId);
+    else if (action === 'goto') state = liveRundown.goTo(plan.churchId, roomId, extra.index);
+    else if (action === 'pause') state = liveRundown.pauseSession(plan.churchId, roomId) || liveRundown.getState(plan.churchId, roomId);
+    else if (action === 'resume') state = liveRundown.resumeSession(plan.churchId, roomId) || liveRundown.getState(plan.churchId, roomId);
+    else if (action === 'add-time') state = liveRundown.addTime(plan.churchId, roomId, extra.seconds);
+    if (!state) return null;
+    return toLegacyLiveShowState(state, extra.plan || plan);
+  }
+
+  async function finalizeEndedSession(churchId, summary) {
+    if (!summary?.planId) return summary;
+    try { await manualRundown.stopLive(summary.planId); } catch { /* leftover dual-state row */ }
+    stopManualLiveTimer(summary.planId, summary.planTitle);
+    try {
+      const plan = await manualRundown.getPlan(summary.planId);
+      if (plan && plan.status === 'live') {
+        await manualRundown.updateStatus(summary.planId, 'show_ready');
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
+      }
+      if (plan && plan.lockedBy) {
+        await manualRundown.unlockPlan(summary.planId);
+        broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, lockedBy: null, lockedAt: null } });
+        broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId: summary.planId });
+      }
+      if (plan && summary.itemTimings && summary.itemTimings.length > 0) {
+        const totalPlannedMs = (summary.totalPlannedDuration || 0);
+        const totalActualMs = summary.totalDuration || 0;
+        const itemTimingsForReport = (summary.itemTimings || []).map((t) => {
+          const planItem = plan.items[t.index] || {};
+          return {
+            index: t.index,
+            itemId: planItem.id || '',
+            title: planItem.title || `Item ${t.index + 1}`,
+            plannedDuration: (t.plannedDuration || 0) * 1000,
+            actualDuration: t.actualDuration || 0,
+            variance: (t.actualDuration || 0) - ((t.plannedDuration || 0) * 1000),
+          };
+        });
+        try {
+          const savedReport = await manualRundown.createShowReport(summary.planId, churchId, {
+            sessionStartedAt: summary.startedAt || (Date.now() - totalActualMs),
+            sessionEndedAt: Date.now(),
+            totalPlannedMs,
+            totalActualMs,
+            itemTimings: itemTimingsForReport,
+            report: {
+              planTitle: plan.title,
+              serviceDate: plan.serviceDate,
+              totalPlannedMs,
+              totalActualMs,
+              totalVarianceMs: totalActualMs - totalPlannedMs,
+              overtimeItemCount: itemTimingsForReport.filter((t) => t.variance > 0).length,
+              items: itemTimingsForReport,
+            },
+          });
+          summary.showReport = savedReport;
+        } catch (reportErr) {
+          console.error('[rundown] post-show report generation warning:', reportErr.message);
+        }
+      }
+    } catch { /* non-critical */ }
+    return summary;
+  }
+
+  async function endCanonicalSession(plan, extra = {}) {
+    const roomId = resolveSessionRoom(liveRundown, plan, extra.roomId);
+    const summary = liveRundown.endSession(plan.churchId, roomId);
+    if (!summary) return null;
+    return finalizeEndedSession(plan.churchId, summary);
+  }
+
+  function requireOperatorShareOr403(access, res) {
+    if (isOperatorShare(access.share)) return false;
+    res.status(403).json({
+      error: 'This share is display-only. Use an operator link to control the live rundown.',
+      code: 'display_token_forbidden',
+      shareRole: 'display',
+    });
+    return true;
   }
 
   // ─── LIVE SESSION ENDPOINTS ────────────────────────────────────────────────
@@ -419,28 +554,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
               return res.status(403).json({ error: 'Plan does not belong to this church' });
             }
             if (await ensurePlanWriteAccess(req, res, manualPlan)) return;
-            // Convert manual plan to the format liveRundown expects
-            plan = {
-              id: manualPlan.id,
-              title: manualPlan.title,
-              churchId: manualPlan.churchId,
-              roomId: manualPlan.roomId || '',
-              source: 'manual',
-              items: manualPlan.items.map(item => ({
-                id: item.id,
-                title: item.title,
-                itemType: item.itemType,
-                servicePosition: item.sortOrder,
-                lengthSeconds: item.lengthSeconds,
-                description: '',
-                notes: item.notes ? [item.notes] : [],
-                songTitle: null,
-                author: null,
-                arrangementKey: null,
-              })),
-              team: [],
-              times: [],
-            };
+            plan = manualPlanToLivePlan(manualPlan);
           } else if (effectiveSource === 'auto') {
             // Fall through to try PCO
           } else {
@@ -485,18 +599,13 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
         // Auto-update status to 'live' for manual plans
         if (plan.source === 'manual') {
-          try {
-            await manualRundown.updateStatus(planId, 'live');
-            // 9.3: Auto-lock plan when going live
-            const actor = getRundownActor(req);
-            const lockedBy = actor.sessionId || actor.displayName || callerName || 'TD';
-            await manualRundown.lockPlan(planId, lockedBy);
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId, plan: { id: planId, status: 'live', lockedBy, lockedAt: Date.now() } });
-            broadcastRundownEvent(churchId, 'rundown_plan_locked', { planId, lockedBy, lockedAt: Date.now() });
-          } catch { /* non-critical */ }
+          await markManualPlanLive(churchId, planId, callerName, req);
         }
 
-        res.json(state);
+        const originalPlan = plan.source === 'manual'
+          ? await manualRundown.getPlan(planId)
+          : null;
+        res.json(toLegacyLiveShowState(state, originalPlan || plan));
       } catch (e) {
         console.error('[rundown] error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -583,63 +692,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       if (!summary) {
         return res.status(400).json({ error: 'No active rundown session' });
       }
-
-      // Auto-revert manual plan status from 'live' back to 'show_ready'
-      if (summary.planId) {
-        try {
-          const plan = await manualRundown.getPlan(summary.planId);
-          if (plan && plan.status === 'live') {
-            await manualRundown.updateStatus(summary.planId, 'show_ready');
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, status: 'show_ready' } });
-          }
-          // 9.3: Auto-unlock plan when show ends
-          if (plan && plan.lockedBy) {
-            await manualRundown.unlockPlan(summary.planId);
-            broadcastRundownEvent(churchId, 'rundown_plan_updated', { planId: summary.planId, plan: { id: summary.planId, lockedBy: null, lockedAt: null } });
-            broadcastRundownEvent(churchId, 'rundown_plan_unlocked', { planId: summary.planId });
-          }
-          // 9.5: Auto-generate post-show timing report
-          if (plan && summary.itemTimings && summary.itemTimings.length > 0) {
-            const totalPlannedMs = (summary.totalPlannedDuration || 0);
-            const totalActualMs = summary.totalDuration || 0;
-            const itemTimingsForReport = (summary.itemTimings || []).map((t, idx) => {
-              const planItem = plan.items[t.index] || {};
-              return {
-                index: t.index,
-                itemId: planItem.id || '',
-                title: planItem.title || `Item ${t.index + 1}`,
-                plannedDuration: (t.plannedDuration || 0) * 1000,
-                actualDuration: t.actualDuration || 0,
-                variance: (t.actualDuration || 0) - ((t.plannedDuration || 0) * 1000),
-              };
-            });
-            const overtimeItems = itemTimingsForReport.filter(t => t.variance > 0);
-            const report = {
-              planTitle: plan.title,
-              serviceDate: plan.serviceDate,
-              totalPlannedMs,
-              totalActualMs,
-              totalVarianceMs: totalActualMs - totalPlannedMs,
-              overtimeItemCount: overtimeItems.length,
-              items: itemTimingsForReport,
-            };
-            try {
-              const savedReport = await manualRundown.createShowReport(summary.planId, churchId, {
-                sessionStartedAt: summary.startedAt || (Date.now() - totalActualMs),
-                sessionEndedAt: Date.now(),
-                totalPlannedMs,
-                totalActualMs,
-                itemTimings: itemTimingsForReport,
-                report,
-              });
-              summary.showReport = savedReport;
-            } catch (reportErr) {
-              console.error('[rundown] post-show report generation warning:', reportErr.message);
-            }
-          }
-        } catch { /* non-critical */ }
-      }
-
+      await finalizeEndedSession(churchId, summary);
       res.json(summary);
     }
   );
@@ -685,12 +738,69 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         return res.json({ active: sessions.length > 0, sessions });
       }
 
+      if (req.query.planId) {
+        const found = liveRundown.findSessionByPlanId(String(req.query.planId));
+        if (!found || found.churchId !== churchId) {
+          return res.json({ active: false, isLive: false, planId: req.query.planId });
+        }
+        const state = liveRundown.getState(found.churchId, found.roomId);
+        return res.json({ active: true, ...toLegacyLiveShowState(state) });
+      }
+
       const roomId = req.query.roomId || '';
       const state = liveRundown.getState(churchId, roomId);
       if (!state) {
-        return res.json({ active: false, roomId });
+        return res.json({ active: false, isLive: false, roomId });
       }
-      res.json({ active: true, ...state });
+      res.json({ active: true, ...toLegacyLiveShowState(state) });
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/live-rundown/pause
+   */
+  app.post('/api/churches/:churchId/live-rundown/pause',
+    requireChurchWriteOrAdmin,
+    (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      const roomId = getRequestRoomId(req);
+      const state = liveRundown.pauseSession(churchId, roomId) || liveRundown.getState(churchId, roomId);
+      if (!state) return res.status(400).json({ error: 'No active rundown session' });
+      res.json(toLegacyLiveShowState(state));
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/live-rundown/resume
+   */
+  app.post('/api/churches/:churchId/live-rundown/resume',
+    requireChurchWriteOrAdmin,
+    (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      const roomId = getRequestRoomId(req);
+      const state = liveRundown.resumeSession(churchId, roomId) || liveRundown.getState(churchId, roomId);
+      if (!state) return res.status(400).json({ error: 'No active rundown session' });
+      res.json(toLegacyLiveShowState(state));
+    }
+  );
+
+  /**
+   * POST /api/churches/:churchId/live-rundown/add-time
+   * Body: { seconds: number, roomId?: string }
+   */
+  app.post('/api/churches/:churchId/live-rundown/add-time',
+    requireChurchWriteOrAdmin,
+    (req, res) => {
+      const churchId = req.params.churchId;
+      if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
+      const seconds = parseInt(req.body?.seconds, 10);
+      if (isNaN(seconds)) return res.status(400).json({ error: 'Invalid seconds value' });
+      const roomId = getRequestRoomId(req);
+      const state = liveRundown.addTime(churchId, roomId, seconds);
+      if (!state) return res.status(400).json({ error: 'No active rundown session' });
+      res.json(toLegacyLiveShowState(state));
     }
   );
 
@@ -1725,10 +1835,22 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   // ─── SHARE / GUEST PASS ENDPOINTS ─────────────────────────────────────────
 
+  function packShareBundle(shares, baseUrl) {
+    const display = decorateShare(shares.display, baseUrl);
+    const operator = decorateShare(shares.operator, baseUrl);
+    const primary = display || operator || null;
+    return {
+      share: primary,
+      display,
+      operator,
+    };
+  }
+
   /**
    * POST /api/churches/:churchId/rundown-plans/:planId/share
-   * Generate (or replace) a guest-pass share token for a plan.
-   * Body: { expiresInDays?: number }  (default 7)
+   * Generate (or replace) share tokens for a plan.
+   * Body: { expiresInDays?: number, role?: 'display'|'operator'|'both' }
+   * Default role is 'both' — display for public views, operator for control.
    */
   app.post('/api/churches/:churchId/rundown-plans/:planId/share',
     requireChurchWriteOrAdmin,
@@ -1742,15 +1864,20 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         }
         if (await ensurePlanWriteAccess(req, res, plan)) return;
         const expiresInDays = Number(req.body?.expiresInDays) || 7;
-        const share = await manualRundown.createShare(planId, churchId, { expiresInDays });
-        await manualRundown.setShareToken(planId, share.token);
-        const baseUrl = process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
+        const requestedRole = String(req.body?.role || 'both').trim().toLowerCase();
+        const roles = requestedRole === 'both'
+          ? ['display', 'operator']
+          : [normalizeShareRole(requestedRole, 'display')];
+        for (const role of roles) {
+          await manualRundown.createShare(planId, churchId, { expiresInDays, role });
+        }
+        const shares = await manualRundown.getSharesByPlanId(planId);
+        const displayToken = shares.display?.token || shares.operator?.token || null;
+        if (displayToken) await manualRundown.setShareToken(planId, displayToken);
+        const bundle = packShareBundle(shares, shareBaseUrl());
         res.json({
-          ...share,
-          url: `${baseUrl}/rundown/view/${share.token}`,
-          share_token: share.token,
-          timer_url: `${baseUrl}/rundown/timer/${share.token}`,
-          clock_url: `${baseUrl}/rundown/clock/${share.token}`,
+          ...bundle.share,
+          ...bundle,
         });
       } catch (e) {
         console.error('[rundown] share error:', e);
@@ -1761,7 +1888,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   /**
    * GET /api/churches/:churchId/rundown-plans/:planId/share
-   * Get the active share for a plan (if any).
+   * Get active display + operator shares for a plan (if any).
    */
   app.get('/api/churches/:churchId/rundown-plans/:planId/share',
     requireChurchOrAdmin,
@@ -1774,22 +1901,18 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
           return res.status(404).json({ error: 'Plan not found' });
         }
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const share = await manualRundown.getShareByPlanId(planId);
-        if (!share || share.expiresAt < Date.now()) {
+        const shares = await manualRundown.getSharesByPlanId(planId);
+        const now = Date.now();
+        if (shares.display && shares.display.expiresAt < now) shares.display = null;
+        if (shares.operator && shares.operator.expiresAt < now) shares.operator = null;
+        if (!shares.display && !shares.operator) {
           await manualRundown.clearShareToken(planId);
-          return res.json({ share: null });
+          return res.json({ share: null, display: null, operator: null });
         }
-        await manualRundown.setShareToken(planId, share.token);
-        const baseUrl = process.env.PUBLIC_URL || 'https://api.tallyconnect.app';
-        res.json({
-          share: {
-            ...share,
-            url: `${baseUrl}/rundown/view/${share.token}`,
-            share_token: share.token,
-            timer_url: `${baseUrl}/rundown/timer/${share.token}`,
-            clock_url: `${baseUrl}/rundown/clock/${share.token}`,
-          },
-        });
+        const displayToken = shares.display?.token || shares.operator?.token || null;
+        if (displayToken) await manualRundown.setShareToken(planId, displayToken);
+        const bundle = packShareBundle(shares, shareBaseUrl());
+        res.json(bundle);
       } catch (e) {
         console.error('[rundown] share error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -1799,7 +1922,7 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   /**
    * DELETE /api/churches/:churchId/rundown-plans/:planId/share
-   * Revoke the active share for a plan.
+   * Revoke the active shares for a plan.
    */
   app.delete('/api/churches/:churchId/rundown-plans/:planId/share',
     requireChurchWriteOrAdmin,
@@ -1807,12 +1930,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       const { churchId, planId } = req.params;
       if (!churches.get(churchId)) return res.status(404).json({ error: 'Church not found' });
       try {
-        const share = await manualRundown.getShareByPlanId(planId);
-        if (share && share.churchId === churchId) {
-          const plan = await manualRundown.getPlan(planId);
-          if (plan && await ensurePlanWriteAccess(req, res, plan)) return;
-          await manualRundown.revokeShare(share.id);
+        const plan = await manualRundown.getPlan(planId);
+        if (plan && plan.churchId === churchId) {
+          if (await ensurePlanWriteAccess(req, res, plan)) return;
         }
+        await manualRundown.revokeSharesForPlan(planId, churchId);
         await manualRundown.clearShareToken(planId);
         res.json({ ok: true });
       } catch (e) {
@@ -2215,24 +2337,19 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   /**
    * POST /api/public/rundown/:token/live/start
+   * Operator share required. Starts the canonical LiveRundownManager session.
    */
   app.post('/api/public/rundown/:token/live/start', async (req, res) => {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
+      if (requireOperatorShareOr403(access, res)) return;
       const plan = access.plan;
-      await manualRundown.startLive(plan.id, plan.churchId);
-      const items = plan.items || [];
-      let firstCueIdx = 0;
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].itemType !== 'section') { firstCueIdx = i; break; }
-      }
-      if (firstCueIdx !== 0) {
-        await manualRundown.updateLiveState(plan.id, { currentCueIndex: firstCueIdx, currentCueStartedAt: Date.now() });
-      }
-      const state = await manualRundown.getLiveState(plan.id);
-      ensureManualLiveTimer(plan.id);
-      res.json({ ...state, plan });
+      const state = await startCanonicalSession(plan.churchId, plan, {
+        callerName: 'Operator',
+        req,
+      });
+      res.json(state);
     } catch (e) {
       console.error('[rundown] public live/start error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2246,10 +2363,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
+      if (requireOperatorShareOr403(access, res)) return;
       const plan = access.plan;
-      await manualRundown.stopLive(plan.id);
-      stopManualLiveTimer(plan.id, plan.title);
-      res.json({ ok: true });
+      const summary = await endCanonicalSession(plan);
+      if (!summary) return res.status(400).json({ error: 'No active rundown session' });
+      res.json({ ok: true, ...summary });
     } catch (e) {
       console.error('[rundown] public live/stop error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2263,16 +2381,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-      const items = plan.items || [];
-      let nextIdx = liveState.currentCueIndex + 1;
-      while (nextIdx < items.length && items[nextIdx].itemType === 'section') nextIdx++;
-      if (nextIdx >= items.length) return res.status(400).json({ error: 'Already at last cue' });
-      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: nextIdx, currentCueStartedAt: Date.now() });
-      ensureManualLiveTimer(plan.id);
-      res.json({ ...updated, plan });
+      if (requireOperatorShareOr403(access, res)) return;
+      const updated = controlCanonicalSession(access.plan, 'advance');
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Already at last cue' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/go error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2286,16 +2398,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-      const items = plan.items || [];
-      let prevIdx = liveState.currentCueIndex - 1;
-      while (prevIdx >= 0 && items[prevIdx].itemType === 'section') prevIdx--;
-      if (prevIdx < 0) return res.status(400).json({ error: 'Already at first cue' });
-      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: prevIdx, currentCueStartedAt: Date.now() });
-      ensureManualLiveTimer(plan.id);
-      res.json({ ...updated, plan });
+      if (requireOperatorShareOr403(access, res)) return;
+      const updated = controlCanonicalSession(access.plan, 'back');
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Already at first cue' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/back error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2309,15 +2415,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      if (requireOperatorShareOr403(access, res)) return;
       const index = parseInt(req.params.index, 10);
-      const items = plan.items || [];
-      if (index < 0 || index >= items.length) return res.status(400).json({ error: 'Invalid cue index' });
-      const updated = await manualRundown.updateLiveState(plan.id, { currentCueIndex: index, currentCueStartedAt: Date.now() });
-      ensureManualLiveTimer(plan.id);
-      res.json({ ...updated, plan });
+      const updated = controlCanonicalSession(access.plan, 'goto', { index });
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Invalid cue index' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/goto error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2331,12 +2433,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-      if (liveState.isPaused) return res.json({ ...liveState, plan });
-      const updated = await manualRundown.pauseLive(plan.id);
-      res.json({ ...updated, plan });
+      if (requireOperatorShareOr403(access, res)) return;
+      const updated = controlCanonicalSession(access.plan, 'pause');
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Not in live mode' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/pause error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2350,12 +2450,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-      if (!liveState.isPaused) return res.json({ ...liveState, plan });
-      const updated = await manualRundown.resumeLive(plan.id);
-      res.json({ ...updated, plan });
+      if (requireOperatorShareOr403(access, res)) return;
+      const updated = controlCanonicalSession(access.plan, 'resume');
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Not in live mode' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/resume error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2370,20 +2468,12 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
-      const plan = access.plan;
-      const liveState = await manualRundown.getLiveState(plan.id);
-      if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+      if (requireOperatorShareOr403(access, res)) return;
       const seconds = parseInt(req.body.seconds, 10);
       if (isNaN(seconds)) return res.status(400).json({ error: 'Invalid seconds value' });
-      // Adjust the current item's duration in the plan
-      const items = plan.items || [];
-      const currentItem = items[liveState.currentCueIndex];
-      if (currentItem) {
-        currentItem.lengthSeconds = Math.max(0, (currentItem.lengthSeconds || 0) + seconds);
-        await manualRundown.updatePlan(plan.id, { items });
-      }
-      const updated = await manualRundown.getLiveState(plan.id);
-      res.json({ ...updated, plan });
+      const updated = controlCanonicalSession(access.plan, 'add-time', { seconds });
+      if (!updated || !updated.isLive) return res.status(400).json({ error: 'Not in live mode' });
+      res.json(updated);
     } catch (e) {
       console.error('[rundown] public live/add-time error:', e);
       res.status(500).json({ error: 'Internal error' });
@@ -2392,12 +2482,13 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
 
   /**
    * PUT /api/public/rundown/:token/items/:itemId
-   * Inline edit (title, lengthSeconds, notes only) via share token.
+   * Inline edit (title, lengthSeconds, notes only) via operator share token.
    */
   app.put('/api/public/rundown/:token/items/:itemId', async (req, res) => {
     try {
       const access = await resolveShowAccess(req, res);
       if (!access) return;
+      if (requireOperatorShareOr403(access, res)) return;
       const plan = access.plan;
       const targetItem = (plan.items || []).find((item) => item.id === req.params.itemId);
       if (!targetItem) return res.status(404).json({ error: 'Item not found' });
@@ -2429,18 +2520,12 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        await manualRundown.startLive(planId, churchId);
-        const items = plan.items || [];
-        let firstCueIdx = 0;
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].itemType !== 'section') { firstCueIdx = i; break; }
-        }
-        if (firstCueIdx !== 0) {
-          await manualRundown.updateLiveState(planId, { currentCueIndex: firstCueIdx, currentCueStartedAt: Date.now() });
-        }
-        const state = await manualRundown.getLiveState(planId);
-        ensureManualLiveTimer(planId);
-        res.json({ ...state, plan });
+        const state = await startCanonicalSession(churchId, plan, {
+          roomId: req.body?.roomId,
+          callerName: req.body?.callerName || 'TD',
+          req,
+        });
+        res.json(state);
       } catch (e) {
         console.error('[rundown] live/start error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2457,9 +2542,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        await manualRundown.stopLive(planId);
-        stopManualLiveTimer(planId, plan.title);
-        res.json({ ok: true });
+        const summary = await endCanonicalSession(plan, { roomId: req.body?.roomId });
+        if (!summary) return res.status(400).json({ error: 'No active rundown session' });
+        res.json({ ok: true, ...summary });
       } catch (e) {
         console.error('[rundown] live/stop error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2476,15 +2561,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-        const items = plan.items || [];
-        let nextIdx = liveState.currentCueIndex + 1;
-        while (nextIdx < items.length && items[nextIdx].itemType === 'section') nextIdx++;
-        if (nextIdx >= items.length) return res.status(400).json({ error: 'Already at last cue' });
-        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: nextIdx, currentCueStartedAt: Date.now() });
-        ensureManualLiveTimer(planId);
-        res.json({ ...updated, plan });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
+        const updated = controlCanonicalSession(plan, 'advance', { roomId: req.body?.roomId });
+        if (!updated || !updated.isLive) return res.status(400).json({ error: 'Already at last cue' });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/go error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2501,18 +2581,13 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-        const items = plan.items || [];
-        let prevIdx = liveState.currentCueIndex - 1;
-        while (prevIdx >= 0 && items[prevIdx].itemType === 'section') prevIdx--;
-        if (prevIdx < 0) return res.status(400).json({ error: 'Already at first cue' });
-        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: prevIdx, currentCueStartedAt: Date.now() });
-        ensureManualLiveTimer(planId);
-        res.json({ ...updated, plan });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
+        const updated = controlCanonicalSession(plan, 'back', { roomId: req.body?.roomId });
+        if (!updated || !updated.isLive) return res.status(400).json({ error: 'Already at first cue' });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/back error:', e);
-        res.status(500).json({ error: safeErrorMessage(e) });
+        res.status(500).json({ error: 'Internal error' });
       }
     }
   );
@@ -2527,13 +2602,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-        const items = plan.items || [];
-        if (index < 0 || index >= items.length) return res.status(400).json({ error: 'Invalid cue index' });
-        const updated = await manualRundown.updateLiveState(planId, { currentCueIndex: index, currentCueStartedAt: Date.now() });
-        ensureManualLiveTimer(planId);
-        res.json({ ...updated, plan });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
+        const updated = controlCanonicalSession(plan, 'goto', { index, roomId: req.body?.roomId });
+        if (!updated || !updated.isLive) return res.status(400).json({ error: 'Invalid cue index' });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/goto error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2550,11 +2622,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-        if (liveState.isPaused) return res.json({ ...liveState, plan });
-        const updated = await manualRundown.pauseLive(planId);
-        res.json({ ...updated, plan });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
+        const updated = controlCanonicalSession(plan, 'pause', { roomId: req.body?.roomId });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/pause error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2571,11 +2641,9 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
-        if (!liveState.isPaused) return res.json({ ...liveState, plan });
-        const updated = await manualRundown.resumeLive(planId);
-        res.json({ ...updated, plan });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
+        const updated = controlCanonicalSession(plan, 'resume', { roomId: req.body?.roomId });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/resume error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2592,18 +2660,11 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
         if (await ensurePlanWriteAccess(req, res, plan)) return;
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.status(400).json({ error: 'Not in live mode' });
+        if (!liveRundown.findSessionByPlanId(planId)) return res.status(400).json({ error: 'Not in live mode' });
         const seconds = parseInt(req.body.seconds, 10);
         if (isNaN(seconds)) return res.status(400).json({ error: 'Invalid seconds value' });
-        const items = plan.items || [];
-        const currentItem = items[liveState.currentCueIndex];
-        if (currentItem) {
-          currentItem.lengthSeconds = Math.max(0, (currentItem.lengthSeconds || 0) + seconds);
-          await manualRundown.updatePlan(planId, { items });
-        }
-        const updated = await manualRundown.getLiveState(planId);
-        res.json({ ...updated, plan });
+        const updated = controlCanonicalSession(plan, 'add-time', { seconds, roomId: req.body?.roomId });
+        res.json(updated);
       } catch (e) {
         console.error('[rundown] live/add-time error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
@@ -2619,10 +2680,10 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
       try {
         const plan = await manualRundown.getPlan(planId);
         if (!plan || plan.churchId !== churchId) return res.status(404).json({ error: 'Plan not found' });
-        const liveState = await manualRundown.getLiveState(planId);
-        if (!liveState) return res.json({ isLive: false });
-        if (!manualLiveTimerIntervals.has(planId)) ensureManualLiveTimer(planId);
-        res.json({ ...liveState, plan });
+        const found = liveRundown.findSessionByPlanId(planId);
+        if (!found) return res.json({ isLive: false, plan });
+        const state = liveRundown.getState(found.churchId, found.roomId);
+        res.json(toLegacyLiveShowState(state, plan));
       } catch (e) {
         console.error('[rundown] live/state error:', e);
         res.status(500).json({ error: safeErrorMessage(e) });
