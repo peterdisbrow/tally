@@ -591,6 +591,34 @@ describe('POST /api/church/app/onboard', () => {
     expect(status).toBe(409);
     expect(body.error).toMatch(/email already exists/i);
   });
+
+  it('accepts short real church names (LCC, Cogcomm)', async () => {
+    for (const name of ['LCC', 'Cogcomm']) {
+      const email = `${name.toLowerCase()}@church.com`;
+      const { status, body } = await client.post('/api/church/app/onboard', {
+        body: { name, email, password: 'Pass1234!', tier: 'connect' },
+      });
+      expect(status).toBe(201);
+      expect(body.name).toBe(name);
+    }
+  });
+
+  it('rejects URL, shortener, and casino/spam names', async () => {
+    const spamNames = [
+      'Visit bit.ly/casino-bonus',
+      'https://spam.example/join',
+      'Best Online Casino',
+    ];
+    for (const name of spamNames) {
+      const { status, body } = await client.post('/api/church/app/onboard', {
+        body: { name, email: 'spam@example.com', password: 'Pass1234!' },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toMatch(/name/i);
+      const rows = db.prepare('SELECT churchId FROM churches WHERE name = ?').all(name);
+      expect(rows).toHaveLength(0);
+    }
+  });
 });
 
 // ─── GET /api/referral/:code ──────────────────────────────────────────────────

@@ -496,6 +496,16 @@ describe('executeOnboardingAction — save_engineer_profile', () => {
     }, new Map(), null);
     expect(result.localConfig.name).toBe('NewLife');
   });
+
+  it('rejects spam/URL church names and leaves the existing name unchanged', () => {
+    const result = executeOnboardingAction(db, 'church-1', {
+      type: 'save_engineer_profile',
+      data: { churchName: 'Visit bit.ly/casino-bonus' },
+    }, new Map(), null);
+    expect(result.ok).toBe(false);
+    const row = db.prepare('SELECT name FROM churches WHERE churchId = ?').get('church-1');
+    expect(row.name).toBe('Test Church');
+  });
 });
 
 // ─── K. Action Execution — Complete ──────────────────────────────────────────

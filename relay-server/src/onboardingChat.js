@@ -6,6 +6,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { validateChurchName } = require('./churchNameValidation');
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
@@ -605,7 +606,13 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
         case 'save_engineer_profile': {
           const updates = [];
           const params = [];
-          if (data.churchName) { updates.push('name = ?'); params.push(data.churchName); }
+          if (data.churchName) {
+            const nameCheck = validateChurchName(data.churchName);
+            if (!nameCheck.ok) return { ok: false, message: nameCheck.error };
+            updates.push('name = ?');
+            params.push(nameCheck.name);
+            data.churchName = nameCheck.name;
+          }
           if (data.timezone) { updates.push('timezone = ?'); params.push(data.timezone); }
 
           const profile = {};
@@ -719,7 +726,13 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
       // Save churchName/timezone to churches table
       const updates = [];
       const params = [];
-      if (data.churchName) { updates.push('name = ?'); params.push(data.churchName); }
+      if (data.churchName) {
+        const nameCheck = validateChurchName(data.churchName);
+        if (!nameCheck.ok) return { ok: false, message: nameCheck.error };
+        updates.push('name = ?');
+        params.push(nameCheck.name);
+        data.churchName = nameCheck.name;
+      }
       if (data.timezone) { updates.push('timezone = ?'); params.push(data.timezone); }
 
       // Save the full engineer profile JSON (#3)
