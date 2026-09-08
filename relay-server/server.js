@@ -109,11 +109,22 @@ app.use(express.json({
 app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal'), { maxAge: '1h', setHeaders(res, filePath) { if (/\.(css|js|png|jpg|svg|woff2?)$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=3600'); } }));
 app.use('/admin', express.static(require('path').join(__dirname, 'public/admin'), { maxAge: '1h' }));
+// Booth default: the SPA home at /tools/clock/ is a quote/marketing page.
+// Operators should land on the Production Clock. Quote page stays at /tools/clock/index.html.
+app.get(['/tools/clock', '/tools/clock/'], (_req, res) => res.redirect(302, '/tools/clock/clock'));
 app.use('/tools', express.static(require('path').join(__dirname, 'public/tools'), { maxAge: '1h' }));
 app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/clock'));
 
 // Public rundown view — no auth required
-app.get('/rundown/view/:token', (_req, res) => {
+app.get('/rundown/view/:token', (req, res) => {
+  // Studio Clock is a dedicated page; portal historically linked ?mode=clock
+  // on the public view, which rundown-view.html does not implement.
+  if (String(req.query.mode || '').toLowerCase() === 'clock') {
+    const params = new URLSearchParams(req.query);
+    params.delete('mode');
+    const qs = params.toString();
+    return res.redirect(302, `/rundown/clock/${encodeURIComponent(req.params.token)}${qs ? `?${qs}` : ''}`);
+  }
   res.sendFile(require('path').join(__dirname, 'public/rundown-view.html'));
 });
 
