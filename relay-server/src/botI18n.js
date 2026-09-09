@@ -42,7 +42,7 @@ const BOT_STRINGS = {
     'alert.warning': '⚠️ *Warning* — {{church}}\n\n{{message}}',
     'alert.info': 'ℹ️ {{church}}: {{message}}',
     'alert.auto_recovered': '✅ *Auto-recovered* — {{church}}\n\n{{message}}',
-    'alert.escalated': '🔺 *Escalated to primary TD* — {{church}}\n\nNo response after 90 seconds.',
+    'alert.escalated': '🔺 *Escalated to primary TD* — {{church}}\n\nNo response after 5 minutes.',
 
     // Autopilot
     'autopilot.paused':
@@ -101,7 +101,7 @@ const BOT_STRINGS = {
     'alert.warning': '⚠️ *Advertencia* — {{church}}\n\n{{message}}',
     'alert.info': 'ℹ️ {{church}}: {{message}}',
     'alert.auto_recovered': '✅ *Recuperado automáticamente* — {{church}}\n\n{{message}}',
-    'alert.escalated': '🔺 *Escalado al DT principal* — {{church}}\n\nSin respuesta después de 90 segundos.',
+    'alert.escalated': '🔺 *Escalado al DT principal* — {{church}}\n\nSin respuesta después de 5 minutos.',
 
     // Autopilot
     'autopilot.paused':

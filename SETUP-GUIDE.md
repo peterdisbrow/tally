@@ -170,7 +170,7 @@ To receive alerts on your phone, you need a Telegram account.
 - 🔴 Critical: service-impacting issue (stream stopped, ATEM disconnected)
 - ✅ Recovery: issue was auto-fixed or resolved
 
-If you don't respond to a Critical alert within 90 seconds, it escalates to your support contact automatically.
+If you don't respond to a Critical alert within 5 minutes, it escalates to your support contact automatically.
 
 ---
 
@@ -272,7 +272,7 @@ When activating a new church:
 - [ ] Register TD in Telegram bot, send 6-char code
 - [ ] Set church service schedule (for watchdog windows)
 - [ ] Test pre-service check via Telegram: `@ATEMSchoolTallyBot status`
-- [ ] Confirm alerts route correctly (TD → support escalation after 90s)
+- [ ] Confirm alerts route correctly (TD → support escalation after 5 min)
 - [ ] Note TD contact info in relay database
 
 ---

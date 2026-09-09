@@ -2090,6 +2090,37 @@ describe('Church portal HTML Sunday path', () => {
     expect(html).toContain('id="schedule-overview-card"');
     expect(html).not.toMatch(/id="schedule-overview-card"[^>]*advanced-only/);
   });
+
+  it('surfaces Alerts and Rundown in primary nav, not under More', () => {
+    const moreStart = html.indexOf('id="nav-more-items"');
+    const moreEnd = html.indexOf('sidebar-footer');
+    expect(moreStart).toBeGreaterThan(-1);
+    expect(moreEnd).toBeGreaterThan(moreStart);
+    const primary = html.slice(0, moreStart);
+    const moreNav = html.slice(moreStart, moreEnd);
+    expect(primary).toMatch(/class="nav-item"[^>]*data-page="alerts"/);
+    expect(primary).toMatch(/class="nav-item"[^>]*data-page="rundown"/);
+    expect(moreNav).not.toMatch(/class="nav-item"[^>]*data-page="alerts"/);
+    expect(moreNav).not.toMatch(/class="nav-item"[^>]*data-page="rundown"/);
+  });
+
+  it('warns that empty service windows keep Sunday alerts quiet', () => {
+    expect(html).toContain('No service windows → alerts stay quiet on Sunday.');
+    expect(html).toContain('id="alerts-schedule-quiet-banner"');
+  });
+
+  it('labels Engineer chat separately from rule-based Triage', () => {
+    expect(html).toContain('data-i18n="nav.engineer">Engineer chat');
+    expect(html).toContain('data-i18n="nav.triage">Triage');
+    expect(html).not.toContain('data-i18n="nav.engineer">AI Assistant');
+  });
+
+  it('uses 5 minutes for CRITICAL escalation copy, not 90 seconds', () => {
+    expect(html).not.toContain('within 90 seconds');
+    expect(html).not.toContain('escalated after 90s');
+    expect(html).toContain('within 5 minutes');
+    expect(html).toContain('escalated after 5 minutes');
+  });
 });
 
 describe('Church portal billing return URLs', () => {
