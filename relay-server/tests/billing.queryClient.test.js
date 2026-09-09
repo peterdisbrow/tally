@@ -34,7 +34,10 @@ function makeMockStripe(secret) {
   return {
     checkout: {
       sessions: {
-        create: async () => ({ id: 'cs_query_1', url: 'https://checkout.stripe.test/session' }),
+        create: async (params) => {
+          makeMockStripe.lastCreateParams = params;
+          return { id: 'cs_query_1', url: 'https://checkout.stripe.test/session' };
+        },
       },
     },
     billingPortal: {
@@ -144,6 +147,9 @@ describe('BillingSystem query client mode', () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].church_name).toBe('Grace Church');
+    expect(makeMockStripe.lastCreateParams.success_url).toContain('/church-portal?session_id={CHECKOUT_SESSION_ID}');
+    expect(makeMockStripe.lastCreateParams.cancel_url).toMatch(/\/church-portal$/);
+    expect(makeMockStripe.lastCreateParams.success_url).not.toContain('/billing/success');
   });
 
   it('processes checkout webhook events through the shared query client', async () => {

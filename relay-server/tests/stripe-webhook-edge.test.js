@@ -465,6 +465,78 @@ describe('Stripe webhook edge cases', () => {
     expect(graceEnd).toBeLessThan(expectedMax);
   });
 
+  it('treats invoice.paid the same as invoice.payment_succeeded for recovery', async () => {
+    const churchId = 'church_invoice_paid_1';
+    seedChurch(db, churchId, { tier: 'pro', status: 'past_due', subId: 'sub_paid_1' });
+    db.prepare("UPDATE billing_customers SET status = 'past_due' WHERE church_id = ?").run(churchId);
+    db.prepare("UPDATE churches SET billing_status = 'past_due' WHERE churchId = ?").run(churchId);
+
+    const event = {
+      id: 'evt_invoice_paid_1',
+      object: 'event',
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_paid_1',
+          object: 'invoice',
+          subscription: 'sub_paid_1',
+        },
+      },
+    };
+
+    const { payload, signature } = signEvent(event, webhookSecret);
+    await billing.handleWebhook(payload, signature);
+
+    const billingRow = db.prepare('SELECT status FROM billing_customers WHERE church_id = ?').get(churchId);
+    expect(billingRow.status).toBe('active');
+  });
+
+  it('releases the idempotency key so a failed webhook can be retried', async () => {
+    const churchId = 'church_retry_fail_1';
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO churches (churchId, name, email, token, registeredAt)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(churchId, 'Retry Church', 'retry@test.local', 'tok', now);
+    db.prepare(`
+      INSERT INTO billing_customers
+      (id, church_id, stripe_session_id, tier, billing_interval, status, email, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`billing_${churchId}`, churchId, 'cs_retry_fail_1', 'connect', 'monthly', 'pending', 'retry@test.local', now, now);
+
+    const event = {
+      id: 'evt_retry_fail_1',
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_retry_fail_1',
+          object: 'checkout.session',
+          customer: 'cus_retry_fail_1',
+          subscription: 'sub_retry_fail_1',
+          metadata: { churchId, tier: 'connect', billingInterval: 'monthly' },
+        },
+      },
+    };
+
+    const original = billing._onCheckoutCompleted.bind(billing);
+    let calls = 0;
+    billing._onCheckoutCompleted = async (session) => {
+      calls += 1;
+      if (calls === 1) throw new Error('simulated handler failure');
+      return original(session);
+    };
+
+    const { payload, signature } = signEvent(event, webhookSecret);
+    await expect(billing.handleWebhook(payload, signature)).rejects.toThrow('simulated handler failure');
+    expect(db.prepare('SELECT event_id FROM processed_webhook_events WHERE event_id = ?').get(event.id)).toBeUndefined();
+
+    const { payload: p2, signature: s2 } = signEvent(event, webhookSecret);
+    await billing.handleWebhook(p2, s2);
+    expect(calls).toBe(2);
+    expect(db.prepare('SELECT status FROM billing_customers WHERE church_id = ?').get(churchId).status).toBe('active');
+  });
+
   // ── 7. Webhook timeout behavior (Stripe not configured) ────────────────────
 
   it('throws when Stripe is not configured', async () => {

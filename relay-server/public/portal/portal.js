@@ -7317,7 +7317,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'On-call TD rotation</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 3 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="plus" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $149/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="plus" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
 
           // Pro upgrade card
@@ -7333,7 +7333,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $199/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
@@ -7348,7 +7348,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
           html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $199/mo ' + SVG.arrowRight + '</button>';
+          html += '<button data-action="upgradePlan" data-plan-tier="pro" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
@@ -7386,10 +7386,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:16px 24px">';
           html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
-            html += '<button data-action="downgradePlan" data-plan-tier="plus" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($149/mo)</button>';
-            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="plus" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
+            html += '<button data-action="downgradePlan" data-plan-tier="connect" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           }
           html += '</div>';
         }
@@ -7451,7 +7451,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       var nextTierSlug = tier === 'connect' ? 'plus' : 'pro';
       var nextTier = tier === 'connect' ? 'Plus' : 'Pro';
-      var nextPrice = tier === 'connect' ? '$149' : '$199';
+      var nextPrice = tier === 'connect' ? '$99' : '$149';
       var headline = pt(tier === 'connect' ? 'upgrade.connect.headline' : 'upgrade.plus.headline');
       var body = pt(tier === 'connect' ? 'upgrade.connect.body' : 'upgrade.plus.body');
       var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });

@@ -47,6 +47,12 @@ function _resetStripeClientForTests() {
   stripe = createStripeClientFromEnv();
 }
 
+/** Canonical church-portal URL on the API host. Marketing `/billing/success` 404s. */
+function churchPortalHomeUrl() {
+  const origin = String(process.env.RELAY_URL || 'https://api.tallyconnect.app').replace(/\/$/, '');
+  return `${origin}/church-portal`;
+}
+
 // ─── PRICE IDS ───────────────────────────────────────────────────────────────
 // Set these in .env or override with Stripe dashboard IDs
 
@@ -542,8 +548,8 @@ class BillingSystem {
       mode: eventCheckout ? 'payment' : 'subscription',
       customer_email: email || undefined,
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl || `${process.env.APP_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:  cancelUrl  || `${process.env.APP_URL}/billing/cancel`,
+      success_url: successUrl || `${churchPortalHomeUrl()}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  cancelUrl  || churchPortalHomeUrl(),
       metadata: { churchId: churchId || '', tier: normalizedTier, billingInterval: effectiveInterval },
       allow_promotion_codes: true,
     };
@@ -599,7 +605,7 @@ class BillingSystem {
     const session = await this._stripeCircuit.call(() =>
       stripe.billingPortal.sessions.create({
         customer: billing.stripe_customer_id,
-        return_url: returnUrl || process.env.APP_URL,
+        return_url: returnUrl || churchPortalHomeUrl(),
       })
     );
 
@@ -624,7 +630,8 @@ class BillingSystem {
     }
 
     // Idempotency guard — Stripe retries webhooks on non-2xx responses.
-    // Record the event ID before processing; skip if already seen.
+    // Insert before processing so concurrent deliveries skip; delete on failure
+    // so a thrown handler can be retried instead of being silently dropped.
     try {
       const already = await this._one(
         'SELECT event_id FROM processed_webhook_events WHERE event_id = ?',
@@ -639,43 +646,59 @@ class BillingSystem {
         [event.id, event.type, new Date().toISOString()]
       );
     } catch (e) {
-      // DB error writing idempotency record — log and continue processing
-      // rather than reject a valid webhook.
+      const raced = await this._one(
+        'SELECT event_id FROM processed_webhook_events WHERE event_id = ?',
+        [event.id]
+      );
+      if (raced) {
+        console.log(`[Billing] Webhook ${event.id} (${event.type}) already processed — skipping`);
+        return { received: true };
+      }
       console.warn(`[Billing] Could not record webhook idempotency key: ${e.message}`);
     }
 
     console.log(`[Billing] Webhook: ${event.type}`);
 
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await this._onCheckoutCompleted(event.data.object);
-        break;
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        await this._onSubscriptionUpdated(event.data.object);
-        break;
-      case 'customer.subscription.deleted':
-        await this._onSubscriptionCancelled(event.data.object);
-        break;
-      case 'invoice.payment_failed':
-        await this._onPaymentFailed(event.data.object);
-        break;
-      case 'invoice.payment_succeeded':
-        await this._onPaymentSucceeded(event.data.object);
-        break;
-      case 'charge.dispute.created':
-        await this._onDisputeCreated(event.data.object);
-        break;
-      case 'charge.dispute.closed':
-        await this._onDisputeClosed(event.data.object);
-        break;
-      case 'customer.subscription.trial_will_end':
-        // Stripe fires this 3 days before trial ends — our lifecycle emails already handle this
-        console.log(`[Billing] Trial ending soon for subscription ${event.data.object.id}`);
-        break;
-      case 'invoice.upcoming':
-        await this._onInvoiceUpcoming(event.data.object);
-        break;
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await this._onCheckoutCompleted(event.data.object);
+          break;
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated':
+          await this._onSubscriptionUpdated(event.data.object);
+          break;
+        case 'customer.subscription.deleted':
+          await this._onSubscriptionCancelled(event.data.object);
+          break;
+        case 'invoice.payment_failed':
+          await this._onPaymentFailed(event.data.object);
+          break;
+        case 'invoice.paid':
+        case 'invoice.payment_succeeded':
+          await this._onPaymentSucceeded(event.data.object);
+          break;
+        case 'charge.dispute.created':
+          await this._onDisputeCreated(event.data.object);
+          break;
+        case 'charge.dispute.closed':
+          await this._onDisputeClosed(event.data.object);
+          break;
+        case 'customer.subscription.trial_will_end':
+          // Stripe fires this 3 days before trial ends — our lifecycle emails already handle this
+          console.log(`[Billing] Trial ending soon for subscription ${event.data.object.id}`);
+          break;
+        case 'invoice.upcoming':
+          await this._onInvoiceUpcoming(event.data.object);
+          break;
+      }
+    } catch (err) {
+      try {
+        await this._run('DELETE FROM processed_webhook_events WHERE event_id = ?', [event.id]);
+      } catch (cleanupErr) {
+        console.warn(`[Billing] Could not release webhook idempotency key ${event.id}: ${cleanupErr.message}`);
+      }
+      throw err;
     }
 
     return { received: true };
