@@ -41,6 +41,8 @@ export default function StatusTab({ api, role }) {
     switch (state) {
       case 'operational': return C.green;
       case 'degraded':    return C.yellow;
+      // Synthetic checks persist `outage`. Legacy / copy sometimes said `down`.
+      case 'outage':
       case 'down':        return C.red;
       default:            return C.muted;
     }
@@ -50,6 +52,7 @@ export default function StatusTab({ api, role }) {
     switch (state) {
       case 'operational': return 'Operational';
       case 'degraded':    return 'Degraded';
+      case 'outage':      return 'Outage';
       case 'down':        return 'Down';
       default:            return state || 'Unknown';
     }
@@ -64,7 +67,7 @@ export default function StatusTab({ api, role }) {
 
   const overallStatus = () => {
     if (components.length === 0) return 'unknown';
-    if (components.some(c => c.state === 'down')) return 'down';
+    if (components.some(c => c.state === 'down' || c.state === 'outage')) return 'outage';
     if (components.some(c => c.state === 'degraded')) return 'degraded';
     return 'operational';
   };

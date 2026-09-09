@@ -154,6 +154,11 @@ module.exports = function setupHealthRoutes(app, ctx) {
     };
   }
 
+  /** Public boolean only — never the key, never a prefix. */
+  function aiConfigured() {
+    return Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
+  }
+
   /** Quick SELECT 1 to confirm the database is readable. */
   function dbReadCheck() {
     if (queryClient) {
@@ -223,6 +228,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
       memoryUsage:         memUsage(),
       database:            dbStatus,
       realtime:            realtimeSummary(),
+      aiConfigured:        aiConfigured(),
     });
     const maybeDbStatus = dbReadCheck();
     if (maybeDbStatus && typeof maybeDbStatus.then === 'function') {
@@ -263,6 +269,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
           write: dbWrite,
         },
         realtime: realtimeSummary(),
+        aiConfigured: aiConfigured(),
       });
     };
 

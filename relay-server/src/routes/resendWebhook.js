@@ -16,7 +16,17 @@ const {
   shouldSuppressEventType,
 } = require('../resendClient');
 
-module.exports = function setupResendWebhookRoutes(app, ctx) {
+let lastResendWebhookAt = null;
+
+function getLastResendWebhookAt() {
+  return lastResendWebhookAt;
+}
+
+function resetLastResendWebhookAt() {
+  lastResendWebhookAt = null;
+}
+
+function setupResendWebhookRoutes(app, ctx) {
   const { lifecycleEmails, log } = ctx;
   const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
@@ -38,6 +48,8 @@ module.exports = function setupResendWebhookRoutes(app, ctx) {
     if (!verified.ok) {
       return res.status(400).json({ error: 'Invalid signature' });
     }
+
+    lastResendWebhookAt = new Date().toISOString();
 
     const event = verified.event || {};
     const type = String(event.type || '');
@@ -67,4 +79,8 @@ module.exports = function setupResendWebhookRoutes(app, ctx) {
 
     return res.status(200).json({ received: true });
   }));
-};
+}
+
+setupResendWebhookRoutes.getLastResendWebhookAt = getLastResendWebhookAt;
+setupResendWebhookRoutes.resetLastResendWebhookAt = resetLastResendWebhookAt;
+module.exports = setupResendWebhookRoutes;

@@ -106,7 +106,7 @@ Basic service liveness check — no auth required.
 ---
 
 ### `GET /api/health`
-Detailed health including uptime and relay counters. Public response is counts and process health only — it does not include church names.
+Detailed health including uptime and relay counters. Public response is counts and process health only — it does not include church names. `aiConfigured` is a boolean (Anthropic key present); it never includes the key.
 
 **Response**
 ```json
@@ -118,7 +118,8 @@ Detailed health including uptime and relay counters. Public response is counts a
   "registeredChurches": 42,
   "connectedChurches": 7,
   "controllers": 1,
-  "totalMessagesRelayed": 18432
+  "totalMessagesRelayed": 18432,
+  "aiConfigured": true
 }
 ```
 
