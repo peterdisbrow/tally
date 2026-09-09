@@ -503,8 +503,9 @@ let _lastTrayState = '';
 function updateTray() {
   if (!tray) return;
   const state = computeTrayState();
+  const agentRunning = !!agentProcess;
   // Build a fingerprint of all values that affect the tray menu
-  const fingerprint = `${state}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
+  const fingerprint = `${state}|${agentRunning}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
   if (fingerprint === _lastTrayState) return;
   _lastTrayState = fingerprint;
   tray.setImage(getTrayIcon(state));
@@ -524,9 +525,11 @@ function updateTray() {
   if (agentStatus.proPresenter) deviceCount++;
   if (agentStatus.resolume) deviceCount++;
 
+  // Status line follows process state, not just relay. When the agent is
+  // down we must not claim "Local monitoring active" (Sunday-trust).
   const statusLine = connected
     ? `${isLive ? '● LIVE — ' : ''}${deviceCount} device${deviceCount !== 1 ? 's' : ''} connected`
-    : 'Offline Mode — Local monitoring active';
+    : (agentRunning ? 'Offline Mode — Local monitoring active' : 'Agent stopped');
 
   // Billing status line for tray
   const billingTier = agentStatus.billingTier || '';
@@ -558,7 +561,10 @@ function updateTray() {
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
     { label: t('tray.openDashboard'), click: () => mainWindow?.show() },
-    { label: connected ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => connected ? stopAgent() : startAgent() },
+    // Start/Stop must track the agent process. When relay is down the agent
+    // is often still running — a relay-based label called startAgent() (no-op)
+    // and the TD could not stop monitoring from the tray.
+    { label: agentRunning ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => agentRunning ? stopAgent() : startAgent() },
     { type: 'separator' },
     { label: 'Open Church Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
     { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
@@ -835,6 +841,7 @@ function startAgent() {
     cwd: clientPaths.cwd,
     env: spawnEnv,
   });
+  updateTray();
 
   // Connect to relay SSE for real-time device status (replaces stdout parsing for rich data)
   // Pass our instance name so SSE can filter out status from other instances (multi-room).
@@ -849,6 +856,7 @@ function startAgent() {
     mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
     sendNotification('Tally Agent Error', msg);
     agentProcess = null;
+    updateTray();
   });
 
   _authInvalidFired = false; // Reset on each fresh agent start
@@ -1316,6 +1324,10 @@ async function pollLocalStatus() {
         receivedAt: new Date().toISOString(),
         status: body.status,
       });
+      // Renderer dashboard listens on `status`, not `local:status`.
+      // Without this emit, offline fallback never refreshes device pills.
+      mainWindow?.webContents?.send('status', agentStatus);
+      updateTray();
     }
   } catch { /* ignore — agent may be restarting */ }
 }

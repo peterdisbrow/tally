@@ -154,6 +154,41 @@ test('recovery.reconnectDevice reconnects disconnected ATEM', async () => {
   assert.ok(result.includes('ATEM reconnection triggered'));
 });
 
+test('recovery.reconnectDevice uses ChurchAVAgent.reconnectATEM (real method name)', async () => {
+  let called = false;
+  const agent = {
+    atem: {},
+    status: { atem: { connected: false } },
+    reconnectATEM: () => { called = true; },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('ATEM reconnection triggered'));
+});
+
+test('recovery.reconnectDevice uses ChurchAVAgent.connectOBS when reconnectObs is missing', async () => {
+  let called = false;
+  const agent = {
+    obs: {},
+    status: { obs: { connected: false } },
+    connectOBS: async () => { called = true; },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('OBS reconnection triggered'));
+});
+
+test('recovery.reconnectDevice falls back to encoderBridge.connect()', async () => {
+  let called = false;
+  const agent = {
+    encoderBridge: { connect: async () => { called = true; } },
+    status: { encoder: { connected: false } },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('Encoder reconnection triggered'));
+});
+
 test('recovery.reconnectDevice reconnects disconnected OBS', async () => {
   let called = false;
   const agent = {
