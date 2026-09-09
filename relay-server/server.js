@@ -4148,7 +4148,11 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
       return;
     }
   } catch (err) {
-    postSystemChatMessage(churchId, `❌ Setup assistant error: ${err.message}`);
+    const leakedKey = /ANTHROPIC_API_KEY|not configured/i.test(err.message || '');
+    const safe = leakedKey
+      ? 'AI setup is temporarily unavailable. Configure devices manually or try again later.'
+      : (err.message || 'Setup failed');
+    postSystemChatMessage(churchId, `❌ Setup assistant error: ${safe}`);
   }
 }
 
