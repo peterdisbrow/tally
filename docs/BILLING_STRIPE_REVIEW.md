@@ -48,13 +48,13 @@ Pre-fix → post-fix where this PR changed the number.
 
 | Pillar | Score | Why this number |
 |--------|-------|-----------------|
-| **Reliability** | **3 → 3.5 / 5** | Signed webhooks + hourly trial/grace crons exist. Checkout fallback was `/billing/success` **live 404** (fixed). Failed webhook handlers are now retryable (fixed). `checkAccess` still ignores the 7-day grace that `checkChurchPaidAccess` allows. |
+| **Reliability** | **3 → 4 / 5** | Signed webhooks + hourly trial/grace crons exist. Checkout fallback was `/billing/success` **live 404** (fixed). Failed webhook handlers are now retryable (fixed). `checkAccess` / `requireFeature` now honor the same 7-day `past_due` grace as `checkChurchPaidAccess` (`hasPaidBillingAccess`). |
 | **Trust** | **2 → 3 / 5** | Live monthly Stripe **matches** homepage $49/$99/$149. Portal still showed $149 Plus / $199 Pro (**fixed**). Annual 25% is **false** vs Stripe. Founding $49 is the list price. Referral credits now use live list $49/$99/$149 (**fixed**). |
 | **Security** | **4 / 5** | `constructEvent` + raw body on `/api/billing/webhook`. CSRF-exempt correctly. Checkout/portal are admin or church-admin gated. Circuit breaker on outbound Stripe. Remaining: webhook secret required at boot; disputes not subscribed. |
 | **Polish** | **3 / 5** | Portal billing tab, retention modal, Stripe Customer Portal (#158 return URL). Upgrade/downgrade copy was a version behind Stripe (fixed). Lifecycle billing CTAs still use `APP_URL/portal` (marketing now **307s** to `/church-portal`, so not a 404). |
 | **Observability** | **2 / 5** | Status component `stripe_webhook` = keys present. Admin **Billing analytics** APIs are **DEAD** in the SPA. No Stripe Dashboard mismatch alarm. |
 
-**Overall: ~3.1 / 5 — monthly Checkout can be honest after this PR; annual and founding copy are still wrong on the marketing site.**
+**Overall: ~3.2 / 5 — monthly Checkout can be honest after this PR; annual and founding copy are still wrong on the marketing site. Grace is now the same rule on WS and feature APIs.**
 
 ---
 
@@ -179,7 +179,7 @@ Lifecycle queries `billing_status = 'trialing'` at 7 / 5 / 1 days. Expired cron:
 
 ### 3.5 Grace + reactivate
 
-Payment fail → 7 days grace. `checkChurchPaidAccess` **allows** WS during grace. `billing.checkAccess` / `requireFeature` **does not** — feature APIs 403 while the booth stays connected.
+Payment fail → 7 days grace. `checkChurchPaidAccess` **and** `billing.checkAccess` / `requireFeature` share `hasPaidBillingAccess`: WS **and** feature APIs stay up while `grace_ends_at` is in the future. (Previously feature APIs 403’d while the booth stayed connected.)
 
 Grace cron → `inactive`, email, WS close `billing_grace_expired`.
 
@@ -252,7 +252,7 @@ Annual is a **separate Price ID**, not a Stripe coupon. Charging annual today is
 - tally-landing Enterprise card still **$499**; Andrew wants **Custom**. Comparison table already Custom. **Do not change landing from this repo.**
 - Founding / “limited spots” copy while Connect list is $49.
 - Subscribe Stripe endpoint to disputes + `invoice.upcoming` (or delete dead handlers).
-- `checkAccess` should honor grace the same way `checkChurchPaidAccess` does.
+- `checkAccess` now honors grace the same way `checkChurchPaidAccess` does (`hasPaidBillingAccess`) (**fixed**).
 - Portal `features.autopilot` vs `checkAccess` Plus vs Pro.
 - Referral `TIER_MONTHLY_CENTS` now matches live list $49/$99/$149 (**fixed**).
 - Onboard `pending` vs advertised no-CC 30-day trial; align Stripe `payment_method_collection` or local `trialing` without Checkout.
@@ -263,7 +263,7 @@ Annual is a **separate Price ID**, not a Stripe coupon. Charging annual today is
 ### P2
 
 - Admin billing analytics routes **DEAD** in SPA.
-- `_onPaymentSucceeded` clears runtime grace but not `billing_customers.grace_ends_at`.
+- `_onPaymentSucceeded` now clears `billing_customers.grace_ends_at` as well as runtime (**fixed**).
 - Checkout completion marks `active` before Stripe trial ends (`trialing` webhook may follow).
 - `requireFeature` returns **403**; OpenAPI mentions 402.
 - No `integration_identifier` on Checkout (Stripe best practice, not customer-facing).
@@ -275,13 +275,15 @@ Annual is a **separate Price ID**, not a Stripe coupon. Charging annual today is
 - Does not edit tally-landing (Enterprise Custom, annual 25%, founding copy).
 - Does not write Stripe Prices or webhook subscriptions.
 - Does not change the retention coupon (sales-gated).
-- Referral free-month credits aligned to live list (this leftover).
+- Referral free-month credits aligned to live list (#170).
 - Does not invent Railway secret values.
+
+Follow-up (this leftover): `checkAccess` / `requireFeature` now share `hasPaidBillingAccess` with the WS gate so `past_due` + unexpired 7-day grace keeps feature APIs up. `_onPaymentSucceeded` also nulls `billing_customers.grace_ends_at`. Trial calendar expiry is still live-checked only on the WS path (hourly cron is the other).
 
 ---
 
 ## Validation
 
-- `cd relay-server && npx vitest run tests/billing.test.js tests/billing-edge-cases.test.js tests/billing.queryClient.test.js tests/stripe-webhook-edge.test.js tests/billing-webhook.test.js tests/billingRoutes.test.js tests/regression-billing.test.js`
+- `cd relay-server && npx vitest run tests/billing.test.js tests/billing-edge-cases.test.js tests/billing.queryClient.test.js tests/stripe-webhook-edge.test.js tests/billing-webhook.test.js tests/billingRoutes.test.js tests/regression-billing.test.js tests/regression-feature-gating.test.js`
 - Live unauth: `GET https://tallyconnect.app/billing/success` → **404**; `GET https://tallyconnect.app/church-portal` → **307** `api.tallyconnect.app/church-portal`; Stripe livemode prices as §2.
 - Authenticated portal billing tab was **not** clicked (no church session). Price strings are in `portal.js` / `portal.html`.

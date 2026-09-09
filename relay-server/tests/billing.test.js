@@ -100,6 +100,47 @@ describe('PRICES structure', () => {
   });
 });
 
+describe('hasPaidBillingAccess (shared WS + feature-API rule)', () => {
+  let hasPaidBillingAccess;
+
+  beforeEach(() => {
+    const billingPath = require.resolve('../src/billing');
+    delete require.cache[billingPath];
+    process.env.STRIPE_SECRET_KEY = '';
+    hasPaidBillingAccess = require('../src/billing').hasPaidBillingAccess;
+  });
+
+  it('allows active and trialing', () => {
+    expect(hasPaidBillingAccess({ billing_status: 'active' }).allowed).toBe(true);
+    expect(hasPaidBillingAccess({ billing_status: 'trialing' }).allowed).toBe(true);
+  });
+
+  it('allows past_due while grace is still in the future', () => {
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    const result = hasPaidBillingAccess({
+      billing_status: 'past_due',
+      billing_grace_ends_at: '2026-09-16T12:00:00.000Z',
+    }, now);
+    expect(result.allowed).toBe(true);
+    expect(result.inGracePeriod).toBe(true);
+  });
+
+  it('denies past_due when grace has expired or is missing', () => {
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    expect(hasPaidBillingAccess({ billing_status: 'past_due' }, now).allowed).toBe(false);
+    expect(hasPaidBillingAccess({
+      billing_status: 'past_due',
+      billing_grace_ends_at: '2026-09-09T11:59:59.000Z',
+    }, now).allowed).toBe(false);
+  });
+
+  it('denies inactive, canceled, and unknown statuses', () => {
+    expect(hasPaidBillingAccess({ billing_status: 'inactive' }).allowed).toBe(false);
+    expect(hasPaidBillingAccess({ billing_status: 'canceled' }).allowed).toBe(false);
+    expect(hasPaidBillingAccess({ billing_status: 'trial_expired' }).allowed).toBe(false);
+  });
+});
+
 describe('_validatePriceIds (via BillingSystem constructor)', () => {
   const ORIGINAL_ENV = { ...process.env };
 

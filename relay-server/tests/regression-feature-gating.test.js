@@ -388,10 +388,18 @@ describe('feature gating with Stripe enabled: billing status blocks all features
     expect(r.reason).toMatch(/inactive/);
   });
 
-  it('pro tier with past_due status is blocked', () => {
+  it('pro tier with past_due status is blocked without grace', () => {
     const r = billing.checkAccess(church('pro', 'past_due'), 'planning_center');
     expect(r.allowed).toBe(false);
     expect(r.reason).toMatch(/past_due/);
+  });
+
+  it('pro tier with past_due + future grace_ends_at is allowed (same as WS gate)', () => {
+    const r = billing.checkAccess({
+      ...church('pro', 'past_due'),
+      billing_grace_ends_at: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    }, 'planning_center');
+    expect(r.allowed).toBe(true);
   });
 
   it('managed tier with trialing status allows features', () => {
