@@ -61,7 +61,7 @@ module.exports = function setupOfflineDetection(ctx) {
   }
 
   function processRows(allChurches, now) {
-    const botToken = process.env.ALERT_BOT_TOKEN;
+    const botToken = process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
     const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
     for (const row of allChurches) {

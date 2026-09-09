@@ -27,7 +27,7 @@ class MonthlyReport {
   constructor({ db, defaultBotToken, adminChatId } = {}) {
     this.db = db && typeof db.prepare === 'function' ? db : null;
     this.client = this._resolveClient(db);
-    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
+    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
     this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.tallyBot = null;
     this.lifecycleEmails = null;

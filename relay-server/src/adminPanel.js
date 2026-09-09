@@ -1094,7 +1094,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       const { id } = req.params;
       const ackBy = req.adminUser?.name || req.adminUser?.email || 'admin';
-      await qRun('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?', [new Date().toISOString(), ackBy, id]);
+      if (opts.alertEngine) {
+        await opts.alertEngine.acknowledgeAlert(id, ackBy);
+      } else {
+        await qRun('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?', [new Date().toISOString(), ackBy, id]);
+      }
       auditFromReq(req, 'alert_acknowledged', 'alert', id, {});
       res.json({ acknowledged: true });
     } catch(e) {

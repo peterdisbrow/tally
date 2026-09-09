@@ -375,7 +375,7 @@ class HealthAlertMonitor {
    * Send admin summary via Telegram — groups alerts by severity.
    */
   async sendAdminSummary(alerts) {
-    const botToken = process.env.ALERT_BOT_TOKEN;
+    const botToken = process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
     const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
     if (!botToken || !adminChatId || !this.alertEngine) return;

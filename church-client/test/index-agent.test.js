@@ -1287,8 +1287,10 @@ function makeAlertTracker() {
     _lastAlerts: new Map(),
     _relaySends: [],
     sendToRelay(msg) { this._relaySends.push(msg); },
-    sendAlert(message, severity = 'warning') {
-      this.sendToRelay({ type: 'alert', message, severity });
+    sendAlert(message, severity = 'warning', alertType = null) {
+      const payload = { type: 'alert', message, severity };
+      if (alertType) payload.alertType = alertType;
+      this.sendToRelay(payload);
       this._recentAlerts.push({ message, severity, timestamp: Date.now() });
       while (this._recentAlerts.length > 50) this._recentAlerts.shift();
     },
@@ -1316,6 +1318,19 @@ test('sendAlert: defaults severity to "warning"', () => {
   const t = makeAlertTracker();
   t.sendAlert('Something happened');
   assert.equal(t._relaySends[0].severity, 'warning');
+});
+
+test('sendAlert: includes alertType when provided', () => {
+  const t = makeAlertTracker();
+  t.sendAlert('Stream STOPPED', 'critical', 'stream_stopped');
+  assert.equal(t._relaySends[0].alertType, 'stream_stopped');
+  assert.equal(t._relaySends[0].severity, 'critical');
+});
+
+test('sendAlert: omits alertType when not provided', () => {
+  const t = makeAlertTracker();
+  t.sendAlert('ATEM connected', 'info');
+  assert.equal(t._relaySends[0].alertType, undefined);
 });
 
 test('sendAlert: appends to _recentAlerts and caps at 50', () => {

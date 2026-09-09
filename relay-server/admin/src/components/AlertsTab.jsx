@@ -58,7 +58,7 @@ export default function AlertsTab({ api, role }) {
 
   // Filter + sort
   let list = alerts;
-  if (sevFilter !== 'all') list = list.filter(a => (a.severity || 'info') === sevFilter);
+  if (sevFilter !== 'all') list = list.filter(a => String(a.severity || 'info').toLowerCase() === sevFilter);
   if (ackFilter === 'unack') list = list.filter(a => !a.acknowledged_at);
   if (search) {
     const q = search.toLowerCase();
@@ -74,7 +74,12 @@ export default function AlertsTab({ api, role }) {
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const sevColor = (sev) => sev === 'critical' ? C.red : sev === 'warning' ? C.yellow : C.green;
+  const sevColor = (sev) => {
+    const n = String(sev || '').toLowerCase();
+    if (n === 'emergency' || n === 'critical') return C.red;
+    if (n === 'warning') return C.yellow;
+    return C.green;
+  };
   const filterTab = (active) => ({
     background: active ? 'rgba(34,197,94,0.12)' : 'none',
     border: active ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent',

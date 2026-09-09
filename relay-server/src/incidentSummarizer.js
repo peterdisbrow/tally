@@ -481,7 +481,7 @@ Write the summary now:`;
       const church = await this._getChurchRow(churchId);
       if (!church) return;
 
-      const botToken = church.alert_bot_token || process.env.ALERT_BOT_TOKEN;
+      const botToken = church.alert_bot_token || process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
       const tdChatId = church.td_telegram_chat_id;
       if (!botToken || !tdChatId) return;
 
