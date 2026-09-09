@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { C, s, canWrite, PLAN_OPTIONS, PLAN_STATUS_OPTIONS, getEncoderNameFromStatus, getEncoderConnectedFromStatus, getEncoderLiveFromStatus } from './adminStyles';
+import { ZERO_CONNECTED_NOTE } from '../monitorEmptyCopy';
 import StatsBar from './StatsBar';
 import ChurchDetailModal from './ChurchDetailModal';
 
@@ -177,6 +178,19 @@ export default function ChurchesTab({ api, role }) {
 
       {loading && <div style={s.empty}>Loading\u2026</div>}
       {err     && <div style={{ color: C.red, padding: '12px 0', fontSize: 13 }}>{err}</div>}
+
+      {!loading && !err && churches.length > 0 && churches.every((c) => !c.connected) && (
+        <div style={{
+          ...s.card,
+          marginBottom: 16,
+          padding: '10px 16px',
+          fontSize: 13,
+          color: C.muted,
+          lineHeight: 1.5,
+        }}>
+          {ZERO_CONNECTED_NOTE}
+        </div>
+      )}
 
       {!loading && !err && (
         visibleChurches.length === 0
