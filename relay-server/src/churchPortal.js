@@ -1117,7 +1117,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const tdsRows = await qAll('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC', [c.churchId]);
       tds = tdsRows.map(td => { const { password_hash, ...s } = td; s.has_password = !!password_hash; return s; });
     } catch {}
-    const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, slack_webhook_url, ...safe } = c;
+    const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, slack_webhook_url: _omitSlackWebhook, ...safe } = c;
 
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
