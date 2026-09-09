@@ -10,6 +10,7 @@ const {
   publicShareUrls,
   decorateShare,
   legacyViewDisplayRedirect,
+  resolveShareOutputUrls,
 } = require('../src/rundownCanonical');
 
 describe('rundownCanonical helpers', () => {
@@ -90,6 +91,37 @@ describe('rundownCanonical helpers', () => {
     expect(legacyViewDisplayRedirect('abc123', { mode: 'prompter' })).toBeNull();
     expect(legacyViewDisplayRedirect('abc123', { mode: 'compact' })).toBeNull();
     expect(legacyViewDisplayRedirect('abc123', {})).toBeNull();
+  });
+
+  it('maps Operator vs Display shares onto dedicated pages', () => {
+    const urls = resolveShareOutputUrls({
+      display: { token: 'disp-1', role: 'display' },
+      operator: { token: 'op-1', role: 'operator' },
+    }, 'https://api.tallyconnect.app');
+
+    expect(urls).toMatchObject({
+      displayToken: 'disp-1',
+      operatorToken: 'op-1',
+      displayViewUrl: 'https://api.tallyconnect.app/rundown/view/disp-1',
+      displayTimerUrl: 'https://api.tallyconnect.app/rundown/timer/disp-1',
+      displayClockUrl: 'https://api.tallyconnect.app/rundown/clock/disp-1',
+      displayPrompterUrl: 'https://api.tallyconnect.app/rundown/prompter/disp-1',
+      displayConfidenceUrl: 'https://api.tallyconnect.app/rundown/confidence/disp-1',
+      displayShowUrl: 'https://api.tallyconnect.app/rundown/show/disp-1',
+      operatorShowUrl: 'https://api.tallyconnect.app/rundown/show/op-1',
+    });
+    expect(urls.operatorShowUrl).not.toContain('disp-1');
+    expect(urls.displayTimerUrl).not.toContain('op-1');
+  });
+
+  it('does not invent an operator Live Mode URL from a display-only share', () => {
+    const urls = resolveShareOutputUrls({
+      display: { token: 'disp-only', role: 'display' },
+      operator: null,
+    }, 'https://api.tallyconnect.app');
+
+    expect(urls.displayTimerUrl).toBe('https://api.tallyconnect.app/rundown/timer/disp-only');
+    expect(urls.operatorShowUrl).toBe('');
   });
 
   it('maps LiveRundownManager state onto the legacy live-show payload', () => {
