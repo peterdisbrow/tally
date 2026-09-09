@@ -15,6 +15,8 @@ const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./st
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 const { bt, churchLocale } = require('./botI18n');
 const { hasOpenSocket, getPrimarySocket } = require('./runtimeSockets');
+const { encryptSecret } = require('./secretCrypto');
+const { isValidSlackWebhookUrl, resolveSlackWebhookUrl } = require('./slackWebhook');
 
 const _log = createLogger('TallyBot');
 
@@ -174,16 +176,6 @@ function _formatFixList() {
 /fix network — Network troubleshooting
 /fix preservice — Pre-service checklist
 /fix restart — Full system restart guide`;
-}
-
-function isValidSlackWebhookUrl(url) {
-  try {
-    const parsed = new URL(String(url || '').trim());
-    return parsed.protocol === 'https:' &&
-      (parsed.hostname === 'hooks.slack.com' || parsed.hostname.endsWith('.slack.com'));
-  } catch {
-    return false;
-  }
 }
 
 // ─── COMMAND PATTERNS (ported from parse-command.js + videohub + extras) ─────
@@ -2506,7 +2498,8 @@ class TallyBot {
   // ─── SLACK HANDLERS ───────────────────────────────────────────────────────
 
   async _handleSetSlack(church, chatId, webhookUrl) {
-    if (!isValidSlackWebhookUrl(webhookUrl)) {
+    const trimmed = String(webhookUrl || '').trim();
+    if (!isValidSlackWebhookUrl(trimmed)) {
       return this.sendMessage(
         chatId,
         '❌ Invalid Slack webhook URL. It must be an `https://hooks.slack.com/...` URL.',
@@ -2515,7 +2508,9 @@ class TallyBot {
     }
     try {
       this.db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?')
-        .run(webhookUrl, church.churchId);
+        .run(encryptSecret(trimmed), church.churchId);
+      const runtime = this.relay?.churches?.get(church.churchId);
+      if (runtime) runtime.slack_webhook_url = trimmed;
       return this.sendMessage(chatId,
         `✅ Slack webhook saved for *${church.name}*.\n\nSend \`test slack\` to verify it's working.`,
         { parse_mode: 'Markdown' }
@@ -2529,6 +2524,11 @@ class TallyBot {
     try {
       this.db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
         .run(church.churchId);
+      const runtime = this.relay?.churches?.get(church.churchId);
+      if (runtime) {
+        runtime.slack_webhook_url = null;
+        runtime.slack_channel = null;
+      }
       return this.sendMessage(chatId, `✅ Slack integration removed for *${church.name}*.`, { parse_mode: 'Markdown' });
     } catch (e) {
       console.error('[TallyBot] _handleRemoveSlack DB error:', e.message);
@@ -2537,8 +2537,9 @@ class TallyBot {
   }
 
   async _handleTestSlack(church, chatId) {
-    const row = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
-    if (!row?.slack_webhook_url) {
+    const row = this.db.prepare('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?').get(church.churchId);
+    const webhookUrl = resolveSlackWebhookUrl(row?.slack_webhook_url);
+    if (!webhookUrl) {
       return this.sendMessage(chatId,
         `❌ No Slack webhook configured.\n\nUse \`set slack [webhook-url]\` to add one.`,
         { parse_mode: 'Markdown' }
@@ -2559,7 +2560,7 @@ class TallyBot {
     };
 
     try {
-      const resp = await fetch(row.slack_webhook_url, {
+      const resp = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

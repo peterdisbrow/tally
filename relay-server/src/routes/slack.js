@@ -4,6 +4,9 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { encryptSecret } = require('../secretCrypto');
+const { isMaskedSlackWebhookPlaceholder, slackStatusPayload } = require('../slackWebhook');
+
 module.exports = function setupSlackRoutes(app, ctx) {
   const { db, queryClient, churches, requireAdmin, alertEngine, safeErrorMessage, log, isValidSlackWebhookUrl } = ctx;
   const hasQueryClient = !!queryClient;
@@ -12,17 +15,18 @@ module.exports = function setupSlackRoutes(app, ctx) {
   const qRun = (sql, params = []) =>
     hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params);
 
-  // Get Slack config for a church (masked webhook for security)
+  function syncRuntimeSlack(churchId, webhookUrl, channel) {
+    const runtime = churches.get(churchId);
+    if (!runtime) return;
+    runtime.slack_webhook_url = webhookUrl || null;
+    if (channel !== undefined) runtime.slack_channel = channel || null;
+  }
+
+  // Get Slack config for a church (masked webhook — never the full secret)
   app.get('/api/churches/:churchId/slack', requireAdmin, async (req, res) => {
-    const row = await qOne('SELECT * FROM churches WHERE churchId = ?', [req.params.churchId]);
+    const row = await qOne('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?', [req.params.churchId]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
-    const url = row.slack_webhook_url || '';
-    res.json({
-      configured: !!url,
-      webhookUrl: url ? url.slice(0, 40) + '••••••' : '',
-      webhookUrlFull: url, // admin-only endpoint, safe to return full URL
-      channel: row.slack_channel || '',
-    });
+    res.json(slackStatusPayload(row));
   });
 
   // Set Slack config for a church
@@ -31,13 +35,17 @@ module.exports = function setupSlackRoutes(app, ctx) {
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const { webhookUrl, channel } = req.body;
     if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
+    if (isMaskedSlackWebhookPlaceholder(webhookUrl)) {
+      return res.status(400).json({ error: 'Paste the full Slack incoming webhook URL. Masked values cannot be saved.' });
+    }
     if (isValidSlackWebhookUrl && !isValidSlackWebhookUrl(webhookUrl)) {
       return res.status(400).json({ error: 'Invalid Slack webhook URL. Must be an https:// URL on hooks.slack.com.' });
     }
     await qRun(
       'UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?',
-      [webhookUrl, channel || null, req.params.churchId],
+      [encryptSecret(webhookUrl), channel || null, req.params.churchId],
     );
+    syncRuntimeSlack(req.params.churchId, webhookUrl, channel || null);
     log(`Slack configured for church ${church.name}`);
     res.json({ saved: true, channel: channel || null });
   });
@@ -50,6 +58,7 @@ module.exports = function setupSlackRoutes(app, ctx) {
       'UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?',
       [req.params.churchId],
     );
+    syncRuntimeSlack(req.params.churchId, null, null);
     res.json({ removed: true });
   });
 

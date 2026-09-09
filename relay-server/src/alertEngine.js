@@ -4,6 +4,8 @@
 
 const { v4: uuidv4 } = require('uuid');
 const { createQueryClient } = require('./db');
+const { decryptFields } = require('./secretCrypto');
+const { resolveSlackWebhookUrl } = require('./slackWebhook');
 const {
   createAlertDeliveryHealth,
   DEFAULT_ALERT_SEND_FAILURE_THRESHOLD,
@@ -708,7 +710,10 @@ class AlertEngine {
         'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
         [church.churchId],
       );
-      if (dbChurch) slackChurch = { ...church, ...dbChurch };
+      if (dbChurch) {
+        decryptFields(dbChurch, ['slack_webhook_url']);
+        slackChurch = { ...church, ...dbChurch };
+      }
     } catch (e) {
       console.warn('Slack config lookup failed:', e.message);
     }
@@ -849,7 +854,8 @@ class AlertEngine {
   // ─── SLACK INTEGRATION ───────────────────────────────────────────────────
 
   async sendSlackAlert(church, alertType, severity, context, diagnosis) {
-    if (!church.slack_webhook_url) return;
+    const webhookUrl = resolveSlackWebhookUrl(church.slack_webhook_url);
+    if (!webhookUrl) return;
 
     const color = (severity === 'CRITICAL' || severity === 'EMERGENCY') ? '#dc2626'
                 : severity === 'WARNING' ? '#f59e0b'
@@ -874,7 +880,7 @@ class AlertEngine {
     };
 
     try {
-      const resp = await fetch(church.slack_webhook_url, {
+      const resp = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -917,7 +923,10 @@ class AlertEngine {
         'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
         [church.churchId],
       );
-      if (dbChurch) slackChurch = { ...church, ...dbChurch };
+      if (dbChurch) {
+        decryptFields(dbChurch, ['slack_webhook_url']);
+        slackChurch = { ...church, ...dbChurch };
+      }
     } catch (e) {
       console.warn('Slack config lookup failed:', e.message);
     }
@@ -926,7 +935,8 @@ class AlertEngine {
   }
 
   async sendSlackAcknowledgment(church, alertType, responder) {
-    if (!church.slack_webhook_url) return;
+    const webhookUrl = resolveSlackWebhookUrl(church.slack_webhook_url);
+    if (!webhookUrl) return;
     const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const payload = {
       username: 'Tally',
@@ -940,7 +950,7 @@ class AlertEngine {
       }],
     };
     try {
-      await fetch(church.slack_webhook_url, {
+      await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -952,7 +962,8 @@ class AlertEngine {
   }
 
   async sendSlackResolution(church, alertType) {
-    if (!church.slack_webhook_url) return;
+    const webhookUrl = resolveSlackWebhookUrl(church.slack_webhook_url);
+    if (!webhookUrl) return;
     const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const payload = {
       username: 'Tally',
@@ -966,7 +977,7 @@ class AlertEngine {
       }],
     };
     try {
-      await fetch(church.slack_webhook_url, {
+      await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1018,6 +1029,7 @@ class AlertEngine {
           [alert.church.churchId]
         );
         if (dbChurch?.slack_webhook_url) {
+          decryptFields(dbChurch, ['slack_webhook_url']);
           await this.sendSlackAcknowledgment({ ...alert.church, ...dbChurch }, alert.alertType, responder);
         }
       } catch (e) {

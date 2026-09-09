@@ -74,7 +74,7 @@ AlertEngine.sendAlert
   ├─ not EMERGENCY and outside service window → logged only
   ├─ 5‑min in-memory dedup (except stream_stopped / signal_loss / encoder_offline / EMERGENCY)
   ├─ Telegram  (ALERT_BOT_TOKEN || TALLY_BOT_TOKEN || church.alert_bot_token)
-  ├─ Slack     (churches.slack_webhook_url, plaintext)
+  ├─ Slack     (churches.slack_webhook_url, secretCrypto enc:v1 at rest; plaintext still readable until next save)
   ├─ Push      (if Firebase wired)
   ├─ Email     EMERGENCY/CRITICAL if no Telegram dest AND no Slack webhook (sendCriticalAlertEmail)
   └─ CRITICAL → 5‑min timer → admin Telegram + lifecycle email (email skipped if no Telegram dest)
@@ -95,7 +95,7 @@ Two Telegram bots in the product:
 | `ANDREW_TELEGRAM_CHAT_ID` | Admin escalation + health/offline | **Present** (`ADMIN_TELEGRAM_CHAT_ID` also accepted, unset) |
 | Per-church `alert_bot_token` / `td_telegram_chat_id` | Override sender / default TD | Columns exist; on-call rotation wins when set |
 
-Slack webhooks live in `churches.slack_webhook_url` **plaintext** (YouTube/Facebook tokens use `secretCrypto`; Slack does not). Portal GET returns a mask; admin GET still returns `webhookUrlFull`.
+Slack webhooks live in `churches.slack_webhook_url` encrypted at rest with `secretCrypto` (`enc:v1:…`, same AES-256-GCM / `ENCRYPTION_KEY` as YouTube and Facebook tokens). `decryptSecret()` still accepts legacy plaintext; the next portal/admin/Telegram save re-encrypts. Portal and admin GET return a mask only — never `webhookUrlFull` or ciphertext.
 
 ---
 
@@ -262,7 +262,7 @@ Scored for **Cogcomm / LCC on a Sunday**, not for feature count.
 |--------|-------|-----|
 | **Reliability** | **2 → 3 / 5** | Engine + Slack + watchdog were real, but stream-down/mute never paged and Telegram had no token. Fallback + typing + resolve close the worst holes. Still: empty schedule silences everything; failover skips Slack; two-bot `/start` trap remains if Andrew adds `ALERT_BOT_TOKEN` without onboarding TDs. |
 | **Trust** | **2 / 5** | 90s vs 5 min; `/ack_` lied; “Settings → Alerts” does not exist; “Tally already fixed it” never left the booth computer. After this PR, ack/resolve match the copy better. Remaining: snake_case titles, failover inbox split. |
-| **Security** | **3 / 5** | Slack URL allowlisted. Stored **plaintext** (unlike YT/FB). Admin API returns full webhook. Telegram tokens in env (correct). No secrets invented in this PR. |
+| **Security** | **3 → 4 / 5** | Slack URL allowlisted. Stored with `secretCrypto` like YT/FB (legacy plaintext readable until next save). Portal + admin GET mask only. Telegram tokens in env (correct). |
 | **Polish** | **2 / 5** | Admin severity filter was case-mismatched (`CRITICAL` vs `critical`) — fixed. Slack fields dump internals. No quiet hours on the channels churches actually use. |
 | **Observability** | **2 / 5** | Console lines + Slack/Telegram HTTP errors (Slack 4xx now logged). **Last successful send** is now a status component (`alert_delivery`) plus Sentry/Andrew page after 3 consecutive HTTP failures. Status still also watches the interactive webhook. |
 
@@ -321,7 +321,7 @@ Shipped here (small, high-confidence only):
 1. Route failover through `AlertEngine.sendAlert` (or at least Slack + `alerts` insert) so the portal inbox matches the phone.
 2. Dedup flush → Slack as well as Telegram.
 3. Unify escalation copy to one duration; consider 90s if Andrew wants “save the stream,” 5 min if he wants less noise.
-4. Encrypt `slack_webhook_url` at rest (`secretCrypto`); stop returning `webhookUrlFull` on admin GET.
+4. Encrypt `slack_webhook_url` at rest (`secretCrypto`); stop returning `webhookUrlFull` on admin GET. **Shipped** — encrypt on write, decrypt on send; GET mask only.
 5. Empty schedule: either page WARNING+ anyway, or banner the portal “Alerts are off until you set a schedule.”
 6. Classify `encoder_offline` / `signal_loss` as CRITICAL **or** remove them from bypass (they are unused and mis-labeled WARNING).
 7. Stop dumping `church.status` into Slack fields.
@@ -354,11 +354,11 @@ Small reliability fixes only. No taxonomy rewrite. No `ALERT_BOT_TOKEN` invented
 | Token fallback on crons / failover / pre-service / reports | `healthAlerts.js`, `offlineDetection.js`, `preServiceCheck.js`, `preServiceRundown.js`, `signalFailover.js`, `monthlyReport.js`, `syncMonitor.js`, `incidentSummarizer.js` |
 | Stream-down / mute carry `alertType` | `church-client/src/index.js` |
 | Admin severity filter/color | `relay-server/admin/src/components/AlertsTab.jsx` |
-| Tests | `telegram-alert-delivery.test.js`, `church-client/test/index-agent.test.js` |
+| Encrypt `slack_webhook_url` at rest; GET mask only (no `webhookUrlFull`) | `secretCrypto.js`, `slackWebhook.js`, `churchPortal.js`, `routes/slack.js`, `alertEngine.js`, `telegramBot.js` |
 
 Desktop/Electron must ship the church-client change for **new** typed stream-down. Old booths still get inference on the known English strings.
 
-**Follow-up leftover (P1-3):** unreachable-channel email — `sendCriticalAlertEmail` for EMERGENCY/CRITICAL when Telegram dest and Slack webhook are both unset. See [`EMAIL_SYSTEM_REVIEW.md`](EMAIL_SYSTEM_REVIEW.md).
+**Shipped leftover (P1-4):** `slack_webhook_url` is encrypted at rest like YT/FB tokens. Portal and admin GET never return the full webhook. Unreachable-channel email already shipped — see [`EMAIL_SYSTEM_REVIEW.md`](EMAIL_SYSTEM_REVIEW.md).
 
 ---
 

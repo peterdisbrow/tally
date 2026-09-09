@@ -24,23 +24,28 @@ const DETAIL_TABS = [
 export default function ChurchDetailModal({ church, api, role, onClose, onUpdate }) {
   const [detailTab, setDetailTab] = useState('overview');
   const [slackForm, setSlackForm] = useState({ webhookUrl: '', channel: '' });
+  const [slackMaskedUrl, setSlackMaskedUrl] = useState('');
+  const [slackConfigured, setSlackConfigured] = useState(false);
   const [slackLoaded, setSlackLoaded] = useState(false);
   const [slackSaving, setSlackSaving] = useState(false);
   const [slackTesting, setSlackTesting] = useState(false);
   const [slackMsg, setSlackMsg] = useState({ type: '', text: '' });
 
-  // Load current Slack config when modal opens
+  // Load current Slack config when modal opens. GET never returns the full webhook.
   useEffect(() => {
     if (!church?.churchId) return;
     (async () => {
       try {
         const data = await api(`/api/churches/${church.churchId}/slack`);
+        setSlackConfigured(!!data.configured);
+        setSlackMaskedUrl(data.webhookUrl || '');
         setSlackForm({
-          webhookUrl: data.webhookUrlFull || data.webhookUrl || '',
+          webhookUrl: '',
           channel: data.channel || '',
         });
       } catch {
-        // No Slack config yet — that's fine, start blank
+        setSlackConfigured(false);
+        setSlackMaskedUrl('');
         setSlackForm({ webhookUrl: '', channel: '' });
       }
       setSlackLoaded(true);
@@ -52,6 +57,10 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
       setSlackMsg({ type: 'err', text: 'Webhook URL is required.' });
       return;
     }
+    if (slackForm.webhookUrl.includes('•')) {
+      setSlackMsg({ type: 'err', text: 'Paste the full Slack incoming webhook URL. Masked values cannot be saved.' });
+      return;
+    }
     setSlackSaving(true);
     setSlackMsg({ type: '', text: '' });
     try {
@@ -59,7 +68,14 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
         method: 'PUT',
         body: { webhookUrl: slackForm.webhookUrl, channel: slackForm.channel || undefined },
       });
-      setSlackMsg({ type: 'ok', text: 'Slack webhook saved.' });
+      try {
+        const data = await api(`/api/churches/${church.churchId}/slack`);
+        setSlackMaskedUrl(data.webhookUrl || '');
+        setSlackConfigured(!!data.configured);
+      } catch { /* mask refresh is best-effort */ }
+      setSlackConfigured(true);
+      setSlackForm(f => ({ ...f, webhookUrl: '' }));
+      setSlackMsg({ type: 'ok', text: 'Slack webhook saved. The full URL is not shown again.' });
       if (onUpdate) onUpdate({ ...church, has_slack: true });
     } catch (e) {
       setSlackMsg({ type: 'err', text: e.message });
@@ -75,6 +91,8 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
     try {
       await api(`/api/churches/${church.churchId}/slack`, { method: 'DELETE' });
       setSlackForm({ webhookUrl: '', channel: '' });
+      setSlackConfigured(false);
+      setSlackMaskedUrl('');
       setSlackMsg({ type: 'ok', text: 'Slack integration removed.' });
       if (onUpdate) onUpdate({ ...church, has_slack: false });
     } catch (e) {
@@ -161,9 +179,14 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
                       style={s.input}
                       value={slackForm.webhookUrl}
                       onChange={e => setSlackForm(f => ({ ...f, webhookUrl: e.target.value }))}
-                      placeholder="https://hooks.slack.com/services/T00000/B00000/XXXXXXXX"
+                      placeholder={slackMaskedUrl || 'https://hooks.slack.com/services/T00000/B00000/XXXXXXXX'}
                       disabled={!canWrite(role)}
                     />
+                    {slackConfigured && !slackForm.webhookUrl && (
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>
+                        Connected. Paste a new URL to replace it — the full secret is never shown again.
+                      </div>
+                    )}
                   </div>
                   <div style={{ marginBottom: 14 }}>
                     <label style={s.label}>Channel Override (optional)</label>
@@ -188,7 +211,7 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
                       >
                         {slackSaving ? 'Saving...' : 'Save Webhook'}
                       </button>
-                      {slackForm.webhookUrl && (
+                      {(slackConfigured || slackForm.webhookUrl) && (
                         <button
                           style={s.btn('secondary')}
                           onClick={testSlack}
@@ -197,7 +220,7 @@ export default function ChurchDetailModal({ church, api, role, onClose, onUpdate
                           {slackTesting ? 'Sending...' : 'Send Test'}
                         </button>
                       )}
-                      {church.has_slack && (
+                      {(church.has_slack || slackConfigured) && (
                         <button
                           style={s.btn('danger')}
                           onClick={removeSlack}

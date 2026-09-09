@@ -53,7 +53,7 @@ const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { escapeHtml } = require('./escapeHtml');
 const { generateCsrfToken, setCsrfCookie } = require('./csrf');
 const { encryptSecret, decryptSecret } = require('./secretCrypto');
-const { isValidSlackWebhookUrl: defaultIsValidSlackWebhookUrl, maskSlackWebhookUrl } = require('./slackWebhook');
+const { isValidSlackWebhookUrl: defaultIsValidSlackWebhookUrl, isMaskedSlackWebhookPlaceholder, slackStatusPayload } = require('./slackWebhook');
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -4138,17 +4138,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   function syncRuntimeSlack(churchId, webhookUrl, channel) {
     const runtime = churches.get(churchId);
     if (!runtime) return;
+    // Keep plaintext in the in-memory map for send; DB stores ciphertext.
     runtime.slack_webhook_url = webhookUrl || null;
     runtime.slack_channel = channel || null;
-  }
-
-  function slackStatusPayload(row) {
-    const url = row?.slack_webhook_url || '';
-    return {
-      configured: !!url,
-      webhookUrl: maskSlackWebhookUrl(url),
-      channel: row?.slack_channel || '',
-    };
   }
 
   // ── GET /api/church/slack ───────────────────────────────────────────────────
@@ -4173,7 +4165,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     const sendTest = req.body?.sendTest !== false;
 
     if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
-    if (webhookUrl.includes('•')) {
+    if (isMaskedSlackWebhookPlaceholder(webhookUrl)) {
       return res.status(400).json({ error: 'Paste the full Slack incoming webhook URL. Masked values cannot be saved.' });
     }
     if (!isValidSlackWebhookUrl(webhookUrl)) {
@@ -4183,7 +4175,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       await qRun(
         'UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?',
-        [webhookUrl, channel, churchId],
+        [encryptSecret(webhookUrl), channel, churchId],
       );
       syncRuntimeSlack(churchId, webhookUrl, channel);
       log.info(`Slack webhook saved for church ${req.church.name || churchId}`);
