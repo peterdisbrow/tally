@@ -38,7 +38,8 @@
       "!dist{,/**/*}",
       "!dist-mock-lab{,/**/*}",
       "!.git{,/**/*}",
-      "!**/.DS_Store"
+      "!**/.DS_Store",
+      "!vendor{,/**/*}"
     ],
     "mac": {
       "category": "public.app-category.utilities",
@@ -149,16 +150,26 @@
   "dependencies": {
     "atem-connection": "^3.9.0",
     "commander": "^12.0.0",
-    "electron-updater": "^6.1.0",
+    "electron-updater": "^6.8.9",
     "multicast-dns": "^7.2.5",
     "obs-websocket-js": "^5.0.4",
     "ws": "^8.21.0"
   },
   "devDependencies": {
     "c8": "^11.0.0",
-    "electron": "^39.0.0",
-    "electron-builder": "^26.8.1",
+    "extract-zip": "file:vendor/extract-zip-safe",
+    "electron": "^39.8.10",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.58.2"
+  },
+  "overrides": {
+    "extract-zip": "file:vendor/extract-zip-safe",
+    "form-data": "4.0.6",
+    "tar": "7.5.22",
+    "tmp": "0.2.7",
+    "ip-address": "10.7.0",
+    "brace-expansion@1": "1.1.18",
+    "brace-expansion@5": "5.0.9"
   },
   "c8": {
     "include": [
