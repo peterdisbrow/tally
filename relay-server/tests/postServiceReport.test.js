@@ -583,12 +583,16 @@ describe('E. generate', () => {
     const church = makeChurch('ch1', { leadershipEmails: 'pastor@church.com,board@church.com' });
     const session = makeSession();
 
-    await reportWithEmail.generate(church, session);
+    const report = await reportWithEmail.generate(church, session);
 
     expect(lifecycleEmails.sendEmail).toHaveBeenCalledTimes(2);
-    const [call1] = lifecycleEmails.sendEmail.mock.calls;
+    const [call1, call2] = lifecycleEmails.sendEmail.mock.calls;
     expect(call1[0].to).toBe('pastor@church.com');
     expect(call1[0].subject).toContain('Test Church');
+    expect(call1[0].emailType).toBe(`service-report-${report.id}:pastor@church.com`);
+    expect(call2[0].emailType).toBe(`service-report-${report.id}:board@church.com`);
+    expect(call1[0].emailType).not.toBe(call2[0].emailType);
+    expect(call1[0].urgent).toBe(true);
   });
 
   it('skips email when leadership_emails is null', async () => {

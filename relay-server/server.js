@@ -260,6 +260,7 @@ const { buildDiagnosticContext } = require('./src/diagnostic-context'); // kept 
 const { buildDiagnosticPrompt, buildAdminPrompt } = require('./src/tally-engineer');
 const { buildContext } = require('./src/tally-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
+const { getUnsubscribeSecret } = require('./src/jwtSecret');
 const { sendResendEmail, buildIdempotencyKey, resolveReplyTo } = require('./src/resendClient');
 const PostServiceReport = require('./src/postServiceReport');
 
@@ -1845,9 +1846,8 @@ const lifecycleEmails = new LifecycleEmails(queryClient, {
 });
 
 // ─── UNSUBSCRIBE / RESUBSCRIBE (CAN-SPAM) ─────────────────────────────────
-// Tokens are signed with JWT_SECRET (UNSUBSCRIBE_SECRET overrides if set so
-// unsubscribe tokens can be rotated independently of session JWTs).
-const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET || JWT_SECRET;
+// Sign (lifecycleEmails._buildUnsubscribeFooter) and verify use the same
+// secret: UNSUBSCRIBE_SECRET || JWT_SECRET (docs/EMAIL_SYSTEM_REVIEW.md P1-7).
 
 /**
  * Verify an unsubscribe token. Accepts new tokens (`category` field) and
@@ -1855,7 +1855,7 @@ const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET || JWT_SECRET;
  * pre-2026-05 'digest'/'report' aliases). Returns `{ churchId, email, category }`.
  */
 function verifyUnsubscribeToken(token) {
-  const payload = jwt.verify(token, UNSUBSCRIBE_SECRET) || {};
+  const payload = jwt.verify(token, getUnsubscribeSecret()) || {};
   const churchId = String(payload.churchId || '').trim();
   const email = String(payload.email || '').trim().toLowerCase();
   const rawCategory = String(payload.category || payload.type || '').trim();

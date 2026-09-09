@@ -11,11 +11,12 @@
  *   7. Payment Failed               — triggered externally from billing webhook
  *   8. Weekly Digest                — Monday 8 AM summary for active churches
  *
- * Duplicate prevention via `email_sends` table — each email type sent once per church.
+ * Duplicate prevention via `email_sends` table — UNIQUE(church_id, email_type).
+ * Multi-recipient reports append a normalized recipient to emailType (P1-1).
  */
 
 const jwt = require('jsonwebtoken');
-const { getJwtSecret } = require('./jwtSecret');
+const { getUnsubscribeSecret } = require('./jwtSecret');
 const {
   sendResendEmail,
   buildIdempotencyKey,
@@ -42,6 +43,48 @@ function resolveWinDownloadUrl({
 
 const DOWNLOAD_WIN_URL = resolveWinDownloadUrl();
 const DOWNLOAD_MAC_URL = DOWNLOAD_MAC_ARM64_URL;
+
+/**
+ * Dedup key for multi-recipient sends. `email_sends` is UNIQUE(church_id, email_type),
+ * so looping leaders with one type per session/week/month dropped everyone after
+ * the first (docs/EMAIL_SYSTEM_REVIEW.md P1-1).
+ */
+function recipientScopedEmailType(baseType, recipient) {
+  const normalized = String(recipient || '').trim().toLowerCase();
+  if (!normalized) return String(baseType);
+  return `${baseType}:${normalized}`;
+}
+
+/**
+ * Stripe `due_date` / `next_payment_attempt` are unix seconds. Also accept ms
+ * so Date.now() and Stripe payloads both produce the same calendar month.
+ */
+function stripeTimestampToDate(value) {
+  if (value === null || value === undefined || value === '') return new Date();
+  const n = Number(value);
+  if (!Number.isFinite(n)) return new Date();
+  return new Date(n < 1e12 ? n * 1000 : n);
+}
+
+function invoiceMonthKey(dueDate) {
+  return stripeTimestampToDate(dueDate).toISOString().slice(0, 7);
+}
+
+/**
+ * Prepare-mode: pause sales/nurture/win-back until GTM is allowed.
+ * See docs/EMAIL_SYSTEM_REVIEW.md §9. Set ENABLE_LIFECYCLE_MARKETING=1 to re-enable.
+ */
+function isLifecycleMarketingEnabled() {
+  return process.env.ENABLE_LIFECYCLE_MARKETING === '1';
+}
+
+/**
+ * P1-4: live `tallyconnect.app/nps` is a 404. Do not send until a landing
+ * route exists in tally-landing. Not inventing `/nps` in this repo.
+ */
+function isNpsSurveyEnabled() {
+  return false;
+}
 
 class LifecycleEmails {
   constructor(db, { resendApiKey, fromEmail, replyTo, appUrl, queryClient, sleep } = {}) {
@@ -762,7 +805,7 @@ class LifecycleEmails {
    */
   async sendSessionRecapEmail(church, session, toEmail) {
     const sessionId = session.sessionId || 'unknown';
-    const emailType = `session-recap-${sessionId}`;
+    const emailType = recipientScopedEmailType(`session-recap-${sessionId}`, toEmail);
 
     const dayName = session.startedAt ? new Date(session.startedAt).toLocaleDateString('en-US', { weekday: 'long' }) : '';
     const dateStr = session.startedAt ? new Date(session.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
@@ -798,7 +841,7 @@ class LifecycleEmails {
       </div>
     `;
 
-    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html });
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html, urgent: true });
   }
 
   // ─── WEEKLY DIGEST EMAIL ──────────────────────────────────────────────────
@@ -810,7 +853,7 @@ class LifecycleEmails {
   async sendWeeklyDigestEmail(church, digestData, toEmail) {
     const now = new Date();
     const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
-    const emailType = `weekly-digest-email-${weekStr}`;
+    const emailType = recipientScopedEmailType(`weekly-digest-email-${weekStr}`, toEmail);
     const dateLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const churchName = this._esc(church.name || 'Your Church');
 
@@ -849,7 +892,7 @@ class LifecycleEmails {
       </div>
     `;
 
-    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html });
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html, urgent: true });
   }
 
   // ─── MONTHLY REPORT EMAIL ──────────────────────────────────────────────────
@@ -860,7 +903,7 @@ class LifecycleEmails {
    */
   async sendMonthlyReportEmail(church, reportData, toEmail) {
     const month = reportData.month || 'unknown';
-    const emailType = `monthly-report-email-${month}`;
+    const emailType = recipientScopedEmailType(`monthly-report-email-${month}`, toEmail);
     const churchName = this._esc(church.name || 'Your Church');
 
     const servicesMonitored = reportData.servicesMonitored || 0;
@@ -927,7 +970,7 @@ View your portal at ${this.appUrl}/church-portal?church=${church.churchId}
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
-    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html, text });
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html, text, urgent: true });
   }
 
   /** HTML escape helper */
@@ -941,7 +984,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       // `type` is preserved for back-compat with existing footers (legacy
       // verifier reads `type`); new tokens carry `category` as the canonical
       // field. Both match the same value.
-      const token = jwt.sign({ churchId, email, category, type: category }, getJwtSecret(), { expiresIn: '365d' });
+      const token = jwt.sign({ churchId, email, category, type: category }, getUnsubscribeSecret(), { expiresIn: '365d' });
       const baseUrl = process.env.RELAY_URL || 'https://api.tallyconnect.app';
       const unsubscribeUrl = `${baseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
       return [
@@ -1019,28 +1062,27 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       // ── Engagement ──
       await this._checkWeeklyDigest();
-      await this._checkInactivityAlert();          // GAP 11: 4+ weeks no sessions
-      await this._checkNPSSurvey();                // GAP 8: Day 60 NPS
-      await this._checkFirstYearAnniversary();     // GAP 9: 365 days active
+      await this._checkInactivityAlert();          // GAP 11: 4+ weeks no sessions — ops, not GTM
 
-      // ── Retention / win-back ──
-      await this._checkCancellationSurvey();
-      await this._checkEarlyWinBack();             // GAP 1: Day 7-14 post-cancel
-      await this._checkWinBack();                  // Day 14-30 post-cancel
+      // Prepare-mode (§9 / P1-5): pause sales drip, NPS, reviews, referral,
+      // win-back, and feature nudges until GTM is allowed. Keep trust + setup
+      // + Sunday + money. Flip ENABLE_LIFECYCLE_MARKETING=1 to re-enable.
+      // NPS stays off even then — tallyconnect.app/nps is a live 404 (P1-4).
+      if (isLifecycleMarketingEnabled()) {
+        if (isNpsSurveyEnabled()) await this._checkNPSSurvey();
+        await this._checkFirstYearAnniversary();
+        await this._checkCancellationSurvey();
+        await this._checkEarlyWinBack();
+        await this._checkWinBack();
+        await this._checkReferralInvite();
+        await this._checkMultiCamNudge();
+        await this._checkViewerAnalyticsNudge();
+        await this._checkReviewRequest();
+        await this._checkLeadNurture();
+      }
 
-      // ── Referral ──
-      await this._checkReferralInvite();           // GAP 10: Day 90, 4+ sessions
-
-      // ── Feature adoption ──
+      // ── Feature adoption that is setup, not sales ──
       await this._checkScheduleSetupNudge();       // Day 7, no schedule configured
-      await this._checkMultiCamNudge();            // Day 21, single-camera only
-      await this._checkViewerAnalyticsNudge();     // Day 30, no stream platform connected
-
-      // ── Reviews ──
-      await this._checkReviewRequest();
-
-      // ── Lead nurture ──
-      await this._checkLeadNurture();
     } catch (e) {
       console.error(`[LifecycleEmails] runCheck error: ${e.message}`);
     }
@@ -1448,7 +1490,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        That's it. Once connected, you'll see your gear status in the <a href="${this.appUrl}/portal" style="color: #22c55e; text-decoration: none;">Church Portal</a> and get alerts if anything goes wrong.
+        That's it. Once connected, you'll see your gear status in the <a href="${this.appUrl}/church-portal" style="color: #22c55e; text-decoration: none;">Church Portal</a> and get alerts if anything goes wrong.
       </p>
 
       ${this._cta('Download Tally', downloadUrl)}
@@ -1468,7 +1510,7 @@ ${this._downloadOptionsText()}
 2. Sign in with your registration code
 3. Chat with our setup assistant — tell it your gear and service times
 
-Once connected, you'll see your gear status at ${this.appUrl}/portal
+Once connected, you'll see your gear status at ${this.appUrl}/church-portal
 
 Need help? Reply to this email or reach out at support@tallyconnect.app
 
@@ -1507,10 +1549,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         <strong>Quick tip:</strong> If you haven't set up Telegram alerts yet, do it before Sunday.
-        It's how Tally talks to you in real-time. Connect at <a href="${this.appUrl}/portal" style="color: #22c55e; text-decoration: none;">your portal</a>.
+        It's how Tally talks to you in real-time. Connect at <a href="${this.appUrl}/church-portal" style="color: #22c55e; text-decoration: none;">your portal</a>.
       </p>
 
-      ${this._cta('Open Your Portal', this.appUrl + '/portal')}
+      ${this._cta('Open Your Portal', this.appUrl + '/church-portal')}
     `);
 
     const text = `Get ready for your first Sunday with Tally
@@ -1527,7 +1569,7 @@ During service:
 - If a device disconnects, you get an alert with diagnosis
 - Check your phone instead of being glued to the booth
 
-Quick tip: If you haven't set up Telegram alerts yet, do it before Sunday. Connect at ${this.appUrl}/portal
+Quick tip: If you haven't set up Telegram alerts yet, do it before Sunday. Connect at ${this.appUrl}/church-portal
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -1588,7 +1630,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 3b. Trial Ending in 7 Days ──
 
   _buildTrialEnding7DaysEmail(church, daysLeft) {
-    const billingUrl = `${this.appUrl}/portal`;
+    const billingUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</h1>
@@ -1639,7 +1681,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 4. Trial Ending Soon ──
 
   _buildTrialEndingSoonEmail(church, daysLeft) {
-    const billingUrl = `${this.appUrl}/portal`;
+    const billingUrl = `${this.appUrl}/church-portal`;
     const headline = daysLeft <= 3
       ? `3 days left &mdash; don\u2019t lose your safety net this Sunday`
       : `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`;
@@ -1697,7 +1739,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 5. Trial Ending Tomorrow ──
 
   _buildTrialEndingTomorrowEmail(church) {
-    const billingUrl = `${this.appUrl}/portal`;
+    const billingUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial ends tomorrow</h1>
@@ -1745,7 +1787,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 6. Trial Expired ──
 
   _buildTrialExpiredEmail(church) {
-    const billingUrl = `${this.appUrl}/portal`;
+    const billingUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial has ended</h1>
@@ -1802,7 +1844,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 7. Payment Failed ──
 
   _buildPaymentFailedEmail(church) {
-    const billingUrl = `${this.appUrl}/portal`;
+    const billingUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Action needed: payment failed</h1>
@@ -1851,7 +1893,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 8. Weekly Digest ──
 
   _buildWeeklyDigestEmail(church, stats) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const statsRows = [
       { label: 'Sessions monitored', value: stats.totalSessions },
@@ -1928,7 +1970,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async sendCancellationConfirmation(church, { periodEnd } = {}) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const endDate = periodEnd ? new Date(periodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'the end of your billing period';
 
     const html = this._wrap(`
@@ -1974,7 +2016,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       pro: ['AutoPilot automation rules', 'Analytics dashboard &amp; trends', 'Priority support &amp; onboarding call'],
       managed: ['Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-location fleet management'],
     };
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const newTierName = TIER_NAMES[newTier] || newTier;
     const oldTierName = TIER_NAMES[oldTier] || oldTier;
     const unlockedFeatures = TIER_UNLOCKED[newTier] || [];
@@ -2017,7 +2059,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async sendGraceExpired(church) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally monitoring has stopped</h1>
@@ -2065,7 +2107,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async sendReactivationConfirmation(church) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome back!</h1>
@@ -2137,7 +2179,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildWinBackEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We miss you at Tally</h1>
@@ -2277,7 +2319,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildRegistrationEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Sunday production safety net starts here</h1>
@@ -2328,7 +2370,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
     const oldName = TIER_NAMES[oldTier] || oldTier;
     const newName = TIER_NAMES[newTier] || newTier;
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Plan changed to ${newName}</h1>
@@ -2394,7 +2436,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildGracePeriodEndingSoonEmail(church, daysLeft) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     // Calculate days until Sunday for urgency framing
     const today = new Date();
@@ -2442,7 +2484,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   async sendInvoiceUpcoming(church, { amount, dueDate }) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
-    const monthKey = new Date(dueDate || Date.now()).toISOString().slice(0, 7); // 2026-03
+    const monthKey = invoiceMonthKey(dueDate);
     const { html, text } = this._buildInvoiceUpcomingEmail(church, { amount, dueDate });
     return this.sendEmail({
       churchId: church.churchId,
@@ -2454,10 +2496,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildInvoiceUpcomingEmail(church, { amount, dueDate }) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const formattedAmount = `$${(amount / 100).toFixed(2)}`;
     const formattedDate = dueDate
-      ? new Date(dueDate * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      ? stripeTimestampToDate(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : 'soon';
 
     const html = this._wrap(`
@@ -2522,7 +2564,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildEmailChangeEmail(church, { oldEmail, newEmail }) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Email address updated</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -2567,7 +2609,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildFirstServiceCompletedEmail(church, sessionData) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const grade = sessionData?.grade || 'Monitored';
     const duration = sessionData?.durationMinutes || 0;
     const alerts = sessionData?.alerts?.length || 0;
@@ -2625,7 +2667,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildDisputeAlertEmail(church, { amount, reason }) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const formattedAmount = amount ? `$${(amount / 100).toFixed(2)}` : 'unknown';
 
     const html = this._wrap(`
@@ -2694,7 +2736,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildUrgentAlertEmail(church, { alertType, context }) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     // Format context as table rows rather than JSON dump
     let contextRows = '';
@@ -2798,7 +2840,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
         And of course, if you ever want to come back, your data and settings are saved for 30 days.
-        Just log in at <a href="${this.appUrl}/portal" style="color: #22c55e; text-decoration: none;">your portal</a>.
+        Just log in at <a href="${this.appUrl}/church-portal" style="color: #22c55e; text-decoration: none;">your portal</a>.
       </p>
 
       <p style="font-size: 14px; color: #666;">
@@ -2848,6 +2890,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   /** Send the immediate welcome email for a new lead */
   async sendLeadWelcome(lead) {
+    if (!isLifecycleMarketingEnabled()) {
+      return { sent: false, reason: 'prepare-mode' };
+    }
     if (!lead?.email) return { sent: false, reason: 'no-recipient' };
     const { html, text } = this._buildLeadWelcomeEmail(lead);
     return this.sendEmail({
@@ -3049,7 +3094,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   async sendWelcomeVerified(church) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
@@ -3096,7 +3141,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event Pass' };
     const tierName = TIER_NAMES[tier] || tier || 'your plan';
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     // Tier-specific feature highlights
     const TIER_FEATURES = {
@@ -3237,7 +3282,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildEarlyWinBackEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">How'd Sunday go?</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -3372,7 +3417,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildPreServiceFridayEmail(church, serviceTime) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const serviceLabel = serviceTime
       ? serviceTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) +
         ' at ' + serviceTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -3445,7 +3490,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildTrialToPaidOnboardingEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const tierName = this._tierName(church.billing_tier);
 
     const TIER_ACTIONS = {
@@ -3520,7 +3565,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildMonthlyROISummaryEmail(church, reportData) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const autoRecovered = reportData.autoRecovered || 0;
     const alertsTriggered = reportData.alertsTriggered || 0;
     const servicesMonitored = reportData.servicesMonitored || 0;
@@ -3596,7 +3641,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _renderAnnualRenewalReminderEmail(church, yearStats = null) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const tierName = this._tierName(church.billing_tier);
     const renewalDate = church.current_period_end
       ? new Date(church.current_period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -3680,7 +3725,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildTelegramSetupNudgeEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're missing the best part of Tally</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -3738,7 +3783,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildNPSSurveyEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     // Build clickable 1-10 score row
     const scores = Array.from({ length: 10 }, (_, i) => i + 1);
     const scoreLinks = scores.map(n => `<a href="${this.appUrl}/nps?church=${church.churchId}&score=${n}" style="display:inline-block; width:36px; height:36px; line-height:36px; text-align:center; border-radius:6px; background:${n <= 6 ? '#fef2f2' : n <= 8 ? '#fffbeb' : '#f0fdf4'}; border:1px solid ${n <= 6 ? '#fecaca' : n <= 8 ? '#fde68a' : '#bbf7d0'}; color:#111; text-decoration:none; font-weight:700; font-size:13px; margin:2px;">${n}</a>`).join('');
@@ -3801,7 +3846,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _renderFirstYearAnniversaryEmail(church, yearStats = { sessions: 0, autoFixed: 0 }) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const tierName = this._tierName(church.billing_tier);
 
     const html = this._wrap(`
@@ -3884,7 +3929,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   _buildReferralInviteEmail(church, { sessionCount }) {
     const signupUrl = `${this.appUrl}/signup`;
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Know another church production team we could help?</h1>
@@ -3962,7 +4007,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildInactivityAlertEmail(church) {
-    const portalUrl = `${this.appUrl}/portal`;
+    const portalUrl = `${this.appUrl}/church-portal`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We haven't seen any services lately</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4025,7 +4070,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       } catch { /* table may not exist */ }
       if (hasSchedule) continue;
 
-      const portalUrl = `${this.appUrl}/portal`;
+      const portalUrl = `${this.appUrl}/church-portal`;
       const html = this._wrap(`
         <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally works best when it knows your schedule</h1>
         <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4091,7 +4136,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       } catch { /* table may not exist */ }
       if (roomCount > 1) continue;
 
-      const portalUrl = `${this.appUrl}/portal`;
+      const portalUrl = `${this.appUrl}/church-portal`;
       const html = this._wrap(`
         <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Did you know Tally can monitor multiple cameras?</h1>
         <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4160,7 +4205,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       } catch { /* table may not exist */ }
       if (hasPlatform) continue;
 
-      const portalUrl = `${this.appUrl}/portal`;
+      const portalUrl = `${this.appUrl}/church-portal`;
       const html = this._wrap(`
         <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">See how many people are watching your stream</h1>
         <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4202,6 +4247,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // Manual trigger from admin for new feature releases.
 
   async sendFeatureAnnouncement({ featureKey, subject, headline, body, ctaText, ctaUrl }) {
+    if (!isLifecycleMarketingEnabled()) {
+      return { sent: 0, skipped: 0, reason: 'prepare-mode' };
+    }
     if (!featureKey) return { sent: 0, skipped: 0 };
 
     const churches = await this._selectAll(`
@@ -4214,7 +4262,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     let sent = 0, skipped = 0;
     for (const church of churches) {
       const emailType = `feature-announcement-${featureKey}`;
-      const { html, text } = this._buildFeatureAnnouncementEmail(church, { headline, body, ctaText: ctaText || 'Learn More', ctaUrl: ctaUrl || this.appUrl + '/portal' });
+      const { html, text } = this._buildFeatureAnnouncementEmail(church, { headline, body, ctaText: ctaText || 'Learn More', ctaUrl: ctaUrl || this.appUrl + '/church-portal' });
       const result = await this.sendEmail({
         churchId: church.churchId,
         emailType,
@@ -4544,7 +4592,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'weekly-digest':           () => ({ ...this._buildWeeklyDigestEmail(sampleChurch, { totalSessions: 3, totalEvents: 12, criticalEvents: 1, autoRecoveries: 1, totalAlerts: 2 }), subject: 'Tally Weekly Report — Sample Church' }),
       'cancellation-confirmation': () => {
         const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally subscription has been cancelled</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4555,7 +4603,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         return { html, text: '', subject: 'Your Tally subscription has been cancelled' };
       },
       'upgrade':                 () => {
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Plan upgraded to Pro!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4566,7 +4614,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         return { html, text: '', subject: 'Plan upgraded to Pro' };
       },
       'grace-expired':           () => {
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally has been paused</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4577,7 +4625,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         return { html, text: '', subject: 'Tally monitoring paused — update payment to restore' };
       },
       'reactivation-confirmation': () => {
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome back!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4590,7 +4638,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'win-back':                () => ({ ...this._buildWinBackEmail(sampleChurch), subject: "We miss you at Tally — here's what you're missing" }),
       'review-request':          () => ({ ...this._buildReviewRequestEmail(sampleChurch, { sessionCount: 12, cleanCount: 9 }), subject: 'Sample Church is crushing it — mind sharing a quick review?' }),
       'welcome-verified':        () => {
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4604,7 +4652,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         return { html, text: '', subject: 'Welcome to Tally, Sample Church!' };
       },
       'payment-confirmed':       () => {
-        const portalUrl = `${this.appUrl}/portal`;
+        const portalUrl = `${this.appUrl}/church-portal`;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Payment confirmed — you're on Pro!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -4651,7 +4699,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'first-year-anniversary':  () => ({ ...this._renderFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }, { sessions: 52, autoFixed: 8 }), subject: 'Sample Church just completed one year with Tally' }),
       'referral-invite':         () => ({ ...this._buildReferralInviteEmail(sampleChurch, { sessionCount: 24 }), subject: 'Know another church production team struggling with the same problems?' }),
       'inactivity-alert':        () => ({ ...this._buildInactivityAlertEmail(sampleChurch), subject: "We haven't seen any services lately — everything okay?" }),
-      'feature-announcement':    () => ({ ...this._buildFeatureAnnouncementEmail(sampleChurch, { headline: 'New: AutoPilot scene recall', body: 'AutoPilot now supports ProPresenter scene recall during service transitions.', ctaText: 'See What\'s New', ctaUrl: this.appUrl + '/portal' }), subject: 'New: AutoPilot scene recall' }),
+      'feature-announcement':    () => ({ ...this._buildFeatureAnnouncementEmail(sampleChurch, { headline: 'New: AutoPilot scene recall', body: 'AutoPilot now supports ProPresenter scene recall during service transitions.', ctaText: 'See What\'s New', ctaUrl: this.appUrl + '/church-portal' }), subject: 'New: AutoPilot scene recall' }),
       'grace-period-ending-early': () => ({ ...this._buildGracePeriodEndingSoonEmail(sampleChurch, 5), subject: 'Tally will be paused in 5 days — update payment now' }),
     };
 
@@ -4759,4 +4807,9 @@ module.exports = {
   DOWNLOAD_MAC_X64_URL,
   DOWNLOAD_WIN_URL,
   resolveWinDownloadUrl,
+  recipientScopedEmailType,
+  stripeTimestampToDate,
+  invoiceMonthKey,
+  isLifecycleMarketingEnabled,
+  isNpsSurveyEnabled,
 };
