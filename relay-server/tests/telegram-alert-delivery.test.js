@@ -594,3 +594,125 @@ describe('notifyAutoRecovery', () => {
     expect(slackCalls).toHaveLength(1);
   });
 });
+
+describe('Unreachable-channel CRITICAL/EMERGENCY email fallback', () => {
+  let db, engine, telegram, sendCriticalAlertEmail, sendUrgentAlertEscalation;
+
+  beforeEach(() => {
+    db = createTestDb();
+    sendCriticalAlertEmail = vi.fn().mockResolvedValue({ sent: false, reason: 'no-api-key', deliveries: [] });
+    sendUrgentAlertEscalation = vi.fn().mockResolvedValue({ sent: false, reason: 'no-api-key' });
+    engine = createEngine(db);
+    engine.setLifecycleEmails({ sendCriticalAlertEmail, sendUrgentAlertEscalation });
+    telegram = captureTelegramFetches();
+  });
+
+  afterEach(() => {
+    engine.clearDedupState('church-1');
+    for (const alert of engine.activeAlerts.values()) {
+      if (alert.escalationTimer) clearTimeout(alert.escalationTimer);
+    }
+    engine.activeAlerts.clear();
+    db.close();
+    vi.unstubAllGlobals();
+  });
+
+  it('emails when EMERGENCY/CRITICAL has no Telegram chat ID and no Slack webhook', async () => {
+    const church = makeChurch({
+      td_telegram_chat_id: '',
+      portal_email: 'pastor@grace.church',
+    });
+    const result = await engine.sendAlert(church, 'stream_stopped', { source: 'OBS' });
+    expect(result.action).toBe('emailed');
+    expect(telegram.calls).toHaveLength(0);
+    expect(sendCriticalAlertEmail).toHaveBeenCalledOnce();
+    const [emailChurch, payload] = sendCriticalAlertEmail.mock.calls[0];
+    expect(emailChurch.portal_email).toBe('pastor@grace.church');
+    expect(payload.alertType).toBe('stream_stopped');
+    expect(payload.severity).toBe('CRITICAL');
+  });
+
+  it('does not email WARNING alerts even when no paging channel exists', async () => {
+    const result = await engine.sendAlert(makeChurch({ td_telegram_chat_id: '' }), 'audio_silence', {});
+    expect(sendCriticalAlertEmail).not.toHaveBeenCalled();
+    expect(result.action).toBe('notified');
+  });
+
+  it('does not email when a Telegram chat ID is set', async () => {
+    await engine.sendAlert(makeChurch(), 'stream_stopped', {});
+    expect(sendCriticalAlertEmail).not.toHaveBeenCalled();
+    expect(telegram.calls.length).toBeGreaterThan(0);
+  });
+
+  it('does not email when Slack is configured even without Telegram', async () => {
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
+      .run('church-1', 'First Tally Church', webhookUrl);
+    const result = await engine.sendAlert(makeChurch({
+      td_telegram_chat_id: '',
+      slack_webhook_url: webhookUrl,
+    }), 'stream_stopped', {});
+    expect(result.action).toBe('notified');
+    expect(sendCriticalAlertEmail).not.toHaveBeenCalled();
+  });
+
+  it('treats whitespace / 0 chat IDs as unset', async () => {
+    const result = await engine.sendAlert(makeChurch({
+      td_telegram_chat_id: '  0  ',
+      portal_email: 'pastor@grace.church',
+    }), 'audio_muted', {});
+    expect(result.action).toBe('emailed');
+    expect(sendCriticalAlertEmail).toHaveBeenCalledOnce();
+  });
+
+  it('does not email when on-call rotation supplies a Telegram dest', async () => {
+    engine.onCallRotation = {
+      getOnCallTD: vi.fn().mockResolvedValue({ telegramChatId: 'on-call-chat', name: 'Pat' }),
+    };
+    await engine.sendAlert(makeChurch({ td_telegram_chat_id: '' }), 'stream_stopped', {});
+    expect(sendCriticalAlertEmail).not.toHaveBeenCalled();
+    expect(telegram.calls.some((c) => c.chatId === 'on-call-chat')).toBe(true);
+  });
+
+  it('emails EMERGENCY outside the service window when no Telegram/Slack dest exists', async () => {
+    const closed = new AlertEngine(db, { isServiceWindow: () => false }, {
+      defaultBotToken: 'default-bot-token',
+    });
+    closed.setLifecycleEmails({ sendCriticalAlertEmail, sendUrgentAlertEscalation });
+    const result = await closed.sendAlert(makeChurch({ td_telegram_chat_id: '' }), 'multiple_systems_down', {});
+    expect(result.action).toBe('emailed');
+    expect(sendCriticalAlertEmail).toHaveBeenCalledOnce();
+    expect(sendCriticalAlertEmail.mock.calls[0][1].severity).toBe('EMERGENCY');
+    closed.clearDedupState('church-1');
+  });
+
+  it('keeps empty-schedule CRITICAL stream-down as log-only (no email)', async () => {
+    db.exec(`ALTER TABLE churches ADD COLUMN service_times TEXT DEFAULT '[]'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN church_type TEXT DEFAULT 'recurring'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN event_expires_at TEXT`);
+    db.prepare('INSERT INTO churches (churchId, name, service_times) VALUES (?, ?, ?)')
+      .run('church-1', 'First Tally Church', '[]');
+
+    const scheduleEngine = new ScheduleEngine(db);
+    const silent = new AlertEngine(db, scheduleEngine, { defaultBotToken: 'default-bot-token' });
+    silent.setLifecycleEmails({ sendCriticalAlertEmail, sendUrgentAlertEscalation });
+
+    const result = await silent.sendAlert(makeChurch({ td_telegram_chat_id: '' }), 'stream_stopped', {});
+    expect(result.action).toBe('logged_outside_window');
+    expect(sendCriticalAlertEmail).not.toHaveBeenCalled();
+    silent.clearDedupState('church-1');
+  });
+
+  it('does not send the 5-min Telegram-ack escalation email when there was no Telegram dest', async () => {
+    vi.useFakeTimers();
+    try {
+      await engine.sendAlert(makeChurch({ td_telegram_chat_id: '' }), 'stream_stopped', {});
+      expect(sendCriticalAlertEmail).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(sendUrgentAlertEscalation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

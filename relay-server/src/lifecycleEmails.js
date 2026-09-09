@@ -82,6 +82,37 @@ function uniqueEmailRecipients(...candidates) {
   return out;
 }
 
+/** Same 5-minute window the alert engine uses for Telegram/Slack dedup. */
+const DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS = 5 * 60 * 1000;
+
+function criticalAlertEmailWindowId(nowMs = Date.now(), windowMs = DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS) {
+  const n = Number(nowMs);
+  const w = Number(windowMs) > 0 ? Number(windowMs) : DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS;
+  return String(Math.floor((Number.isFinite(n) ? n : Date.now()) / w));
+}
+
+/**
+ * Dedup key for unreachable-channel CRITICAL/EMERGENCY mail.
+ * UNIQUE(church_id, email_type) — include alert type + 5-min window + recipient
+ * so we page each inbox once per window without dropping a second leader.
+ */
+function criticalAlertEmailType(alertType, recipient, nowMs = Date.now(), windowMs = DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS) {
+  const safeType = String(alertType || 'unknown')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'unknown';
+  return recipientScopedEmailType(
+    `critical-alert-${safeType}-${criticalAlertEmailWindowId(nowMs, windowMs)}`,
+    recipient,
+  );
+}
+
+function leadershipEmailList(raw) {
+  if (Array.isArray(raw)) return uniqueEmailRecipients(...raw);
+  return uniqueEmailRecipients(...String(raw || '').split(','));
+}
+
 /**
  * Andrew / ops inbox. Reuses existing Railway names — do not invent OPS_EMAIL.
  * ADMIN_EMAIL is the legacy operator login address; ADMIN_SEED_EMAIL seeds super_admin.
@@ -536,6 +567,7 @@ class LifecycleEmails {
     'service-recaps':  { name: 'Service Recaps',      types: ['session-recap'] },
     'weekly-digest':   { name: 'Weekly Digest',        types: ['weekly-digest'] },
     'monthly-reports': { name: 'Monthly Reports',      types: ['monthly-roi-summary'] },
+    'alerts':          { name: 'Critical Alerts',      types: ['critical-alert'] },
     'onboarding':      { name: 'Setup & Onboarding',   types: ['setup-reminder', 'first-sunday-prep', 'week-one-checkin', 'activation-escalation', 'telegram-setup-nudge', 'pre-service-friday', 'trial-to-paid-onboarding', 'connection-success'] },
     'feature-tips':    { name: 'Feature Tips',          types: ['schedule-setup-nudge', 'multi-cam-nudge', 'viewer-analytics-nudge', 'nps-survey'] },
     'billing':         { name: 'Billing & Trial',       types: ['trial-ending-7days', 'trial-ending-soon', 'trial-ending-tomorrow', 'trial-expired', 'payment-failed', 'grace-period-ending', 'grace-period-ending-early', 'annual-renewal-reminder', 'invoice-upcoming'] },
@@ -549,6 +581,7 @@ class LifecycleEmails {
     if (emailType.startsWith('session-recap')) return 'service-recaps';
     if (emailType.startsWith('weekly-digest-email-') || emailType.startsWith('weekly-digest-')) return 'weekly-digest';
     if (emailType.startsWith('monthly-report-email-') || emailType.startsWith('monthly-roi-summary-')) return 'monthly-reports';
+    if (emailType.startsWith('critical-alert')) return 'alerts';
     for (const [cat, def] of Object.entries(LifecycleEmails.EMAIL_CATEGORIES)) {
       if (def.types.includes(emailType)) return cat;
     }
@@ -2987,6 +3020,113 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
+  // ─── SEQUENCE 25b: UNREACHABLE-CHANNEL CRITICAL/EMERGENCY ───────────────
+  // Immediate email when Telegram chat ID and Slack webhook are both unset.
+  // Reuses sendEmail (prefs, suppressions, recipient-scoped windowed dedup).
+  // Not a new paging product — backup only. See docs/EMAIL_SYSTEM_REVIEW.md P1-3.
+
+  async sendCriticalAlertEmail(church, { alertType, context, severity, diagnosis, nowMs } = {}) {
+    await this.ready;
+    const recipients = uniqueEmailRecipients(
+      church.portal_email,
+      ...leadershipEmailList(church.leadership_emails),
+    );
+    if (!recipients.length) return { sent: false, reason: 'no-recipient', deliveries: [] };
+
+    const sev = String(severity || 'CRITICAL').toUpperCase() === 'EMERGENCY' ? 'EMERGENCY' : 'CRITICAL';
+    const { html, text } = this._buildCriticalAlertEmail(church, {
+      alertType, context, severity: sev, diagnosis,
+    });
+    const subject = `${sev}: ${alertType || 'alert'} at ${church.name}`;
+    const deliveries = [];
+    for (const to of recipients) {
+      const result = await this.sendEmail({
+        churchId: church.churchId,
+        emailType: criticalAlertEmailType(alertType, to, nowMs),
+        to,
+        subject,
+        html,
+        text,
+        urgent: true,
+      });
+      deliveries.push({ to, ...result });
+    }
+
+    const sent = deliveries.some((d) => d.sent);
+    const firstFail = deliveries.find((d) => !d.sent);
+    return {
+      sent,
+      id: deliveries.find((d) => d.sent)?.id,
+      reason: sent ? undefined : (firstFail?.reason || 'send-failed'),
+      deliveries,
+    };
+  }
+
+  _buildCriticalAlertEmail(church, { alertType, context, severity, diagnosis } = {}) {
+    const portalUrl = `${this.appUrl}/church-portal`;
+    const sev = String(severity || 'CRITICAL').toUpperCase() === 'EMERGENCY' ? 'EMERGENCY' : 'CRITICAL';
+    const diag = diagnosis && typeof diagnosis === 'object'
+      ? diagnosis
+      : (context && typeof context === 'object' && context.diagnosis) || null;
+    const likelyCause = diag && diag.likely_cause ? String(diag.likely_cause) : '';
+    const steps = Array.isArray(diag?.steps) ? diag.steps : [];
+
+    let contextRows = '';
+    if (context && typeof context === 'object') {
+      const skip = new Set(['diagnosis', 'recovery']);
+      contextRows = Object.entries(context)
+        .filter(([k, v]) => {
+          if (!k || k.startsWith('_') || skip.has(k)) return false;
+          const t = typeof v;
+          return t === 'string' || t === 'number' || t === 'boolean';
+        })
+        .slice(0, 8)
+        .map(([k, v]) => `<tr><td style="padding: 4px 0; color: #64748b;">${this._esc(k)}</td><td style="text-align: right; font-weight: 600;">${this._esc(String(v))}</td></tr>`)
+        .join('');
+    }
+
+    const stepRows = steps.map((s, i) => `${i + 1}. ${this._esc(String(s))}`).join('<br>');
+
+    const html = this._wrap(`
+      <div style="margin: 0 0 24px; padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 2px solid #ef4444;">
+        <strong style="font-size: 16px; color: #dc2626;">${sev} ALERT</strong>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        A ${sev.toLowerCase()} alert fired at <strong>${this._esc(church.name)}</strong>.
+        Telegram and Slack are not configured for this church, so Tally is emailing you as a backup.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 4px 0; color: #64748b;">Alert type</td><td style="text-align: right; font-weight: 700;">${this._esc(alertType || 'Unknown')}</td></tr>
+          <tr><td style="padding: 4px 0; color: #64748b;">Church</td><td style="text-align: right; font-weight: 700;">${this._esc(church.name)}</td></tr>
+          ${likelyCause ? `<tr><td style="padding: 4px 0; color: #64748b;">Likely cause</td><td style="text-align: right; font-weight: 700;">${this._esc(likelyCause)}</td></tr>` : ''}
+          ${contextRows}
+        </table>
+        ${stepRows ? `<p style="font-size: 14px; color: #333; line-height: 1.6; margin: 16px 0 0;">${stepRows}</p>` : ''}
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Set up Telegram or Slack in the portal so the next page hits a phone, not an inbox.
+      </p>
+
+      ${this._cta('View Alert Status', portalUrl)}
+    `);
+
+    const textLines = [
+      `${sev} ALERT`,
+      '',
+      `Alert: ${alertType || 'Unknown'} at ${church.name}`,
+      'Telegram and Slack are not configured — this email is the backup page.',
+    ];
+    if (likelyCause) textLines.push(`Likely cause: ${likelyCause}`);
+    steps.forEach((s, i) => textLines.push(`${i + 1}. ${s}`));
+    textLines.push('', `Check status: ${portalUrl}`, '', 'Tally');
+
+    return { html, text: textLines.join('\n') };
+  }
+
   // ─── SEQUENCE 26: CANCELLATION FEEDBACK SURVEY ──────────────────────────
   // Hourly check: 3 days after cancellation, asks for feedback.
 
@@ -4581,6 +4721,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'support-ticket-reply',    name: 'Support Ticket Reply',     trigger: 'Admin replies on a support ticket' },
     { type: 'support-ticket-resolved', name: 'Support Ticket Resolved',  trigger: 'Ticket marked resolved or closed' },
     { type: 'urgent-alert-escalation', name: 'Urgent Alert Email',       trigger: 'Alert escalation — 5 min no ack' },
+    { type: 'critical-alert',          name: 'Critical Alert (no Telegram/Slack)', trigger: 'EMERGENCY/CRITICAL when Telegram chat ID and Slack webhook are both unset' },
     { type: 'cancellation-survey',     name: 'Cancellation Survey',      trigger: 'Auto — 3 days after cancellation' },
     // Lead nurture drip
     { type: 'lead-welcome',            name: 'Lead: Welcome',            trigger: 'On lead capture — immediate' },
@@ -4776,12 +4917,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   _getOverride(emailType) {
     if (this.queryClient) {
       const baseType = emailType.startsWith('weekly-digest-') ? 'weekly-digest' :
+        emailType.startsWith('critical-alert') ? 'critical-alert' :
         emailType.startsWith('upgrade-') ? 'upgrade' : emailType;
       return this._cache.overridesByEmailType.get(baseType) || null;
     }
     try {
       // Also check partial matches for dynamic types (weekly-digest-*, upgrade-*-to-*)
       const baseType = emailType.startsWith('weekly-digest-') ? 'weekly-digest' :
+        emailType.startsWith('critical-alert') ? 'critical-alert' :
         emailType.startsWith('upgrade-') ? 'upgrade' : emailType;
       return this.db.prepare('SELECT subject, html FROM email_template_overrides WHERE email_type = ?').get(baseType);
     } catch { return null; }
@@ -4896,6 +5039,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'support-ticket-reply':    () => this._buildSupportTicketEmail(sampleChurch, { event: 'admin-reply', ticketId: 'preview-ticket', title: 'Stream is down', message: 'Checking the encoder now — hang tight.', severity: 'P1', status: 'in_progress' }),
       'support-ticket-resolved': () => this._buildSupportTicketEmail(sampleChurch, { event: 'resolved', ticketId: 'preview-ticket', title: 'Stream is down', message: 'Encoder restarted and the stream is back.', severity: 'P1', status: 'resolved' }),
       'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: 'URGENT: stream_stopped at Sample Church' }),
+      'critical-alert':          () => ({ ...this._buildCriticalAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS' }, severity: 'CRITICAL', diagnosis: { likely_cause: 'Encoder or software stopped', steps: ['Restart the stream', 'Check internet'] } }), subject: 'CRITICAL: stream_stopped at Sample Church' }),
       'cancellation-survey':     () => ({ ...this._buildCancellationSurveyEmail(sampleChurch), subject: 'Quick question — what could we have done better?' }),
       // Lead nurture drip
       'lead-welcome':            () => ({ ...this._buildLeadWelcomeEmail({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Every Sunday, something breaks in the booth' }),
@@ -5029,4 +5173,7 @@ module.exports = {
   invoiceMonthKey,
   isLifecycleMarketingEnabled,
   isNpsSurveyEnabled,
+  DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS,
+  criticalAlertEmailWindowId,
+  criticalAlertEmailType,
 };

@@ -37,7 +37,7 @@ North star: **Sunday-indispensable — alerts should save the stream, not spam t
 | **Telegram `/ack_XXXXXXXX`** | Stop the 5‑min escalation | Handler only told **failover** to stand by. Engine timer kept running. Admin ack wrote DB only | **No → fixed** |
 | **Dedicated alerts bot** | Separate bot from `@TallyConnectBot` | Engine / pre-service / offline / health crons read **`ALERT_BOT_TOKEN` only**. That var is **still absent in Railway**. Interactive webhook is healthy | **No-op in prod → this PR falls back to `TALLY_BOT_TOKEN`** |
 | **Slack** | Same class of alerts as Telegram, self-serve | Portal + admin CRUD. Engine sends if `slack_webhook_url` is set. Failover **bypasses** the engine (Telegram-only) | **Yes for engine alerts. No for failover** |
-| **Push / email** | Phone banner + escalation backup | Push needs Firebase (not in Railway). Escalation email after **5 min** (copy still says 90s) | **Email: code only. Push: dark** |
+| **Push / email** | Phone banner + escalation backup | Push needs Firebase (not in Railway). Immediate email if no Telegram dest **and** no Slack (EMERGENCY/CRITICAL). Escalation email after **5 min** only when a Telegram dest existed (copy still says 90s) | **Email: fallback + escalation. Push: dark** |
 | **Health / offline crons** | Andrew sees churn / 2h+ booth down | Admin Telegram only. Same missing `ALERT_BOT_TOKEN` | **Andrew-only; now uses Tally bot fallback** |
 
 **Do not invent `ALERT_BOT_TOKEN`.** If Andrew wants a *second* bot, he must create it, put the token in Railway, and have every TD `/start` that bot (Telegram will not deliver otherwise). Until then, this PR pages through `@TallyConnectBot`.
@@ -76,7 +76,8 @@ AlertEngine.sendAlert
   ├─ Telegram  (ALERT_BOT_TOKEN || TALLY_BOT_TOKEN || church.alert_bot_token)
   ├─ Slack     (churches.slack_webhook_url, plaintext)
   ├─ Push      (if Firebase wired)
-  └─ CRITICAL → 5‑min timer → admin Telegram + lifecycle email
+  ├─ Email     EMERGENCY/CRITICAL if no Telegram dest AND no Slack webhook (sendCriticalAlertEmail)
+  └─ CRITICAL → 5‑min timer → admin Telegram + lifecycle email (email skipped if no Telegram dest)
 
 Bypass paths (not the engine)
   ├─ SignalFailover._sendAlert     Telegram only, own copy, no Slack/push/DB
@@ -152,7 +153,8 @@ Sources: `ALERT_CLASSIFICATIONS` + `DIAGNOSIS_TEMPLATES` in `relay-server/src/al
 | Booth offline 2h (not night, not in window) | Andrew | Medium if agent flaky | Prep-mode |
 | Booth offline 24h | Andrew CRITICAL | Low | Ops |
 | Weekly / monthly digest | Email + optional Telegram | Leadership, not booth | Not a Sunday page |
-| Urgent escalation email | `portal_email` after **5 min** unacked CRITICAL | Copy says **90s** | Backup if Telegram is muted |
+| Urgent escalation email | `portal_email` after **5 min** unacked CRITICAL, **only if Telegram dest existed** | Copy says **90s** | Backup if Telegram is muted |
+| Unreachable-channel email | `portal_email` + `leadership_emails` on EMERGENCY/CRITICAL when no Telegram dest and no Slack | 5-min recipient-scoped dedup | Backup when paging channels were never set |
 
 Sales/marketing alerts: **none in the engine.** Health cron excludes non-active/trialing. Feature-tip emails are a separate lifecycle sequence — do not mix them into this inbox.
 
@@ -167,7 +169,7 @@ Sales/marketing alerts: **none in the engine.** Health cron excludes non-active/
 | **TD target** | `churches.td_telegram_chat_id` | On-call rotation overrides | Needs a registered TD |
 | **Admin escalate** | `ANDREW_TELEGRAM_CHAT_ID` | Immediate on EMERGENCY; +5 min on unacked CRITICAL | Chat ID present |
 | **Slack** | Off | Portal Alerts card + admin church modal + Telegram `set slack` | [#148](https://github.com/peterdisbrow/tally/pull/148) self-serve. SSRF allowlist `hooks.slack.com` |
-| **Email** | Escalation + digests only | Resend (`RESEND_API_KEY` present). `FROM_EMAIL` unset → `noreply@tallyconnect.app` | Not a primary Sunday channel |
+| **Email** | Escalation + unreachable-channel backup + digests | Resend (`RESEND_API_KEY` present). `FROM_EMAIL` unset → `noreply@tallyconnect.app`. Unreachable-channel: `sendCriticalAlertEmail` for EMERGENCY/CRITICAL when Telegram dest and Slack webhook are both unset (portal + leaders, `alerts` prefs, 5-min recipient dedup) | Not a primary Sunday channel |
 | **Push** | Off | `FIREBASE_SERVICE_ACCOUNT*` **absent**. Quiet hours + severity prefs exist in code | Dark |
 | **Portal / admin inbox** | DB `alerts` | Portal Alerts page; admin Alerts tab | Empty until engine fires |
 | **Mobile tab** | WS + local store | Expo app **CODE_ONLY** (not in CI / stores) | Dark |
@@ -326,6 +328,7 @@ Shipped here (small, high-confidence only):
 8. Pre-service **pass** only if a TD asked; fail always.
 9. Metric + status component: “last successful alert send” (not just webhook getMe). **Shipped** — `alert_delivery` status component + Sentry/Andrew page after 3 consecutive Telegram or Slack HTTP failures.
 10. Delete or rewrite `telegram-setup.md` Settings → Alerts.
+11. **Unreachable-channel email** — **Shipped:** EMERGENCY/CRITICAL emails `portal_email` (+ leaders) when Telegram dest and Slack webhook are both unset. Empty schedule still log-only.
 
 ### P2 — later
 
@@ -354,6 +357,8 @@ Small reliability fixes only. No taxonomy rewrite. No `ALERT_BOT_TOKEN` invented
 | Tests | `telegram-alert-delivery.test.js`, `church-client/test/index-agent.test.js` |
 
 Desktop/Electron must ship the church-client change for **new** typed stream-down. Old booths still get inference on the known English strings.
+
+**Follow-up leftover (P1-3):** unreachable-channel email — `sendCriticalAlertEmail` for EMERGENCY/CRITICAL when Telegram dest and Slack webhook are both unset. See [`EMAIL_SYSTEM_REVIEW.md`](EMAIL_SYSTEM_REVIEW.md).
 
 ---
 
