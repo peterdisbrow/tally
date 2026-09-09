@@ -147,6 +147,43 @@ describe('Telegram alert delivery — HTTP contract', () => {
     expect(slackCalls).toHaveLength(1);
   });
 
+  it('decrypts an encrypted-at-rest Slack webhook before sending', async () => {
+    const { encryptSecret } = require('../src/secretCrypto');
+    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, { defaultBotToken: '' });
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
+      .run('church-slack-enc', 'Slack Enc', encryptSecret(webhookUrl));
+    const church = makeChurch({
+      churchId: 'church-slack-enc',
+      name: 'Slack Enc',
+      alert_bot_token: '',
+      slack_webhook_url: null,
+    });
+
+    const result = await noTokenEngine.sendAlert(church, 'audio_silence', {});
+    expect(result.action).toBe('notified');
+    expect(telegram.calls).toHaveLength(0);
+    const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) =>
+      String(url) === webhookUrl,
+    );
+    expect(slackCalls).toHaveLength(1);
+    expect(telegram.fetchMock.mock.calls.some(([url]) => String(url).startsWith('enc:v1:'))).toBe(false);
+  });
+
+  it('sendSlackAlert decrypts ciphertext on the in-memory church object', async () => {
+    const { encryptSecret } = require('../src/secretCrypto');
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    await engine.sendSlackAlert(
+      makeChurch({ slack_webhook_url: encryptSecret(webhookUrl) }),
+      'test_alert',
+      'INFO',
+      { church: 'First Tally Church' },
+      { likely_cause: 'This is a test message from Tally.', steps: ['ok'] },
+    );
+    const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) => String(url) === webhookUrl);
+    expect(slackCalls).toHaveLength(1);
+  });
+
   it('does not skip Telegram when Slack is also configured', async () => {
     const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
     const church = makeChurch({ slack_webhook_url: webhookUrl });
@@ -591,6 +628,17 @@ describe('notifyAutoRecovery', () => {
     const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) =>
       String(url).startsWith('https://hooks.slack.com/'),
     );
+    expect(slackCalls).toHaveLength(1);
+  });
+
+  it('decrypts an encrypted Slack webhook for the auto-recovery Slack resolve', async () => {
+    const { encryptSecret } = require('../src/secretCrypto');
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
+      .run('church-1', 'First Tally Church', encryptSecret(webhookUrl));
+    const church = makeChurch({ slack_webhook_url: null });
+    await engine.notifyAutoRecovery(church, 'stream_stopped', { command: 'obs.startStream' });
+    const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) => String(url) === webhookUrl);
     expect(slackCalls).toHaveLength(1);
   });
 });

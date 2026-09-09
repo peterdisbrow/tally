@@ -16,6 +16,7 @@ const { v4: uuidv4 } = require('uuid');
 const { hashPassword } = require('../src/auth');
 const setupSlackRoutes = require('../src/routes/slack');
 const { createClient } = require('./helpers/expressTestClient');
+const { encryptSecret, decryptSecret, isEncrypted } = require('../src/secretCrypto');
 
 const JWT_SECRET = 'test-slack-routes-secret';
 
@@ -146,8 +147,25 @@ describe('GET /api/churches/:churchId/slack', () => {
     expect(status).toBe(200);
     expect(body.configured).toBe(true);
     expect(body.channel).toBe('#alerts');
-    expect(body.webhookUrl).toMatch(/••••••/);
-    expect(body.webhookUrlFull).toMatch(/hooks\.slack\.com/);
+    expect(body.webhookUrl).toMatch(/••••/);
+    expect(body.webhookUrlFull).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('xxxxx');
+    expect(JSON.stringify(body)).not.toContain('enc:v1:');
+  });
+
+  it('masks an encrypted-at-rest webhook and never returns ciphertext', async () => {
+    const plaintext = 'https://hooks.slack.com/services/TXXXXX/BXXXXX/xxxxx';
+    const churchId = seedChurch(db, { slack_webhook_url: encryptSecret(plaintext), slack_channel: '#alerts' });
+    const adminId = seedAdmin(db);
+    const token = issueAdminToken(adminId);
+    const { status, body } = await client.get(`/api/churches/${churchId}/slack`, { token });
+    expect(status).toBe(200);
+    expect(body.configured).toBe(true);
+    expect(body.webhookUrl).toMatch(/••••/);
+    expect(body.webhookUrl).toContain('TXX');
+    expect(body.webhookUrlFull).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('xxxxx');
+    expect(JSON.stringify(body)).not.toContain('enc:v1:');
   });
 
   it('returns {configured:false} for church without webhook', async () => {
@@ -229,8 +247,23 @@ describe('PUT /api/churches/:churchId/slack', () => {
     expect(body.saved).toBe(true);
     expect(body.channel).toBe('#notifications');
     const row = db.prepare('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?').get(churchId);
-    expect(row.slack_webhook_url).toBe(webhookUrl);
+    expect(isEncrypted(row.slack_webhook_url)).toBe(true);
+    expect(decryptSecret(row.slack_webhook_url)).toBe(webhookUrl);
     expect(row.slack_channel).toBe('#notifications');
+    expect(JSON.stringify(body)).not.toContain(webhookUrl);
+  });
+
+  it('rejects a masked placeholder', async () => {
+    const churchId = seedChurch(db);
+    built.churchesMap.set(churchId, { name: 'Slack Church', churchId });
+    const adminId = seedAdmin(db);
+    const token = issueAdminToken(adminId);
+    const { status, body } = await client.put(`/api/churches/${churchId}/slack`, {
+      token,
+      body: { webhookUrl: 'https://hooks.slack.com/services/T12••••/••••••••' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/full slack incoming webhook/i);
   });
 
   it('saves valid webhook URL without channel → channel is null', async () => {
@@ -330,6 +363,21 @@ describe('POST /api/churches/:churchId/slack/test', () => {
     expect(status).toBe(200);
     expect(body.sent).toBe(true);
     expect(built.alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
+  });
+
+  it('sends a test using an encrypted-at-rest webhook', async () => {
+    const plaintext = 'https://hooks.slack.com/services/T123/B456/abc';
+    const churchId = seedChurch(db, { slack_webhook_url: encryptSecret(plaintext) });
+    built.churchesMap.set(churchId, { name: 'Slack Church', churchId });
+    const adminId = seedAdmin(db);
+    const token = issueAdminToken(adminId);
+    const { status, body } = await client.post(`/api/churches/${churchId}/slack/test`, { token });
+    expect(status).toBe(200);
+    expect(body.sent).toBe(true);
+    expect(built.alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
+    const passed = built.alertEngine.sendSlackAlert.mock.calls[0][0];
+    expect(isEncrypted(passed.slack_webhook_url)).toBe(true);
+    expect(decryptSecret(passed.slack_webhook_url)).toBe(plaintext);
   });
 
   it('returns 500 when sendSlackAlert throws', async () => {

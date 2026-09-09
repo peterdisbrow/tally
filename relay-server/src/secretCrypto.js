@@ -2,7 +2,8 @@
 
 /**
  * secretCrypto.js — authenticated encryption (AES-256-GCM) for sensitive
- * columns at rest: OAuth access/refresh tokens, stream keys, reseller API keys.
+ * columns at rest: OAuth access/refresh tokens, stream keys, reseller API keys,
+ * Slack incoming-webhook URLs.
  *
  * Wire format:  enc:v1:<base64( iv[12] || authTag[16] || ciphertext )>
  *

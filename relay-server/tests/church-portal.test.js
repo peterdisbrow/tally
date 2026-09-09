@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const { SqliteQueryClient } = require('../src/db/queryClient');
+const { encryptSecret, decryptSecret, isEncrypted } = require('../src/secretCrypto');
 
 const JWT_SECRET = 'test-secret-key-for-unit-tests';
 const CHURCH_A_ID = 'church-aaa-111';
@@ -1786,11 +1787,26 @@ describe('Church Portal API', () => {
       expect(alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
 
       const row = db.prepare('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?').get(CHURCH_A_ID);
-      expect(row.slack_webhook_url).toBe(webhookUrl);
+      expect(isEncrypted(row.slack_webhook_url)).toBe(true);
+      expect(decryptSecret(row.slack_webhook_url)).toBe(webhookUrl);
       expect(churches.get(CHURCH_A_ID).slack_webhook_url).toBe(webhookUrl);
     });
 
-    it('GET /api/church/slack never echoes the full webhook secret', async () => {
+    it('GET /api/church/slack decrypts ciphertext then masks (never echoes secret or enc:v1)', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
+        .run(encryptSecret(webhookUrl), '#booth', CHURCH_A_ID);
+      const res = await client.get('/api/church/slack', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.channel).toBe('#booth');
+      expect(res.body.webhookUrl).toContain('T12');
+      expect(res.body.webhookUrl).toMatch(/••••/);
+      expect(res.body.webhookUrlFull).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+      expect(JSON.stringify(res.body)).not.toContain('enc:v1:');
+    });
+
+    it('GET /api/church/slack never echoes the full webhook secret (legacy plaintext row)', async () => {
       db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
         .run(webhookUrl, '#booth', CHURCH_A_ID);
       const res = await client.get('/api/church/slack', authHeaders(tokenA));
@@ -1838,7 +1854,21 @@ describe('Church Portal API', () => {
       expect(rowB.slack_webhook_url).toBeFalsy();
     });
 
-    it('POST /api/church/slack/test sends via alertEngine', async () => {
+    it('POST /api/church/slack/test decrypts a stored ciphertext webhook before send', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?')
+        .run(encryptSecret(webhookUrl), CHURCH_A_ID);
+      const res = await client.post('/api/church/slack/test', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.sent).toBe(true);
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+      expect(JSON.stringify(res.body)).not.toContain('enc:v1:');
+      expect(alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
+      const passed = alertEngine.sendSlackAlert.mock.calls[0][0];
+      expect(isEncrypted(passed.slack_webhook_url)).toBe(true);
+      expect(decryptSecret(passed.slack_webhook_url)).toBe(webhookUrl);
+    });
+
+    it('POST /api/church/slack/test sends via alertEngine (legacy plaintext row)', async () => {
       db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?').run(webhookUrl, CHURCH_A_ID);
       const res = await client.post('/api/church/slack/test', authHeaders(tokenA));
       expect(res.status).toBe(200);
