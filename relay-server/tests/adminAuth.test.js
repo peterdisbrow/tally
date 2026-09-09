@@ -187,6 +187,21 @@ describe('POST /api/admin/login', () => {
   });
 });
 
+// ─── GET /api/admin/client-config ─────────────────────────────────────────────
+
+describe('GET /api/admin/client-config', () => {
+  let db, client;
+
+  beforeEach(() => { db = createDb(); client = makeClient(buildApp(db)); });
+  afterEach(() => client.close());
+
+  it('is public and returns sentryDsn without auth', async () => {
+    const { status, body } = await client.get('/api/admin/client-config');
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('sentryDsn');
+  });
+});
+
 // ─── GET /api/admin/me ────────────────────────────────────────────────────────
 
 describe('GET /api/admin/me', () => {

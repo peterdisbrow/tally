@@ -692,7 +692,8 @@ describe('Admin Support View (Quick Actions)', () => {
     it('async test', async () => {
       const args = app.routes.post['/api/admin/church/:churchId/send-command'];
       expect(args).toBeDefined();
-      expect(args.length).toBe(2);
+      // requireAdminSession + requirePermission('commands:send') + handler
+      expect(args.length).toBe(3);
     });
 
     it('async test', async () => {

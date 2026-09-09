@@ -4,10 +4,16 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { requirePermission: defaultRequirePermission } = require('./authMiddleware');
+const { isLikelyTestOrSpamChurch } = require('../churchNameValidation');
+
 module.exports = function setupAdminChurchRoutes(app, ctx) {
   const { db, queryClient, churches, requireAdmin,
           billing, normalizeBillingInterval, messageQueues,
           BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log, logAudit } = ctx;
+  const requirePermission = typeof ctx.requirePermission === 'function'
+    ? ctx.requirePermission
+    : defaultRequirePermission;
   const listObservedChurches = typeof ctx.listObservedChurches === 'function'
     ? ctx.listObservedChurches
     : () => Array.from(churches.values());
@@ -137,14 +143,23 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
         billing_trial_ends:  row.billing_trial_ends || null,
         has_slack:            !!row.slack_webhook_url,
         registrationCode:    row.registration_code || c.registrationCode || null,
-        token:               row.token || c.token || null,
+        hasToken:            !!(row.token || c.token),
+        isJunk:              isLikelyTestOrSpamChurch({
+          name: c.name,
+          lastSeen: c.lastSeen,
+          connected: isConnected(c),
+          billing_status: row.billing_status || 'inactive',
+          church_type: c.church_type || row.church_type,
+          is_test: row.is_test,
+          is_spam: row.is_spam,
+        }),
       };
     });
     res.json(list);
   });
 
   // Update billing plan/status manually
-  app.put('/api/churches/:churchId/billing', requireAdmin, async (req, res) => {
+  app.put('/api/churches/:churchId/billing', requireAdmin, requirePermission('billing:write'), async (req, res) => {
     const { churchId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
@@ -194,7 +209,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   });
 
   // Delete a church
-  app.delete('/api/churches/:churchId', requireAdmin, async (req, res) => {
+  app.delete('/api/churches/:churchId', requireAdmin, requirePermission('churches:delete'), async (req, res) => {
     const { churchId } = req.params;
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });

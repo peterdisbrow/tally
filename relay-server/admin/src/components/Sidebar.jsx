@@ -1,6 +1,6 @@
 import { C, s, NAV_GROUPS, ROLE_COLORS, ROLE_LABELS, tabsForRole } from './adminStyles';
 
-export default function Sidebar({ tab, setTab, role, user, relayOk, relayErr, relayMeta, onSignOut, mobile = false, open = false, onClose }) {
+export default function Sidebar({ tab, setTab, role, user, relayOk, relayErr, relayMeta, onSignOut, onChangePassword, mobile = false, open = false, onClose }) {
   const availIds = new Set(tabsForRole(role).map(([id]) => id));
   const asideStyle = mobile
     ? {
@@ -95,6 +95,18 @@ export default function Sidebar({ tab, setTab, role, user, relayOk, relayErr, re
                 {ROLE_LABELS[role] || role}
               </span>
             </div>
+          )}
+          {onChangePassword && (
+            <button
+              style={{
+                ...s.btn('secondary'),
+                width: '100%', fontSize: 12, padding: '8px 0',
+                textAlign: 'center', marginBottom: 8,
+              }}
+              onClick={onChangePassword}
+            >
+              Change password
+            </button>
           )}
           <button
             style={{

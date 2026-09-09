@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const {
   validateChurchName,
   normalizeChurchName,
+  isLikelyTestOrSpamChurch,
   MAX_CHURCH_NAME_LENGTH,
 } = require('../src/churchNameValidation');
 
@@ -99,5 +100,39 @@ describe('validateChurchName — boundaries', () => {
 
   it('does not treat Bethel as betting spam', () => {
     expect(validateChurchName('Bethel').ok).toBe(true);
+  });
+});
+
+describe('isLikelyTestOrSpamChurch', () => {
+  it('flags Test Church and casino names', () => {
+    expect(isLikelyTestOrSpamChurch({ name: 'Test Church', billing_status: 'active', lastSeen: '2026-01-01' })).toBe(true);
+    expect(isLikelyTestOrSpamChurch({ name: 'Best Online Casino', billing_status: 'active', lastSeen: '2026-01-01' })).toBe(true);
+  });
+
+  it('flags never-seen inactive tenants', () => {
+    expect(isLikelyTestOrSpamChurch({
+      name: 'Grace Chapel',
+      billing_status: 'inactive',
+      lastSeen: null,
+      connected: false,
+    })).toBe(true);
+  });
+
+  it('keeps a live recurring church', () => {
+    expect(isLikelyTestOrSpamChurch({
+      name: 'Grace Chapel',
+      billing_status: 'active',
+      lastSeen: '2026-09-01T12:00:00.000Z',
+      connected: true,
+    })).toBe(false);
+  });
+
+  it('honors an explicit is_test flag', () => {
+    expect(isLikelyTestOrSpamChurch({
+      name: 'Grace Chapel',
+      billing_status: 'active',
+      lastSeen: '2026-09-01T12:00:00.000Z',
+      is_test: 1,
+    })).toBe(true);
   });
 });

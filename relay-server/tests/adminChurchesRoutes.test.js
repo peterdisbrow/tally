@@ -185,6 +185,21 @@ describe('GET /api/churches', () => {
     const { body } = await callRoute(r, 'GET:/api/churches');
     expect(body[0].billing_tier).toBe('plus');
   });
+
+  it('omits raw connection tokens from the fleet list', async () => {
+    db.prepare("INSERT INTO churches (churchId, name, token) VALUES (?, ?, ?)").run('ch1', 'Secret Church', 'permanent-jwt-token');
+    const churches = new Map([
+      ['ch1', { churchId: 'ch1', name: 'Secret Church', token: 'permanent-jwt-token', status: 'ok', lastSeen: null }],
+    ]);
+    const ctx = makeCtx(db, churches);
+    const { app, routes: r } = makeApp();
+    setupAdminChurchRoutes(app, ctx);
+
+    const { body, status } = await callRoute(r, 'GET:/api/churches');
+    expect(status).toBe(200);
+    expect(body[0].token).toBeUndefined();
+    expect(body[0].hasToken).toBe(true);
+  });
 });
 
 // ─── PUT /api/churches/:churchId/billing ─────────────────────────────────────

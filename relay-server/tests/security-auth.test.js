@@ -664,4 +664,46 @@ describe('hasPermission — role-based access control', () => {
   it('engineer can read churches', () => {
     expect(mw.hasPermission('engineer', 'churches:read')).toBe(true);
   });
+
+  it('sales cannot write billing, delete churches, or write resellers', () => {
+    expect(mw.hasPermission('sales', 'billing:write')).toBe(false);
+    expect(mw.hasPermission('sales', 'churches:delete')).toBe(false);
+    expect(mw.hasPermission('sales', 'resellers:write')).toBe(false);
+    expect(mw.hasPermission('sales', 'churches:write')).toBe(false);
+  });
+});
+
+describe('requirePermission — write-route gate', () => {
+  let mw;
+
+  beforeEach(() => {
+    const db = makeDb();
+    mw = buildMiddleware(db);
+  });
+
+  it('allows API-key god mode when adminUser is absent', () => {
+    const req = makeReq();
+    const res = makeRes();
+    let nextCalled = false;
+    mw.requirePermission('churches:delete')(req, res, () => { nextCalled = true; });
+    expect(nextCalled).toBe(true);
+  });
+
+  it('returns 403 when engineer lacks churches:delete', () => {
+    const req = makeReq();
+    req.adminUser = { id: 'e1', email: 'e@test.com', role: 'engineer' };
+    const res = makeRes();
+    mw.requirePermission('churches:delete')(req, res, () => {});
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toMatch(/permission/i);
+  });
+
+  it('allows admin for billing:write', () => {
+    const req = makeReq();
+    req.adminUser = { id: 'a1', email: 'a@test.com', role: 'admin' };
+    const res = makeRes();
+    let nextCalled = false;
+    mw.requirePermission('billing:write')(req, res, () => { nextCalled = true; });
+    expect(nextCalled).toBe(true);
+  });
 });

@@ -5,6 +5,8 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { requirePermission: defaultRequirePermission } = require('./authMiddleware');
+
 module.exports = function setupChurchOpsRoutes(app, ctx) {
   const { db, queryClient, churches, requireAdmin, requireFeature,
           onCallRotation, guestTdMode, eventMode, safeErrorMessage,
@@ -12,6 +14,9 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
           dispatchRemoteCommand,
           safeSend, queueMessage, messageQueues, uuidv4,
           totalMessagesRelayed, QUEUE_TTL_MS, log } = ctx;
+  const requirePermission = typeof ctx.requirePermission === 'function'
+    ? ctx.requirePermission
+    : defaultRequirePermission;
   const getObservedChurch = typeof ctx.getObservedChurch === 'function'
     ? ctx.getObservedChurch
     : (churchId) => churches.get(churchId) || null;
@@ -32,7 +37,7 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
 
   // ─── COMMAND DISPATCH ────────────────────────────────────────────────────────
 
-  app.post('/api/command', requireAdmin, async (req, res) => {
+  app.post('/api/command', requireAdmin, requirePermission('commands:send'), async (req, res) => {
     const { churchId, command, params = {} } = req.body;
     if (!churchId || !command) return res.status(400).json({ error: 'churchId and command required' });
 

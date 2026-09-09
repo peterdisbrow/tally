@@ -51,9 +51,27 @@ function validateChurchName(name) {
   return { ok: true, name: clean };
 }
 
+const TEST_OR_PLACEHOLDER_NAME = /^(?:test|demo|asdf|spam|foo|xxx|zzz)(?:\s|$)|(?:\btest church\b|\bdemo church\b|\blorem ipsum\b)/i;
+
+/**
+ * Soft-hide junk / smoke tenants in the admin fleet list.
+ * Name heuristics reuse signup validation (URL / casino / spam copy).
+ * Also hides never-seen + inactive, or an explicit is_test / is_spam flag.
+ */
+function isLikelyTestOrSpamChurch(church = {}) {
+  if (church.is_test || church.is_spam || church.church_type === 'test') return true;
+  const name = normalizeChurchName(church.name);
+  if (name && TEST_OR_PLACEHOLDER_NAME.test(name)) return true;
+  if (name && !validateChurchName(name).ok) return true;
+  const neverSeen = !church.lastSeen && !church.connected;
+  const inactive = String(church.billing_status || 'inactive').toLowerCase() === 'inactive';
+  return neverSeen && inactive;
+}
+
 module.exports = {
   MIN_CHURCH_NAME_LENGTH,
   MAX_CHURCH_NAME_LENGTH,
   normalizeChurchName,
   validateChurchName,
+  isLikelyTestOrSpamChurch,
 };
