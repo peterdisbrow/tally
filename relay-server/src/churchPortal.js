@@ -596,9 +596,10 @@ const _loginAssetHash = (() => {
     .update(require('fs').readFileSync(require('path').join(__dirname, '../public/portal/login.css')))
     .digest('hex').slice(0, 8);
 })();
-function buildChurchLoginHtml(error = '') {
+function buildChurchLoginHtml(error = '', kind = 'error') {
+  const cls = kind === 'notice' ? 'notice' : 'error';
   const errorBlock = error
-    ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>`
+    ? `<div class="${cls}">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>`
     : '';
   return _loginHtmlTemplate.replace('{{ERROR_BLOCK}}', errorBlock)
     .replace(/(\/portal\/login\.css)/, `$1?v=${_loginAssetHash}`);
@@ -1042,6 +1043,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── Login page ───────────────────────────────────────────────────────────────
   app.get('/church-login', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (String(req.query.idle || '') === '1') {
+      return res.send(buildChurchLoginHtml('Signed out after 30 minutes idle on this laptop.', 'notice'));
+    }
     res.send(buildChurchLoginHtml());
   });
 

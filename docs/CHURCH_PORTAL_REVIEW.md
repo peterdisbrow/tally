@@ -56,7 +56,7 @@ Pre-fix → post-fix where this PR changed the number.
 |--------|-------|-----------------|
 | **Reliability** | **2 → 3 / 5** | Schedule save now hydrates `ScheduleEngine` so “Schedule saved” is not a silent no-op until restart. TDs get SSE. Empty windows still log-only (except EMERGENCY). Alerts + Rundown still live under **More**. 0 booths. |
 | **Trust** | **2 / 5** | AI Triage / Diagnostics is heuristics, not Claude ([`AI_SURFACES_REVIEW.md`](AI_SURFACES_REVIEW.md)). Billing copy lists Connect **$79** (or $49 founding) while marketing sells founding $49 — Stripe IDs are env-only, not re-checked here. PCO cards exist without OAuth. Home can read “protected” with no booth. |
-| **Security** | **3 / 5** | httpOnly `SameSite=Strict` cookie, CSRF double-submit, Helmet `script-src-attr 'none'`. Remaining inline `onclick`/`onchange` in `portal.js` are **dead under CSP** (P1). TD `access_level` is mostly UI-hide; writes use church-admin JWT. Guest TD tokens are 24h Telegram, not portal login. No idle timeout. |
+| **Security** | **3 → 3.5 / 5** | httpOnly `SameSite=Strict` cookie, CSRF double-submit, Helmet `script-src-attr 'none'`. Remaining inline `onclick`/`onchange` in `portal.js` are now `data-action` / `data-action-change` (this PR). TD `access_level` is still UI-hide; writes use church-admin JWT. Guest TD tokens are 24h Telegram, not portal login. Visible idle timeout 30 min; cookie stays 7d. |
 | **Polish** | **2 → 3 / 5** | Rundown calm UX (#150), Slack self-serve (#148), display shares (#147). Profile was unreachable from nav (**fixed**). Simple view hid the schedule card (**fixed**). Competing **More** menu still buries the Sunday path. Mobile hamburger exists; many cards are dense. |
 | **Observability** | **2 / 5** | Relay Sentry exists; **no portal browser Sentry**. SSE failures are silent in the EventSource client. Status page watches Telegram **interactive** webhook, not “did this church get paged.” |
 
@@ -84,7 +84,7 @@ The **Church Portal** is the **self-service SPA for a church** (admin password o
 | **TD** | Same form; then `church_tds.email` + hash → `{ type: 'td_portal', tdId, churchId, accessLevel, roomId? }` **7d**. One assigned room auto-scopes; several rooms → `?pickRoom=1` |
 | **Cookie** | `tally_church_session` **httpOnly**, `SameSite=Strict`, `Secure` in production |
 | **CSRF** | `tally_csrf` readable cookie + `x-csrf-token` header (`src/csrf.js`) |
-| **Idle timeout** | **None.** Session lasts until cookie expiry or Sign out |
+| **Idle timeout** | **30 min visible inactivity** (this PR). Cookie still **7d** so a closed/sleeping booth laptop is not kicked. Hidden tabs pause the timer. Sign-out lands on `/church-login?idle=1`. |
 | **Email verify** | `GET /api/church/verify-email?token=` → redirect `/church-portal?verified=true` ([`EMAIL_SYSTEM_REVIEW.md`](EMAIL_SYSTEM_REVIEW.md)) |
 | **Forgot / reset** | Marketing `tallyconnect.app/forgot-password` **200**; `tallyconnect.app/reset-password` **200**. Legacy `tallyconnect.app/portal/reset-password` still **404** (emails no longer use it) |
 
@@ -94,9 +94,9 @@ The **Church Portal** is the **self-service SPA for a church** (admin password o
 |-------|-------------------|---------------|
 | **viewer** | Almost everything except Home (+ Alerts/Rundown/Network/Analytics still visible) | `requirePortalAuth` for reads; `requireAdminAuth` rejects all TD JWTs |
 | **operator** | Hides Profile, Equipment, Team, Stream, Billing, Help | Same: **cannot** save schedule, Slack, billing, TDs |
-| **admin** (TD) | Hides Billing only | **Still not church admin.** `PUT /api/church/schedule`, `PUT /api/church/me`, Team, Slack → **403 Admin access required** |
+| **admin** (TD) | Hides Billing + Profile | **Still not church admin.** `PUT /api/church/schedule`, `PUT /api/church/me`, Team, Slack → **403 Admin access required**. UI now says **Lead operator** and hides save paths. |
 
-Church-admin vs TD-admin is the #1 footgun: a TD labeled Admin can **see** Equipment/Team and then fail on save.
+Church-admin vs TD-admin is the #1 footgun: a TD labeled Admin could **see** Equipment/Team and then fail on save. **This PR:** label is **Lead operator**; church-admin write controls are hidden.
 
 **Guest TD:** Team page can mint 24h Telegram `GUEST-…` tokens (`guestTdMode`). That is booth/Telegram, **not** a portal cookie.
 
@@ -121,9 +121,9 @@ Client-side pages only (no URL routes). Primary nav: Home, Equipment, Stream, He
 |-----|---------|--------|-------|
 | **Team** | `team` | **WORKING** (code) | TDs, portal access, guest tokens. Church-admin API. |
 | **Alerts** | `alerts` | **PARTIAL** | Slack webhook (#148). Telegram **chat ID is on Profile**, not here. Empty schedule → silent Sunday ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md)). |
-| **Network** | `network-topology` | **UNPROVEN** | Needs booth telemetry. |
-| **Analytics** | `analytics` | **UNPROVEN** | Viewer trends need OAuth + live session. |
-| **Reports** | `reports` | **PARTIAL** | Post-service / recap; empty without sessions. |
+| **Network** | `network-topology` | **UNPROVEN** | Hidden from More until a booth has connected (`onboarding_app_connected_at`). Deep-link shows “connect booth” empty. |
+| **Analytics** | `analytics` | **UNPROVEN** | Hidden from More until a booth has connected. Viewer trends still need OAuth + live session. |
+| **Reports** | `reports` | **PARTIAL** | Hidden from More until a booth has connected. Post-service / recap empty without sessions. |
 | **Automation** | `automation` | **PARTIAL** | AutoPilot Pro+ gate. Uses service windows. |
 | **AI Assistant** | `engineer` | **PARTIAL** | Engineer profile + Claude chat. Copy overlaps Diagnostics. |
 | **Diagnostics** | `ai-triage` | **DECORATIVE** as “AI” | Weighted heuristics, **not Claude**. Empty-schedule CTA used to link **Profile** (**fixed** → Equipment Schedule). |
@@ -210,9 +210,9 @@ Timezone / event-church window: Profile save now calls `applyChurchWindowConfig`
 |------|---------|
 | Session storage | **WORKING** — httpOnly cookie, not `localStorage` (unlike admin SPA `sessionStorage`) |
 | CSRF | **WORKING** — double-submit on cookie mutating routes |
-| XSS | **PARTIAL** — `escapeHtml` used in many renders; CSP `script-src-attr 'none'` **blocks** remaining inline `onclick`/`onchange` (TD access dropdown, VideoHub confirm, Companion fields, onboarding copy, rundown retry, print). Those controls **do not work** until converted to `data-action` |
+| XSS | **WORKING** after this PR — remaining inline `onclick`/`onchange` in `portal.js` converted to `data-action` / `data-action-change`. CSP `script-src-attr 'none'` no longer kills TD access, VideoHub, Companion, rundown retry, onboarding copy |
 | SSE token | **WORKING** after this PR — cookie, not query string (admin HLS still differs) |
-| TD privilege | **PARTIAL** — UI hide ≠ API. TD admin cannot mutate church-admin routes (safe). TD viewer can still **open** Alerts/Rundown by URL/`showPage` if they know the page id |
+| TD privilege | **PARTIAL** — UI hide ≠ API. TD Lead operator cannot mutate church-admin routes (safe). Save buttons hidden. TD viewer can still **open** Alerts/Rundown by URL/`showPage` if they know the page id |
 | Guest tokens | **PARTIAL** — 24h, Telegram redeem; listed in Team |
 | Helmet | `script-src` includes `'unsafe-inline'` (legacy tools pages). Portal JS is an external file (`?v=` hash) |
 
@@ -229,7 +229,7 @@ No secrets in this doc. No portal browser Sentry DSN wired.
 | Never connected | Home “Connect the Tally Desktop App” — **WORKING** empty state. |
 | Empty schedule | Schedule tab + (now) overview card + Diagnostics link. |
 | Empty Slack | Alerts card “Not connected.” |
-| Network / Analytics / Reports | Empty copy until a booth + sessions exist — honest, but they still occupy **More**. |
+| Network / Analytics / Reports | Hidden from More until a booth has connected; deep-link shows “connect booth” empty. |
 | i18n | Toggle exists; large share of Rundown/Alerts/PCO strings are English-only. |
 
 Authenticated portal clicks were **not** run (no church session). HTML + API tests cover the P0 patches.
@@ -260,7 +260,7 @@ Authenticated portal clicks were **not** run (no church session). HTML + API tes
 | Referrals | **DECORATIVE** in prepare mode (sales) |
 | Commands / Network / Analytics | **UNPROVEN** |
 | Guest TD portal login | **DECORATIVE** (Telegram only) |
-| Idle timeout | **DECORATIVE** (does not exist) |
+| Idle timeout | **WORKING** (this PR) — 30 min visible idle; 7d cookie kept |
 | Portal Sentry | **DECORATIVE** (does not exist) |
 
 ---
@@ -286,11 +286,11 @@ Aligned with prepare mode: reliability, trust, calm — not sales.
 1. **Promote Alerts + Rundown out of More** (primary nav). Network/Reports/Commands can stay collapsed.
 2. **Onboarding checklist step: set service windows** (link to Schedule tab).
 3. **Put Telegram chat ID (or a deep link to Profile) on the Alerts page** so both channels live together.
-4. **Replace remaining inline `onclick`/`onchange`** with `data-action` so CSP `script-src-attr 'none'` does not kill TD access, VideoHub, Companion, rundown retry.
-5. **Enforce TD `access_level` on the API** *or* stop calling TD-admin “Admin” in the UI. Today a TD Admin sees Team/Equipment and gets 403.
+4. **Replace remaining inline `onclick`/`onchange`** with `data-action` so CSP `script-src-attr 'none'` does not kill TD access, VideoHub, Companion, rundown retry. **Done (this PR).**
+5. **Enforce TD `access_level` on the API** *or* stop calling TD-admin “Admin” in the UI. **Done (UI honesty, this PR):** label is Lead operator; church-admin save paths hidden. API RBAC still church-admin JWT only.
 6. **PCO:** set `PCO_CLIENT_*` + `PCO_REDIRECT_URI` on `api.tallyconnect.app`, or hide the Connect card until then.
 7. **Portal browser Sentry** (admin SPA already has a path).
-8. **Idle timeout** (e.g. 30 min) for shared booth laptops; keep 7d cookie for “I left it open at church.”
+8. **Idle timeout** (e.g. 30 min) for shared booth laptops; keep 7d cookie for “I left it open at church.” **Done (this PR):** visible 30 min; hidden/sleeping tab pauses the timer.
 9. **Billing copy:** print the price Stripe will actually charge (founding vs $79).
 10. Dual columns `schedule` vs `service_times`: engine prefers `service_times`. This PR dual-writes; a later cleanup should make one source of truth.
 
@@ -299,7 +299,7 @@ Aligned with prepare mode: reliability, trust, calm — not sales.
 1. Deep-link URLs (`/church-portal?page=rundown`) so Telegram/email can skip More.
 2. Viewer/operator nav: hide Alerts/Rundown from viewer if that is the policy, or document that viewers may watch rundown.
 3. Complete `es` i18n for Rundown/Alerts.
-4. Commands catalog polish; hide Network/Analytics until `connected`.
+4. Commands catalog polish; hide Network/Analytics until `connected`. **Nav hide done (this PR)** until `onboarding_app_connected_at`.
 5. Guest TD portal (if ever needed) — today Telegram-only is fine.
 6. Remove or gate referrals on Billing until GTM is allowed.
 
@@ -317,7 +317,17 @@ Aligned with prepare mode: reliability, trust, calm — not sales.
 | Stripe Customer Portal `return_url`, reactivate Checkout URLs, cancel-email CTA | Marketing `tallyconnect.app/portal` is a live **404**. Canonical app is `/church-portal` on the API host. |
 | Tests | `scheduleEngine.queryClient`, `church-portal` (schedule + HTML + reactivate URLs), `portalStream` (admin vs TD). |
 
-**Still out of scope:** nav IA (Alerts/Rundown out of More), PCO secrets, TD API RBAC, inline-handler CSP, portal Sentry, idle timeout, connecting a booth.
+**Still out of scope:** PCO secrets, TD API RBAC (server still church-admin JWT), portal Sentry, connecting a booth.
+
+### Follow-up P1s (this polish PR)
+
+| Fix | Why |
+|-----|-----|
+| Inline `onclick`/`onchange` → `data-action` / `data-action-change` | Helmet `script-src-attr 'none'` made those controls look clickable and do nothing. |
+| Hide Network / Analytics / Reports until `onboarding_app_connected_at` | Stop crowding More with dead ends; deep-link shows connect-booth empty. |
+| TD **Lead operator** + hidden church-admin save paths | A TD labeled Admin was not church admin; save would 403. |
+| 30 min visible idle timeout; cookie stays 7d | Shared booth laptop; sleeping/closed laptop is “left at church.” |
+| Schedule help-box | Empty windows → Sunday alerts stay quiet (except emergencies). |
 
 ---
 
@@ -344,7 +354,7 @@ Aligned with prepare mode: reliability, trust, calm — not sales.
 - PCO “Connect” as a Sunday rundown source
 - Diagnostics as “the AI will fix it”
 - Billing dollar amounts without checking Stripe
-- A TD account labeled Admin for schedule/Slack/profile writes — use the church portal email
+- A TD account labeled **Lead operator** for schedule/Slack/profile writes — still use the church portal email (this PR hides the save buttons)
 
 **Do not use portal for:**
 
@@ -368,7 +378,7 @@ GET  https://tallyconnect.app/portal/reset-password       404  (legacy)
 CSP  script-src-attr 'none' on church-login
 ```
 
-Relay unit tests in this PR: `tests/scheduleEngine.queryClient.test.js`, `tests/church-portal.test.js`, `tests/portalStream.test.js`.
+Relay unit tests in this PR: `tests/scheduleEngine.queryClient.test.js`, `tests/church-portal.test.js`, `tests/portalStream.test.js`. Follow-up polish adds portal.js CSP / idle / TD-honesty / booth-gated nav assertions in `tests/church-portal.test.js`.
 
 Authenticated portal UI and a connected booth were **not** exercised.
 

@@ -15,9 +15,17 @@ Sources: `ALERTS_REVIEW.md`, `CHURCH_PORTAL_REVIEW.md`, `AI_SURFACES_REVIEW.md`,
 ## Parked
 
 - **Annual “save 25%”.** Not in relay-server portal/signup. Live Stripe is 12× monthly (`BILLING_STRIPE_REVIEW.md`). Copy lives on **tally-landing** — separate PR.
-- PCO OAuth, TD API RBAC, portal Sentry, idle timeout.
+- PCO OAuth, TD API RBAC (server still church-admin JWT), portal Sentry.
 - Founding / limited-spots / Enterprise $499 landing copy.
 - Historical review docs still mention the old 90s mismatch (snapshots, not operator copy).
+
+## Follow-up P1s (booth-grade polish, same day)
+
+- **CSP inline handlers.** Remaining `onclick`/`onchange` in `portal.js` → `data-action` / `data-action-change` (TD access, VideoHub, Companion, onboarding copy/invite, rundown retry, email prefs).
+- **More crowding.** Network / Analytics / Reports stay hidden until a booth has connected (`onboarding_app_connected_at`). Deep-link shows “connect booth” empty.
+- **TD privilege honesty.** Portal label is **Lead operator**, not Admin. Church-admin save paths (`church-admin-write`) hidden; schedule rows disabled for TD sessions.
+- **Idle timeout.** 30 min of *visible* inactivity signs out (`/church-login?idle=1`). Cookie remains **7d** so a sleeping/closed booth laptop is not kicked.
+- **Schedule copy.** Equipment → Schedule help-box now says empty windows keep Sunday alerts quiet (except emergencies). Banner was already there.
 
 ## Shipped later (alert-delivery leftover PR)
 

@@ -56,13 +56,13 @@
       <button class="nav-item" data-page="team" data-action="showPage">
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg></span> <span data-i18n="nav.team">Team</span>
       </button>
-      <button class="nav-item" data-page="network-topology" data-action="showPage">
+      <button class="nav-item" data-page="network-topology" data-action="showPage" data-booth-required>
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg></span> <span>Network</span>
       </button>
-      <button class="nav-item" data-page="analytics" data-action="showPage">
+      <button class="nav-item" data-page="analytics" data-action="showPage" data-booth-required>
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
       </button>
-      <button class="nav-item" data-page="reports" data-action="showPage">
+      <button class="nav-item" data-page="reports" data-action="showPage" data-booth-required>
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg></span> <span>Reports</span>
       </button>
       <button class="nav-item" data-page="automation" data-action="showPage">
@@ -543,7 +543,7 @@
       <div class="card" id="schedule-overview-card" data-section-id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
-          <button class="btn-secondary" data-action="showPage" data-page="rooms" data-tab="tab-schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
+          <button class="btn-secondary church-admin-write" data-action="showPage" data-page="rooms" data-tab="tab-schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#8B9DAF">Loading schedule…</div>
       </div>
@@ -747,12 +747,13 @@
         <button data-tab="tab-equipment">Equipment</button>
         <button data-tab="tab-schedule">Schedule</button>
       </div>
+      <div class="td-readonly-banner">Signed in as a tech director. Schedule, rooms, and Slack can only be changed with the church portal email.</div>
       <div class="tab-content active" id="tab-rooms">
       <div id="room-plan-note" class="help-box" style="display:none"></div>
       <div class="card" id="rooms-card">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div class="card-title" style="margin:0" data-i18n="rooms.title">Rooms</div>
-          <button class="btn-primary advanced-only" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
+          <button class="btn-primary advanced-only church-admin-write" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
         </div>
         <p class="advanced-only" style="color:#8B9DAF;font-size:13px;margin-bottom:12px" data-i18n="rooms.desc">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
         <div id="rooms-list" style="color:#556270;font-size:13px">Loading…</div>
@@ -1009,7 +1010,7 @@
             <div class="card-title" style="margin:0">&#9881; Equipment Roles <span id="roles-room-label" style="font-size:12px;color:#00E676;font-weight:normal;margin-left:8px"></span></div>
             <div style="display:flex;align-items:center;gap:8px">
               <span id="roles-auto-badge" style="display:none;font-size:11px;color:#3b82f6;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:6px;padding:2px 8px">Auto-detected</span>
-              <button class="btn-secondary" id="btn-save-roles" data-action="saveEquipmentRoles" style="padding:4px 10px;font-size:11px">Save Roles</button>
+              <button class="btn-secondary church-admin-write" id="btn-save-roles" data-action="saveEquipmentRoles" style="padding:4px 10px;font-size:11px">Save Roles</button>
             </div>
           </div>
           <div id="roles-body" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -1021,14 +1022,14 @@
         </div>
 
         <!-- Save -->
-        <div class="advanced-only-flex" style="align-items:center;gap:12px;margin-top:20px;margin-bottom:40px">
+        <div class="advanced-only-flex church-admin-write" style="align-items:center;gap:12px;margin-top:20px;margin-bottom:40px">
           <button class="btn-primary" id="btn-save-equipment" data-action="saveEquipment">Save Equipment Config</button>
           <span id="equipment-save-status" style="font-size:13px;color:#556270"></span>
         </div>
       </div>
       </div><!-- /tab-equipment -->
       <div class="tab-content" id="tab-schedule">
-        <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
+        <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only page during (and around) these windows — leave this empty and Sunday alerts stay quiet (except emergencies). Autopilot (Pro) also uses them to auto-start streaming and recording.</p>
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
             <div class="card-title" style="margin:0" data-i18n="schedule.card.title">Weekly Service Windows</div>
@@ -1036,11 +1037,11 @@
           <p style="font-size:12px;color:#8B9DAF;margin-bottom:14px" data-i18n="schedule.desc">Add each recurring service window below. Alerts and automation use these time windows.</p>
           <div id="schedule-empty" class="schedule-empty schedule-quiet-banner" data-i18n="schedule.empty">No service windows → alerts stay quiet on Sunday.</div>
           <div id="schedule-rows" class="schedule-rows"></div>
-          <div class="schedule-actions">
+          <div class="schedule-actions church-admin-write">
             <button class="btn-secondary" id="btn-add-schedule-row" data-action="addScheduleRow" data-i18n="schedule.add_btn">+ Add Service Window</button>
             <span class="schedule-note" data-i18n="schedule.tip">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
           </div>
-          <div style="margin-top:16px">
+          <div class="church-admin-write" style="margin-top:16px">
             <button class="btn-primary" id="btn-save-schedule" data-action="saveSchedule" data-i18n="schedule.save_btn">Save Schedule</button>
           </div>
         </div>
@@ -1056,6 +1057,7 @@
         </div>
         <button class="help-icon-btn" data-action="openHelp" data-help-page="team" title="Help with Team">?</button>
       </div>
+      <div class="td-readonly-banner">Signed in as a tech director. Team members, passwords, and guest tokens can only be changed with the church portal email.</div>
       <div class="tab-bar">
         <button class="active" data-tab="tab-tds">Tech Directors</button>
         <button data-tab="tab-guests">Guest Access</button>
@@ -1063,13 +1065,13 @@
       <div class="tab-content active" id="tab-tds">
       <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 5 minutes, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#00E676">/swap [name]</code>.</p>
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px" class="church-admin-write">
           <button class="btn-secondary" id="btn-copy-invite-link" data-action="copyTdInviteLink" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">Copy Invite Link</button>
           <button class="btn-primary" id="btn-open-add-td" data-action="openModal" data-modal="modal-add-td" data-i18n="tds.add_btn">+ Add TD</button>
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Controls what this person can do in Tally via Telegram and Portal: viewer=status only, operator=control switcher, admin=full access">Access</span></th><th data-i18n="table.email">Email</th><th><span class="tip" data-tip="Enable portal login for this TD — they sign in with their email and a password you set">Portal Login</span></th><th></th></tr></thead>
+          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Telegram/booth access: viewer=status only, operator=control switcher. Lead operator is not the church portal login — schedule, Slack, and team writes still need the church email.">Access</span></th><th data-i18n="table.email">Email</th><th><span class="tip" data-tip="Enable portal login for this TD — they sign in with their email and a password you set">Portal Login</span></th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1141,7 +1143,7 @@
           <input type="text" id="alerts-telegram-chat-id" placeholder="1234567890">
         </div>
         <p style="font-size:12px;color:#8B9DAF;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#00E676">@userinfobot</a> on Telegram to get your chat ID, or send <code style="color:#00E676">/register</code> to @TallyConnectBot.</p>
-        <button class="btn-primary" id="btn-save-alerts-telegram" data-action="saveAlertsTelegramChatId">Save chat ID</button>
+        <button class="btn-primary church-admin-write" id="btn-save-alerts-telegram" data-action="saveAlertsTelegramChatId">Save chat ID</button>
       </div>
       <div id="alerts-content"><p style="color:#556270;text-align:center;padding:20px">Loading alerts...</p></div>
       <div class="card" style="margin-top:20px">
@@ -1552,8 +1554,8 @@
           </div>
         </div>
       </div>
+      <div class="booth-required-empty">Connect the Tally Desktop App to see analytics. Viewer trends need a booth on the wire.</div>
       <div class="tab-bar">
-        <button class="active" data-tab="tab-analytics-data">Analytics</button>
         <button data-tab="tab-sessions">Sessions</button>
       </div>
       <div class="tab-content" id="tab-sessions">
@@ -1671,6 +1673,7 @@
         </div>
         <button class="btn-secondary" id="btn-refresh-network" data-action="refreshNetworkTopology" style="font-size:12px;padding:6px 14px">Refresh</button>
       </div>
+      <div class="booth-required-empty">Connect the Tally Desktop App to see network scans. These stay hidden from More until a booth has connected.</div>
 
       <div class="stats-row grid-4col" id="net-kpi-row">
         <div class="stat-card">
@@ -1709,8 +1712,8 @@
       <!-- Empty state (shown when no scan data) -->
       <div id="net-empty-state" style="display:none;text-align:center;padding:48px 24px">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" width="48" height="48" class="net-empty-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
-        <div class="net-empty-title">No network scan yet</div>
-        <div class="net-empty-desc">Open the Tally desktop app, go to the Network tab, and click <strong>Scan Network</strong> to discover AV devices on your local network.</div>
+        <div class="net-empty-title">Connect the booth to scan the network</div>
+        <div class="net-empty-desc">Open the Tally Desktop App on the booth computer, then run <strong>Scan Network</strong>. Until a booth is connected, this page has nothing to show.</div>
       </div>
     </div>
     <!-- /NETWORK TOPOLOGY -->
@@ -1959,9 +1962,8 @@
           </div>
         </div>
       </div>
-
+      <div class="booth-required-empty">Connect the Tally Desktop App to see reports. Post-service recaps stay empty until a booth has run a session.</div>
       <div class="tab-bar">
-        <button class="active" data-tab="tab-reports-summary">Weekly Summary</button>
         <button data-tab="tab-reports-events">Event History</button>
         <button data-tab="tab-reports-windows">Service Windows</button>
         <button data-tab="tab-reports-health">Device Health</button>
@@ -2929,6 +2931,7 @@
           <div class="page-sub" data-i18n="connections.sub">Connect YouTube and Facebook for live stream monitoring and viewer analytics</div>
         </div>
       </div>
+      <div class="td-readonly-banner">Signed in as a tech director. Stream OAuth can only be connected with the church portal email.</div>
 
       <!-- YouTube -->
       <div class="card" style="margin-bottom:16px">
@@ -3067,11 +3070,11 @@
           <option value="supervisor">Supervisor</option>
         </select>
       </div>
-      <div class="field"><label><span class="tip" data-tip="Controls what this person can do via Telegram: Viewer=status only, Operator=control switcher/stream, Admin=full access">Access Level</span></label>
+      <div class="field"><label><span class="tip" data-tip="Telegram/booth access: Viewer=status only, Operator=control switcher/stream. Lead operator is not the church portal login.">Access Level</span></label>
         <select id="td-access-level">
           <option value="operator" selected>Operator — can control switcher &amp; stream</option>
           <option value="viewer">Viewer — status &amp; diagnostics only</option>
-          <option value="admin">Admin — full access</option>
+          <option value="admin">Lead operator — booth + portal view, not church admin</option>
         </select>
       </div>
       <div class="field"><label data-i18n="table.email">Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>

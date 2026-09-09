@@ -414,6 +414,36 @@ body::before {
   margin-bottom: 14px;
   line-height: 1.45;
 }
+body:not(.booth-connected) .nav-item[data-booth-required] {
+  display: none !important;
+}
+.booth-required-empty {
+  display: none;
+  background: rgba(255, 183, 77, 0.08);
+  border: 1px solid rgba(255, 183, 77, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  color: #FFB74D;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+body:not(.booth-connected) .booth-required-empty { display: block; }
+.td-readonly-banner {
+  display: none;
+  background: rgba(100, 181, 246, 0.08);
+  border: 1px solid rgba(100, 181, 246, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: #64B5F6;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+body.td-session .td-readonly-banner { display: block; }
+body.td-session .church-admin-write { display: none !important; }
 .schedule-rows { display: flex; flex-direction: column; gap: 10px; }
 .schedule-row {
   display: grid;
