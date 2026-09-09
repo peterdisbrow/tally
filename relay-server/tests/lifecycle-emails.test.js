@@ -471,6 +471,15 @@ describe('LifecycleEmails', () => {
       expect(preview.subject).toBeDefined();
     });
 
+    it('urgent-alert-escalation copy uses 5 minutes, not 90 seconds', () => {
+      const preview = emails.getPreview('urgent-alert-escalation');
+      expect(preview).toBeDefined();
+      expect(preview.html).toContain('5 minutes');
+      expect(preview.html).not.toContain('90 seconds');
+      expect(preview.text).toContain('5 minutes');
+      expect(preview.text).not.toContain('90 seconds');
+    });
+
     it('session recap email includes grade and stats', async () => {
       const church = mockChurch();
       const session = {

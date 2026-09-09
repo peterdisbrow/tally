@@ -269,7 +269,7 @@ Severity levels:
 - CRITICAL: stream stopped, ATEM disconnected, recording failed
 - EMERGENCY: multiple systems down, no TD response after escalation
 
-Alerts are sent via Telegram to the TD (or on-call rotation). CRITICAL alerts auto-escalate after 90 seconds if unacknowledged. Alerts only fire during service windows (except EMERGENCY).
+Alerts are sent via Telegram to the TD (or on-call rotation). CRITICAL alerts auto-escalate after 5 minutes if unacknowledged. Alerts only fire during service windows (except EMERGENCY).
 
 Each alert includes a diagnosis with likely cause, confidence %, and troubleshooting steps.
 

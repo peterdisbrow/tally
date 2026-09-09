@@ -162,6 +162,17 @@ describe('churchLocale()', () => {
   });
 });
 
+describe('alert escalation copy', () => {
+  it('uses 5 minutes, not 90 seconds', () => {
+    const en = bt('alert.escalated', 'en', { church: 'Grace' });
+    const es = bt('alert.escalated', 'es', { church: 'Grace' });
+    expect(en).toContain('5 minutes');
+    expect(en).not.toContain('90 seconds');
+    expect(es).toContain('5 minutos');
+    expect(es).not.toContain('90 segundos');
+  });
+});
+
 // Helper for non-vitest style assertions in mixed contexts
 function assert_contains(str, sub) {
   if (!str.includes(sub)) {

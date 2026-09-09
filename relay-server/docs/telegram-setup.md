@@ -104,7 +104,7 @@ Tally sends three alert levels:
 | Critical | 🔴 | Service-impacting issue (stream down, ATEM disconnected) |
 | Recovery | ✅ | Issue was resolved (automatically or manually) |
 
-**Escalation:** If a Critical alert arrives and no response is received within 90 seconds, it escalates to your support contact automatically.
+**Escalation:** If a Critical alert arrives and no response is received within 5 minutes, it escalates to your support contact automatically.
 
 Alert preferences (which device categories trigger alerts, minimum severity) are configured in the Tally portal under **Settings → Alerts**. Changes take effect immediately — no app restart needed.
 

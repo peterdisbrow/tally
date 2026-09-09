@@ -2657,7 +2657,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   // ─── SEQUENCE 25: URGENT ALERT ESCALATION ────────────────────────────────
-  // Sent when a CRITICAL alert is escalated (90s no acknowledgment).
+  // Sent when a CRITICAL alert is escalated (5 minutes no acknowledgment).
   // Bypasses dedup — each escalation gets its own email.
 
   async sendUrgentAlertEscalation(church, { alertType, context, alertId }) {
@@ -2713,7 +2713,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        A critical alert at <strong>${church.name}</strong> has gone unacknowledged for 90 seconds.
+        A critical alert at <strong>${church.name}</strong> has gone unacknowledged for 5 minutes.
         The technical director has not responded via Telegram.
       </p>
 
@@ -2732,7 +2732,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('View Alert Status', portalUrl)}
     `);
 
-    const text = `CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally`;
+    const text = `CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 5 minutes.\n\nCheck status: ${portalUrl}\n\nTally`;
     return { html, text };
   }
 
@@ -4320,7 +4320,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'email-change-confirmation', name: 'Email Change',           trigger: 'On portal email change' },
     { type: 'first-service-completed', name: 'First Service Recap',      trigger: 'After first session ends' },
     { type: 'dispute-alert',           name: 'Dispute Alert',            trigger: 'Stripe webhook — charge.dispute.created' },
-    { type: 'urgent-alert-escalation', name: 'Urgent Alert Email',       trigger: 'Alert escalation — 90s no ack' },
+    { type: 'urgent-alert-escalation', name: 'Urgent Alert Email',       trigger: 'Alert escalation — 5 min no ack' },
     { type: 'cancellation-survey',     name: 'Cancellation Survey',      trigger: 'Auto — 3 days after cancellation' },
     // Lead nurture drip
     { type: 'lead-welcome',            name: 'Lead: Welcome',            trigger: 'On lead capture — immediate' },

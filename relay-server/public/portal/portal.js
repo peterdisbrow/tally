@@ -199,7 +199,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.rooms': 'Rooms',
         'nav.team': 'Team',
         'nav.alerts': 'Alerts',
-        'nav.engineer': 'AI Assistant',
+        'nav.rundown': 'Rundown',
+        'nav.engineer': 'Engineer chat',
+        'nav.triage': 'Triage',
         'nav.automation': 'Automation',
         'nav.connections': 'Connections',
         'nav.analytics': 'Analytics',
@@ -238,7 +240,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'page.billing': 'Billing & Subscription',
         'page.support': 'Help & Support',
         'page.analytics': 'Analytics',
-        'page.engineer': 'AI Assistant',
+        'page.engineer': 'Engineer chat',
+        'page.triage': 'Triage',
         'page.automation': 'Automation',
         'page.connections': 'Streaming Connections',
         'page.equipment': 'Equipment',
@@ -282,7 +285,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.live_rundown.now': 'Now',
         'overview.live_rundown.open_live': 'Go to Live Session',
         'overview.activity.title': 'Activity Feed',
-        'overview.engineer.title': 'AI Assistant',
+        'overview.engineer.title': 'Triage',
         'overview.schedule.title': 'Service Schedule',
         'overview.quickinfo.title': 'Quick Info',
         'overview.quickinfo.church_id': 'Church ID',
@@ -361,7 +364,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'schedule.page_sub': 'Define your recurring service windows for smart alerts',
         'schedule.card.title': 'Weekly Service Windows',
         'schedule.desc': 'Add each recurring service window below. Alerts and automation use these time windows.',
-        'schedule.empty': 'No service windows yet. Add your first one.',
+        'schedule.empty': 'No service windows \u2192 alerts stay quiet on Sunday.',
         'schedule.add_btn': '+ Add Service Window',
         'schedule.tip': 'Tip: set separate windows for Saturday rehearsal and Sunday service.',
         'schedule.save_btn': 'Save Schedule',
@@ -378,7 +381,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.digest.desc': 'Summary email every Monday morning',
         'notif.recovery.title': 'Auto-Recovery',
         'notif.recovery.label': 'Automatic issue recovery',
-        'notif.recovery.desc': 'Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.',
+        'notif.recovery.desc': 'Auto-recovery will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. This is rule-based, not Engineer chat. Recovery actions are always logged in session reports.',
         'notif.save': 'Save Preferences',
         'notif.failover.title': 'Stream Auto-Recovery',
         'notif.failover.enable.label': 'Enable auto-recovery',
@@ -403,7 +406,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.slack.removed': 'Slack alerts removed.',
         'notif.slack.paste_url': 'Paste a Slack incoming webhook URL first.',
         // Engineer
-        'engineer.page_sub': 'Help the AI Assistant understand your setup so it can diagnose problems faster and give better recommendations.',
+        'engineer.page_sub': 'Chat with Tally Engineer about your booth. Auto-recovery and Triage are separate rule-based tools \u2014 they do not use this chat.',
         'engineer.training.title': 'Training Status',
         'engineer.setup.title': 'Setup Profile',
         'engineer.stream_platform': 'Stream Platform',
@@ -580,7 +583,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.rooms': 'Salas',
         'nav.team': 'Equipo',
         'nav.alerts': 'Alertas',
-        'nav.engineer': 'AI Assistant',
+        'nav.rundown': 'Rundown',
+        'nav.engineer': 'Chat del ingeniero',
+        'nav.triage': 'Triage',
         'nav.automation': 'Automatizaci\u00f3n',
         'nav.connections': 'Conexiones',
         'nav.analytics': 'Anal\u00edticas',
@@ -621,7 +626,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'page.billing': 'Facturaci\u00f3n y Suscripci\u00f3n',
         'page.support': 'Ayuda y Soporte',
         'page.analytics': 'Anal\u00edticas',
-        'page.engineer': 'AI Assistant',
+        'page.engineer': 'Chat del ingeniero',
+        'page.triage': 'Triage',
         'page.automation': 'Automatizaci\u00f3n',
         'page.connections': 'Conexiones de Streaming',
         'page.equipment': 'Equipos',
@@ -665,7 +671,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.live_rundown.now': 'Ahora',
         'overview.live_rundown.open_live': 'Ir a la sesi\u00f3n en vivo',
         'overview.activity.title': 'Actividad Reciente',
-        'overview.engineer.title': 'AI Assistant',
+        'overview.engineer.title': 'Triage',
         'overview.schedule.title': 'Horario de Servicio',
         'overview.quickinfo.title': 'Informaci\u00f3n R\u00e1pida',
         'overview.quickinfo.church_id': 'ID de Iglesia',
@@ -744,7 +750,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'schedule.page_sub': 'Define los horarios de tus servicios recurrentes para que las alertas funcionen bien',
         'schedule.card.title': 'Horarios de Servicio Semanales',
         'schedule.desc': 'Agrega cada horario de servicio recurrente. Las alertas y la automatizaci\u00f3n se basan en estos bloques.',
-        'schedule.empty': 'Todav\u00eda no hay servicios configurados. Agrega el primero.',
+        'schedule.empty': 'Sin ventanas de servicio \u2192 las alertas se quedan en silencio el domingo.',
         'schedule.add_btn': '+ Agregar Servicio',
         'schedule.tip': 'Tip: agrega bloques separados para el ensayo del s\u00e1bado y el servicio del domingo.',
         'schedule.save_btn': 'Guardar Horario',
@@ -761,7 +767,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.digest.desc': 'Correo de resumen todos los lunes por la ma\u00f1ana',
         'notif.recovery.title': 'Recuperaci\u00f3n Autom\u00e1tica',
         'notif.recovery.label': 'Recuperaci\u00f3n autom\u00e1tica de problemas',
-        'notif.recovery.desc': 'Tally Engineer intentar\u00e1 corregir autom\u00e1ticamente problemas comunes (ca\u00eddas de stream, fallas de grabaci\u00f3n) antes de alertar a tu DT. Las acciones siempre se registran.',
+        'notif.recovery.desc': 'La recuperaci\u00f3n autom\u00e1tica intentar\u00e1 corregir problemas comunes (ca\u00eddas de stream, fallas de grabaci\u00f3n) antes de alertar a tu DT. Es por reglas, no el chat del ingeniero. Las acciones siempre se registran.',
         'notif.save': 'Guardar Preferencias',
         'notif.failover.title': 'Respaldo Autom\u00e1tico de Transmisi\u00f3n',
         'notif.failover.enable.label': 'Activar respaldo de transmisi\u00f3n',
@@ -786,7 +792,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.slack.removed': 'Alertas de Slack eliminadas.',
         'notif.slack.paste_url': 'Pega primero una URL de webhook de Slack.',
         // Engineer
-        'engineer.page_sub': 'Ayuda al AI Assistant a entender tu configuraci\u00f3n para diagnosticar problemas m\u00e1s r\u00e1pido.',
+        'engineer.page_sub': 'Chatea con Tally Engineer sobre tu booth. La recuperaci\u00f3n autom\u00e1tica y el Triage son herramientas por reglas \u2014 no usan este chat.',
         'engineer.training.title': 'Estado del Entrenamiento',
         'engineer.setup.title': 'Perfil de Configuraci\u00f3n',
         'engineer.stream_platform': 'Plataforma de Transmisi\u00f3n',
@@ -3454,10 +3460,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="rooms" data-tab="tab-schedule">Set up your schedule ' + SVG.arrowRight + '</a></span>';
+          body.innerHTML = '<div class="schedule-quiet-banner">No service windows \u2192 alerts stay quiet on Sunday. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="rooms" data-tab="tab-schedule">Set service windows ' + SVG.arrowRight + '</a></div>';
         } else {
           body.innerHTML = html;
         }
+        refreshEmptyScheduleBanner(hasAny);
       } catch(e) {
         body.innerHTML = '<span style="color:#556270">Unable to load schedule</span>';
       }
@@ -5923,6 +5930,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       emptyEl.style.display = rowsEl.children.length ? 'none' : 'block';
     }
 
+    function refreshEmptyScheduleBanner(hasWindows) {
+      var banner = document.getElementById('alerts-schedule-quiet-banner');
+      if (!banner) return;
+      if (typeof hasWindows === 'boolean') {
+        banner.style.display = hasWindows ? 'none' : '';
+        return;
+      }
+      api('GET', '/api/church/schedule').then(function(raw) {
+        var sched = normalizeSchedulePayload(raw);
+        var hasAny = SCHEDULE_DAYS.some(function(day) { return (sched[day] || []).length; });
+        banner.style.display = hasAny ? 'none' : '';
+      }).catch(function() { /* leave as-is */ });
+    }
+
     function buildDayOptionsHtml(selectedDay) {
       return SCHEDULE_DAYS.map(function(day) {
         return '<option value="' + day + '"' + (day === selectedDay ? ' selected' : '') + '>' + SCHEDULE_DAY_LABELS[day] + '</option>';
@@ -7057,7 +7078,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           { feature: 'Slides / Graphics', them: 'Best in class', us: 'Works alongside PP7' },
           { feature: 'Live Stream Monitoring', them: 'None', us: 'Real-time' },
           { feature: 'OBS / ATEM Integration', them: 'Limited (NDI only)', us: 'Full WebSocket + IP control' },
-          { feature: 'Auto-Recovery from stream drops', them: 'None', us: 'AI failover in seconds' },
+          { feature: 'Auto-Recovery from stream drops', them: 'None', us: 'Auto-recovery' },
           { feature: 'ProPresenter Remote Control', them: 'Stage Display only', us: 'Full remote via Telegram' },
           { feature: 'Pre-Service Checks', them: 'None', us: 'PP7 connection included' },
         ],
@@ -7094,7 +7115,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         features: [
           { feature: 'Multi-source encoding', them: 'Full', us: 'Works alongside Wirecast' },
           { feature: 'Stream health dashboard', them: 'Local only', us: 'Cloud, multi-platform' },
-          { feature: 'Auto-recovery', them: 'Manual restart', us: 'AI auto-recover' },
+          { feature: 'Auto-recovery', them: 'Manual restart', us: 'Auto-recovery' },
           { feature: 'ATEM integration', them: 'NDI only', us: 'Full ATEM IP control' },
           { feature: 'Telegram alerts', them: 'None', us: 'Real-time TD alerts' },
         ],
@@ -7113,7 +7134,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           { feature: 'Button deck control', them: 'Best in class', us: 'Companion integration built-in' },
           { feature: 'Cloud portal / dashboard', them: 'None', us: 'Full web portal' },
           { feature: 'Monitoring & alerts', them: 'None', us: 'Real-time' },
-          { feature: 'Auto-recovery', them: 'Manual', us: 'AI failover' },
+          { feature: 'Auto-recovery', them: 'Manual', us: 'Auto-recovery' },
           { feature: 'Telegram alerts', them: 'Via HTTP action', us: 'Native, role-aware' },
         ],
         steps: [
@@ -7999,6 +8020,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function loadAlerts() {
       try {
         await loadAlertsRoomSelector();
+        refreshEmptyScheduleBanner();
         const alerts = await api('GET', '/api/church/alerts' + roomParam());
         var container = document.getElementById('alerts-content');
         if (!alerts.length) {
@@ -9019,9 +9041,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         `,
       },
       engineer: {
-        title: 'Tally Engineer — Your AI Assistant',
+        title: 'Tally Engineer — Engineer chat',
         body: `
-          <p>Tally Engineer is an AI trained on church production. You can ask it anything about your setup, and it will diagnose problems, suggest fixes, and even run commands.</p>
+          <p>Engineer chat talks to Tally Engineer about your booth. <strong>Auto-recovery</strong> and <strong>Triage</strong> are separate rule-based tools — they do not use this chat.</p>
           <h3>What Can It Do?</h3>
           <ul>
             <li>Diagnose "why is my stream choppy?" by looking at your actual equipment data</li>
@@ -18409,7 +18431,7 @@ document.addEventListener('DOMContentLoaded', function() {
       labelEl.textContent = 'Off Hours';
       labelEl.className = '';
       detailEl.textContent = details.reason === 'no_schedule'
-        ? 'No service schedule configured'
+        ? 'No service windows \u2192 alerts stay quiet on Sunday.'
         : 'Lower priority monitoring active';
     }
   }
@@ -18833,7 +18855,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         schedEl.innerHTML = html;
       } else {
-        schedEl.innerHTML = '<span style="color:#556270">No service windows configured.</span>';
+        schedEl.innerHTML = '<span style="color:#556270">No service windows \u2192 alerts stay quiet on Sunday.</span>';
       }
 
       // Context chart
