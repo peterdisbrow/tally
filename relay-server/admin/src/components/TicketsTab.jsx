@@ -14,6 +14,21 @@ export default function TicketsTab({ api, role }) {
   const [sortCol, setSortCol]       = useState(null);
   const [sortDir, setSortDir]       = useState('asc');
   const [detailTicket, setDetailTicket] = useState(null);
+  const [draftStatus, setDraftStatus] = useState('open');
+  const [reply, setReply] = useState('');
+  const [savingTicket, setSavingTicket] = useState(false);
+  const [ticketMsg, setTicketMsg] = useState('');
+  const [ticketErr, setTicketErr] = useState('');
+
+  const TICKET_STATUSES = ['open', 'in_progress', 'waiting_customer', 'resolved', 'closed'];
+
+  function openDetail(ticket) {
+    setDetailTicket(ticket);
+    setDraftStatus(ticket.status || 'open');
+    setReply('');
+    setTicketMsg('');
+    setTicketErr('');
+  }
 
   const load = useCallback(async (p) => {
     const targetPage = p || page;
@@ -63,6 +78,59 @@ export default function TicketsTab({ api, role }) {
       if (typeof va === 'string') { va = va.toLowerCase(); vb = String(vb).toLowerCase(); }
       return va < vb ? -dir : va > vb ? dir : 0;
     });
+  }
+
+  async function refreshDetail(ticketId) {
+    try {
+      const fresh = await api(`/api/support/tickets/${ticketId}`);
+      setDetailTicket((prev) => ({ ...prev, ...fresh, church_name: prev?.church_name || fresh.church_name }));
+      setDraftStatus(fresh.status || 'open');
+      setTickets((prev) => prev.map((t) => (t.id === ticketId ? { ...t, ...fresh, church_name: t.church_name } : t)));
+    } catch {
+      load(page);
+    }
+  }
+
+  async function saveTicketStatus() {
+    if (!detailTicket) return;
+    setSavingTicket(true);
+    setTicketErr('');
+    setTicketMsg('');
+    try {
+      await api(`/api/support/tickets/${detailTicket.id}`, {
+        method: 'PUT',
+        body: { status: draftStatus },
+      });
+      setTicketMsg('Status updated');
+      await refreshDetail(detailTicket.id);
+    } catch (e) {
+      setTicketErr(e.message);
+    } finally {
+      setSavingTicket(false);
+    }
+  }
+
+  async function sendTicketReply() {
+    if (!detailTicket || !reply.trim()) return;
+    setSavingTicket(true);
+    setTicketErr('');
+    setTicketMsg('');
+    try {
+      await api(`/api/support/tickets/${detailTicket.id}/updates`, {
+        method: 'POST',
+        body: {
+          message: reply.trim(),
+          ...(draftStatus !== (detailTicket.status || 'open') ? { status: draftStatus } : {}),
+        },
+      });
+      setReply('');
+      setTicketMsg('Reply sent');
+      await refreshDetail(detailTicket.id);
+    } catch (e) {
+      setTicketErr(e.message);
+    } finally {
+      setSavingTicket(false);
+    }
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -126,7 +194,7 @@ export default function TicketsTab({ api, role }) {
               ) : list.map(t => {
                 const statusLabel = (t.status || 'open').replace('_', ' ');
                 return (
-                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setDetailTicket(t)}>
+                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => openDetail(t)}>
                     <td style={s.td}>{new Date(t.created_at).toLocaleString()}</td>
                     <td style={s.td}>{t.church_name || 'Unknown'}</td>
                     <td style={s.td}><span style={s.badge(sevColor(t.severity))}>{t.severity || 'low'}</span></td>
@@ -136,7 +204,7 @@ export default function TicketsTab({ api, role }) {
                     <td style={s.td}>
                       <button
                         style={{ ...s.btn('secondary'), padding: '4px 8px', fontSize: 11 }}
-                        onClick={(e) => { e.stopPropagation(); setDetailTicket(t); }}
+                        onClick={(e) => { e.stopPropagation(); openDetail(t); }}
                       >
                         View
                       </button>
@@ -176,7 +244,21 @@ export default function TicketsTab({ api, role }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 16px', fontSize: 13, marginBottom: 20 }}>
               <div style={{ color: C.dim }}>Status</div>
-              <div><span style={s.badge(statusColor(detailTicket.status))}>{(detailTicket.status || 'open').replace('_', ' ')}</span></div>
+              <div>
+                {canWrite(role) ? (
+                  <select
+                    style={{ ...s.input, maxWidth: 220, padding: '6px 8px' }}
+                    value={draftStatus}
+                    onChange={(e) => setDraftStatus(e.target.value)}
+                  >
+                    {TICKET_STATUSES.map((st) => (
+                      <option key={st} value={st}>{st.replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={s.badge(statusColor(detailTicket.status))}>{(detailTicket.status || 'open').replace('_', ' ')}</span>
+                )}
+              </div>
               <div style={{ color: C.dim }}>Church</div>
               <div style={{ color: C.white }}>{detailTicket.church_name || 'Unknown'}</div>
               <div style={{ color: C.dim }}>Category</div>
@@ -195,18 +277,50 @@ export default function TicketsTab({ api, role }) {
             )}
 
             {detailTicket.updates && detailTicket.updates.length > 0 && (
-              <div>
+              <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Updates</div>
                 {detailTicket.updates.map((u, i) => (
                   <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.green, marginTop: 5, flexShrink: 0 }} />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{u.author || 'System'}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{u.author || u.actor_type || 'System'}</div>
                       <div style={{ fontSize: 13, color: C.muted }}>{u.message || ''}</div>
                       <div style={{ fontSize: 11, color: C.dim }}>{new Date(u.created_at).toLocaleString()}</div>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {canWrite(role) && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Reply</div>
+                <textarea
+                  style={{ ...s.input, minHeight: 80, resize: 'vertical' }}
+                  placeholder="Add a note for the church…"
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                />
+                {ticketErr && <div style={s.err}>{ticketErr}</div>}
+                {ticketMsg && <div style={s.ok}>{ticketMsg}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button
+                    type="button"
+                    style={s.btn('secondary')}
+                    disabled={savingTicket || draftStatus === (detailTicket.status || 'open')}
+                    onClick={() => saveTicketStatus()}
+                  >
+                    {savingTicket ? 'Saving…' : 'Update status'}
+                  </button>
+                  <button
+                    type="button"
+                    style={s.btn('primary')}
+                    disabled={savingTicket || !reply.trim()}
+                    onClick={() => sendTicketReply()}
+                  >
+                    {savingTicket ? 'Sending…' : 'Send reply'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

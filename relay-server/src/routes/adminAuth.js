@@ -44,6 +44,11 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
     });
   }));
 
+  // Public browser config (Sentry DSN is designed to be public).
+  app.get('/api/admin/client-config', (_req, res) => {
+    res.json({ sentryDsn: process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || '' });
+  });
+
   // GET /api/admin/me
   app.get('/api/admin/me', requireAdminJwt(), (req, res) => {
     const u = req.adminUser;

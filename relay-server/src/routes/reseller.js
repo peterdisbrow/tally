@@ -4,16 +4,21 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { requirePermission: defaultRequirePermission } = require('./authMiddleware');
+
 module.exports = function setupResellerRoutes(app, ctx) {
   const { churches, requireAdmin, requireReseller, resellerSystem,
           hashPassword, safeErrorMessage,
           lifecycleEmails, log } = ctx;
+  const requirePermission = typeof ctx.requirePermission === 'function'
+    ? ctx.requirePermission
+    : defaultRequirePermission;
   const WebSocket = require('ws').WebSocket;
   const { hasOpenSocket } = require('../runtimeSockets');
 
   // ─── ADMIN CRUD (requires admin JWT) ──────────────────────────────────────
 
-  app.post('/api/resellers', requireAdmin, (req, res) => {
+  app.post('/api/resellers', requireAdmin, requirePermission('resellers:write'), (req, res) => {
     const { name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit, commissionRate } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     try {
@@ -37,7 +42,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
     res.json({ reseller, churches: resellerChurches });
   });
 
-  app.put('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  app.put('/api/resellers/:resellerId', requireAdmin, requirePermission('resellers:write'), (req, res) => {
     const { resellerId } = req.params;
     const row = resellerSystem.getResellerById(resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
@@ -57,14 +62,14 @@ module.exports = function setupResellerRoutes(app, ctx) {
     }
   });
 
-  app.delete('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  app.delete('/api/resellers/:resellerId', requireAdmin, requirePermission('resellers:delete'), (req, res) => {
     const row = resellerSystem.getResellerById(req.params.resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     resellerSystem.deactivateReseller(req.params.resellerId);
     res.json({ deactivated: true });
   });
 
-  app.post('/api/resellers/:resellerId/password', requireAdmin, (req, res) => {
+  app.post('/api/resellers/:resellerId/password', requireAdmin, requirePermission('resellers:delete'), (req, res) => {
     const row = resellerSystem.getResellerById(req.params.resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     const { password, email } = req.body;

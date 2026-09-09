@@ -20,7 +20,9 @@ export default function ChurchesTab({ api, role }) {
   const [formErr, setFormErr]   = useState('');
   const [formOk, setFormOk]     = useState('');
   const [saving, setSaving]     = useState(false);
-  const [showTokens, setShowTokens] = useState({});
+  const [revealedTokens, setRevealedTokens] = useState({});
+  const [revealing, setRevealing] = useState({});
+  const [showJunk, setShowJunk] = useState(false);
   const [billingDrafts, setBillingDrafts] = useState({});
 
   const load = useCallback(async () => {
@@ -97,6 +99,47 @@ export default function ChurchesTab({ api, role }) {
     }
   }
 
+  async function revealToken(churchId) {
+    if (revealedTokens[churchId]) {
+      setRevealedTokens((prev) => {
+        const next = { ...prev };
+        delete next[churchId];
+        return next;
+      });
+      return;
+    }
+    setRevealing((prev) => ({ ...prev, [churchId]: true }));
+    try {
+      const data = await api(`/api/admin/churches/${churchId}/connection-token`);
+      if (!data?.token) throw new Error('No connection token');
+      setRevealedTokens((prev) => ({ ...prev, [churchId]: data.token }));
+    } catch (e) {
+      alert(`Reveal failed: ${e.message}`);
+    } finally {
+      setRevealing((prev) => ({ ...prev, [churchId]: false }));
+    }
+  }
+
+  async function copyToken(churchId) {
+    let token = revealedTokens[churchId];
+    if (!token) {
+      try {
+        const data = await api(`/api/admin/churches/${churchId}/connection-token`);
+        token = data?.token;
+        if (token) setRevealedTokens((prev) => ({ ...prev, [churchId]: token }));
+      } catch (e) {
+        alert(`Copy failed: ${e.message}`);
+        return;
+      }
+    }
+    if (!token) return;
+    try {
+      await navigator.clipboard.writeText(token);
+    } catch {
+      alert('Copy failed');
+    }
+  }
+
   async function deleteChurch(churchId, name) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     try {
@@ -107,6 +150,8 @@ export default function ChurchesTab({ api, role }) {
 
   const statusColor = (c) => c.connected ? (c.activeAlerts > 0 ? C.red : C.green) : C.muted;
   const statusLabel = (c) => c.connected ? (c.activeAlerts > 0 ? 'Alert' : 'Online') : 'Offline';
+  const junkCount = churches.filter((c) => c.isJunk).length;
+  const visibleChurches = showJunk ? churches : churches.filter((c) => !c.isJunk);
 
   return (
     <div>
@@ -115,8 +160,16 @@ export default function ChurchesTab({ api, role }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>Churches ({churches.length})</div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>
+          Churches ({visibleChurches.length}{!showJunk && junkCount > 0 ? ` · ${junkCount} hidden` : ''})
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            style={s.btn(showJunk ? 'primary' : 'secondary')}
+            onClick={() => setShowJunk((v) => !v)}
+          >
+            {showJunk ? 'Hide test/spam' : `Show test/spam${junkCount ? ` (${junkCount})` : ''}`}
+          </button>
           <button style={s.btn('secondary')} onClick={load}>{'\u21BB'} Refresh</button>
           {canWrite(role) && <button style={s.btn('primary')} onClick={() => { setModal('add'); setFormErr(''); setFormOk(''); }}>+ Add Church</button>}
         </div>
@@ -126,8 +179,8 @@ export default function ChurchesTab({ api, role }) {
       {err     && <div style={{ color: C.red, padding: '12px 0', fontSize: 13 }}>{err}</div>}
 
       {!loading && !err && (
-        churches.length === 0
-          ? <div style={s.empty}>No churches yet. Add one to get started.</div>
+        visibleChurches.length === 0
+          ? <div style={s.empty}>{churches.length === 0 ? 'No churches yet. Add one to get started.' : 'No churches match the current filter.'}</div>
           : <div style={s.card}>
               <table style={s.table}>
                 <thead>
@@ -136,7 +189,7 @@ export default function ChurchesTab({ api, role }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {churches.map(c => {
+                  {visibleChurches.map(c => {
                     const st = c.status || {};
                     const encoderName = getEncoderNameFromStatus(st);
                     const encoderConnected = getEncoderConnectedFromStatus(st);
@@ -179,21 +232,24 @@ export default function ChurchesTab({ api, role }) {
                           </div>
                         </td>
                         <td style={s.td}>
-                          <div style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 0.5, color: c.token ? C.white : C.muted }}>
-                            {showTokens[c.churchId] ? (c.token || '\u2014') : (c.token ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '\u2014')}
+                          <div style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 0.5, color: (c.hasToken || c.token) ? C.white : C.muted }}>
+                            {revealedTokens[c.churchId]
+                              ? revealedTokens[c.churchId]
+                              : ((c.hasToken || c.token) ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '\u2014')}
                           </div>
                           <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-                            {c.token && (
+                            {canWrite(role) && (c.hasToken || c.token) && (
                               <>
                                 <button
                                   style={{ ...s.btn('secondary'), padding: '4px 8px', fontSize: 11 }}
-                                  onClick={() => setShowTokens((prev) => ({ ...prev, [c.churchId]: !prev[c.churchId] }))}
+                                  onClick={() => revealToken(c.churchId)}
+                                  disabled={!!revealing[c.churchId]}
                                 >
-                                  {showTokens[c.churchId] ? 'Hide' : 'Reveal'}
+                                  {revealedTokens[c.churchId] ? 'Hide' : (revealing[c.churchId] ? 'Revealing\u2026' : 'Reveal')}
                                 </button>
                                 <button
                                   style={{ ...s.btn('primary'), padding: '4px 8px', fontSize: 11 }}
-                                  onClick={() => navigator.clipboard.writeText(c.token)}
+                                  onClick={() => copyToken(c.churchId)}
                                 >
                                   Copy
                                 </button>

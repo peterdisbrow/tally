@@ -9,6 +9,47 @@
 const jwt = require('jsonwebtoken');
 const { decryptSecret, lookupHash } = require('../secretCrypto');
 
+const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
+
+const ROLE_PERMISSIONS = {
+  super_admin: ['*'],
+  admin:       ['churches:read', 'churches:write', 'churches:delete',
+                'billing:read', 'billing:write',
+                'resellers:read', 'resellers:write', 'resellers:delete',
+                'commands:send', 'settings:read', 'settings:write'],
+  engineer:    ['churches:read', 'commands:send',
+                'sessions:read', 'alerts:read', 'alerts:ack',
+                'settings:read'],
+  // Sales is read-only on churches/billing/resellers. Sensitive writes
+  // (billing, tokens, church delete, reseller password/deactivate) stay
+  // with super_admin / admin so a sales JWT cannot hit those APIs.
+  sales:       ['churches:read',
+                'billing:read',
+                'resellers:read'],
+};
+
+function hasPermission(role, permission) {
+  const perms = ROLE_PERMISSIONS[role];
+  if (!perms) return false;
+  if (perms.includes('*')) return true;
+  return perms.includes(permission);
+}
+
+/**
+ * Permission gate for write routes. Call after requireAdmin / requireAdminJwt
+ * / requireAdminSession. Legacy x-api-key auth has no adminUser and stays
+ * god-mode (Electron preview, status proxy, smoke internals).
+ */
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!req.adminUser) return next();
+    if (!hasPermission(req.adminUser.role, permission)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    return next();
+  };
+}
+
 module.exports = function createAuthMiddleware(ctx) {
   const { db, queryClient, JWT_SECRET, ADMIN_API_KEY, safeCompareKey, resolveAdminKey } = ctx;
   const hasQueryClient = queryClient
@@ -22,29 +63,6 @@ module.exports = function createAuthMiddleware(ctx) {
       row.churchId = row.churchid;
     }
     return row;
-  }
-
-  const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
-
-  const ROLE_PERMISSIONS = {
-    super_admin: ['*'],
-    admin:       ['churches:read', 'churches:write', 'churches:delete',
-                  'billing:read', 'billing:write',
-                  'resellers:read', 'resellers:write', 'resellers:delete',
-                  'commands:send', 'settings:read', 'settings:write'],
-    engineer:    ['churches:read', 'commands:send',
-                  'sessions:read', 'alerts:read', 'alerts:ack',
-                  'settings:read'],
-    sales:       ['churches:read',
-                  'billing:read',
-                  'resellers:read', 'resellers:write'],
-  };
-
-  function hasPermission(role, permission) {
-    const perms = ROLE_PERMISSIONS[role];
-    if (!perms) return false;
-    if (perms.includes('*')) return true;
-    return perms.includes(permission);
   }
 
   /**
@@ -254,5 +272,11 @@ module.exports = function createAuthMiddleware(ctx) {
     requireReseller,
     requireChurchOrAdmin,
     requireChurchAppAuth,
+    requirePermission,
   };
 };
+
+module.exports.ADMIN_ROLES = ADMIN_ROLES;
+module.exports.ROLE_PERMISSIONS = ROLE_PERMISSIONS;
+module.exports.hasPermission = hasPermission;
+module.exports.requirePermission = requirePermission;

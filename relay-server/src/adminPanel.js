@@ -8,6 +8,8 @@ const { hasOpenSocket } = require('./runtimeSockets');
 const { getJwtSecret } = require('./jwtSecret');
 const { SqliteQueryClient } = require('./db/queryClient');
 const { hashPassword } = require('./auth');
+const { requirePermission: defaultRequirePermission } = require('./routes/authMiddleware');
+const { isLikelyTestOrSpamChurch } = require('./churchNameValidation');
 
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
@@ -575,6 +577,10 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   const dispatchRemoteCommand = typeof opts.dispatchRemoteCommand === 'function'
     ? opts.dispatchRemoteCommand
     : null;
+  const requirePermission = typeof opts.requirePermission === 'function'
+    ? opts.requirePermission
+    : defaultRequirePermission;
+  const scheduleEngine = opts.scheduleEngine || null;
   const adminQuery = opts.queryClient || (
     db && typeof db.query === 'function'
       && typeof db.run === 'function'
@@ -767,7 +773,37 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (prevOnlineCount !== undefined) prevOnline = prevOnlineCount;
     } catch { /* table may not exist */ }
 
-    res.json({ totalChurches, onlineNow, totalResellers, activeAlerts, openTickets, mrr, prevAlerts, prevOnline });
+    let unackedAlerts = 0;
+    try {
+      unackedAlerts = (await qOne(
+        "SELECT COUNT(*) AS cnt FROM alerts WHERE acknowledged_at IS NULL AND (resolved IS NULL OR resolved = 0)"
+      ))?.cnt || 0;
+    } catch { /* alerts table may not exist */ }
+
+    let inServiceNow = 0;
+    if (scheduleEngine && typeof scheduleEngine.isServiceWindow === 'function') {
+      try {
+        const rows = await qMaybeAll('SELECT churchId FROM churches', [], []);
+        for (const row of rows) {
+          try {
+            if (scheduleEngine.isServiceWindow(row.churchId)) inServiceNow += 1;
+          } catch { /* schedule lookup may fail per church */ }
+        }
+      } catch { /* churches table may not exist */ }
+    }
+
+    res.json({
+      totalChurches,
+      onlineNow,
+      totalResellers,
+      activeAlerts,
+      unackedAlerts,
+      inServiceNow,
+      openTickets,
+      mrr,
+      prevAlerts,
+      prevOnline,
+    });
   });
 
   app.get('/api/admin/churches', requireAdminSession, async (req, res) => {
@@ -785,7 +821,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         churchId:         row.churchId,
         name:             row.name,
         email:            row.email || '',
-        token:            row.token,
+        hasToken:         !!row.token,
         church_type:      row.church_type || 'recurring',
         reseller_id:      row.reseller_id || null,
         audio_via_atem:   row.audio_via_atem || 0,
@@ -795,6 +831,15 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,
         roomCount:        row.roomCount || 0,
+        isJunk:           isLikelyTestOrSpamChurch({
+          name: row.name,
+          lastSeen: runtime?.lastSeen || null,
+          connected: runtime ? (typeof runtime.connected === 'boolean' ? runtime.connected : hasOpenSocket(runtime, WebSocket.OPEN)) : false,
+          billing_status: row.billing_status || 'inactive',
+          church_type: row.church_type,
+          is_test: row.is_test,
+          is_spam: row.is_spam,
+        }),
       };
     });
     try {
@@ -807,7 +852,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ churches: list, total, page, limit, pages: Math.ceil(total / limit) });
   });
 
-  app.post('/api/admin/churches', requireAdminSession, async (req, res) => {
+  app.post('/api/admin/churches', requireAdminSession, requirePermission('churches:write'), async (req, res) => {
     const { name, email, type, resellerId } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const existing = await qOne('SELECT churchId FROM churches WHERE name = ?', [name]);
@@ -834,7 +879,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.put('/api/admin/churches/:id', requireAdminSession, async (req, res) => {
+  app.put('/api/admin/churches/:id', requireAdminSession, requirePermission('churches:write'), async (req, res) => {
     const { id } = req.params;
     const church = churches.get(id);
     if (!church && !(await qOne('SELECT churchId FROM churches WHERE churchId=?', [id]))) {
@@ -863,7 +908,16 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ updated: true });
   });
 
-  app.post('/api/admin/churches/:id/token', requireAdminSession, async (req, res) => {
+  app.get('/api/admin/churches/:id/connection-token', requireAdminSession, requirePermission('churches:write'), async (req, res) => {
+    const { id } = req.params;
+    const row = await qOne('SELECT churchId, name, token FROM churches WHERE churchId=?', [id]);
+    if (!row) return res.status(404).json({ error: 'Church not found' });
+    if (!row.token) return res.status(404).json({ error: 'No connection token' });
+    auditFromReq(req, 'token_revealed', 'church', id, { name: row.name });
+    res.json({ churchId: row.churchId, name: row.name, token: row.token });
+  });
+
+  app.post('/api/admin/churches/:id/token', requireAdminSession, requirePermission('churches:write'), async (req, res) => {
     const { id } = req.params;
     const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
@@ -878,7 +932,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.delete('/api/admin/churches/:id', requireAdminSession, async (req, res) => {
+  app.delete('/api/admin/churches/:id', requireAdminSession, requirePermission('churches:delete'), async (req, res) => {
     const { id } = req.params;
     const row = await qOne('SELECT * FROM churches WHERE churchId=?', [id]);
     if (!row) return res.status(404).json({ error: 'Church not found' });
@@ -935,7 +989,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ deleted: true, name: row.name });
   });
 
-  app.put('/api/admin/resellers/:id', requireAdminSession, async (req, res) => {
+  app.put('/api/admin/resellers/:id', requireAdminSession, requirePermission('resellers:write'), async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
@@ -958,7 +1012,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/admin/resellers/:id/password', requireAdminSession, async (req, res) => {
+  app.post('/api/admin/resellers/:id/password', requireAdminSession, requirePermission('resellers:delete'), async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
@@ -970,7 +1024,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ updated: true });
   });
 
-  app.delete('/api/admin/resellers/:id', requireAdminSession, async (req, res) => {
+  app.delete('/api/admin/resellers/:id', requireAdminSession, requirePermission('resellers:delete'), async (req, res) => {
     const { id } = req.params;
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
@@ -1063,8 +1117,16 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       // Try to load updates for each ticket
       for (const t of rows) {
         try {
-          t.updates = await qAll('SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC', [t.id]);
-        } catch { t.updates = []; }
+          t.updates = await qAll('SELECT * FROM support_ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC', [t.id]);
+        } catch {
+          try {
+            t.updates = await qAll('SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC', [t.id]);
+          } catch { t.updates = []; }
+        }
+        t.updates = (t.updates || []).map((u) => ({
+          ...u,
+          author: u.author || (u.actor_type === 'admin' ? 'Admin' : u.actor_type) || 'System',
+        }));
       }
       res.json({ tickets: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
@@ -2226,7 +2288,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // POST /api/admin/church/:churchId/send-command
   // Sends an allowed command to the church client via WebSocket.
-  app.post('/api/admin/church/:churchId/send-command', requireAdminSession, async (req, res) => {
+  app.post('/api/admin/church/:churchId/send-command', requireAdminSession, requirePermission('commands:send'), async (req, res) => {
     const { churchId } = req.params;
     const { command, params, roomId } = req.body || {};
 

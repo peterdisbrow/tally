@@ -667,6 +667,7 @@ const {
   requireReseller,
   requireChurchAppAuth,
   requireChurchOrAdmin,
+  requirePermission,
 } = authMiddleware;
 
 // ─── SCHEMA MIGRATIONS ───────────────────────────────────────────────────────
@@ -2326,6 +2327,8 @@ setupAdminPanel(app, db, churches, resellerSystem, {
   queryClient,
   getObservedChurch,
   listObservedChurches,
+  requirePermission,
+  scheduleEngine,
   dispatchRemoteCommand: (payload, meta) => dispatchCommandAcrossRuntime(payload, meta),
 });
 
@@ -3218,7 +3221,7 @@ function requireFeature(featureName) {
 }
 
 // Register a new church and get a connection token
-app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), async (req, res) => {
+app.post('/api/churches/register', requireAdmin, requirePermission('churches:write'), rateLimit(10, 60_000), async (req, res) => {
   const { name, email, portalEmail, password, tier, billingStatus } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   if (password && !portalEmail) return res.status(400).json({ error: 'portalEmail is required when password is provided' });
@@ -3444,7 +3447,7 @@ setInterval(() => {
 
 const routeCtx = {
   db, queryClient, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth, requireChurchWriteAccess,
-  requireChurchOrAdmin, requireReseller, requireFeature, rateLimit,
+  requireChurchOrAdmin, requireReseller, requirePermission, requireFeature, rateLimit,
   getObservedChurch, listObservedChurches, runtimeMirror,
   billing, hashPassword, verifyPassword, normalizeBillingInterval,
   issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
@@ -6805,7 +6808,7 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, async (req, res) => {
 });
 
 // Regenerate stream key — supports both church-level and per-room keys
-app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, async (req, res) => {
+app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, requirePermission('churches:write'), async (req, res) => {
   const church = await queryClient.queryOne(
     'SELECT churchId AS "churchId", name FROM churches WHERE churchId = ?',
     [req.params.churchId],
@@ -6824,7 +6827,7 @@ app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, async (req,
 });
 
 // Regenerate stream key for a specific room (admin)
-app.post('/api/admin/stream/:churchId/room/:roomId/key/regenerate', requireAdmin, async (req, res) => {
+app.post('/api/admin/stream/:churchId/room/:roomId/key/regenerate', requireAdmin, requirePermission('churches:write'), async (req, res) => {
   const { churchId, roomId } = req.params;
   const room = await queryClient.queryOne(
     'SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL',

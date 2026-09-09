@@ -298,7 +298,7 @@ Aligned with Tally’s north star: **reliability, calm, prepare-mode — not sal
 
 ## 8. Fixed in this PR
 
-Small UI/API contract fixes only. No auth or schema changes.
+Small UI/API contract fixes from the original review, plus the P0/P1 admin dashboard work below.
 
 | Fix | Why |
 |-----|-----|
@@ -306,7 +306,24 @@ Small UI/API contract fixes only. No auth or schema changes.
 | `AdminPage.jsx` accepts flat `/api/admin/me` | Tests and `adminAuth.js` return `{ id, email, name, role }`. Role never refreshed after login. |
 | `OutreachTab.jsx` dropdowns match `OUTREACH_TYPE_PROMPTS` | Generate always returned `Invalid messageType`. |
 
-Admin SPA is built in Docker at deploy time (`public/admin/` is gitignored). These source fixes ship on the next relay image build.
+### P0 + P1 landed (2026-09-09)
+
+| Item | What shipped |
+|------|----------------|
+| **Server-side RBAC** | `requirePermission()` now gates church delete, billing PUT, token reveal/regenerate, reseller writes/password/deactivate, stream-key regenerate, send-command. Engineer/sales JWTs get **403**. Legacy `x-api-key` stays god-mode. Sales no longer has `resellers:write` in `ROLE_PERMISSIONS` (matches `canWrite`). |
+| **Connection token hygiene** | `GET /api/churches` and `GET /api/admin/churches` return `hasToken` only. Reveal is `GET /api/admin/churches/:id/connection-token` (`churches:write` + `token_revealed` audit). |
+| **Tickets resolve/reply** | Tickets detail can change status (`PUT /api/support/tickets/:id`) and send a note (`POST .../updates`). |
+| **Sentry on admin SPA** | `@sentry/react` inits when `VITE_SENTRY_DSN` is set at Docker build, or at runtime from `GET /api/admin/client-config` (`SENTRY_DSN`). No DSN = local admin still works. |
+| **Sunday strip** | Top-of-dashboard KPIs from `GET /api/admin/overview`: connected, open unacked alerts, in service window now. |
+| **Spam/test filter** | Fleet table soft-hides junk (`isJunk` via name heuristics + never-seen/inactive + `is_test`/`is_spam`). Toggle **Show test/spam**. |
+| **Audit log tab** | Sidebar item for `admin` / `super_admin` → `GET /api/admin/audit-log`. |
+| **Idle timeout** | 30 min SPA idle clears `sessionStorage` and returns to login. JWT remains 8h. |
+| **Change password** | Sidebar → `PUT /api/admin/me/password`. |
+| **Outreach nav** | Hidden for `admin` / `engineer`. Kept for `sales` and `super_admin`. |
+
+**Still out of scope:** `ALERT_BOT_TOKEN`, Monitor HLS empty-state polish, P2 deep links / send-command palette.
+
+Admin SPA is built in Docker at deploy time (`public/admin/` is gitignored). These source fixes ship on the next relay image build. To get browser Sentry from the same Railway DSN without a rebuild, `/api/admin/client-config` reads `SENTRY_DSN` at runtime. Optional Docker build-args: `VITE_SENTRY_DSN` or `SENTRY_DSN`.
 
 ---
 

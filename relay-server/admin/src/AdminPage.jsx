@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { C, s, TAB_LABELS, canWrite, tabsForRole } from './components/adminStyles';
 import { createApi } from './api';
 import LoginScreen from './components/LoginScreen';
@@ -15,7 +15,12 @@ import StatusTab from './components/StatusTab';
 import OutreachTab from './components/OutreachTab';
 import RoomsTab from './components/RoomsTab';
 import LogsTab from './components/LogsTab';
+import AuditTab from './components/AuditTab';
+import SundayStrip from './components/SundayStrip';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import AIChatDrawer from './components/AIChatDrawer';
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 export default function AdminPage() {
   const [token, setToken]   = useState(null);
@@ -27,6 +32,8 @@ export default function AdminPage() {
   const [relayErr, setRelayErr] = useState('');
   const [relayMeta, setRelayMeta] = useState('');
   const [showDiag, setShowDiag] = useState(false);
+  const [overview, setOverview] = useState(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const api = useMemo(() => createApi(() => token), [token]);
 
@@ -70,6 +77,8 @@ export default function AdminPage() {
     setRelayErr('');
     setRelayMeta('');
     setShowDiag(false);
+    setOverview(null);
+    setShowPasswordModal(false);
   }
 
   // Validate session and fetch latest user profile on mount
@@ -92,6 +101,11 @@ export default function AdminPage() {
         setRelayOk(true);
         setRelayErr('');
         setRelayMeta(`${body?.service || 'tally-relay'} \u2022 ${body?.registeredChurches != null ? `${body.registeredChurches} churches` : ''}`);
+        try {
+          setOverview(await api('/api/admin/overview'));
+        } catch {
+          setOverview(null);
+        }
       } catch (err) {
         if (err.message === 'Token expired' || err.message === 'Account deactivated or not found') {
           signOut();
@@ -123,6 +137,22 @@ export default function AdminPage() {
     if (!isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
+  // SPA idle timeout — JWT stays 8h for API/smoke; the dashboard signs out after 30 min idle.
+  useEffect(() => {
+    if (!token) return;
+    let lastActivity = Date.now();
+    const bump = () => { lastActivity = Date.now(); };
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, bump, { passive: true }));
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) signOut();
+    }, 30_000);
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, bump));
+      window.clearInterval(timer);
+    };
+  }, [token]);
+
   if (!token) return <LoginScreen onLogin={handleLogin} />;
 
   return (
@@ -137,6 +167,7 @@ export default function AdminPage() {
         relayErr={relayErr}
         relayMeta={relayMeta}
         onSignOut={signOut}
+        onChangePassword={() => setShowPasswordModal(true)}
         mobile={isMobile}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -208,6 +239,8 @@ export default function AdminPage() {
           maxWidth: isMobile ? '100%' : s.contentArea.maxWidth,
         }}
       >
+        <SundayStrip overview={overview} />
+
         <div style={{ ...s.card, marginBottom: 16, background: '#0d1017', borderColor: '#1d2e24' }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Tally operations dashboard</div>
           <div style={{ color: C.muted, fontSize: 12 }}>
@@ -237,8 +270,13 @@ export default function AdminPage() {
         {tab === 'monitor'   && <MonitorTab token={token} api={api} />}
         {tab === 'status'    && <StatusTab api={api} role={role} />}
         {tab === 'logs'      && <LogsTab api={api} />}
+        {tab === 'audit'     && <AuditTab api={api} />}
         {tab === 'outreach'  && <OutreachTab api={api} />}
       </div>
+
+      {showPasswordModal && (
+        <ChangePasswordModal api={api} onClose={() => setShowPasswordModal(false)} />
+      )}
 
       <AIChatDrawer api={api} />
     </div>
