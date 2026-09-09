@@ -35,6 +35,7 @@ jobs:
             and (
               ((.registeredChurches // .churchesRegistered // 0) | type == "number")
             )
+            and (.aiConfigured | type == "boolean")
           ' health.json >/dev/null
 
           curl -fsS "$BASE_URL/api/status/components" -o components.json
@@ -44,30 +45,58 @@ jobs:
           {
             echo "## Public checks"
             echo "- PASS: \`GET /api/health\`"
+            echo "- PASS: \`GET /api/health\` \`aiConfigured\` is boolean"
             echo "- PASS: \`GET /api/status/components\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Authenticated endpoint checks
-        id: auth_checks
-        if: ${{ env.RELAY_ADMIN_EMAIL != '' && env.RELAY_ADMIN_PASSWORD != '' }}
-        continue-on-error: true
+      - name: Require admin secrets
         run: |
           set -euo pipefail
+          if [ -z "${RELAY_ADMIN_EMAIL:-}" ] || [ -z "${RELAY_ADMIN_PASSWORD:-}" ]; then
+            echo "::error::Production smoke requires repository secrets RELAY_ADMIN_EMAIL and RELAY_ADMIN_PASSWORD. Authenticated login cannot be skipped."
+            {
+              echo "## Authenticated checks"
+              echo "- FAIL: secrets \`RELAY_ADMIN_EMAIL\` and \`RELAY_ADMIN_PASSWORD\` are required for production smoke."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-          TOKEN=$(curl -fsS "$BASE_URL/api/admin/login" \
+      - name: Authenticated endpoint checks
+        run: |
+          set -euo pipefail
+          set +x
+
+          LOGIN_PAYLOAD="$(jq -n --arg email "$RELAY_ADMIN_EMAIL" --arg password "$RELAY_ADMIN_PASSWORD" '{email: $email, password: $password}')"
+          HTTP_CODE="$(curl -sS -o login.json -w "%{http_code}" \
+            "$BASE_URL/api/admin/login" \
             -H "Content-Type: application/json" \
-            -d "{\"email\": \"$RELAY_ADMIN_EMAIL\", \"password\": \"$RELAY_ADMIN_PASSWORD\"}" \
-            | jq -re '.token')
+            -d "$LOGIN_PAYLOAD")"
+          unset LOGIN_PAYLOAD
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Admin login failed (HTTP ${HTTP_CODE}). Production smoke is an honest can-Andrew-still-log-in check. Update RELAY_ADMIN_EMAIL and RELAY_ADMIN_PASSWORD if credentials changed."
+            {
+              echo "## Authenticated checks"
+              echo "- FAIL: \`POST /api/admin/login\` HTTP ${HTTP_CODE}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -f login.json
+            exit 1
+          fi
+
+          TOKEN="$(jq -re '.token' login.json)"
+          rm -f login.json
 
           curl -fsS "$BASE_URL/api/churches" \
-            -H "Authorization: Bearer $TOKEN" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -o churches.json
           jq -e 'type == "array"' churches.json >/dev/null
 
           curl -fsS "$BASE_URL/api/billing" \
-            -H "Authorization: Bearer $TOKEN" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -o billing.json
           jq -e 'type == "array"' billing.json >/dev/null
+
+          unset TOKEN
 
           {
             echo "## Authenticated checks"
@@ -75,18 +104,3 @@ jobs:
             echo "- PASS: \`GET /api/churches\`"
             echo "- PASS: \`GET /api/billing\`"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Auth check warning
-        if: steps.auth_checks.outcome == 'failure'
-        run: |
-          {
-            echo "## Authenticated checks"
-            echo "- :warning: FAILED: admin login returned an error. Update \`RELAY_ADMIN_EMAIL\` and \`RELAY_ADMIN_PASSWORD\` repository secrets."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::Authenticated smoke checks failed — update admin credentials in repository secrets"
-
-      - name: Missing secret notice
-        if: ${{ env.RELAY_ADMIN_EMAIL == '' || env.RELAY_ADMIN_PASSWORD == '' }}
-        run: |
-          echo "## Authenticated checks" >> "$GITHUB_STEP_SUMMARY"
-          echo "- SKIPPED: set repository secrets \`RELAY_ADMIN_EMAIL\` and \`RELAY_ADMIN_PASSWORD\` to enable authenticated smoke checks." >> "$GITHUB_STEP_SUMMARY"

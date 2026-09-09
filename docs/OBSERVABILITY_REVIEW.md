@@ -41,7 +41,7 @@ Relay Node Sentry is initialized (`SENTRY_DSN` present on Railway). The Sentry o
 | **`GET /api/health`** | Load-balancer + Andrew glance | Counts, DB, realtime. **No AI chip.** No tenant names (good) | **WORKING**; AI boolean **this PR** |
 | **`GET /api/status` + `/status` page** | Uptime monitor + public HTML | Operational even at 0/6 booths (correct). Components = keys/HTTP, not delivery | **PARTIAL** |
 | **Status components** | Synthetic 1-min checks | 7 components. Telegram = interactive webhook. Resend = secret present (webhook created **today**). Admin Status tab mapped `outage` → Unknown | **PARTIAL → P0s this PR** |
-| **Production Smoke** | GitHub every 6h | Public health + components **PASS**. Authenticated login/churches/billing **PASS** (secrets are set). Does not assert `aiConfigured` or connected booths | **WORKING** (shallow) |
+| **Production Smoke** | GitHub every 6h | Public health + components **PASS**. Authenticated login/churches/billing **must pass** (secrets required; login failure fails the job). Asserts `aiConfigured` is boolean. Does not assert connected booths | **WORKING** (shallow, honest) |
 | **Logs / metrics** | Railway search + `/api/health.realtime` | `LOG_FORMAT=json` on Railway. In-process `runtimeMetrics` on health. No BetterUptime. **Alert delivery** status component + last-success timestamps **this leftover PR** | **PARTIAL → last-send chip shipped** |
 | **Page Andrew** | Sunday fail → Telegram | `ANDREW_TELEGRAM_CHAT_ID` set. Health/offline crons + AlertEngine escalation. **No “send failed” page.** Empty service windows = log-only (except EMERGENCY) | **PARTIAL** — see [`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) |
 
@@ -164,7 +164,9 @@ Public `/status` HTML already styles `outage`. **Admin `StatusTab.jsx` did not**
 
 Latest run `34288236425` (2026-09-08 22:55 UTC): **success** in ~14s. Logs show `RELAY_ADMIN_PASSWORD` set and authenticated `login` / `churches` / `billing` **PASS**. Public health + components **PASS**.
 
-**Gaps:** does not fail on `aiConfigured: false`, `connectedChurches`, Telegram state, or Resend last event. Auth failure is `continue-on-error` (warning only). Fine for prepare-mode; not a Sunday page.
+**Honesty (follow-up):** missing `RELAY_ADMIN_*` secrets or a failed admin login **fails the job** (no `continue-on-error`, no silent skip). Public health asserts `aiConfigured` is a boolean — never the key, and not “must be true.” Password and JWT are not logged.
+
+**Gaps:** still does not fail on `aiConfigured: false`, `connectedChurches`, Telegram state, or Resend last event.
 
 CI (`.github/workflows/ci.yml`) is unit coverage on PR paths — **WORKING**. No Sentry/uptime job.
 
@@ -222,7 +224,7 @@ Empty service windows still make non-EMERGENCY alerts **log-only**. That is by d
 1. **Last successful alert send** status component (Telegram HTTP `ok` + Slack `ok`). Page Andrew after N consecutive failures. ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) P1-9.) **Shipped** — `alert_delivery` component; `Sentry.captureException` + existing Andrew Telegram path after 3 consecutive send failures (`ALERT_SEND_FAILURE_THRESHOLD`).
 2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`. **Shipped:** AlertEngine (#164); `runStatusChecks` throw + Resend `email.failed` / bounce / complaint (this leftover).
 3. Portal/Electron Sentry (SDK + CSP already allowlisted + public DSN via a church `client-config` or build-time). Not a one-liner.
-4. Production Smoke: assert `aiConfigured === true` in prod; optional `telegram_bot_webhook.state != outage`.
+4. Production Smoke: assert `aiConfigured === true` in prod (type-is-boolean **shipped**; still not a hard `true`); optional `telegram_bot_webhook.state != outage`.
 5. Lifecycle emails: `${appUrl}/church-portal` (tests pin `/portal` today). Marketing 307s; reseller collision if anyone uses `RELAY_URL/portal`.
 6. Soften `admin_api_proxy` to skip marketing host when `ADMIN_PROXY_URL` is set (historic 404 flaps).
 7. Sentry alert rule: first event on `tally-relay` → Andrew Telegram/email. Org has no issues to hang a rule on yet.
