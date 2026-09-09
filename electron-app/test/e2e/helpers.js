@@ -63,6 +63,7 @@ async function closeApp(electronApp) {
  */
 const EXPECTED_API_METHODS = [
   'getPlatform',
+  'reportCrash',
   'getConfig',
   'saveConfig',
   'getStatus',

@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Synchronous platform detection — avoids relying on navigator.platform which
   // returns "" on Apple Silicon in Electron 35+
   getPlatform: () => process.platform,
+  reportCrash: (payload) => ipcRenderer.invoke('report-crash', payload),
   getConfig: () => ipcRenderer.invoke('get-config'),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   getStatus: () => ipcRenderer.invoke('get-status'),

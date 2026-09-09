@@ -37,7 +37,7 @@ Relay Node Sentry is initialized (`SENTRY_DSN` present on Railway). The Sentry o
 |---------|--------|---------------------------|----------------|
 | **Relay Sentry** | Crash / unhandled Express errors in Andrew’s inbox | `@sentry/node` init + `setupExpressErrorHandler`. Safety-net handlers logged only. **0 events / 90d** | **UNPROVEN** → captureException on safety net **this PR** |
 | **Admin SPA Sentry** | Dashboard JS errors | Init via `/api/admin/client-config` (#151). Helmet `connect-src` had no ingest host → browser envelopes dropped | **BROKEN → fixed** (CSP) |
-| **Portal / Electron / church-client Sentry** | Booth + TD browser errors | **No SDK.** Electron Sentry *project* exists; app does not send. Mobile uses a placeholder DSN | **DEAD** (not a one-liner) |
+| **Portal / Electron / church-client Sentry** | Booth + TD browser errors | Portal: no SDK. Booth: **`tally-booth`** + `@sentry/node` this PR (`ELECTRON_SENTRY_DSN`). Mobile placeholder DSN | Portal **DEAD**. Booth **UNPROVEN** until the DSN is baked into an installer |
 | **`GET /api/health`** | Load-balancer + Andrew glance | Counts, DB, realtime. **No AI chip.** No tenant names (good) | **WORKING**; AI boolean **this PR** |
 | **`GET /api/status` + `/status` page** | Uptime monitor + public HTML | Operational even at 0/6 booths (correct). Components = keys/HTTP, not delivery | **PARTIAL** |
 | **Status components** | Synthetic 1-min checks | 7 components. Telegram = interactive webhook. Resend = secret present (webhook created **today**). Admin Status tab mapped `outage` → Unknown | **PARTIAL → P0s this PR** |
@@ -63,7 +63,7 @@ Pre-fix → post-fix where this PR changed the number.
 | **Polish** | **2 → 3 / 5** | Portal SSE reconnect was silent. Electron tray leftover `/portal` (marketing now **307s**, not 404). Checkout `/billing/success` leftover already fixed in #159. |
 | **Observability** | **2 → 3 / 5** | Sentry org is real; events are not. Status page is real; it watches the wrong questions. This PR adds AI chip, CSP, outage color, SSE banner, Resend last-event detail. |
 
-**Overall: ~3.2 / 5 after this PR — Andrew can see process health and AI-configured. He still cannot prove a page left Telegram or that a booth JS crash happened.**
+**Overall: ~3.2 / 5 after this PR — Andrew can see process health and AI-configured. Booth JS crashes can reach `tally-booth` once `ELECTRON_SENTRY_DSN` is in the next installer and a Sentry alert pages Andrew. He still cannot prove a Telegram page left.**
 
 ---
 
@@ -71,7 +71,7 @@ Pre-fix → post-fix where this PR changed the number.
 
 ```
 Booth (church-client / Electron)     Portal SPA              Admin SPA
-  no Sentry                            no Sentry               @sentry/react
+  @sentry/node if ELECTRON_SENTRY_DSN  no Sentry               @sentry/react
   watchdog → WS alert                  EventSource SSE         /api/admin/client-config DSN
            │                              │                         │
            ▼                              ▼                         ▼
@@ -89,7 +89,7 @@ Relay (@sentry/node if SENTRY_DSN)
            └─ GitHub Production Smoke  every 6h
 ```
 
-Sentry org (live): `disbrow-productions-llc`. Projects: **`tally-relay`** (0 errors / 90d), **`electron`** (1 issue: Sentry dashboard `views.js` poll — **not** the Tally booth app).
+Sentry org (live): `disbrow-productions-llc`. Projects: **`tally-relay`** (relay), **`tally-booth`** (Electron main + renderer IPC + church-client agent), **`electron`** (leftover sample `ELECTRON-1` / `views.js` — **not** Tally; do not send booth events there).
 
 ---
 
@@ -102,7 +102,7 @@ Sentry org (live): `disbrow-productions-llc`. Projects: **`tally-relay`** (0 err
 | **Relay** | `@sentry/node` ^10 | Railway `SENTRY_DSN` (name confirmed) | `Sentry.init` + `setupExpressErrorHandler` after routes | **UNPROVEN.** 0 error events / 90d. Express handler only sees *unhandled* middleware errors. Business `catch` blocks log and swallow. Safety-net handlers did not `captureException` (**fixed**). |
 | **Admin SPA** | `@sentry/react` ^10 | `VITE_SENTRY_DSN` at Docker build, else `GET /api/admin/client-config` | `main.jsx` + ErrorBoundary | **BROKEN** before this PR: Helmet `connect-src` was `'self' wss: ws: worldtimeapi.org`. Browser POSTs to `*.ingest.us.sentry.io` were CSP-blocked. **Fixed.** |
 | **Church portal** | none | — | — | **DEAD.** Vanilla JS. Not a one-liner (needs SDK + CSP + a public DSN endpoint). SSE `onerror` was silent (**banner this PR**). |
-| **Electron / church-client** | none | Sentry *project* `electron` exists | — | **DEAD.** Tray/deep-links use `portal-url.js` (`/church-portal`); tray “Open Church Portal” still pointed at `/portal` (**fixed**). |
+| **Electron / church-client** | `@sentry/node` ^10 | `ELECTRON_SENTRY_DSN` (preferred) or `SENTRY_DSN`; packaged builds bake via `beforePack` | Main + agent init if DSN set; renderer `window.onerror` → IPC (sandbox / no bundler, so not `@sentry/electron`). Unset DSN = no-op. | **UNPROVEN** until a packaged build with the GitHub/Mac Studio secret ships. `electron` project is leftover noise. |
 | **Mobile** | `@sentry/react-native` | Hard-coded `https://placeholder@sentry.io/0` | `initSentry()` in `_layout.tsx` | **DEAD** in prod. `enabled: !__DEV__` but placeholder DSN. |
 
 `GET /api/admin/client-config` is **public** by design (DSN is a client key). Live probe returned a US ingest DSN for project `4512053482422272`. **Do not copy DSNs into docs or tickets.**
@@ -119,7 +119,7 @@ These are representative, not exhaustive. Pattern: `catch { }` / `catch (e) { lo
 | Portal `es.onmessage` inner `catch {}` | Malformed SSE JSON | Live cards freeze |
 | `server.js` scheduler Telegram `.catch(() => {})` | TD notify fail | Rundown ping dropped |
 | `runStatusChecks().catch(console.error)` | Synthetic monitor fail | **Shipped leftover:** `reportStatusCheckFailure` → `Sentry.captureException`. Per-check fetch flaps stay **degraded** on `/status` (Telegram #160). Admin `POST /api/status/run-checks` also captures. |
-| church-client / Electron | No SDK | Booth crash never reaches Sentry |
+| church-client / Electron | Uncaught + renderer IPC → `tally-booth` when DSN set | Sunday booth crash can page Andrew once `ELECTRON_SENTRY_DSN` is in the installer secret and a Sentry alert exists |
 | `healthAlerts._getActiveChurches` | SQL throw → `[]` | Daily churn cron silently no-ops |
 
 Relay Sentry will still stay quiet on booth/portal SDK-less paths and other business catches. Status-check throws, AlertEngine send failures (#164), and Resend failure webhooks now capture.
@@ -223,21 +223,35 @@ Empty service windows still make non-EMERGENCY alerts **log-only**. That is by d
 
 1. **Last successful alert send** status component (Telegram HTTP `ok` + Slack `ok`). Page Andrew after N consecutive failures. ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) P1-9.) **Shipped** — `alert_delivery` component; `Sentry.captureException` + existing Andrew Telegram path after 3 consecutive send failures (`ALERT_SEND_FAILURE_THRESHOLD`).
 2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`. **Shipped:** AlertEngine (#164); `runStatusChecks` throw + Resend `email.failed` / bounce / complaint (this leftover).
-3. Portal/Electron Sentry (SDK + CSP already allowlisted + public DSN via a church `client-config` or build-time). Not a one-liner.
+3. Portal Sentry (SDK + CSP + public DSN). Booth/Electron Sentry **shipped** this PR (`tally-booth`; DSN via `ELECTRON_SENTRY_DSN`).
 4. Production Smoke: assert `aiConfigured === true` in prod (type-is-boolean **shipped**; still not a hard `true`); optional `telegram_bot_webhook.state != outage`.
 5. Lifecycle emails: `${appUrl}/church-portal` (tests pin `/portal` today). Marketing 307s; reseller collision if anyone uses `RELAY_URL/portal`.
 6. Soften `admin_api_proxy` to skip marketing host when `ADMIN_PROXY_URL` is set (historic 404 flaps).
-7. Sentry alert rule: first event on `tally-relay` → Andrew Telegram/email. Org has no issues to hang a rule on yet.
+7. Sentry alert rule: first event on `tally-relay` **and** `tally-booth` → Andrew Telegram/email. Org had no booth issues to hang a rule on until a packaged DSN ships.
 8. Replace mobile placeholder DSN or disable the SDK until a real project exists.
 
 ### P2 — later
 
-1. Booth crash reporting (`@sentry/electron` / church-client) against project `electron` — only after confirming that project is for Tally, not leftover noise (`ELECTRON-1` is Sentry UI `views.js`).
+1. ~~Booth crash reporting against project `electron`~~ — **verified leftover** (`ELECTRON-1` is a Sentry sample event, `sample_event: yes`). Dedicated project **`tally-booth`** + SDK **this PR**. Andrew still needs GitHub secret `ELECTRON_SENTRY_DSN` (and the same env on Mac Studio) plus an issue alert to page his phone.
 2. Persist Resend last-event in DB so restarts don’t look like “never received.”
 3. Uptime vendor (BetterUptime) on `/api/status` + `/status`.
 4. Trace sample of WS `alert` → Telegram latency.
 5. Admin Monitor SSE “fleet live” is empty at 0 connected — keep it, don’t fake data.
 6. QA checklist still says `api.tallyconnect.app/portal` (reseller). Archive/update separately.
+
+### Booth crash reporting (this PR)
+
+Verified Sentry project `electron` is **not** Tally (sample `ELECTRON-1`). Created **`tally-booth`**. SDK is `@sentry/node` in Electron main and church-client (renderer is sandboxed with no bundler; errors go over IPC). DSN from env only — never committed.
+
+| How the DSN gets there | What to set |
+|------------------------|-------------|
+| **Local / tests** | Unset. Init is a no-op; app and CLI still run. |
+| **Windows installer** | GitHub Actions secret `ELECTRON_SENTRY_DSN` (from Sentry → `tally-booth` → Client Keys). `beforePack` bakes it into the asar. |
+| **Mac Studio signed build** | Export `ELECTRON_SENTRY_DSN` in the shell before `electron-builder`. Same bake. |
+| **Railway** | Keep existing `SENTRY_DSN` for **`tally-relay` only**. Do not point the booth at it. Railway does not run the desktop agent. |
+| **church-client CLI** | Same `ELECTRON_SENTRY_DSN` (Electron copies it into the child env). |
+
+Do not print the DSN. Scrubber strips JWTs, `Authorization`, tokens, Slack/Telegram webhook URLs, and user email. After the first packaged build, add a Sentry issue alert on `tally-booth` so Sunday crashes page Andrew.
 
 ---
 
@@ -268,6 +282,17 @@ Silent failures on the named status + Resend paths. No new products. Telegram fe
 | Resend `email.failed` / `email.bounced` / `email.complained` → capture (no recipient PII) | `src/routes/resendWebhook.js`, `tests/resendWebhook.test.js` |
 | Status detail includes last Resend failure type (still operational) | `server.js` resend_webhook component |
 | Pins | `tests/observability-p0.test.js` |
+
+### Booth crash reporting (this leftover PR)
+
+`electron` project is leftover sample noise. Dedicated `tally-booth`. No DSN committed.
+
+| Change | Files |
+|--------|-------|
+| Electron main + renderer IPC + DSN bake | `electron-app/src/sentry.js`, `main.js`, `preload.js`, `renderer.js`, `scripts/beforePack.js`, `.github/workflows/build-win.yml` |
+| church-client uncaught / rejection capture | `church-client/src/sentry.js`, `church-client/src/index.js` |
+| Init guards + scrub tests | `electron-app/test/sentry.test.js`, `church-client/test/sentry.test.js` |
+| DSN docs (no secret values) | `docs/OBSERVABILITY_REVIEW.md`, `electron-app/.env.example`, `relay-server/docs/deployment.md` |
 
 ---
 

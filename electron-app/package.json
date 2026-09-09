@@ -105,6 +105,7 @@
       "createStartMenuShortcut": true,
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
+    "beforePack": "./scripts/beforePack.js",
     "afterPack": "./scripts/afterPack.js",
     "afterAllArtifactBuild": "./scripts/afterAllArtifactBuild.js",
     "extraResources": [
@@ -148,6 +149,7 @@
     ]
   },
   "dependencies": {
+    "@sentry/node": "^10.74.0",
     "atem-connection": "^3.9.0",
     "commander": "^12.0.0",
     "electron-updater": "^6.8.9",
@@ -157,9 +159,9 @@
   },
   "devDependencies": {
     "c8": "^11.0.0",
-    "extract-zip": "file:vendor/extract-zip-safe",
     "electron": "^39.8.10",
     "electron-builder": "^26.15.3",
+    "extract-zip": "file:vendor/extract-zip-safe",
     "playwright": "^1.58.2"
   },
   "overrides": {

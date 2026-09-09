@@ -47,6 +47,11 @@ const equipmentTester = require('./equipment-tester');
 const problemFinderBridge = require('./problem-finder-bridge');
 const autostart = require('./autostart');
 const { createRelayHealthMonitor, parseLocalStatusPortLine } = require('./relayHealthMonitor');
+const boothSentry = require('./sentry');
+boothSentry.initBoothSentry({
+  processName: 'electron-main',
+  release: require('../package.json').version,
+});
 
 // Auto-update (gracefully optional)
 let autoUpdater;
@@ -836,6 +841,8 @@ function startAgent() {
   const spawnEnv = useElectronAsNode
     ? { ...process.env, ...secretEnv, ELECTRON_RUN_AS_NODE: '1' }
     : { ...process.env, ...secretEnv };
+  const boothDsn = boothSentry.resolveSentryDsn();
+  if (boothDsn) spawnEnv.ELECTRON_SENTRY_DSN = boothDsn;
 
   agentProcess = spawn(nodeBinary, args, {
     cwd: clientPaths.cwd,
@@ -1190,6 +1197,10 @@ function startAgent() {
           appendAppLog('SYSTEM', msg);
           mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
           sendNotification('Tally Agent — Repeated Crashes', msg);
+          boothSentry.captureBoothException(
+            new Error(`Church-client agent crashed ${agentCrashCount} times (exit ${code})`),
+            { tags: { surface: 'electron-agent', kind: 'repeated-crash' }, extra: { exitCode: code, crashCount: agentCrashCount } },
+          );
         }
       }
 
@@ -1454,6 +1465,9 @@ ipcMain.handle('import-portable-config', async () => {
   }
 });
 
+ipcMain.handle('report-crash', (_, payload) => {
+  boothSentry.captureRendererCrash(payload || {});
+});
 ipcMain.handle('get-status', () => agentStatus);
 ipcMain.handle('get-relay-status', () => ({
   online: _relayHealthState.online,
