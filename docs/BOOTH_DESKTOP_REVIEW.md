@@ -322,8 +322,8 @@ Small, high-confidence P0s only. No signing changes. No failover flip.
 | Live `GET /api/status` | operational; websocket `connected_churches: 0` |
 | `latest.yml` | version **1.1.67**, `Tally-Setup-1.1.67.exe` |
 | `latest-mac.yml` | version **1.1.66**, date 2026-05-05 |
-| church-client recovery unit tests | added aliases + real method names |
-| electron-app source contracts | tray + local-status emit pinned |
+| church-client recovery unit tests | **35/35 pass** (includes `reconnectATEM` / `connectOBS` / `encoderBridge.connect`) |
+| electron-app unit tests | **322/322 pass** including tray/offline source contracts |
 
 **Not verified (and not claimed):** signed Mac Gatekeeper, Windows SmartScreen, a connected booth WS, hardware watchdog, failover drill, or auto-update on a real install.
 
