@@ -26,20 +26,23 @@ This answers: *every email Tally can send, what actually fires, which links work
 
 ## 1. Architecture
 
-There is **no Resend SDK** and **no nodemailer**. Every send is `fetch('https://api.resend.com/emails')` with `Authorization: Bearer`. No idempotency keys. 10s abort timeout. SDK `{ data, error }` pattern does not apply — HTTP status is checked.
+There is **no Resend SDK** and **no nodemailer**. Every send goes through `relay-server/src/resendClient.js` → `fetch('https://api.resend.com/emails')` with `Authorization: Bearer` and `Idempotency-Key`. 10s abort timeout. SDK `{ data, error }` pattern does not apply — HTTP status is checked. 429 / 5xx / network retry up to 3 attempts with the **same** key. 4xx is not retried (except Resend `concurrent_idempotent_requests`).
 
 ```
 Triggers (cron / webhook / HTTP)
         │
-        ├─ LifecycleEmails.sendEmail()          ── primary path (dedup + throttle + opt-out + footer)
+        ├─ LifecycleEmails.sendEmail()          ── primary path (dedup + throttle + opt-out + suppress + footer)
         ├─ LifecycleEmails.send* bypasses       ── password-reset, email-change, urgent-alert, sendManual
         └─ server.js sendOnboardingEmail()      ── verification + first-app-connection only
                 │
                 ▼
-        Resend REST  →  FROM_EMAIL  →  one `to` address
+        resendClient.sendResendEmail()  →  FROM_EMAIL + optional EMAIL_REPLY_TO
                 │
                 ▼
         email_sends  (UNIQUE church_id + email_type)
+                │
+                ▼
+        POST /api/resend/webhook (Svix)  →  email_suppressions on bounce/complaint
 ```
 
 | Piece | Where | Notes |
@@ -57,7 +60,10 @@ Triggers (cron / webhook / HTTP)
 | Env | Default in code | Effect |
 |-----|-----------------|--------|
 | `RESEND_API_KEY` | `''` | Empty → log “would send”, still **records** `email_sends` on the main path (so retries never go out later if the key is added). Startup **warns**, does not crash. |
-| `FROM_EMAIL` | `Tally <noreply@tallyconnect.app>` | Used on every Resend call. **No `reply_to` field anywhere.** |
+| `FROM_EMAIL` | `Tally <noreply@tallyconnect.app>` | Used on every Resend call. |
+| `EMAIL_REPLY_TO` | unset | Optional `reply_to`. Suggested: `support@tallyconnect.app`. If unset, Resend payloads omit `reply_to`. |
+| `RESEND_WEBHOOK_SECRET` | unset | Svix `whsec_…` for `POST /api/resend/webhook`. Startup warns (not fatal) if the API key is set without this. |
+| `TALLY_WIN_INSTALLER_URL` | derived from `relay-server/package.json` version | Emergency override for the Windows `.exe` in email CTAs. |
 | `APP_URL` | `https://tallyconnect.app` | CTA host for most templates. |
 | `RELAY_URL` | `https://api.tallyconnect.app` | Verification links + unsubscribe base. Production refuses verification send if this is not `https://`. |
 | `UNSUBSCRIBE_SECRET` | falls back to `JWT_SECRET` | **Verifier** uses this. **Token signer** (`_buildUnsubscribeFooter`) uses `getJwtSecret()` = `JWT_SECRET` only. If `UNSUBSCRIBE_SECRET` is ever set to a *different* value, unsubscribe links 400. |
@@ -65,12 +71,15 @@ Triggers (cron / webhook / HTTP)
 
 `FEATURE_AUDIT_2026-09-08.md` said Railway has `RESEND_API_KEY` and `FROM_EMAIL` / `UNSUBSCRIBE_SECRET` unset. **Not re-verified this session** (no Railway secret dump). Domain `tallyconnect.app` is treated as verified per product context; this review did not call Resend domains API.
 
+**Ops note (Resend OAuth, this session):** connected Resend account shows domain `tallyconnect.app` **verified** and API keys named `tally-production` / `TallyConnect`, but **zero** recent sends, metrics, contacts, or webhooks. Before the next real send, confirm Railway `RESEND_API_KEY` belongs to **this same Resend team** (Dashboard → API Keys — do not print the key). A key from a different team would send from a different project (or fail) while this dashboard stays empty.
+
 ### From / reply-to / compliance
 
 - **From:** `FROM_EMAIL` only. Spoofable only by whoever can set Railway env (not per-request).
-- **Reply-To:** unset. Many templates say “reply to this email” / “every response goes straight to our team.” Replies hit `noreply@…` unless the mailbox is forwarded in the email host (UNVERIFIED).
+- **Reply-To:** `EMAIL_REPLY_TO` when set. Many templates still say “reply to this email.” Set the env to `support@tallyconnect.app` (or Andrew) so replies do not depend on `noreply@` forwarding.
 - **Physical address:** unsubscribe footer is `TallyConnect · support@tallyconnect.app`. **No postal address.** A unit test is named “CAN-SPAM physical-address line” but only asserts those two strings.
-- **Unsubscribe:** injected for types that map to `EMAIL_CATEGORIES`. Transactional types (password reset, verification, most billing confirmations) skip footer. **Lead drip and several dynamic types do not map** — see P1.
+- **Unsubscribe:** injected for types that map to `EMAIL_CATEGORIES`. Transactional types (password reset, verification, most billing confirmations) skip footer. **Do not add a footer to those.** Lead drip and several dynamic types still do not map — see P1.
+- **Suppression:** hard bounce (`email.bounced`) and complaint (`email.complained`) write `email_suppressions` and block **all** further sends to that address, including transactional. Soft bounce is `email.delivery_delayed` — Resend retries; we do not suppress.
 
 ---
 
@@ -197,10 +206,12 @@ Portal team “invites” (TD accounts) are **not** an email type in this repo �
 ```
 https://github.com/peterdisbrow/tally/releases/latest/download/Tally-arm64.dmg
 https://github.com/peterdisbrow/tally/releases/latest/download/Tally-x64.dmg
-https://github.com/peterdisbrow/tally/releases/latest/download/Tally-Setup-1.1.67.exe
+https://github.com/peterdisbrow/tally/releases/latest/download/Tally-Setup-<relay-server/package.json version>.exe
 ```
 
 `DOWNLOAD_MAC_URL` (primary button) = **Apple Silicon only**.
+
+Windows filename is **versioned by electron-builder**. There is no versionless `Tally-Setup.exe` on GitHub `latest/download`, and resolving via the GitHub API at send time is not safe (timeout / rate-limit). Emails now derive `Tally-Setup-${version}.exe` from `relay-server/package.json` (currently **1.1.67**). Keep Electron `package.json` on the same version when you cut a release. Emergency override: `TALLY_WIN_INSTALLER_URL`.
 
 Live probe 2026-09-09 (GitHub `latest` = **v1.1.67**):
 
@@ -208,7 +219,7 @@ Live probe 2026-09-09 (GitHub `latest` = **v1.1.67**):
 |-------|-------------|--------|
 | `Tally-arm64.dmg` | **200** | Versionless name — survives next tag |
 | `Tally-x64.dmg` | **200** | Same |
-| `Tally-Setup-1.1.67.exe` | **200** | **Versioned filename.** Next Windows ship **must** bump `DOWNLOAD_WIN_URL` or the email 404s |
+| `Tally-Setup-1.1.67.exe` | **200** | Matches current `package.json`. Next Windows ship: bump relay + Electron version together |
 | `Tally-signed.dmg` on latest | **404** | Old hardcoded name; **no longer referenced** |
 | Linux `.AppImage` | **404** | **No Linux installer** on this release. Emails correctly omit Linux |
 
@@ -220,7 +231,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 
 ## 4. What’s working
 
-- Single Resend REST wrapper with timeout, tagging (`category` = emailType), and console logging.
+- Shared Resend REST helper (`resendClient.js`) with timeout, sanitized tags, `Idempotency-Key`, `reply_to`, and 429/5xx/network retry.
 - Dedup + 5-minute per-church throttle (bypass with `urgent`) on the main path.
 - Church-level category prefs + per-recipient unsubscribe table + JWT unsubscribe page + resubscribe.
 - Signup → verify → welcome → connection → setup / first-Sunday / Telegram / schedule nudges is a real onboarding spine.
@@ -234,11 +245,17 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 
 ## 5. Gaps and bugs (prioritized)
 
-### P0 — broken path, small blast radius
+### P0 — broken path / reliability / compliance (this PR)
 
 | ID | Issue | Evidence | Fix shape |
 |----|--------|----------|-----------|
-| P0-1 | **Password reset CTA 404.** Mail used `${APP_URL}/portal/reset-password`. Live `tallyconnect.app/portal/reset-password` **404**. Real page: `https://tallyconnect.app/reset-password` **200**. | Probe 2026-09-09; `emailVerification.js`; landing `/forgot-password` **200** | **Fixed in this PR:** CTA → `/reset-password?token=`. Preview + test updated. |
+| P0-1 | **Password reset CTA 404.** Mail used `${APP_URL}/portal/reset-password`. Live `tallyconnect.app/portal/reset-password` **404**. Real page: `https://tallyconnect.app/reset-password` **200**. | Probe 2026-09-09; `emailVerification.js`; landing `/forgot-password` **200** | **Fixed:** CTA → `/reset-password?token=`. Preview + test updated. |
+| P0-2 | **No Idempotency-Key** on Resend POST | All five fetch sites | **Fixed:** `tally/${churchId}/${emailType}`; password-reset / verify use token (`requestId`). |
+| P0-3 | **No retry** on 429 / 5xx / network | Single fetch, 10s abort | **Fixed:** max 3 attempts, same key, exponential backoff. 4xx not retried. |
+| P0-4 | **No Resend webhooks** | Account had zero webhooks | **Fixed:** signed `POST /api/resend/webhook`. Bounce/complaint → `email_suppressions`. |
+| P0-5 | **Unsanitized tags** | `category` = raw `emailType` (`manual:…`, weekly keys) | **Fixed:** alphanumeric / underscore / dash only. |
+| P0-6 | **No `reply_to`** | Templates say “reply to this email” | **Fixed:** `EMAIL_REPLY_TO` (optional). Set on Railway to `support@tallyconnect.app`. |
+| P0-7 | **Win exe pin** | Hardcoded `Tally-Setup-1.1.67.exe` | **Fixed:** derived from `relay-server/package.json` version; `TALLY_WIN_INSTALLER_URL` override. |
 
 ### P1 — churches / Andrew will feel this
 
@@ -249,7 +266,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P1-3 | **No stream-down / outage email.** Email only after CRITICAL + 5 min no Telegram ack. Booths without Telegram/Slack get **nothing**. | `alertEngine.js` | Optional email for EMERGENCY/CRITICAL to portal + leaders (respect prefs). |
 | P1-4 | **NPS buttons 404.** | Live `tallyconnect.app/nps` **404** | Landing route or switch CTA to mailto / portal. Until then, **do not send**. |
 | P1-5 | **Lead drip has no unsubscribe category.** Marketing to captured emails. Footer not injected. | `_getCategoryForType` returns null for `lead-*` | Add `lead-nurture` category **or disable `_checkLeadNurture` + capture welcome** in prepare-mode. |
-| P1-6 | **“Reply to this email” with `noreply@`.** | All Resend bodies omit `reply_to` | Set `reply_to: support@tallyconnect.app` (or Andrew) on Resend payloads. |
+| P1-6 | **“Reply to this email” with `noreply@`.** | Code now sends `reply_to` when `EMAIL_REPLY_TO` is set | **Code done.** Still need the Railway env value. |
 | P1-7 | **Unsubscribe secret split-brain.** Signer = `JWT_SECRET`; verifier = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. | `lifecycleEmails.js` vs `server.js` | Sign with the same secret the verifier uses. |
 | P1-8 | **Dispute mail goes to the church, not ops.** | `sendDisputeAlert` → `portal_email` | Also send to Andrew / admin list. |
 | P1-9 | **Email-change notice skips the old inbox.** | `sendEmailChangeConfirmation` | Send to old + new. |
@@ -260,7 +277,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 
 | ID | Issue | Notes |
 |----|--------|------|
-| P2-1 | Windows exe name pinned to `1.1.67` | Bump on every Windows ship or publish a versionless name. |
+| P2-1 | Windows exe name follows `package.json` | Keep Electron version in sync; override with `TALLY_WIN_INSTALLER_URL` if a release is mis-tagged. |
 | P2-2 | Primary Download button is ARM64 only | Intel Macs must use the text link. |
 | P2-3 | No Linux email link | Correct today (no asset). Don’t advertise until an AppImage exists. |
 | P2-4 | `sendMonthlyROISummary` **DEAD** | Monthly already sends `sendMonthlyReportEmail`. Delete or wire one. |
@@ -269,8 +286,8 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P2-7 | `church.name` often unescaped in HTML | `_esc` exists; many builders skip it. |
 | P2-8 | Feature-announcement `body` is raw HTML | Admin XSS into every active church. |
 | P2-9 | Signup sends **two** emails immediately | Verify + registration. Consider one. |
-| P2-10 | No Resend webhooks / bounce handling | Relies on Resend suppression list only. |
-| P2-11 | No send idempotency keys | Stripe retries + cron overlap can duplicate on bypass paths. |
+| P2-10 | Resend webhooks | **Done** — bounce/complaint suppress. Opened/clicked accepted, ignored. |
+| P2-11 | Send idempotency keys | **Done** on all five send paths. |
 | P2-12 | `sendOnboardingEmail` not in `email_sends` | Admin history misses verification + connection-success. |
 | P2-13 | `no-api-key` still records send | Adding a key later will not backfill. |
 | P2-14 | Admin nudge ignores `result.sent` | UI can lie. |
@@ -279,7 +296,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P2-17 | Mixed portal URLs | `/portal` (redirects) vs `/church-portal?church=` (church id in query is unnecessary after login). |
 | P2-18 | Lead “case study” + trial length inconsistency | Don’t ship as proof. |
 | P2-19 | PII in logs | `sendEmail` / password-reset / leads log full recipient email. |
-| P2-20 | Rate limits | Resend default ~2 req/s; hourly cron can burst. No backoff. |
+| P2-20 | Rate limits | Helper now backs off on 429 (max 3). Cron can still burst across churches. |
 | P2-21 | `getPreview` setup-reminder subject ≠ live subject | Admin preview lies. |
 
 ---
@@ -288,14 +305,16 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 
 | Area | File | What it proves | Missing |
 |------|------|----------------|---------|
-| Engine | `tests/lifecycle-emails.test.js` | Builders, **#141 URLs**, send/dedup/throttle, overrides, footer inject, opt-out | Multi-recipient, reset URL (covered in emailVerification after this PR), most sequence HTML, Linux |
+| Engine | `tests/lifecycle-emails.test.js` | Builders, **#141 URLs**, send/dedup/throttle, overrides, footer inject, opt-out, retry/idempotency, suppression | Multi-recipient, most sequence HTML, Linux |
+| Resend helper | `tests/resendClient.test.js` | Tags, keys, 429 retry, 4xx no-retry, Svix verify | — |
+| Resend webhook | `tests/resendWebhook.test.js` | 503 / 400 / bounce+complaint suppress | — |
 | Engine + PG cache | `tests/lifecycle-emails.query-client.test.js` | Dedup/prefs/unsub on query client | — |
 | Weekly / monthly HTML | `tests/weekly-digest-email.test.js` | Subjects, metrics, week/month keys | Dual-engine collision |
 | Verify / reset API | `tests/emailVerification*.test.js` | Verify, resend, forgot, reset token | Live landing URL (added assertion this PR) |
 | Recap / report send | `tests/postServiceReport.test.js`, `weeklyDigest.test.js` | Calls `sendEmail` / digest when leaders set | Does **not** assert second recipient |
 | Tickets | `tests/supportTickets-routes.test.js` | CRUD / triage | No email assertions (none exist) |
 
-No test hits Resend. No test asserts `reply_to` or Linux assets.
+No test hits the live Resend API. `reply_to` and sanitized tags are asserted against mocked fetch. No Linux assets.
 
 ---
 
@@ -324,7 +343,7 @@ Already present and useful in prepare-mode: verification, welcome, connection-su
 | Reset token in query string | Standard; landing must stay HTTPS. |
 | From spoof | Only via env. Per-request `from` is not user-controlled. |
 | Admin HTML override / feature body | Stored HTML sent as-is. |
-| Rate limit | Cron + admin blast + lead drip can 429; errors are logged, not retried with backoff. |
+| Rate limit | Cron + admin blast + lead drip can 429; helper retries the same send 3×. Still do not blast. |
 | Dedup vs “no key” | Silent “sent” in DB without delivery. |
 | `churchId` for leads | `lead:user@domain` in `email_sends.church_id`. |
 
@@ -373,25 +392,83 @@ Use Emails tab for **one-off** human notes (onboarding nudge, custom). Do not �
 
 ## 10. Recommended next fixes (order)
 
-1. **Ship P0-1** (this PR) — reset link lands on `/reset-password`.
-2. **P1-1** — recipient-scoped dedup so leadership lists work.
-3. **P1-6** — `reply_to` support@.
-4. **P1-2 / P1-3** — ticket reply + optional critical email (Sunday closed loop).
-5. **P1-5 + §9 pause** — stop lead/NPS/referral/win-back in `runCheck`.
-6. **P1-4** — don’t send NPS until `/nps` exists.
-7. **P1-7 / P1-11** — unsubscribe secret + invoice dates.
-8. **P2-1** — Windows filename strategy before the next `.exe`.
+P0 reliability/compliance in this PR is done. Remaining, in order:
 
-Do **not** refactor `lifecycleEmails.js` into a framework until the P1 list is smaller. The file is large but the send surface is one function.
+1. **Railway:** set `EMAIL_REPLY_TO` and `RESEND_WEBHOOK_SECRET`; confirm `RESEND_API_KEY` is the same team as the verified `tallyconnect.app` domain (§11).
+2. **P1-1** — recipient-scoped dedup so leadership lists work.
+3. **P1-2 / P1-3** — ticket reply + optional critical email (Sunday closed loop).
+4. **P1-5 + §9 pause** — stop lead/NPS/referral/win-back in `runCheck`.
+5. **P1-4** — don’t send NPS until `/nps` exists.
+6. **P1-7 / P1-11** — unsubscribe secret + invoice dates.
+
+Do **not** build Resend Broadcasts / Automations (sales gated). Do **not** mass-email existing churches. Do **not** move everything to dashboard templates — code templates + admin overrides are fine.
 
 ---
 
-## 11. What this review did not verify
+## 11. Best-practices scorecard + Railway / Resend setup
 
-- Resend domain DNS, bounce/complaint webhooks, or production send volume.
+Scored against Resend sending + webhook guidance (idempotency, retry, Svix, tags, reply-to, suppression). Not a marketing scorecard.
+
+| Practice | Score | Notes |
+|----------|-------|-------|
+| Idempotency-Key on every send | **Done** | `tally/${churchId}/${emailType}`; token/request id for reset + verify |
+| Retry 429/5xx/network only | **Done** | Max 3, same key. No 4xx retry except concurrent 409 |
+| Signed delivery webhooks | **Done in code** | Needs Railway secret + Resend endpoint (below) |
+| Suppress hard bounce / complaint | **Done** | `email_suppressions`; blocks lifecycle + bypass + onboarding |
+| Tag charset | **Done** | `[A-Za-z0-9_-]` |
+| Reply-To | **Code done** | Set `EMAIL_REPLY_TO` on Railway |
+| CAN-SPAM unsub on marketing/lifecycle | **Kept** | Categorized types still get footer |
+| Transactional footer-free | **Kept** | password-reset, verify, billing-action / uncategorized unchanged |
+| From on verified domain | **Ops** | Domain verified in Resend; confirm Railway key is that team |
+| Webhooks actually created | **Ops** | Zero webhooks in the connected account at review time |
+| Recent send metrics | **Ops** | Zero — either unused key or key/team mismatch |
+| Dashboard templates / Broadcasts | **Won’t do** | Sales gated; code templates stay |
+| Postal address | **Open (P2)** | Footer has support@ only |
+
+### Create the webhook (once)
+
+1. Resend Dashboard → **Webhooks** → Add endpoint  
+   **URL:** `https://api.tallyconnect.app/api/resend/webhook`  
+   **Events:** `email.bounced`, `email.complained`, `email.delivered`, `email.failed`  
+   (optional: `email.opened`, `email.clicked` — accepted, ignored)
+2. Copy the signing secret (`whsec_…`). It is shown **once**.
+3. Railway → relay service → Variables:
+   - `RESEND_WEBHOOK_SECRET` = that `whsec_…` value (do not commit it)
+   - `EMAIL_REPLY_TO` = `support@tallyconnect.app` (or Andrew’s inbox)
+   - Confirm `RESEND_API_KEY` is from **this** Resend team (keys named `tally-production` / `TallyConnect` in the connected account). Do not paste the key into chat or docs.
+   - `FROM_EMAIL` can stay `Tally <noreply@tallyconnect.app>`
+4. Redeploy. Health check `resend_webhook` should go from degraded → operational.
+5. Resend → Webhooks → send a test, or use `bounced@resend.dev` / `complained@resend.dev` on a **single** test send. Confirm `email_suppressions` gets a row. Do **not** mail the church list.
+
+cURL equivalent (run locally with your key; secret is only in the create response):
+
+```bash
+curl -X POST 'https://api.resend.com/webhooks' \
+  -H "Authorization: Bearer $RESEND_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "endpoint": "https://api.tallyconnect.app/api/resend/webhook",
+    "events": ["email.bounced","email.complained","email.delivered","email.failed"]
+  }'
+```
+
+Then store `signing_secret` as Railway `RESEND_WEBHOOK_SECRET`.
+
+### Win installer bump
+
+1. Bump `relay-server/package.json` **and** the Electron app version to the same `x.y.z`.
+2. Publish GitHub release assets including `Tally-Setup-x.y.z.exe`.
+3. Emails pick up the new filename from `package.json` on deploy. No hardcoded constant.
+4. If a release is published under a different filename, set `TALLY_WIN_INSTALLER_URL` temporarily.
+
+---
+
+## 12. What this review did not verify
+
+- Whether Railway `RESEND_API_KEY` is the same team as the connected Resend OAuth (zero sends is the clue — do not print the key).
 - Whether `noreply@tallyconnect.app` is forwarded.
 - Stripe Dashboard “email customers” receipts.
-- Railway current values of `FROM_EMAIL` / `UNSUBSCRIBE_SECRET` / `APP_URL` (code defaults assumed; prior audit said key present, FROM unset).
+- Railway current values of `FROM_EMAIL` / `EMAIL_REPLY_TO` / `UNSUBSCRIBE_SECRET` / `APP_URL` (code defaults assumed; prior audit said key present, FROM unset).
 - Landing implementation of `/reset-password` (only that it returns 200 HTML).
 - Whether `runCheck` has ever succeeded against production Postgres (no metrics invented).
 )

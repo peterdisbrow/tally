@@ -101,7 +101,7 @@ app.use(express.json({
   limit: '1mb',
   verify: (req, _res, buf) => {
     const url = req.originalUrl || req.url || '';
-    if (url.startsWith('/api/billing/webhook')) {
+    if (url.startsWith('/api/billing/webhook') || url.startsWith('/api/resend/webhook')) {
       req.rawBody = buf.toString('utf8');
     }
   },
@@ -251,6 +251,7 @@ const { buildDiagnosticContext } = require('./src/diagnostic-context'); // kept 
 const { buildDiagnosticPrompt, buildAdminPrompt } = require('./src/tally-engineer');
 const { buildContext } = require('./src/tally-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
+const { sendResendEmail, buildIdempotencyKey, resolveReplyTo } = require('./src/resendClient');
 const PostServiceReport = require('./src/postServiceReport');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, TIER_LIMITS } = require('./src/billing');
@@ -308,6 +309,7 @@ const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 // Onboarding email configuration
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Tally <noreply@tallyconnect.app>';
+const EMAIL_REPLY_TO = resolveReplyTo();
 const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://tallyconnect.app';
 const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}/admin`).trim();
 
@@ -358,6 +360,9 @@ if (!_isDevEnv) {
   if (!process.env.RESEND_API_KEY) {
     console.warn('\n⚠️  RESEND_API_KEY not set — transactional emails (welcome, password reset, billing) will only log to console.');
     console.warn('   Users will NOT receive emails. Get a key from https://resend.com\n');
+  } else if (!process.env.RESEND_WEBHOOK_SECRET) {
+    console.warn('\n⚠️  RESEND_WEBHOOK_SECRET not set — bounce/complaint webhooks will 503.');
+    console.warn('   Create a webhook in Resend pointing at https://api.tallyconnect.app/api/resend/webhook and store the whsec_ secret.\n');
   }
 }
 if (_isDevEnv && ADMIN_API_KEY === 'dev-admin-key-change-me') {
@@ -488,10 +493,14 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
 
 // ─── ONBOARDING EMAILS (via Resend) ─────────────────────────────────────────
 
-async function sendOnboardingEmail({ to, subject, html, text, tag, churchId }) {
+async function sendOnboardingEmail({ to, subject, html, text, tag, churchId, requestId }) {
   if (!RESEND_API_KEY) {
     log(`[onboarding-email] No RESEND_API_KEY — would send "${subject}" to ${to}`);
     return { sent: false, reason: 'no-api-key' };
+  }
+  if (lifecycleEmails && lifecycleEmails._isRecipientSuppressed && lifecycleEmails._isRecipientSuppressed(to)) {
+    log(`[onboarding-email] Suppressed recipient, skipping "${subject}"`);
+    return { sent: false, reason: 'suppressed' };
   }
   // CAN-SPAM: route through the lifecycleEmails injection helper so this
   // bypass path picks up the same unsubscribe footer logic as
@@ -507,35 +516,24 @@ async function sendOnboardingEmail({ to, subject, html, text, tag, churchId }) {
       log(`[onboarding-email] Footer injection failed for tag=${tag}: ${e.message}`);
     }
   }
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [to],
-        subject,
-        html,
-        text,
-        tags: [{ name: 'category', value: tag || 'onboarding' }],
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      log(`[onboarding-email] Resend failed (${res.status}): ${err}`);
-      return { sent: false, reason: 'resend-error' };
-    }
-    const data = await res.json();
-    log(`[onboarding-email] Sent "${subject}" to ${to}, id: ${data.id}`);
-    return { sent: true, id: data.id };
-  } catch (e) {
-    log(`[onboarding-email] Send failed: ${e.message}`);
-    return { sent: false, reason: 'network-error' };
+  const emailType = tag || 'onboarding';
+  const result = await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: FROM_EMAIL,
+    replyTo: EMAIL_REPLY_TO,
+    to,
+    subject,
+    html,
+    text,
+    tags: [{ name: 'category', value: emailType }],
+    idempotencyKey: buildIdempotencyKey({ churchId, emailType, requestId }),
+  });
+  if (!result.sent) {
+    log(`[onboarding-email] Resend failed (${result.status || result.reason}): ${result.detail || ''}`);
+    return { sent: false, reason: result.reason };
   }
+  log(`[onboarding-email] Sent "${subject}" to ${to}, id: ${result.id}`);
+  return { sent: true, id: result.id };
 }
 
 function buildConnectionEmailHtml({ churchName, registrationCode, portalUrl }) {
@@ -1831,6 +1829,7 @@ async function enforceGracePeriods() {
 const lifecycleEmails = new LifecycleEmails(queryClient, {
   resendApiKey: RESEND_API_KEY,
   fromEmail: FROM_EMAIL,
+  replyTo: EMAIL_REPLY_TO,
   appUrl: APP_URL,
 });
 
@@ -3119,6 +3118,13 @@ async function runStatusChecks() {
         name: 'Password Reset Email',
         result: { state: 'operational', detail: 'Email provider configured' },
       });
+      checks.push({
+        componentId: 'resend_webhook',
+        name: 'Resend Webhook',
+        result: process.env.RESEND_WEBHOOK_SECRET
+          ? { state: 'operational', detail: 'RESEND_WEBHOOK_SECRET configured' }
+          : { state: 'degraded', detail: 'RESEND_WEBHOOK_SECRET not set — bounce/complaint handling off' },
+      });
     } else {
       const resetHost = String(APP_URL || '').replace(/\/+$/, '');
       if (resetHost) {
@@ -3327,6 +3333,7 @@ app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), async (r
 
 // Email verification (extracted)
 require('./src/routes/emailVerification')(app, { db, APP_URL, sendOnboardingEmail, lifecycleEmails, rateLimit, log });
+require('./src/routes/resendWebhook')(app, { lifecycleEmails, log });
 
 // Church app login route → src/routes/churchAuth.js
 

@@ -16,19 +16,35 @@
 
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('./jwtSecret');
+const {
+  sendResendEmail,
+  buildIdempotencyKey,
+  extractTokenFromUrl,
+  resolveReplyTo,
+} = require('./resendClient');
 
 // Latest GitHub release assets. Mac DMGs are versionless (`Tally-arm64.dmg` /
 // `Tally-x64.dmg`) so /releases/latest/download/ stays valid across tags.
-// The Windows installer filename is versioned by electron-builder — bump
-// DOWNLOAD_WIN_URL when shipping a new .exe.
+// The Windows installer filename is versioned by electron-builder. Derive it
+// from relay-server/package.json (keep in sync with the Electron app version)
+// or override with TALLY_WIN_INSTALLER_URL. GitHub has no versionless .exe.
 const LATEST_DOWNLOAD_BASE = 'https://github.com/peterdisbrow/tally/releases/latest/download';
 const DOWNLOAD_MAC_ARM64_URL = `${LATEST_DOWNLOAD_BASE}/Tally-arm64.dmg`;
 const DOWNLOAD_MAC_X64_URL = `${LATEST_DOWNLOAD_BASE}/Tally-x64.dmg`;
-const DOWNLOAD_WIN_URL = `${LATEST_DOWNLOAD_BASE}/Tally-Setup-1.1.67.exe`;
+
+function resolveWinDownloadUrl({
+  version = process.env.TALLY_WIN_INSTALLER_VERSION || require('../package.json').version,
+  overrideUrl = process.env.TALLY_WIN_INSTALLER_URL,
+} = {}) {
+  if (overrideUrl) return String(overrideUrl);
+  return `${LATEST_DOWNLOAD_BASE}/Tally-Setup-${version}.exe`;
+}
+
+const DOWNLOAD_WIN_URL = resolveWinDownloadUrl();
 const DOWNLOAD_MAC_URL = DOWNLOAD_MAC_ARM64_URL;
 
 class LifecycleEmails {
-  constructor(db, { resendApiKey, fromEmail, appUrl, queryClient } = {}) {
+  constructor(db, { resendApiKey, fromEmail, replyTo, appUrl, queryClient, sleep } = {}) {
     const looksLikeQueryClient = !queryClient
       && db
       && typeof db.query === 'function'
@@ -39,7 +55,9 @@ class LifecycleEmails {
     this.queryClient = queryClient || (looksLikeQueryClient ? db : null);
     this.resendApiKey = resendApiKey || '';
     this.fromEmail = fromEmail || 'Tally <noreply@tallyconnect.app>';
+    this.replyTo = resolveReplyTo({ replyTo });
     this.appUrl = appUrl || 'https://tallyconnect.app';
+    this._sleep = sleep;
     this._writeQueue = Promise.resolve();
     this._cache = {
       churchesById: new Map(),
@@ -47,6 +65,8 @@ class LifecycleEmails {
       overridesByEmailType: new Map(),
       emailSends: [],
       salesLeadsByEmail: new Map(),
+      recipientUnsubscribes: [],
+      suppressionsByRecipient: new Map(),
     };
     this.ready = this._bootstrap();
   }
@@ -109,6 +129,17 @@ class LifecycleEmails {
       )
     `);
 
+    // Global bounce / complaint suppression (any church, any category)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS email_suppressions (
+        recipient TEXT PRIMARY KEY,
+        reason TEXT NOT NULL,
+        source TEXT,
+        email_id TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+
     // Sales leads table for lead capture + drip nurture sequences
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sales_leads (
@@ -163,6 +194,14 @@ class LifecycleEmails {
         PRIMARY KEY (church_id, recipient, category)
       )`,
       `
+      CREATE TABLE IF NOT EXISTS email_suppressions (
+        recipient TEXT PRIMARY KEY,
+        reason TEXT NOT NULL,
+        source TEXT,
+        email_id TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      `
       CREATE TABLE IF NOT EXISTS sales_leads (
         id ${idColumn},
         email TEXT NOT NULL UNIQUE,
@@ -186,13 +225,14 @@ class LifecycleEmails {
   async refreshCache() {
     if (!this.queryClient) return this._cache;
 
-    const [churches, preferences, overrides, emailSends, leads, unsubscribes] = await Promise.all([
+    const [churches, preferences, overrides, emailSends, leads, unsubscribes, suppressions] = await Promise.all([
       this._queryAll('SELECT churchId, name FROM churches'),
       this._queryAll('SELECT church_id, category, enabled, updated_at FROM email_preferences'),
       this._queryAll('SELECT email_type, subject, html, updated_at FROM email_template_overrides'),
       this._queryAll('SELECT id, church_id, email_type, recipient, sent_at, resend_id, subject FROM email_sends'),
       this._queryAll('SELECT id, email, name, church_name, source, captured_at, status FROM sales_leads'),
       this._queryAll('SELECT church_id, recipient, category, unsubscribed_at FROM email_unsubscribes'),
+      this._queryAll('SELECT recipient, reason, source, email_id, created_at FROM email_suppressions'),
     ].map(async (promise) => {
       try { return await promise; } catch { return []; }
     }));
@@ -222,6 +262,9 @@ class LifecycleEmails {
     );
 
     this._cache.recipientUnsubscribes = unsubscribes || [];
+    this._cache.suppressionsByRecipient = new Map(
+      (suppressions || []).map((row) => [String(row.recipient || '').trim().toLowerCase(), row])
+    );
 
     return this._cache;
   }
@@ -363,6 +406,9 @@ class LifecycleEmails {
     if (this._isRecipientUnsubscribed(churchId, to, emailType)) {
       return { sent: false, reason: 'recipient-unsubscribed' };
     }
+    if (this._isRecipientSuppressed(to)) {
+      return { sent: false, reason: 'suppressed' };
+    }
 
     // Check for admin template overrides
     const override = this._getOverride(emailType);
@@ -384,38 +430,41 @@ class LifecycleEmails {
       return { sent: false, reason: 'no-api-key' };
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: this.fromEmail,
-          to: [to],
-          subject,
-          html,
-          text,
-          tags: [{ name: 'category', value: emailType }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[LifecycleEmails] Resend failed (${res.status}): ${err}`);
-        return { sent: false, reason: 'resend-error' };
+    const result = await this._deliverViaResend({
+      to,
+      subject,
+      html,
+      text,
+      emailType,
+      idempotencyKey: buildIdempotencyKey({ churchId, emailType }),
+    });
+    if (!result.sent) {
+      if (result.reason === 'resend-error') {
+        console.error(`[LifecycleEmails] Resend failed (${result.status || '?'}): ${result.detail || ''}`);
+      } else {
+        console.error(`[LifecycleEmails] Send failed: ${result.detail || result.reason}`);
       }
-
-      const data = await res.json();
-      this._recordSend(churchId, emailType, to, now, data.id, subject);
-      console.log(`[LifecycleEmails] Sent "${subject}" (${emailType}) to ${to}, id: ${data.id}`);
-      return { sent: true, id: data.id };
-    } catch (e) {
-      console.error(`[LifecycleEmails] Send failed: ${e.message}`);
-      return { sent: false, reason: 'network-error' };
+      return { sent: false, reason: result.reason };
     }
+
+    this._recordSend(churchId, emailType, to, now, result.id, subject);
+    console.log(`[LifecycleEmails] Sent "${subject}" (${emailType}) to ${to}, id: ${result.id}`);
+    return { sent: true, id: result.id };
+  }
+
+  async _deliverViaResend({ to, subject, html, text, emailType, idempotencyKey }) {
+    return sendResendEmail({
+      apiKey: this.resendApiKey,
+      from: this.fromEmail,
+      replyTo: this.replyTo,
+      to,
+      subject,
+      html,
+      text,
+      tags: [{ name: 'category', value: emailType }],
+      idempotencyKey,
+      sleep: this._sleep,
+    });
   }
 
   // ─── EMAIL PREFERENCES ────────────────────────────────────────────────────
@@ -585,6 +634,58 @@ class LifecycleEmails {
       ).run(churchId, normalizedEmail, category);
       return true;
     } catch { return false; }
+  }
+
+  _normalizeRecipient(recipient) {
+    return String(recipient || '').trim().toLowerCase();
+  }
+
+  _isRecipientSuppressed(recipient) {
+    const normalized = this._normalizeRecipient(recipient);
+    if (!normalized) return false;
+    if (this.queryClient) {
+      return this._cache.suppressionsByRecipient.has(normalized);
+    }
+    try {
+      const row = this.db.prepare(
+        'SELECT 1 FROM email_suppressions WHERE recipient = ?'
+      ).get(normalized);
+      return !!row;
+    } catch { return false; }
+  }
+
+  /**
+   * Permanently stop lifecycle (and bypass) mail to this address after a
+   * hard bounce or spam complaint. Idempotent.
+   */
+  async suppressRecipient({ recipient, reason, source = 'resend', emailId = null } = {}) {
+    await this.ready;
+    const normalized = this._normalizeRecipient(recipient);
+    if (!normalized || !normalized.includes('@')) {
+      return { suppressed: false, reason: 'invalid-recipient' };
+    }
+    const now = new Date().toISOString();
+    const upsertSql = `
+      INSERT INTO email_suppressions (recipient, reason, source, email_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (recipient) DO UPDATE SET
+        reason = excluded.reason,
+        source = excluded.source,
+        email_id = COALESCE(excluded.email_id, email_suppressions.email_id)
+    `;
+    const row = { recipient: normalized, reason, source, email_id: emailId, created_at: now };
+    if (this.queryClient) {
+      this._cache.suppressionsByRecipient.set(normalized, row);
+      void this._queueWrite(() => this._run(upsertSql, [normalized, reason, source, emailId, now]));
+      return { suppressed: true };
+    }
+    try {
+      this.db.prepare(upsertSql).run(normalized, reason, source, emailId, now);
+      return { suppressed: true };
+    } catch (e) {
+      console.error(`[LifecycleEmails] suppressRecipient failed: ${e.message}`);
+      return { suppressed: false, reason: 'db-error' };
+    }
   }
 
   _hasSent(churchId, emailType) {
@@ -2394,28 +2495,30 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const { html, text } = this._buildEmailChangeEmail(church, { oldEmail, newEmail });
 
     // Bypass dedup — send directly like password-reset
+    if (this._isRecipientSuppressed(to)) return { sent: false, reason: 'suppressed' };
     if (!this.resendApiKey) {
       console.log(`[LifecycleEmails] No RESEND_API_KEY — would send email change confirmation to ${to}`);
       return { sent: false, reason: 'no-api-key' };
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${this.resendApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: this.fromEmail, to: [to],
-          subject: 'Your Tally email has been updated',
-          html, text,
-          tags: [{ name: 'category', value: 'email-change-confirmation' }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Email change send failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
-      const data = await res.json();
-      this._recordSend(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), data.id, 'Your Tally email has been updated');
-      return { sent: true, id: data.id };
-    } catch (e) { return { sent: false, reason: 'network-error' }; }
+    const result = await this._deliverViaResend({
+      to,
+      subject: 'Your Tally email has been updated',
+      html,
+      text,
+      emailType: 'email-change-confirmation',
+      idempotencyKey: buildIdempotencyKey({
+        churchId: church.churchId,
+        emailType: 'email-change-confirmation',
+        requestId: to,
+      }),
+    });
+    if (!result.sent) {
+      console.error(`[LifecycleEmails] Email change send failed: ${result.detail || result.reason}`);
+      return { sent: false, reason: result.reason };
+    }
+    this._recordSend(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), result.id, 'Your Tally email has been updated');
+    return { sent: true, id: result.id };
   }
 
   _buildEmailChangeEmail(church, { oldEmail, newEmail }) {
@@ -2563,28 +2666,31 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     if (!to) return { sent: false, reason: 'no-recipient' };
     const { html, text } = this._buildUrgentAlertEmail(church, { alertType, context });
 
+    if (this._isRecipientSuppressed(to)) return { sent: false, reason: 'suppressed' };
     if (!this.resendApiKey) {
       console.log(`[LifecycleEmails] No RESEND_API_KEY — would send urgent alert email to ${to}`);
       return { sent: false, reason: 'no-api-key' };
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${this.resendApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: this.fromEmail, to: [to],
-          subject: `URGENT: ${alertType} at ${church.name}`,
-          html, text,
-          tags: [{ name: 'category', value: 'urgent-alert-escalation' }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Urgent alert email failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
-      const data = await res.json();
-      this._recordSend(church.churchId, `urgent-alert-${alertId || Date.now()}`, to, new Date().toISOString(), data.id, `URGENT: ${alertType} at ${church.name}`);
-      return { sent: true, id: data.id };
-    } catch (e) { return { sent: false, reason: 'network-error' }; }
+    const emailType = `urgent-alert-${alertId || Date.now()}`;
+    const result = await this._deliverViaResend({
+      to,
+      subject: `URGENT: ${alertType} at ${church.name}`,
+      html,
+      text,
+      emailType: 'urgent-alert-escalation',
+      idempotencyKey: buildIdempotencyKey({
+        churchId: church.churchId,
+        emailType: 'urgent-alert',
+        requestId: alertId || emailType,
+      }),
+    });
+    if (!result.sent) {
+      console.error(`[LifecycleEmails] Urgent alert email failed: ${result.detail || result.reason}`);
+      return { sent: false, reason: result.reason };
+    }
+    this._recordSend(church.churchId, emailType, to, new Date().toISOString(), result.id, `URGENT: ${alertType} at ${church.name}`);
+    return { sent: true, id: result.id };
   }
 
   _buildUrgentAlertEmail(church, { alertType, context }) {
@@ -3058,44 +3164,37 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const text = `Reset your password\n\nWe received a request to reset the portal password for ${church.name}.\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
-    // Password reset emails should NOT be deduped — allow multiple sends
-    // So we bypass the normal sendEmail and call Resend directly
+    // Password reset emails should NOT be deduped — allow multiple sends.
+    // Idempotency key uses the reset token so retries of the same request
+    // do not double-send, while a new token can send again.
+    if (this._isRecipientSuppressed(church.portal_email)) {
+      return { sent: false, reason: 'suppressed' };
+    }
     if (!this.resendApiKey) {
       console.log(`[LifecycleEmails] No RESEND_API_KEY — would send password reset to ${church.portal_email}`);
       return { sent: false, reason: 'no-api-key' };
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: this.fromEmail,
-          to: [church.portal_email],
-          subject: 'Reset your Tally password',
-          html, text,
-          tags: [{ name: 'category', value: 'password-reset' }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[LifecycleEmails] Password reset send failed (${res.status}): ${err}`);
-        return { sent: false, reason: 'resend-error' };
-      }
-
-      const data = await res.json();
-      console.log(`[LifecycleEmails] Password reset sent to ${church.portal_email}, id: ${data.id}`);
-      this._recordSend(church.churchId, 'password-reset', church.portal_email, new Date().toISOString(), data.id, 'Reset your Tally password');
-      return { sent: true, id: data.id };
-    } catch (e) {
-      console.error(`[LifecycleEmails] Password reset send failed: ${e.message}`);
-      return { sent: false, reason: 'network-error' };
+    const requestId = extractTokenFromUrl(resetUrl) || `pwd-${Date.now()}`;
+    const result = await this._deliverViaResend({
+      to: church.portal_email,
+      subject: 'Reset your Tally password',
+      html,
+      text,
+      emailType: 'password-reset',
+      idempotencyKey: buildIdempotencyKey({
+        churchId: church.churchId,
+        emailType: 'password-reset',
+        requestId,
+      }),
+    });
+    if (!result.sent) {
+      console.error(`[LifecycleEmails] Password reset send failed (${result.status || '?'}): ${result.detail || result.reason}`);
+      return { sent: false, reason: result.reason };
     }
+    console.log(`[LifecycleEmails] Password reset sent to ${church.portal_email}, id: ${result.id}`);
+    this._recordSend(church.churchId, 'password-reset', church.portal_email, new Date().toISOString(), result.id, 'Reset your Tally password');
+    return { sent: true, id: result.id };
   }
   // ═══════════════════════════════════════════════════════════════════════════
   // NEW EMAILS — all 13 gaps from EMAIL_AUDIT.md
@@ -4617,45 +4716,35 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const actualType = emailType ? `manual:${emailType}` : 'custom';
 
+    if (this._isRecipientSuppressed(to)) return { sent: false, reason: 'suppressed' };
     if (!this.resendApiKey) {
       console.log(`[LifecycleEmails] No RESEND_API_KEY — would send manual "${subject}" to ${to}`);
       return { sent: false, reason: 'no-api-key' };
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: this.fromEmail,
-          to: [to],
-          subject,
-          html,
-          text: text || '',
-          tags: [{ name: 'category', value: actualType }],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[LifecycleEmails] Manual send failed (${res.status}): ${err}`);
-        return { sent: false, reason: 'resend-error', detail: err };
-      }
-
-      const data = await res.json();
-      // Record in email_sends (use INSERT without UNIQUE conflict by using the manual: prefix)
-      this._recordSend(churchId || 'admin', actualType, to, new Date().toISOString(), data.id, subject);
-
-      console.log(`[LifecycleEmails] Manual send "${subject}" to ${to}, id: ${data.id}`);
-      return { sent: true, id: data.id };
-    } catch (e) {
-      console.error(`[LifecycleEmails] Manual send failed: ${e.message}`);
-      return { sent: false, reason: 'network-error' };
+    const requestId = `${Date.now()}`;
+    const result = await this._deliverViaResend({
+      to,
+      subject,
+      html,
+      text: text || '',
+      emailType: actualType,
+      idempotencyKey: buildIdempotencyKey({
+        churchId: churchId || 'admin',
+        emailType: actualType,
+        requestId,
+      }),
+    });
+    if (!result.sent) {
+      console.error(`[LifecycleEmails] Manual send failed (${result.status || '?'}): ${result.detail || result.reason}`);
+      return { sent: false, reason: result.reason, detail: result.detail };
     }
+
+    // Record in email_sends (use INSERT without UNIQUE conflict by using the manual: prefix)
+    this._recordSend(churchId || 'admin', actualType, to, new Date().toISOString(), result.id, subject);
+
+    console.log(`[LifecycleEmails] Manual send "${subject}" to ${to}, id: ${result.id}`);
+    return { sent: true, id: result.id };
   }
 
   /** Get the email wrapper HTML (for custom email composition) */
@@ -4669,4 +4758,5 @@ module.exports = {
   DOWNLOAD_MAC_ARM64_URL,
   DOWNLOAD_MAC_X64_URL,
   DOWNLOAD_WIN_URL,
+  resolveWinDownloadUrl,
 };

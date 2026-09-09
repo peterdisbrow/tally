@@ -43,6 +43,20 @@ function mockDb() {
           get: vi.fn().mockReturnValue(undefined),
         };
       }
+      // Bounce / complaint suppression
+      if (sql.includes('email_suppressions')) {
+        const suppressions = tables.email_suppressions || (tables.email_suppressions = []);
+        return {
+          get: vi.fn((recipient) => suppressions.find((row) => row.recipient === recipient) || undefined),
+          run: vi.fn((recipient, reason, source, emailId, createdAt) => {
+            const existing = suppressions.find((row) => row.recipient === recipient);
+            const row = { recipient, reason, source, email_id: emailId, created_at: createdAt };
+            if (existing) Object.assign(existing, row);
+            else suppressions.push(row);
+          }),
+          all: vi.fn(() => suppressions.slice()),
+        };
+      }
       // Default: churches query for runCheck sequences
       return {
         get: vi.fn().mockReturnValue(undefined),
@@ -119,6 +133,7 @@ describe('LifecycleEmails', () => {
       expect(DOWNLOAD_WIN_URL).toMatch(
         /^https:\/\/github\.com\/peterdisbrow\/tally\/releases\/latest\/download\/Tally-Setup-\d+\.\d+\.\d+\.exe$/
       );
+      expect(DOWNLOAD_WIN_URL).toContain(require('../package.json').version);
       expect(DOWNLOAD_WIN_URL).not.toContain('1.0.1');
 
       for (const result of builders) {
@@ -487,6 +502,7 @@ describe('LifecycleEmails', () => {
         resendApiKey: 're_test_fake_key',
         fromEmail: 'test@test.com',
         appUrl: 'https://test.app',
+        sleep: async () => {},
       });
 
       // Mock global fetch to simulate network failure
@@ -504,29 +520,77 @@ describe('LifecycleEmails', () => {
 
         expect(result.sent).toBe(false);
         expect(result.reason).toBe('network-error');
+        expect(globalThis.fetch).toHaveBeenCalledTimes(3);
       } finally {
         globalThis.fetch = originalFetch;
       }
     });
 
-    it('returns resend-error when API returns non-OK status', async () => {
+    it('retries 429 then succeeds with a stable Idempotency-Key', async () => {
+      const apiEmails = new LifecycleEmails(db, {
+        resendApiKey: 're_test_fake_key',
+        fromEmail: 'test@test.com',
+        replyTo: 'support@tallyconnect.app',
+        appUrl: 'https://test.app',
+        sleep: async () => {},
+      });
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: vi.fn().mockResolvedValue('Rate limited'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({ id: 'resend-after-retry' }),
+        });
+
+      try {
+        const result = await apiEmails.sendEmail({
+          churchId: 'church-1',
+          emailType: 'weekly-digest-email-2026-W12',
+          to: 'test@test.com',
+          subject: 'Test',
+          html: '<p>test</p>',
+        });
+
+        expect(result.sent).toBe(true);
+        expect(result.id).toBe('resend-after-retry');
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+        const key1 = globalThis.fetch.mock.calls[0][1].headers['Idempotency-Key'];
+        const key2 = globalThis.fetch.mock.calls[1][1].headers['Idempotency-Key'];
+        expect(key1).toBe('tally/church-1/weekly-digest-email-2026-W12');
+        expect(key2).toBe(key1);
+        const body = JSON.parse(globalThis.fetch.mock.calls[1][1].body);
+        expect(body.reply_to).toBe('support@tallyconnect.app');
+        expect(body.tags[0].value).toBe('weekly-digest-email-2026-W12');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('does not retry 4xx and returns resend-error', async () => {
       const apiEmails = new LifecycleEmails(db, {
         resendApiKey: 're_test_fake_key',
         fromEmail: 'test@test.com',
         appUrl: 'https://test.app',
+        sleep: async () => {},
       });
 
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 429,
-        text: vi.fn().mockResolvedValue('Rate limited'),
+        status: 400,
+        text: vi.fn().mockResolvedValue('bad request'),
       });
 
       try {
         const result = await apiEmails.sendEmail({
           churchId: 'church-1',
-          emailType: 'test-rate-limited',
+          emailType: 'test-bad-request',
           to: 'test@test.com',
           subject: 'Test',
           html: '<p>test</p>',
@@ -534,6 +598,7 @@ describe('LifecycleEmails', () => {
 
         expect(result.sent).toBe(false);
         expect(result.reason).toBe('resend-error');
+        expect(globalThis.fetch).toHaveBeenCalledOnce();
       } finally {
         globalThis.fetch = originalFetch;
       }
@@ -569,6 +634,7 @@ describe('LifecycleEmails', () => {
       const apiEmails = new LifecycleEmails(db, {
         resendApiKey: 're_test_fake_key',
         fromEmail: 'test@test.com',
+        replyTo: 'support@tallyconnect.app',
         appUrl: 'https://test.app',
       });
 
@@ -581,7 +647,7 @@ describe('LifecycleEmails', () => {
       try {
         const result = await apiEmails.sendEmail({
           churchId: 'church-1',
-          emailType: 'test-success',
+          emailType: 'manual:onboarding_nudge',
           to: 'test@test.com',
           subject: 'Test',
           html: '<p>test</p>',
@@ -589,6 +655,35 @@ describe('LifecycleEmails', () => {
 
         expect(result.sent).toBe(true);
         expect(result.id).toBe('resend-msg-123');
+        const [, init] = globalThis.fetch.mock.calls[0];
+        expect(init.headers['Idempotency-Key']).toBe('tally/church-1/manual:onboarding_nudge');
+        const body = JSON.parse(init.body);
+        expect(body.reply_to).toBe('support@tallyconnect.app');
+        expect(body.tags[0].value).toBe('manual_onboarding_nudge');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('skips send when the recipient is suppressed', async () => {
+      await emails.suppressRecipient({
+        recipient: 'bounced@grace.church',
+        reason: 'bounce',
+        source: 'resend',
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn();
+      try {
+        const result = await emails.sendEmail({
+          churchId: 'church-1',
+          emailType: 'setup-reminder',
+          to: 'bounced@grace.church',
+          subject: 'Setup',
+          html: '<p>setup</p>',
+        });
+        expect(result.sent).toBe(false);
+        expect(result.reason).toBe('suppressed');
+        expect(globalThis.fetch).not.toHaveBeenCalled();
       } finally {
         globalThis.fetch = originalFetch;
       }
