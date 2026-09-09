@@ -167,6 +167,33 @@ describe('Weekly Digest Email (sendWeeklyDigestEmail)', () => {
     ]);
   });
 
+  it('uses ISO week id (not week-of-month) in the recipient-scoped dedup key', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-23T15:00:00.000Z')); // Monday, ISO 2026-W13; week-of-month would be W04
+    try {
+      const church = mockChurch();
+      const digestData = { reliability: 99, patterns: [], totalEvents: 2, autoRecovered: 0, sessionCount: 1 };
+      await emails.sendWeeklyDigestEmail(church, digestData, 'td@grace.church');
+      expect(db._emailSends[0].email_type).toBe('weekly-digest-email-2026-W13:td@grace.church');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('honors digestData.weekId so one job stamps the same week key', async () => {
+    const church = mockChurch();
+    const digestData = {
+      weekId: '2026-W12',
+      reliability: 99,
+      patterns: [],
+      totalEvents: 2,
+      autoRecovered: 0,
+      sessionCount: 1,
+    };
+    await emails.sendWeeklyDigestEmail(church, digestData, 'Pastor@grace.church');
+    expect(db._emailSends[0].email_type).toBe('weekly-digest-email-2026-W12:pastor@grace.church');
+  });
+
   it('handles missing reliability gracefully', async () => {
     const church = mockChurch();
     const digestData = { patterns: [], totalEvents: 0, autoRecovered: 0, sessionCount: 0 };
@@ -182,6 +209,33 @@ describe('Weekly Digest Email (sendWeeklyDigestEmail)', () => {
     const result = await emails.sendWeeklyDigestEmail(church, digestData, '');
     expect(result.sent).toBe(false);
     expect(result.reason).toBe('no-recipient');
+  });
+});
+
+describe('P1-10 unified weekly digest job', () => {
+  let LifecycleEmails, emails, db;
+
+  beforeEach(() => {
+    const modPath = require.resolve('../src/lifecycleEmails');
+    delete require.cache[modPath];
+    ({ LifecycleEmails } = require('../src/lifecycleEmails'));
+    db = mockDb();
+    emails = new LifecycleEmails(db, {
+      resendApiKey: '',
+      fromEmail: 'Tally <test@test.com>',
+      appUrl: 'https://test.tallyconnect.app',
+    });
+  });
+
+  it('_checkWeeklyDigest is a no-op on Monday UTC (does not send portal weekly-digest-*)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-06T14:00:00.000Z'));
+    try {
+      await emails._checkWeeklyDigest();
+      expect(db._emailSends).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
