@@ -86,7 +86,8 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 
 | Variable | Description |
 |----------|-------------|
-| `SENTRY_DSN` | Sentry error tracking DSN |
+| `SENTRY_DSN` | Relay Sentry DSN (`tally-relay` only). Do not reuse for the booth app. |
+| `ELECTRON_SENTRY_DSN` | **Not a Railway relay var.** Booth/desktop DSN for Sentry project `tally-booth`. Set as a GitHub Actions secret (Windows installer) and in the Mac Studio env before `electron-builder`. `electron-app` `beforePack` bakes it into the packaged app. Church-client reads the same name when Electron spawns it. |
 | `LOG_FORMAT` | Set to `json` for structured (production) logging |
 
 ### Rate Limiting & Runtime Coordination (Redis / Upstash)

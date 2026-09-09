@@ -75,6 +75,11 @@ if (process.argv[2] === 'setup') {
 }
 
 const opts = program.opts();
+const boothSentry = require('./sentry');
+boothSentry.initBoothSentry({
+  processName: 'church-client',
+  release: require('../package.json').version,
+});
 const LEGACY_DEFAULT_OBS_URLS = new Set(['ws://localhost:4455', 'ws://127.0.0.1:4455']);
 
 const ATEM_MODEL_LABELS = {
@@ -2872,6 +2877,7 @@ async function main() {
     // Background async failure — log and keep everything else running.
     console.error('[Agent] Unhandled promise rejection (non-fatal):', reason?.message || reason);
     if (reason?.stack) console.error(reason.stack);
+    boothSentry.captureBoothException(reason, { tags: { surface: 'church-client', kind: 'unhandledRejection' } });
   });
 
   process.on('uncaughtException', async (err) => {
@@ -2881,6 +2887,8 @@ async function main() {
     // half-dead. Avoids both silent death and running in a corrupt state.
     console.error('[Agent] Uncaught exception — stopping for supervised restart:', err?.message);
     if (err?.stack) console.error(err.stack);
+    boothSentry.captureBoothException(err, { tags: { surface: 'church-client', kind: 'uncaughtException' } });
+    await boothSentry.flushBoothSentry(2000);
     if (shuttingDown) return;
     shuttingDown = true;
     try { await agent.stop(); } catch { /* ignore */ }
@@ -2890,7 +2898,9 @@ async function main() {
   await agent.start();
 }
 
-main().catch(err => {
+main().catch(async (err) => {
   console.error('Fatal error:', err.message);
+  boothSentry.captureBoothException(err, { tags: { surface: 'church-client', kind: 'fatal' } });
+  await boothSentry.flushBoothSentry(2000);
   process.exit(1);
 });

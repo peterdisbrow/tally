@@ -49,6 +49,7 @@ jobs:
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          ELECTRON_SENTRY_DSN: ${{ secrets.ELECTRON_SENTRY_DSN }}
           GH_TOKEN: ${{ github.token }}
         run: npx electron-builder --win --x64 --publish never
 
@@ -57,6 +58,7 @@ jobs:
         working-directory: electron-app
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          ELECTRON_SENTRY_DSN: ${{ secrets.ELECTRON_SENTRY_DSN }}
           GH_TOKEN: ${{ github.token }}
         run: npx electron-builder --win --x64 --publish never
 

@@ -86,6 +86,7 @@ function loadPreload() {
 
 // [apiMethodName, ipcChannelName]
 const INVOKE_CHANNELS = [
+  ['reportCrash',             'report-crash'],
   ['getConfig',               'get-config'],
   ['saveConfig',              'save-config'],
   ['getStatus',               'get-status'],

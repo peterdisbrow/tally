@@ -1,5 +1,30 @@
 const api = window.electronAPI;
 
+(function attachRendererCrashReporting() {
+  if (!api || typeof api.reportCrash !== 'function') return;
+  const report = (payload) => {
+    try { api.reportCrash(payload); } catch { /* never break the UI */ }
+  };
+  window.addEventListener('error', (event) => {
+    report({
+      type: 'error',
+      message: event.message || 'Renderer error',
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      stack: event.error && event.error.stack,
+    });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    report({
+      type: 'unhandledrejection',
+      message: (reason && reason.message) || String(reason),
+      stack: reason && reason.stack,
+    });
+  });
+})();
+
 // ─── i18n (renderer) ────────────────────────────────────────────────────────
 // Locales come from main via getLocaleData. Keep a tiny lookup here because
 // i18n.js is CommonJS and cannot be loaded as a classic renderer script.
