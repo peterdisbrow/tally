@@ -192,10 +192,9 @@ Client-side tabs only (no URL routes). Sidebar: `Sidebar.jsx` + `NAV_GROUPS` in 
 Documented in `.github/workflows/production-smoke.yml`:
 
 - Cron every 6 hours + `workflow_dispatch`.
-- Public: `GET /api/health`, `GET /api/status/components`.
-- If repo secrets **`RELAY_ADMIN_EMAIL`** and **`RELAY_ADMIN_PASSWORD`** are set: `POST /api/admin/login` → `GET /api/churches` + `GET /api/billing` with the JWT.
-- If secrets missing: authenticated steps **SKIPPED** (workflow still greens).
-- If login fails: warning only (`continue-on-error: true`).
+- Public: `GET /api/health` (including `aiConfigured` is boolean), `GET /api/status/components`.
+- Secrets **`RELAY_ADMIN_EMAIL`** and **`RELAY_ADMIN_PASSWORD`** are **required**. Missing either fails the job with a clear error (no silent skip).
+- `POST /api/admin/login` → `GET /api/churches` + `GET /api/billing` with the JWT. Login or follow-up failure **fails the job** (no `continue-on-error`). Password and token are not logged.
 
 This review did **not** read those secrets and did not run an authenticated production login.
 
@@ -242,7 +241,7 @@ If a church emails “I can’t get into admin,” they mean the **church portal
 ### Observability
 
 - **`SENTRY_DSN` is now in Railway** (71 vars vs 70 on 2026-09-08). Relay `@sentry/node` will init (`server.js`). **This admin SPA still has no browser Sentry** — a white-screen in `/admin/` will not page anyone.
-- Status page covers relay/portal/proxy/email/Stripe/Telegram. It does **not** cover “is Andrew’s JWT login working?” — that is Production Smoke’s job, and only if `RELAY_ADMIN_*` secrets are set.
+- Status page covers relay/portal/proxy/email/Stripe/Telegram. It does **not** cover “is Andrew’s JWT login working?” — that is Production Smoke’s job. Missing `RELAY_ADMIN_*` secrets or a failed login now **fails** the scheduled smoke (honest red, not a warning).
 - No admin audit *viewer*. Writes may hit `audit_log`; you cannot read them in the UI.
 - `ALERT_BOT_TOKEN` still missing — offline / pre-service / health-cron Telegram alerts may silently no-op.
 
@@ -271,7 +270,7 @@ Aligned with Tally’s north star: **reliability, calm, prepare-mode — not sal
 2. **Wire `ALERT_BOT_TOKEN` (or point alert engine at `TALLY_BOT_TOKEN`).** Interactive bot is healthy; alert/offline/pre-service paths likely are not. Sunday pages nobody.
 3. **Enforce `ROLE_PERMISSIONS` on write routes** (delete church, billing, regenerate stream key, send-command). UI hiding is not enough if a laptop with an engineer JWT is open.
 4. **Stop showing connection tokens in the default fleet table.** Reveal behind an explicit “show secret” that hits a dedicated endpoint; omit `token` from `GET /api/churches`.
-5. **Confirm Production Smoke secrets** `RELAY_ADMIN_EMAIL` / `RELAY_ADMIN_PASSWORD` are set and the authenticated job is not silently SKIPPED. That is the only automated “can Andrew still log in?” check.
+5. **Production Smoke login is a hard fail.** Secrets `RELAY_ADMIN_EMAIL` / `RELAY_ADMIN_PASSWORD` are required; a failed `POST /api/admin/login` fails the scheduled job. Keep those secrets valid (Andrew’s admin password). That is the only automated “can Andrew still log in?” check.
 6. **Tickets: add resolve / in-progress / note** using existing `PUT /api/support/tickets/:id`. A read-only inbox is not triage.
 7. **Sentry on the admin SPA** (browser) now that relay DSN exists. A blank `/admin/` on Sunday is otherwise invisible.
 
