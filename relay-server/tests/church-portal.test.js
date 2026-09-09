@@ -1158,6 +1158,15 @@ describe('Church Portal API', () => {
       expect(res.headers.location).toBe('/church-portal');
       expect(res.headers['set-cookie']).toBeTruthy();
       expect(res.headers['set-cookie'][0]).toContain('tally_church_session');
+      expect(res.headers['set-cookie'][0]).toMatch(/Max-Age=604800/);
+    });
+
+    it('GET /church-login?idle=1 explains the 30-minute booth laptop timeout', async () => {
+      const res = await client.get('/church-login?idle=1');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Signed out after 30 minutes idle');
+      expect(res.text).toContain('class="notice"');
+      expect(res.text).not.toContain('class="error">Signed out');
     });
 
     it('POST /api/church/login with bad password returns 401', async () => {
@@ -2132,6 +2141,24 @@ describe('Church portal HTML Sunday path', () => {
     expect(html).toContain('within 5 minutes');
     expect(html).toContain('escalated after 5 minutes');
   });
+
+  it('gates Network, Analytics, and Reports behind a connected booth', () => {
+    expect(html).toMatch(/data-page="network-topology"[^>]*data-booth-required|data-booth-required[^>]*data-page="network-topology"/);
+    expect(html).toMatch(/data-page="analytics"[^>]*data-booth-required|data-booth-required[^>]*data-page="analytics"/);
+    expect(html).toMatch(/data-page="reports"[^>]*data-booth-required|data-booth-required[^>]*data-page="reports"/);
+    expect(html).toContain('class="booth-required-empty"');
+    expect(html).toContain('Connect the Tally Desktop App to see network scans');
+    expect(html).toContain('Connect the Tally Desktop App to see analytics');
+    expect(html).toContain('Connect the Tally Desktop App to see reports');
+  });
+
+  it('does not present TD Admin as church-admin-writable', () => {
+    expect(html).toContain('class="td-readonly-banner"');
+    expect(html).toContain('class="church-admin-write"');
+    expect(html).toContain('Lead operator — booth + portal view, not church admin');
+    expect(html).not.toContain('admin=full access');
+    expect(html).toContain('leave this empty and Sunday alerts stay quiet');
+  });
 });
 
 describe('Church portal SSE reconnect visibility', () => {
@@ -2150,6 +2177,42 @@ describe('Church portal SSE reconnect visibility', () => {
     expect(src).toContain('churchHasServiceWindows');
     expect(src).toContain("onboarding.step.schedule.label");
     expect(src).toContain('Empty schedule = silent Sunday');
+  });
+
+  it('does not emit inline onclick/onchange (dead under CSP script-src-attr none)', () => {
+    expect(src).not.toMatch(/onclick=/);
+    expect(src).not.toMatch(/onchange=/);
+    expect(src).toContain('data-action="copyOnboardingCode"');
+    expect(src).toContain('data-action="inviteTeam"');
+    expect(src).toContain('data-action="confirmVideoHubRoute"');
+    expect(src).toContain('data-action-change="onRoleChange"');
+    expect(src).toContain('data-action-change="setTdAccessLevel"');
+    expect(src).toContain('data-action-change="companionActionField"');
+    expect(src).toContain("case 'copyOnboardingCode'");
+    expect(src).toContain("case 'onRoleChange'");
+    expect(src).toContain("case 'companionActionField'");
+  });
+
+  it('hides church-admin save paths for TD sessions and labels TD admin as Lead operator', () => {
+    expect(src).toContain("labels = { viewer: 'Viewer', operator: 'Operator', admin: 'Lead operator' }");
+    expect(src).toContain('isChurchAdminSession');
+    expect(src).toContain('church-admin-write');
+    expect(src).toContain('td-session');
+    expect(src).toContain("admin: ['billing','profile']");
+  });
+
+  it('idles out visible booth laptops at 30 minutes without shortening the 7d cookie', () => {
+    expect(src).toContain('PORTAL_IDLE_MS = 30 * 60 * 1000');
+    expect(src).toContain("visibilityState === 'hidden'");
+    expect(src).toContain("logout({ idle: true })");
+    expect(src).toContain('/church-login?idle=1');
+    expect(src).toContain('initPortalIdleTimeout');
+  });
+
+  it('hides Network/Analytics/Reports until a booth has connected', () => {
+    expect(src).toContain('applyBoothGatedNav');
+    expect(src).toContain('booth-connected');
+    expect(src).toContain('onboarding_app_connected_at');
   });
 });
 

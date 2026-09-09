@@ -1457,8 +1457,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return _selectedRoomId ? '&roomId=' + encodeURIComponent(_selectedRoomId) : '';
     }
 
+    function isChurchAdminSession() {
+      return !window._tdSession;
+    }
+
+    function lockChurchAdminControl(el) {
+      if (!el || isChurchAdminSession()) return;
+      el.removeAttribute('data-action');
+      el.disabled = true;
+      el.title = 'Sign in with the church portal email to change this.';
+    }
+
+    function applyBoothGatedNav(hasEverConnected) {
+      window._boothEverConnected = !!hasEverConnected;
+      document.body.classList.toggle('booth-connected', !!hasEverConnected);
+    }
+
     function applyPortalSessionContext(d) {
-      if (!d || !d.isTd) return;
+      if (!d) return;
+      applyBoothGatedNav(!!d.onboarding_app_connected_at);
+      if (!d.isTd) return;
       window._tdSession = { name: d.tdName, accessLevel: d.tdAccessLevel };
       applyTdAccessRestrictions(d.tdAccessLevel, d.tdName);
       if (!_rundownStorageGet(_rundownStationNameStorageKey)) {
@@ -1546,6 +1564,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Show/hide data cards based on whether the desktop app has ever connected.
         // New users see only the onboarding checklist, Quick Info, and a "Get Connected" prompt.
         var hasEverConnected = !!d.onboarding_app_connected_at;
+        applyBoothGatedNav(hasEverConnected);
         var _gcCard = document.getElementById('get-connected-card');
         var _eqCard = document.getElementById('equipment-status-card');
         var _pscCard = document.getElementById('preservice-card-dashboard');
@@ -2097,8 +2116,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '<div style="font-size:13px;font-weight:600;color:#F0F2F4">' + def.label + '</div>'
           + '<div style="font-size:11px;color:#6B7280">' + desc + '</div>'
           + '</div>'
-          + '<select data-role="' + roleKey + '" style="background:#060D08;color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
-          + 'onchange="onRoleChange(\'' + roleKey + '\', this.value)">'
+          + '<select data-role="' + roleKey + '" data-action-change="onRoleChange" style="background:#060D08;color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px">'
           + options
           + '</select>'
           + '</div>';
@@ -2408,9 +2426,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         } else if (hasPending) {
           confirmCell =
             '<button type="button" class="btn btn-primary" style="padding:4px 10px;font-size:12px;margin-right:4px" '
-              + 'onclick="confirmVideoHubRoute(\'' + escapeHtml(outIdx) + '\')">Confirm</button>'
+              + 'data-action="confirmVideoHubRoute" data-vh-out="' + escapeHtml(outIdx) + '">Confirm</button>'
             + '<button type="button" class="btn" style="padding:4px 10px;font-size:12px" '
-              + 'onclick="cancelVideoHubRoute(\'' + escapeHtml(outIdx) + '\')">Cancel</button>';
+              + 'data-action="cancelVideoHubRoute" data-vh-out="' + escapeHtml(outIdx) + '">Cancel</button>';
         } else {
           confirmCell = '';
         }
@@ -2419,7 +2437,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         return '<tr data-vh-row="' + escapeHtml(outIdx) + '">'
           + '<td>'
             + '<select data-vh-out="' + escapeHtml(outIdx) + '" '
-              + 'onchange="stageVideoHubRoute(\'' + escapeHtml(outIdx) + '\', this.value)"'
+              + 'data-action-change="stageVideoHubRoute"'
               + selectDisabled
               + ' style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:4px 8px;font-size:13px;min-width:160px">'
               + options
@@ -3887,7 +3905,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           label: pt('onboarding.step.telegram.label'),
           detail: '<p style="margin:0 0 8px">' + pt('onboarding.step.telegram.explainer') + '</p>' + pt('onboarding.step.telegram.detail', { code: escapeHtml(d.registration_code || 'CODE') }),
           action: '<a href="https://telegram.org/" target="_blank" class="onboard-action-btn" style="margin-right:4px">' + pt('onboarding.step.telegram.download') + '</a>'
-            + '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
+            + '<span class="onboard-action-btn" data-action="copyOnboardingCode"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
             + ' <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>'
             + '<br><span class="onboard-skip-link" data-action="skipTelegramStep" style="font-size:11px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
         },
@@ -3910,7 +3928,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           done: !!d.onboarding_team_invited_at,
           label: pt('onboarding.step.team.label'),
           detail: pt('onboarding.step.team.detail'),
-          action: '<span class="onboard-action-btn" onclick="inviteTeam()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/><path d="M2 5.5a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM2.5 14h-1a1 1 0 0 1-.897-1.447A4.5 4.5 0 0 1 4.5 10.5c.66 0 1.287.144 1.851.402C5.21 11.76 4.828 13.073 5.02 14H2.5ZM12 7.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4ZM13.5 14h-2.52c.192-.927-.19-2.24-.831-3.098A4.472 4.472 0 0 1 11.5 10.5a4.5 4.5 0 0 1 4.897 3.053A1 1 0 0 1 15.5 14h-2Z"/></svg> ' + pt('onboarding.step.team.btn') + '</span>',
+          action: '<span class="onboard-action-btn" data-action="inviteTeam"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/><path d="M2 5.5a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM2.5 14h-1a1 1 0 0 1-.897-1.447A4.5 4.5 0 0 1 4.5 10.5c.66 0 1.287.144 1.851.402C5.21 11.76 4.828 13.073 5.02 14H2.5ZM12 7.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4ZM13.5 14h-2.52c.192-.927-.19-2.24-.831-3.098A4.472 4.472 0 0 1 11.5 10.5a4.5 4.5 0 0 1 4.897 3.053A1 1 0 0 1 15.5 14h-2Z"/></svg> ' + pt('onboarding.step.team.btn') + '</span>',
         },
       ];
 
@@ -4810,6 +4828,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ytBtn.textContent = 'Disconnect';
         ytBtn.className = 'btn-secondary';
         ytBtn.setAttribute('data-action', 'connYtDisconnect');
+        lockChurchAdminControl(ytBtn);
         // Token expiry warning
         if (d.youtube.expiresAt) {
           var hrs = Math.floor((new Date(d.youtube.expiresAt).getTime() - Date.now()) / (60*60*1000));
@@ -4832,6 +4851,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ytBtn.textContent = 'Connect YouTube';
         ytBtn.className = 'btn-primary';
         ytBtn.setAttribute('data-action', 'connYtConnect');
+        lockChurchAdminControl(ytBtn);
         ytExpiry.style.display = 'none';
       }
 
@@ -4858,6 +4878,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         fbBtn.textContent = 'Disconnect';
         fbBtn.className = 'btn-secondary';
         fbBtn.setAttribute('data-action', 'connFbDisconnect');
+        lockChurchAdminControl(fbBtn);
         // Token expiry warning
         if (d.facebook.expiresAt) {
           var daysLeft = Math.floor((new Date(d.facebook.expiresAt).getTime() - Date.now()) / (24*60*60*1000));
@@ -4885,6 +4906,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         fbBtn.textContent = 'Connect Facebook';
         fbBtn.className = 'btn-primary';
         fbBtn.setAttribute('data-action', 'connFbConnect');
+        lockChurchAdminControl(fbBtn);
         fbExpiry.style.display = 'none';
       }
 
@@ -4925,6 +4947,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         btn.textContent = 'Disconnect';
         btn.className = 'btn-secondary';
         btn.setAttribute('data-action', 'connPcoDisconnect');
+        lockChurchAdminControl(btn);
       } else {
         badge.className = 'conn-badge conn-badge-off';
         badge.textContent = 'Disconnected';
@@ -4933,6 +4956,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         btn.textContent = 'Connect Planning Center';
         btn.className = 'btn-primary';
         btn.setAttribute('data-action', 'connPcoConnect');
+        lockChurchAdminControl(btn);
       }
     }
 
@@ -5185,7 +5209,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '<span style="font-size:13px;color:#B0BEC5;min-width:120px;font-weight:500">' + escapeHtml(r.name) + '</span>' +
             '<code id="room-key-' + r.id + '" style="font-size:13px;color:#00E676;padding:6px 10px;background:#060D08;border:1px solid #0d3320;border-radius:6px;letter-spacing:0.5px;flex:1;min-width:180px;overflow:hidden;text-overflow:ellipsis">' + (r.streamKey || '—') + '</code>' +
             '<button class="btn-secondary" data-action="copyRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Copy</button>' +
-            '<button class="btn-secondary" data-action="regenRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Regenerate</button>';
+            '<button class="btn-secondary church-admin-write" data-action="regenRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Regenerate</button>';
           container.appendChild(row);
         });
       } catch(e) {
@@ -5197,28 +5221,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
      * Hide sidebar pages a TD cannot access and show the TD indicator.
      * viewer  → overview only (read-only)
      * operator → overview + can trigger actions
-     * admin   → everything except billing
+     * admin   → everything except billing — still not church admin; mutate
+     *           routes 403, so save controls stay hidden.
      */
     function applyTdAccessRestrictions(level, name) {
+      document.body.classList.add('td-session');
       // Pages hidden per access level
-      var hiddenPages = { viewer: ['engineer','profile','rooms','team','automation','connections','billing','support'], operator: ['profile','rooms','team','connections','billing','support'], admin: ['billing'] };
+      var hiddenPages = { viewer: ['engineer','profile','rooms','team','automation','connections','billing','support'], operator: ['profile','rooms','team','connections','billing','support'], admin: ['billing','profile'] };
       var hidden = hiddenPages[level] || hiddenPages.viewer;
       document.querySelectorAll('.nav-item[data-page]').forEach(function(btn) {
         if (hidden.indexOf(btn.dataset.page) !== -1) btn.style.display = 'none';
       });
-      document.querySelectorAll('.church-admin-only').forEach(function(el) {
+      document.querySelectorAll('.church-admin-only, .church-admin-write').forEach(function(el) {
         el.style.display = 'none';
       });
-      // TD indicator in sidebar
+      // TD indicator in sidebar — "Admin" is church-portal email only
       var indicator = document.getElementById('td-session-indicator');
       if (indicator) {
-        var labels = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' };
+        var labels = { viewer: 'Viewer', operator: 'Operator', admin: 'Lead operator' };
         indicator.textContent = escapeHtml(name) + ' (' + (labels[level] || level) + ')';
         indicator.style.display = '';
       }
       // Show change-password button for TD sessions
       var cpBtn = document.getElementById('btn-td-change-pw');
       if (cpBtn) cpBtn.style.display = '';
+      var alertsTelegram = document.getElementById('alerts-telegram-chat-id');
+      if (alertsTelegram) {
+        alertsTelegram.readOnly = true;
+        alertsTelegram.title = 'Sign in with the church portal email to change Telegram.';
+      }
     }
 
     async function tdChangePassword() {
@@ -5663,7 +5694,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<td class="advanced-only">' + assigned + '</td>';
           html += '<td>' + (hasDesktop ? '<span style="color:#00E676">' + SVG.dotGreen + ' Connected</span>' : '<span style="color:#556270">' + SVG.dotRed + ' No Desktop</span>') + '</td>';
           html += '<td>' + readyHtml + '<div style="margin-top:4px;display:flex;gap:3px">' + statusBtns + '</div></td>';
-          html += '<td class="advanced-only" style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
+          html += '<td class="advanced-only church-admin-write" style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';
@@ -5754,29 +5785,37 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const portalOn = !!td.portal_enabled;
           const hasPassword = !!td.has_password;
           const lastLogin = td.last_portal_login ? new Date(td.last_portal_login).toLocaleDateString() : '—';
-          return `
-          <tr>
-            <td>${escapeHtml(td.name || '')}</td>
-            <td><span class="badge badge-gray">${escapeHtml(td.role || 'td')}</span></td>
-            <td>
-              <select style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${tdId}', this.value)">
-                <option value="viewer" ${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
-                <option value="operator" ${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
-                <option value="admin" ${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
-              </select>
-            </td>
-            <td style="color:#8B9DAF">${escapeHtml(td.email || '—')}</td>
-            <td>
-              <div style="display:flex;align-items:center;gap:6px">
+          const accessLevel = td.access_level || 'operator';
+          const accessLabels = { viewer: 'Viewer', operator: 'Operator', admin: 'Lead operator' };
+          const canMutate = isChurchAdminSession();
+          const accessCell = canMutate
+            ? `<select data-action-change="setTdAccessLevel" data-td-id="${tdId}" style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer">
+                <option value="viewer" ${accessLevel==='viewer'?'selected':''}>Viewer</option>
+                <option value="operator" ${accessLevel==='operator'?'selected':''}>Operator</option>
+                <option value="admin" ${accessLevel==='admin'?'selected':''}>Lead operator</option>
+              </select>`
+            : `<span class="badge badge-gray">${escapeHtml(accessLabels[accessLevel] || accessLevel)}</span>`;
+          const portalCell = canMutate
+            ? `<div style="display:flex;align-items:center;gap:6px">
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:${portalOn ? '#00E676' : '#6B7280'}">
-                  <input type="checkbox" ${portalOn ? 'checked' : ''} onchange="toggleTdPortalAccess('${tdId}', this.checked)" style="accent-color:#00E676">
+                  <input type="checkbox" ${portalOn ? 'checked' : ''} data-action-change="toggleTdPortalAccess" data-td-id="${tdId}" style="accent-color:#00E676">
                   ${portalOn ? 'On' : 'Off'}
                 </label>
                 <button class="btn-secondary" data-action="promptSetTdPassword" data-td-id="${tdId}" data-td-name="${escapeHtml(td.name || '')}" style="font-size:11px;padding:2px 8px">${hasPassword ? 'Reset PW' : 'Set PW'}</button>
               </div>
-              ${portalOn ? '<div style="font-size:10px;color:#6B7280;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}
-            </td>
-            <td><button class="btn-danger" data-action="removeTd" data-td-id="${tdId}">Remove</button></td>
+              ${portalOn ? '<div style="font-size:10px;color:#6B7280;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}`
+            : `<span style="font-size:12px;color:${portalOn ? '#00E676' : '#6B7280'}">${portalOn ? 'On' : 'Off'}</span>`;
+          const removeCell = canMutate
+            ? `<td><button class="btn-danger" data-action="removeTd" data-td-id="${tdId}">Remove</button></td>`
+            : '<td></td>';
+          return `
+          <tr>
+            <td>${escapeHtml(td.name || '')}</td>
+            <td><span class="badge badge-gray">${escapeHtml(td.role || 'td')}</span></td>
+            <td>${accessCell}</td>
+            <td style="color:#8B9DAF">${escapeHtml(td.email || '—')}</td>
+            <td>${portalCell}</td>
+            ${removeCell}
           </tr>`;
         }).join('');
         document.getElementById('stat-tds').textContent = tds.length;
@@ -6045,6 +6084,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         row.remove();
         updateScheduleEmptyState();
       });
+      if (!isChurchAdminSession()) {
+        row.querySelectorAll('select, input, button').forEach(function(el) { el.disabled = true; });
+      }
 
       rowsEl.appendChild(row);
       updateScheduleEmptyState();
@@ -6214,7 +6256,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '<div>' +
               '<div class="toggle-label">' + escapeHtml(categories[cat]) + '</div>' +
             '</div>' +
-            '<label class="toggle"><input type="checkbox" data-email-cat="' + escapeHtml(cat) + '" ' + checked + ' onchange="saveEmailPref(this)"><span class="slider"></span></label>' +
+            '<label class="toggle"><input type="checkbox" data-email-cat="' + escapeHtml(cat) + '" data-action-change="saveEmailPref" ' + checked + '><span class="slider"></span></label>' +
           '</div>';
         }
         container.innerHTML = html;
@@ -9185,9 +9227,44 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     });
 
     // ── Logout ────────────────────────────────────────────────────────────────
-    async function logout() {
+    async function logout(opts) {
       await fetch('/api/church/logout', { method: 'POST', credentials: 'include' });
-      window.location.href = '/church-login';
+      window.location.href = (opts && opts.idle) ? '/church-login?idle=1' : '/church-login';
+    }
+
+    // Visible inactivity on a shared booth laptop → sign out.
+    // Hidden / sleeping tab does not count (7d cookie still covers "left at church").
+    var PORTAL_IDLE_MS = 30 * 60 * 1000;
+    function initPortalIdleTimeout() {
+      var timer = null;
+      var lastArm = 0;
+      function arm() {
+        clearTimeout(timer);
+        if (document.visibilityState === 'hidden') return;
+        timer = setTimeout(function() {
+          logout({ idle: true });
+        }, PORTAL_IDLE_MS);
+      }
+      function onActivity() {
+        if (document.visibilityState !== 'visible') return;
+        var now = Date.now();
+        if (now - lastArm < 15000) return;
+        lastArm = now;
+        arm();
+      }
+      ['pointerdown', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function(ev) {
+        document.addEventListener(ev, onActivity, { passive: true });
+      });
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+          clearTimeout(timer);
+          timer = null;
+        } else {
+          lastArm = 0;
+          arm();
+        }
+      });
+      arm();
     }
 
     // Apply i18n translations to all data-i18n elements based on navigator.language
@@ -9733,7 +9810,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           container.innerHTML = '<div style="color:#FF5252;text-align:center;padding:40px;font-size:13px">'
             + '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Failed to load rundowns</div>'
             + '<div style="color:#8B9DAF;margin-bottom:16px">' + escapeHtml(_rundownLoadError) + '</div>'
-            + '<button onclick="_rundownLoadError=null;_rundownFetchPlans(0)" style="background:#00E676;color:#0a1610;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600">Retry</button>'
+            + '<button type="button" data-action="rundownRetryLoad" style="background:#00E676;color:#0a1610;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600">Retry</button>'
             + '</div>';
           return;
         }
@@ -14676,7 +14753,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         runs.forEach(function(run) {
           var totalVariance = (run.totalActualMs || 0) - (run.totalPlannedMs || 0);
           var d = new Date(run.startedAt);
-          html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px;cursor:pointer" onclick="(function(){})();">'
+          html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
             + '<div>'
             + '<div style="font-size:13px;font-weight:700;color:#F0F2F4">Run #' + run.runNumber + ' · ' + d.toLocaleDateString() + '</div>'
@@ -15958,14 +16035,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         '<span>Duration: ' + totalStr + '</span>' +
         '<span>' + plan.items.length + ' items</span>' +
         '</div></div>' +
-        '<button class="no-print" onclick="window.print()" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
+        '<button type="button" class="no-print" id="rundown-print-btn" style="margin-bottom:12px;padding:6px 16px;font-size:13px;cursor:pointer">Print</button>' +
         '<table><thead><tr>' +
         '<th>#</th><th>Title</th><th>Type</th><th>Who</th>' +
         colHeaders +
         '<th class="mono">Duration</th><th class="mono">Start</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>' +
         '<div class="footer"><span>Printed from TallyConnect</span><span></span></div>' +
-        '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},300);});<\/script>' +
+        '<script>window.addEventListener("load",function(){var b=document.getElementById("rundown-print-btn");if(b)b.addEventListener("click",function(){window.print();});setTimeout(function(){window.print();},300);});<\/script>' +
         '</body></html>';
 
       var printBlob = new Blob([html], { type: 'text/html' });
@@ -16590,7 +16667,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px" data-action-index="' + i + '">';
         // Action type selector
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
-        html += '<select onchange="companionActionChangeType(' + i + ',this.value)" style="flex:1;padding:6px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px">';
+        html += '<select data-action-change="companionActionChangeType" data-action-index="' + i + '" style="flex:1;padding:6px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px">';
         html += '<option value="button_press"' + (a.type === 'button_press' ? ' selected' : '') + '>Button Press</option>';
         html += '<option value="custom_variable"' + (a.type === 'custom_variable' ? ' selected' : '') + '>Custom Variable</option>';
         html += '</select>';
@@ -16601,15 +16678,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         if (a.type === 'button_press') {
           html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
-          html += '<label style="font-size:11px;color:#8B9DAF">Page<input type="number" min="1" max="99" value="' + (a.page || 1) + '" onchange="companionActionField(' + i + ',\'page\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
-          html += '<label style="font-size:11px;color:#8B9DAF">Row<input type="number" min="0" max="99" value="' + (a.row != null ? a.row : 0) + '" onchange="companionActionField(' + i + ',\'row\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
-          html += '<label style="font-size:11px;color:#8B9DAF">Column<input type="number" min="0" max="99" value="' + (a.col != null ? a.col : 0) + '" onchange="companionActionField(' + i + ',\'col\',+this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Page<input type="number" min="1" max="99" value="' + (a.page || 1) + '" data-action-change="companionActionField" data-action-index="' + i + '" data-field="page" data-field-type="number" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Row<input type="number" min="0" max="99" value="' + (a.row != null ? a.row : 0) + '" data-action-change="companionActionField" data-action-index="' + i + '" data-field="row" data-field-type="number" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Column<input type="number" min="0" max="99" value="' + (a.col != null ? a.col : 0) + '" data-action-change="companionActionField" data-action-index="' + i + '" data-field="col" data-field-type="number" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
           html += '</div>';
-          html += '<label style="font-size:11px;color:#8B9DAF;display:block;margin-top:8px">Label (optional)<input type="text" value="' + escapeHtml(a.label || '') + '" placeholder="e.g. Cam 1 Wide" onchange="companionActionField(' + i + ',\'label\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF;display:block;margin-top:8px">Label (optional)<input type="text" value="' + escapeHtml(a.label || '') + '" placeholder="e.g. Cam 1 Wide" data-action-change="companionActionField" data-action-index="' + i + '" data-field="label" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
         } else if (a.type === 'custom_variable') {
           html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-          html += '<label style="font-size:11px;color:#8B9DAF">Variable Name<input type="text" value="' + escapeHtml(a.name || '') + '" placeholder="e.g. current_item" onchange="companionActionField(' + i + ',\'name\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
-          html += '<label style="font-size:11px;color:#8B9DAF">Value<input type="text" value="' + escapeHtml(a.value || '') + '" placeholder="e.g. Welcome" onchange="companionActionField(' + i + ',\'value\',this.value)" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Variable Name<input type="text" value="' + escapeHtml(a.name || '') + '" placeholder="e.g. current_item" data-action-change="companionActionField" data-action-index="' + i + '" data-field="name" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
+          html += '<label style="font-size:11px;color:#8B9DAF">Value<input type="text" value="' + escapeHtml(a.value || '') + '" placeholder="e.g. Welcome" data-action-change="companionActionField" data-action-index="' + i + '" data-field="value" style="display:block;margin-top:4px;width:100%;padding:5px 8px;background:#0D1117;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#F0F2F4;font-size:13px;box-sizing:border-box"></label>';
           html += '</div>';
         }
         html += '</div>';
@@ -16617,7 +16694,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       container.innerHTML = html;
     }
 
-    // Called from inline onchange handlers in the modal
+    // Called from data-action-change handlers in the modal
     window.companionActionChangeType = function(index, type) {
       if (type === 'button_press') {
         _companionModalActions[index] = { type: 'button_press', page: 1, row: 0, col: 0, label: '' };
@@ -17879,6 +17956,22 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'skipTelegramStep':
         if (typeof skipTelegramStep === 'function') skipTelegramStep();
         break;
+      case 'copyOnboardingCode':
+        if (typeof copyOnboardingCode === 'function') copyOnboardingCode();
+        break;
+      case 'inviteTeam':
+        if (typeof inviteTeam === 'function') inviteTeam();
+        break;
+      case 'confirmVideoHubRoute':
+        if (typeof confirmVideoHubRoute === 'function') confirmVideoHubRoute(btn.dataset.vhOut);
+        break;
+      case 'cancelVideoHubRoute':
+        if (typeof cancelVideoHubRoute === 'function') cancelVideoHubRoute(btn.dataset.vhOut);
+        break;
+      case 'rundownRetryLoad':
+        _rundownLoadError = null;
+        if (typeof _rundownFetchPlans === 'function') _rundownFetchPlans(0);
+        break;
       case 'markFailoverTested':
         if (typeof markFailoverTested === 'function') markFailoverTested();
         break;
@@ -18028,6 +18121,30 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'macroWizardTemplateChange':
         if (typeof macroWizardTemplateChange === 'function') macroWizardTemplateChange();
+        break;
+      case 'onRoleChange':
+        if (typeof onRoleChange === 'function') onRoleChange(el.getAttribute('data-role'), el.value);
+        break;
+      case 'stageVideoHubRoute':
+        if (typeof stageVideoHubRoute === 'function') stageVideoHubRoute(el.getAttribute('data-vh-out'), el.value);
+        break;
+      case 'setTdAccessLevel':
+        if (typeof setTdAccessLevel === 'function') setTdAccessLevel(el.dataset.tdId, el.value);
+        break;
+      case 'toggleTdPortalAccess':
+        if (typeof toggleTdPortalAccess === 'function') toggleTdPortalAccess(el.dataset.tdId, el.checked);
+        break;
+      case 'saveEmailPref':
+        if (typeof saveEmailPref === 'function') saveEmailPref(el);
+        break;
+      case 'companionActionChangeType':
+        if (typeof companionActionChangeType === 'function') companionActionChangeType(parseInt(el.dataset.actionIndex, 10), el.value);
+        break;
+      case 'companionActionField':
+        if (typeof companionActionField === 'function') {
+          var fieldVal = el.dataset.fieldType === 'number' ? +el.value : el.value;
+          companionActionField(parseInt(el.dataset.actionIndex, 10), el.dataset.field, fieldVal);
+        }
         break;
     }
   });
@@ -19503,5 +19620,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Init overview sections on first load (overview is active by default)
   initOverviewSections();
+  if (typeof initPortalIdleTimeout === 'function') initPortalIdleTimeout();
 
 });
