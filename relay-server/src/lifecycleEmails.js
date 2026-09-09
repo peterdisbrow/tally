@@ -70,6 +70,26 @@ function invoiceMonthKey(dueDate) {
   return stripeTimestampToDate(dueDate).toISOString().slice(0, 7);
 }
 
+function uniqueEmailRecipients(...candidates) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of candidates) {
+    const addr = String(raw || '').trim().toLowerCase();
+    if (!addr || !addr.includes('@') || seen.has(addr)) continue;
+    seen.add(addr);
+    out.push(addr);
+  }
+  return out;
+}
+
+/**
+ * Andrew / ops inbox. Reuses existing Railway names — do not invent OPS_EMAIL.
+ * ADMIN_EMAIL is the legacy operator login address; ADMIN_SEED_EMAIL seeds super_admin.
+ */
+function resolveOpsNotifyEmail(env = process.env) {
+  return uniqueEmailRecipients(env.ADMIN_EMAIL, env.ADMIN_SEED_EMAIL)[0] || '';
+}
+
 /**
  * Prepare-mode: pause sales/nurture/win-back until GTM is allowed.
  * See docs/EMAIL_SYSTEM_REVIEW.md §9. Set ENABLE_LIFECYCLE_MARKETING=1 to re-enable.
@@ -2532,35 +2552,61 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   async sendEmailChangeConfirmation(church, { oldEmail, newEmail }) {
     await this.ready;
-    const to = newEmail || church.portal_email;
-    if (!to) return { sent: false, reason: 'no-recipient' };
-    const { html, text } = this._buildEmailChangeEmail(church, { oldEmail, newEmail });
+    const nextEmail = newEmail || church.portal_email;
+    const recipients = uniqueEmailRecipients(oldEmail, nextEmail);
+    if (!recipients.length) return { sent: false, reason: 'no-recipient', deliveries: [] };
 
-    // Bypass dedup — send directly like password-reset
-    if (this._isRecipientSuppressed(to)) return { sent: false, reason: 'suppressed' };
+    const { html, text } = this._buildEmailChangeEmail(church, { oldEmail, newEmail: nextEmail });
+    const subject = 'Your Tally email has been updated';
+
     if (!this.resendApiKey) {
-      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send email change confirmation to ${to}`);
-      return { sent: false, reason: 'no-api-key' };
+      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send email change confirmation to ${recipients.length} inbox(es) for church ${church.churchId}`);
+      return { sent: false, reason: 'no-api-key', deliveries: recipients.map((to) => ({ to, sent: false, reason: 'no-api-key' })) };
     }
 
-    const result = await this._deliverViaResend({
-      to,
-      subject: 'Your Tally email has been updated',
-      html,
-      text,
-      emailType: 'email-change-confirmation',
-      idempotencyKey: buildIdempotencyKey({
-        churchId: church.churchId,
+    const deliveries = [];
+    for (const to of recipients) {
+      if (this._isRecipientSuppressed(to)) {
+        deliveries.push({ to, sent: false, reason: 'suppressed' });
+        continue;
+      }
+
+      const result = await this._deliverViaResend({
+        to,
+        subject,
+        html,
+        text,
         emailType: 'email-change-confirmation',
-        requestId: to,
-      }),
-    });
-    if (!result.sent) {
-      console.error(`[LifecycleEmails] Email change send failed: ${result.detail || result.reason}`);
-      return { sent: false, reason: result.reason };
+        idempotencyKey: buildIdempotencyKey({
+          churchId: church.churchId,
+          emailType: 'email-change-confirmation',
+          requestId: to,
+        }),
+      });
+      if (!result.sent) {
+        console.error(`[LifecycleEmails] Email change send failed for church ${church.churchId}: ${result.detail || result.reason}`);
+        deliveries.push({ to, sent: false, reason: result.reason, id: result.id });
+        continue;
+      }
+      this._recordSend(
+        church.churchId,
+        recipientScopedEmailType('email-change-confirmation', to),
+        to,
+        new Date().toISOString(),
+        result.id,
+        subject,
+      );
+      deliveries.push({ to, sent: true, id: result.id });
     }
-    this._recordSend(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), result.id, 'Your Tally email has been updated');
-    return { sent: true, id: result.id };
+
+    const sent = deliveries.some((d) => d.sent);
+    const firstFail = deliveries.find((d) => !d.sent);
+    return {
+      sent,
+      id: deliveries.find((d) => d.sent)?.id,
+      reason: sent ? undefined : (firstFail?.reason || 'send-failed'),
+      deliveries,
+    };
   }
 
   _buildEmailChangeEmail(church, { oldEmail, newEmail }) {
@@ -2652,18 +2698,38 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   // ─── SEQUENCE 24: DISPUTE ALERT ──────────────────────────────────────────
-  // Sent to admin when a charge dispute is opened.
+  // Church portal_email plus Andrew/ops (ADMIN_EMAIL / ADMIN_SEED_EMAIL).
 
   async sendDisputeAlert(church, { amount, reason, disputeId }) {
-    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    await this.ready;
     const { html, text } = this._buildDisputeAlertEmail(church, { amount, reason });
-    return this.sendEmail({
-      churchId: church.churchId,
-      emailType: `dispute-alert-${disputeId || Date.now()}`,
-      to: church.portal_email,
-      subject: `Payment dispute opened — action required`,
-      html, text,
-    });
+    const recipients = uniqueEmailRecipients(church.portal_email, resolveOpsNotifyEmail());
+    if (!recipients.length) return { sent: false, reason: 'no-recipient', deliveries: [] };
+
+    const disputeKey = disputeId || `t${Date.now()}`;
+    const subject = 'Payment dispute opened — action required';
+    const deliveries = [];
+    for (const to of recipients) {
+      const result = await this.sendEmail({
+        churchId: church.churchId,
+        emailType: recipientScopedEmailType(`dispute-alert-${disputeKey}`, to),
+        to,
+        subject,
+        html,
+        text,
+        urgent: true,
+      });
+      deliveries.push({ to, ...result });
+    }
+
+    const sent = deliveries.some((d) => d.sent);
+    const firstFail = deliveries.find((d) => !d.sent);
+    return {
+      sent,
+      id: deliveries.find((d) => d.sent)?.id,
+      reason: sent ? undefined : (firstFail?.reason || 'send-failed'),
+      deliveries,
+    };
   }
 
   _buildDisputeAlertEmail(church, { amount, reason }) {
@@ -4808,6 +4874,8 @@ module.exports = {
   DOWNLOAD_WIN_URL,
   resolveWinDownloadUrl,
   recipientScopedEmailType,
+  uniqueEmailRecipients,
+  resolveOpsNotifyEmail,
   stripeTimestampToDate,
   invoiceMonthKey,
   isLifecycleMarketingEnabled,

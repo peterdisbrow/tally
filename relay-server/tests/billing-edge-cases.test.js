@@ -304,3 +304,93 @@ describe('BillingSystem.handleWebhook — error cases', () => {
     realDb.close();
   });
 });
+
+// ─── Referral free-month credits (live list prices) ───────────────────────────
+
+describe('BillingSystem._processReferralCredit', () => {
+  let BillingSystem, _setStripeClientForTests, _resetStripeClientForTests, db, billing, createBalanceTransaction;
+
+  function referralDb() {
+    const mem = new Database(':memory:');
+    mem.exec(`
+      CREATE TABLE churches (
+        churchId TEXT PRIMARY KEY,
+        name TEXT,
+        registeredAt TEXT
+      );
+      CREATE TABLE billing_customers (
+        id TEXT PRIMARY KEY,
+        church_id TEXT,
+        stripe_customer_id TEXT,
+        tier TEXT
+      );
+      CREATE TABLE referrals (
+        id TEXT PRIMARY KEY,
+        referrer_id TEXT NOT NULL,
+        referred_id TEXT NOT NULL,
+        referred_name TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        credit_amount INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        converted_at TEXT,
+        credited_at TEXT
+      );
+    `);
+    return mem;
+  }
+
+  beforeEach(() => {
+    clearBillingCache();
+    process.env.NODE_ENV = 'test';
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake_key';
+    ({ BillingSystem, _setStripeClientForTests, _resetStripeClientForTests } = require('../src/billing'));
+    createBalanceTransaction = vi.fn(async () => ({ id: 'cbtxn_test' }));
+    _setStripeClientForTests({
+      customers: { createBalanceTransaction },
+    });
+    db = referralDb();
+    billing = new BillingSystem(db);
+
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO churches (churchId, name, registeredAt) VALUES (?, ?, ?)').run('referrer-1', 'First Church', now);
+    db.prepare('INSERT INTO churches (churchId, name, registeredAt) VALUES (?, ?, ?)').run('referee-1', 'New Church', now);
+    db.prepare('INSERT INTO billing_customers (id, church_id, stripe_customer_id, tier) VALUES (?, ?, ?, ?)').run(
+      'bc-ref', 'referrer-1', 'cus_referrer', 'plus',
+    );
+    db.prepare(`
+      INSERT INTO referrals (id, referrer_id, referred_id, referred_name, status, created_at)
+      VALUES (?, ?, ?, ?, 'pending', ?)
+    `).run('ref-1', 'referrer-1', 'referee-1', 'New Church', now);
+  });
+
+  afterEach(() => {
+    _resetStripeClientForTests?.();
+    db?.close();
+  });
+
+  it('credits one free month at live Connect/Plus list prices ($49 / $99)', async () => {
+    await billing._processReferralCredit('referee-1', 'connect', 'cus_referee');
+
+    expect(createBalanceTransaction).toHaveBeenCalledTimes(2);
+    expect(createBalanceTransaction).toHaveBeenCalledWith('cus_referrer', expect.objectContaining({
+      amount: -9900,
+      currency: 'usd',
+    }));
+    expect(createBalanceTransaction).toHaveBeenCalledWith('cus_referee', expect.objectContaining({
+      amount: -4900,
+      currency: 'usd',
+    }));
+
+    const row = db.prepare('SELECT status, credit_amount FROM referrals WHERE id = ?').get('ref-1');
+    expect(row.status).toBe('credited');
+    expect(row.credit_amount).toBe(9900);
+  });
+
+  it('credits Pro at $149, not the old $199 ladder', async () => {
+    db.prepare('UPDATE billing_customers SET tier = ? WHERE church_id = ?').run('pro', 'referrer-1');
+    await billing._processReferralCredit('referee-1', 'pro', 'cus_referee');
+
+    expect(createBalanceTransaction).toHaveBeenCalledWith('cus_referrer', expect.objectContaining({ amount: -14900 }));
+    expect(createBalanceTransaction).toHaveBeenCalledWith('cus_referee', expect.objectContaining({ amount: -14900 }));
+  });
+});
