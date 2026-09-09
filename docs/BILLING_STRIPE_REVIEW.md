@@ -36,7 +36,7 @@ Companion: [`FEATURE_AUDIT_2026-09-08.md`](FEATURE_AUDIT_2026-09-08.md) §2, [`C
 | What breaks a trial? | Production `TALLY_REQUIRE_ACTIVE_BILLING` defaults **true**. Onboard with Stripe on sets `billing_status=pending` and creates Checkout **with a 30-day Stripe trial (card collected)**. Hourly cron expires `trialing` rows only — **pending never auto-expires**. Lifecycle 7/5/1-day emails only query `trialing`. |
 | What breaks a payment? | Live webhook **is** signed and subscribed to the events the code handles for money (`checkout.session.completed`, subscription CRUD, `invoice.payment_succeeded` / `failed`). Disputes and `invoice.upcoming` are coded but **not** on the Stripe endpoint. Idempotency used to swallow failed handlers (fixed here). |
 
-**North-star read:** catalogs and Checkout can take money at the advertised **monthly** rates. Honesty fails on annual discount, founding-as-list, portal upgrade copy (fixed here), and “no credit card” vs Stripe Checkout trial. Sales surfaces (referrals, retention coupon) stay as-is.
+**North-star read:** catalogs and Checkout can take money at the advertised **monthly** rates. Honesty fails on annual discount, founding-as-list, and “no credit card” vs Stripe Checkout trial. Referral free-month credits now match live list ($49/$99/$149). Retention coupon stays as-is.
 
 ---
 
@@ -49,7 +49,7 @@ Pre-fix → post-fix where this PR changed the number.
 | Pillar | Score | Why this number |
 |--------|-------|-----------------|
 | **Reliability** | **3 → 3.5 / 5** | Signed webhooks + hourly trial/grace crons exist. Checkout fallback was `/billing/success` **live 404** (fixed). Failed webhook handlers are now retryable (fixed). `checkAccess` still ignores the 7-day grace that `checkChurchPaidAccess` allows. |
-| **Trust** | **2 → 3 / 5** | Live monthly Stripe **matches** homepage $49/$99/$149. Portal still showed $149 Plus / $199 Pro (**fixed**). Annual 25% is **false** vs Stripe. Founding $49 is the list price. Referral credits still use $79/$149/$199. |
+| **Trust** | **2 → 3 / 5** | Live monthly Stripe **matches** homepage $49/$99/$149. Portal still showed $149 Plus / $199 Pro (**fixed**). Annual 25% is **false** vs Stripe. Founding $49 is the list price. Referral credits now use live list $49/$99/$149 (**fixed**). |
 | **Security** | **4 / 5** | `constructEvent` + raw body on `/api/billing/webhook`. CSRF-exempt correctly. Checkout/portal are admin or church-admin gated. Circuit breaker on outbound Stripe. Remaining: webhook secret required at boot; disputes not subscribed. |
 | **Polish** | **3 / 5** | Portal billing tab, retention modal, Stripe Customer Portal (#158 return URL). Upgrade/downgrade copy was a version behind Stripe (fixed). Lifecycle billing CTAs still use `APP_URL/portal` (marketing now **307s** to `/church-portal`, so not a 404). |
 | **Observability** | **2 / 5** | Status component `stripe_webhook` = keys present. Admin **Billing analytics** APIs are **DEAD** in the SPA. No Stripe Dashboard mismatch alarm. |
@@ -126,7 +126,7 @@ Live price IDs (for Railway matching — not secrets):
 
 `scripts/setup-stripe.js` intends Connect/Plus/Pro annual at **9 × monthly** ($441 / $891 / $1,341) and a duplicate founding product also at $49. **Those annual amounts are not live.** Re-running the script would attach env vars to **whichever active monthly/yearly price already exists** on the product (`findPrice` takes the first match) — it will not automatically create the −25% prices.
 
-Referral credit table in `billing.js` still uses **$79 / $149 / $199 / $99** — a free-month credit would over-pay vs live list. **SALES-GATED** / P1.
+Referral credit table in `billing.js` (`TIER_MONTHLY_CENTS`) now matches live list **$49 / $99 / $149 / Event $99**. Enterprise stays `null` (manual follow-up).
 
 ---
 
@@ -254,7 +254,7 @@ Annual is a **separate Price ID**, not a Stripe coupon. Charging annual today is
 - Subscribe Stripe endpoint to disputes + `invoice.upcoming` (or delete dead handlers).
 - `checkAccess` should honor grace the same way `checkChurchPaidAccess` does.
 - Portal `features.autopilot` vs `checkAccess` Plus vs Pro.
-- Referral `TIER_MONTHLY_CENTS` ($79/$149/$199) vs live list.
+- Referral `TIER_MONTHLY_CENTS` now matches live list $49/$99/$149 (**fixed**).
 - Onboard `pending` vs advertised no-CC 30-day trial; align Stripe `payment_method_collection` or local `trialing` without Checkout.
 - Event $99 Checkout vs EventMode 72h fuse — pick one product story.
 - Lifecycle billing CTAs still `APP_URL/portal` (now 307s; still messy).
@@ -274,7 +274,8 @@ Annual is a **separate Price ID**, not a Stripe coupon. Charging annual today is
 
 - Does not edit tally-landing (Enterprise Custom, annual 25%, founding copy).
 - Does not write Stripe Prices or webhook subscriptions.
-- Does not change referral credits or retention coupon (sales-gated).
+- Does not change the retention coupon (sales-gated).
+- Referral free-month credits aligned to live list (this leftover).
 - Does not invent Railway secret values.
 
 ---

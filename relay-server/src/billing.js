@@ -92,6 +92,14 @@ const PRICE_ENV_KEYS = {
 const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
 const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
+/** Free-month Stripe balance credits — live list prices ($49 / $99 / $149 / Event $99). */
+const TIER_MONTHLY_CENTS = {
+  connect: 4900,   // $49
+  plus:    9900,   // $99
+  pro:     14900,  // $149
+  managed: null,   // Enterprise is custom-priced
+  event:   9900,   // $99
+};
 const TIER_LIMITS = {
   connect: { rooms: 1,        devices: ['atem', 'obs', 'vmix'] },
   plus:    { rooms: 3,        devices: 'all' },
@@ -1317,15 +1325,6 @@ class BillingSystem {
       return;
     }
 
-    // Tier-based referral credit — one free month of each party's current plan
-    const TIER_MONTHLY_CENTS = {
-      connect: 7900,   // $79
-      plus:    14900,  // $149
-      pro:     19900,  // $199
-      managed: null,   // Enterprise is custom-priced
-      event:   9900,   // $99
-    };
-
     // Get referrer's billing info
     const referrerBilling = await this._one(
       'SELECT stripe_customer_id, tier FROM billing_customers WHERE church_id = ? LIMIT 1',
@@ -1389,6 +1388,7 @@ module.exports = {
   PRICES,
   TIER_NAMES,
   TIER_LIMITS,
+  TIER_MONTHLY_CENTS,
   BILLING_INTERVALS,
   TRIAL_PERIOD_DAYS,
   GRACE_PERIOD_DAYS,

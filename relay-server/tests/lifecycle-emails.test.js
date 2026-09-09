@@ -1143,4 +1143,126 @@ describe('LifecycleEmails', () => {
       expect(db._emailSends[0].email_type).toBe('invoice-upcoming-2026-11');
     });
   });
+
+  describe('P1-8 dispute ops notify + P1-9 email-change both inboxes', () => {
+    const originalAdminEmail = process.env.ADMIN_EMAIL;
+    const originalSeedEmail = process.env.ADMIN_SEED_EMAIL;
+
+    afterEach(() => {
+      if (originalAdminEmail === undefined) delete process.env.ADMIN_EMAIL;
+      else process.env.ADMIN_EMAIL = originalAdminEmail;
+      if (originalSeedEmail === undefined) delete process.env.ADMIN_SEED_EMAIL;
+      else process.env.ADMIN_SEED_EMAIL = originalSeedEmail;
+    });
+
+    it('uniqueEmailRecipients drops empties, duplicates, and non-emails', () => {
+      const { uniqueEmailRecipients } = require('../src/lifecycleEmails');
+      expect(uniqueEmailRecipients(' Old@X.com ', 'old@x.com', '', 'new@x.com', 'not-an-email'))
+        .toEqual(['old@x.com', 'new@x.com']);
+    });
+
+    it('resolveOpsNotifyEmail prefers ADMIN_EMAIL then ADMIN_SEED_EMAIL', () => {
+      const { resolveOpsNotifyEmail } = require('../src/lifecycleEmails');
+      expect(resolveOpsNotifyEmail({ ADMIN_EMAIL: 'Andrew@TallyConnect.app', ADMIN_SEED_EMAIL: 'seed@x.com' }))
+        .toBe('andrew@tallyconnect.app');
+      expect(resolveOpsNotifyEmail({ ADMIN_SEED_EMAIL: 'seed@x.com' })).toBe('seed@x.com');
+      expect(resolveOpsNotifyEmail({})).toBe('');
+    });
+
+    it('sendDisputeAlert mails church and ops with recipient-scoped types', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const result = await emails.sendDisputeAlert(mockChurch(), {
+        amount: 9900,
+        reason: 'fraudulent',
+        disputeId: 'dp_test_1',
+      });
+
+      expect(result.reason).toBe('no-api-key');
+      expect(result.deliveries).toHaveLength(2);
+      const types = db._emailSends.map((row) => row.email_type);
+      expect(types).toContain('dispute-alert-dp_test_1:pastor@grace.church');
+      expect(types).toContain('dispute-alert-dp_test_1:andrew@tallyconnect.app');
+    });
+
+    it('sendDisputeAlert still notifies ops when the church has no portal_email', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const result = await emails.sendDisputeAlert(mockChurch({ portal_email: null }), {
+        amount: 4900,
+        reason: 'general',
+        disputeId: 'dp_ops_only',
+      });
+      expect(result.deliveries).toHaveLength(1);
+      expect(db._emailSends[0].email_type).toBe('dispute-alert-dp_ops_only:andrew@tallyconnect.app');
+    });
+
+    it('sendEmailChangeConfirmation delivers to old inbox and new inbox', async () => {
+      const apiEmails = new LifecycleEmails(db, {
+        resendApiKey: 're_test_fake_key',
+        fromEmail: 'test@test.com',
+        appUrl: 'https://test.app',
+        sleep: async () => {},
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ id: 'em_old' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ id: 'em_new' }),
+        });
+
+      try {
+        const result = await apiEmails.sendEmailChangeConfirmation(mockChurch(), {
+          oldEmail: 'old@grace.church',
+          newEmail: 'new@grace.church',
+        });
+        expect(result.sent).toBe(true);
+        expect(result.deliveries.map((d) => d.to)).toEqual(['old@grace.church', 'new@grace.church']);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+        const bodies = globalThis.fetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+        expect(bodies[0].to).toEqual(['old@grace.church']);
+        expect(bodies[1].to).toEqual(['new@grace.church']);
+        const types = db._emailSends.map((row) => row.email_type);
+        expect(types).toContain('email-change-confirmation:old@grace.church');
+        expect(types).toContain('email-change-confirmation:new@grace.church');
+        const logBlob = JSON.stringify(globalThis.fetch.mock.calls);
+        expect(logBlob).not.toMatch(/sk_|re_live|whsec_/);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('sendEmailChangeConfirmation still notifies the remaining inbox when one is suppressed', async () => {
+      const apiEmails = new LifecycleEmails(db, {
+        resendApiKey: 're_test_fake_key',
+        fromEmail: 'test@test.com',
+        appUrl: 'https://test.app',
+      });
+      await apiEmails.suppressRecipient({
+        recipient: 'old@grace.church',
+        reason: 'bounce',
+        source: 'resend',
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 'em_new_only' }),
+      });
+      try {
+        const result = await apiEmails.sendEmailChangeConfirmation(mockChurch(), {
+          oldEmail: 'old@grace.church',
+          newEmail: 'new@grace.church',
+        });
+        expect(result.sent).toBe(true);
+        expect(result.deliveries.find((d) => d.to === 'old@grace.church').reason).toBe('suppressed');
+        expect(globalThis.fetch).toHaveBeenCalledOnce();
+        const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+        expect(body.to).toEqual(['new@grace.church']);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
 });

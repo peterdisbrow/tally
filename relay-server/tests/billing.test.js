@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
 describe('PRICES structure', () => {
-  let PRICES, TIER_NAMES, TIER_LIMITS, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, GRACE_PERIOD_DAYS;
+  let PRICES, TIER_NAMES, TIER_LIMITS, TIER_MONTHLY_CENTS, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, GRACE_PERIOD_DAYS;
 
   beforeEach(() => {
     // Clear the module from Node's CJS cache so env changes take effect
@@ -31,6 +31,7 @@ describe('PRICES structure', () => {
     PRICES = billing.PRICES;
     TIER_NAMES = billing.TIER_NAMES;
     TIER_LIMITS = billing.TIER_LIMITS;
+    TIER_MONTHLY_CENTS = billing.TIER_MONTHLY_CENTS;
     BILLING_INTERVALS = billing.BILLING_INTERVALS;
     TRIAL_PERIOD_DAYS = billing.TRIAL_PERIOD_DAYS;
     GRACE_PERIOD_DAYS = billing.GRACE_PERIOD_DAYS;
@@ -86,6 +87,16 @@ describe('PRICES structure', () => {
   it('GRACE_PERIOD_DAYS is a positive number', () => {
     expect(typeof GRACE_PERIOD_DAYS).toBe('number');
     expect(GRACE_PERIOD_DAYS).toBeGreaterThan(0);
+  });
+
+  it('referral free-month credits match live list prices, not the old $79/$149/$199 ladder', () => {
+    expect(TIER_MONTHLY_CENTS).toEqual({
+      connect: 4900,
+      plus: 9900,
+      pro: 14900,
+      managed: null,
+      event: 9900,
+    });
   });
 });
 

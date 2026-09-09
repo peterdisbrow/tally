@@ -15,10 +15,12 @@ Code landed in a follow-up PR (this note). Does **not** need Andrew secrets or S
 | **P1-1** | Multi-recipient reports (session recap / weekly-leadership / monthly / post-service) now UNIQUE on `(church_id, email_type)` **including normalized recipient**. 2nd leader gets mail. Tests in `lifecycle-emails.test.js`, `weekly-digest-email.test.js`, `postServiceReport.test.js`. |
 | **P1-5 + §9 + P1-4** | `runCheck` skips lead drip, NPS, reviews, referral, win-back, multi-cam/viewer nudges, anniversary. `sendLeadWelcome` / `sendFeatureAnnouncement` no-op. NPS stays off even if `ENABLE_LIFECYCLE_MARKETING=1` (`/nps` still 404; no landing page in this repo). Re-enable GTM with that env when selling is allowed. |
 | **P1-7** | Unsubscribe sign + verify both use `UNSUBSCRIBE_SECRET \|\| JWT_SECRET` (`getUnsubscribeSecret()`). |
+| **P1-8** | `sendDisputeAlert` now also notifies Andrew/ops via `ADMIN_EMAIL` (fallback `ADMIN_SEED_EMAIL`). Church `portal_email` still gets the mail. No new env product. |
+| **P1-9** | `sendEmailChangeConfirmation` notifies **old inbox + new inbox**. |
 | **P1-11** | `invoice-upcoming` month key treats Stripe unix **seconds** (and ms) consistently. |
 | **P2-17 (small)** | Lifecycle CTAs `${appUrl}/portal` → `/church-portal` (church portal, not reseller). |
 
-Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-2 tickets; P1-3 stream-down email; P1-6 env value; P1-8 dispute→Andrew; P1-9 email-change old inbox; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
+Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-2 tickets; P1-3 stream-down email; P1-6 env value; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
 
 Companion audits: [`FEATURE_AUDIT_2026-09-08.md`](FEATURE_AUDIT_2026-09-08.md) (whole product; **stale** on Mac email URLs — #141 landed after it), [`ADMIN_DASHBOARD_REVIEW.md`](ADMIN_DASHBOARD_REVIEW.md) (Emails tab).
 
@@ -144,7 +146,7 @@ Stripe **Checkout / Customer invoices** are **UNVERIFIED** here (Dashboard “su
 | `grace-period-ending` | Hourly: ~2d left | portal | same | `/portal` | yes | **WORKS** |
 | `grace-expired` | `server.js` grace expiry job | portal | Tally monitoring paused — update payment… | `/portal` | no | **WORKS** |
 | `annual-renewal-reminder-{date}` | Hourly: annual `current_period_end` in 28–30d | portal | Your annual Tally subscription renews in 30 days | `/portal` | **no** (dynamic) | **PARTIAL** |
-| `dispute-alert-{id}` | Stripe `charge.dispute.created` | **church portal_email** | Payment dispute opened — action required | `/portal` | no | **PARTIAL** (should page Andrew, not only the church) |
+| `dispute-alert-{id}` | Stripe `charge.dispute.created` | **church portal_email + Andrew/ops (`ADMIN_EMAIL`)** | Payment dispute opened — action required | `/portal` | no | **WORKS** (P1-8; church + ops, recipient-scoped dedup) |
 
 Stripe `customer.subscription.trial_will_end` is **logged only** — lifecycle trial mails already cover it.
 
@@ -182,7 +184,7 @@ Realtime alerts are **not** email-first.
 | Type | Trigger | To | Subject | CTA | Status |
 |------|---------|----|---------|-----|--------|
 | `password-reset` | `POST /api/church/forgot-password` | portal | Reset your Tally password | **`/reset-password?token=`** (fixed this PR; was `/portal/reset-password` **404**) | **WORKS** after fix. Bypass dedup. 1h expiry. Enumeration-safe API. |
-| `email-change-confirmation` | Portal profile email change | **new** email only | Your Tally email has been updated | `/portal` | **PARTIAL** — old address not notified |
+| `email-change-confirmation` | Portal profile email change | **old + new** email | Your Tally email has been updated | `/portal` | **WORKS** (P1-9) |
 | `rundown-invite-{inviteId}` | Rundown collaborator invite | invitee email | {inviter} invited you to a rundown on {church} | `${APP_URL}/rundown/join?token=&plan=` | **WORKS** (`urgent`) |
 | `manual:onboarding_nudge` | Admin `POST /api/admin/onboarding/nudge` | portal | Continue setting up {name} on Tally | none (plain HTML) | **PARTIAL** — handler returns `{sent:true}` even if Resend failed |
 | `manual:{type}` / `custom` | Admin Emails tab send/resend | chosen | preview or custom | n/a | **WORKS** if API key set |
@@ -282,8 +284,8 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P1-5 | **Lead drip has no unsubscribe category.** Marketing to captured emails. Footer not injected. | `_getCategoryForType` returns null for `lead-*` | **Fixed (prepare-mode):** `_checkLeadNurture` + `sendLeadWelcome` gated off. Capture still stores the lead. Re-enable with `ENABLE_LIFECYCLE_MARKETING=1` (then add `lead-nurture` category before sending). |
 | P1-6 | **“Reply to this email” with `noreply@`.** | Code now sends `reply_to` when `EMAIL_REPLY_TO` is set | **Code done.** Still need the Railway env value. |
 | P1-7 | **Unsubscribe secret split-brain.** Signer = `JWT_SECRET`; verifier = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. | `lifecycleEmails.js` vs `server.js` | **Fixed:** both use `getUnsubscribeSecret()`. |
-| P1-8 | **Dispute mail goes to the church, not ops.** | `sendDisputeAlert` → `portal_email` | Also send to Andrew / admin list. |
-| P1-9 | **Email-change notice skips the old inbox.** | `sendEmailChangeConfirmation` | Send to old + new. |
+| P1-8 | **Dispute mail goes to the church, not ops.** | `sendDisputeAlert` → `portal_email` | **Fixed:** also send to `ADMIN_EMAIL` (fallback `ADMIN_SEED_EMAIL`). |
+| P1-9 | **Email-change notice skips the old inbox.** | `sendEmailChangeConfirmation` | **Fixed:** send to old + new. |
 | P1-10 | **Two weekly digest engines.** Portal gets `weekly-digest-*` Monday UTC; leaders get `weekly-digest-email-*` from `weeklyDigest.js` with a **different week-id formula**. | both files | One job, one week key, recipient in dedup key. |
 | P1-11 | **`invoice-upcoming` month key.** `monthKey = new Date(dueDate)` treats Stripe unix **seconds** as ms → epoch month; builder then does `dueDate * 1000`. Dedup / date can be wrong. | `sendInvoiceUpcoming` vs `_buildInvoiceUpcomingEmail` | **Fixed:** `stripeTimestampToDate` accepts seconds or ms. |
 
@@ -411,10 +413,10 @@ P0 reliability/compliance in this PR is done. Remaining, in order:
 1. **Railway:** set `EMAIL_REPLY_TO` and `RESEND_WEBHOOK_SECRET`; confirm `RESEND_API_KEY` is the same team as the verified `tallyconnect.app` domain (§11).
 2. **P1-2 / P1-3** — ticket reply + optional critical email (Sunday closed loop).
 3. **P1-4** — `/nps` landing in tally-landing (send path already gated off).
-4. **P1-8 / P1-9** — dispute→Andrew; email-change notice to old inbox.
+4. **P1-8 / P1-9** — **done:** dispute→Andrew (`ADMIN_EMAIL`); email-change notice to old + new inbox.
 5. **P1-10** — one weekly digest job.
 
-**Done in code (no Railway):** P1-1 recipient dedup, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
+**Done in code (no Railway):** P1-1 recipient dedup, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-8 dispute→ops, P1-9 email-change both inboxes, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
 
 Do **not** build Resend Broadcasts / Automations (sales gated). Do **not** mass-email existing churches. Do **not** move everything to dashboard templates — code templates + admin overrides are fine.
 
