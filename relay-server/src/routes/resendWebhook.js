@@ -8,6 +8,9 @@
  * Hard bounce / complaint → suppress recipient so lifecycle stops for that
  * address. Soft bounce is email.delivery_delayed — Resend retries; we do
  * not suppress those.
+ *
+ * email.failed / bounced / complained also `Sentry.captureException` (no
+ * recipient addresses in the event). Delivered stays quiet.
  */
 
 const {
@@ -16,18 +19,38 @@ const {
   shouldSuppressEventType,
 } = require('../resendClient');
 
+const RESEND_SENTRY_TYPES = new Set(['email.failed', 'email.bounced', 'email.complained']);
+
+function defaultCaptureException(err, hint) {
+  try {
+    const Sentry = require('@sentry/node');
+    if (Sentry && typeof Sentry.captureException === 'function') {
+      Sentry.captureException(err, hint);
+    }
+  } catch {
+    // SDK optional in unit tests
+  }
+}
+
 let lastResendWebhookAt = null;
+let lastResendFailure = null;
 
 function getLastResendWebhookAt() {
   return lastResendWebhookAt;
 }
 
+function getLastResendFailure() {
+  return lastResendFailure ? { ...lastResendFailure } : null;
+}
+
 function resetLastResendWebhookAt() {
   lastResendWebhookAt = null;
+  lastResendFailure = null;
 }
 
 function setupResendWebhookRoutes(app, ctx) {
   const { lifecycleEmails, log } = ctx;
+  const captureException = ctx.captureException || defaultCaptureException;
   const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
   app.post('/api/resend/webhook', asyncRoute(async (req, res) => {
@@ -56,9 +79,27 @@ function setupResendWebhookRoutes(app, ctx) {
     const recipients = extractWebhookRecipients(event);
     const emailId = event.data?.email_id || null;
 
+    if (RESEND_SENTRY_TYPES.has(type)) {
+      lastResendFailure = { type, at: lastResendWebhookAt };
+      // No recipient addresses in Sentry — email_id + count only.
+      try {
+        captureException(new Error(`Resend ${type}`), {
+          tags: { resend_event: type },
+          extra: { emailId, recipientCount: recipients.length },
+        });
+      } catch {
+        // Never fail the Resend ACK because Sentry is down.
+      }
+    }
+
     if (shouldSuppressEventType(type)) {
       if (!lifecycleEmails) {
         console.error('[ResendWebhook] lifecycleEmails unavailable — cannot suppress');
+        try {
+          captureException(new Error('Resend webhook suppression unavailable'), {
+            tags: { resend_event: type },
+          });
+        } catch { /* still return 500 below */ }
         return res.status(500).json({ error: 'Suppression unavailable' });
       }
       const reason = type === 'email.complained' ? 'complaint' : 'bounce';
@@ -82,5 +123,6 @@ function setupResendWebhookRoutes(app, ctx) {
 }
 
 setupResendWebhookRoutes.getLastResendWebhookAt = getLastResendWebhookAt;
+setupResendWebhookRoutes.getLastResendFailure = getLastResendFailure;
 setupResendWebhookRoutes.resetLastResendWebhookAt = resetLastResendWebhookAt;
 module.exports = setupResendWebhookRoutes;

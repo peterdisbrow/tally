@@ -118,11 +118,11 @@ These are representative, not exhaustive. Pattern: `catch { }` / `catch (e) { lo
 | Portal `es.onerror` | Reconnect with no UI | TD thinks kit is live while SSE is dead |
 | Portal `es.onmessage` inner `catch {}` | Malformed SSE JSON | Live cards freeze |
 | `server.js` scheduler Telegram `.catch(() => {})` | TD notify fail | Rundown ping dropped |
-| `runStatusChecks().catch(console.error)` | Synthetic monitor fail | Status page stale; no Sentry |
+| `runStatusChecks().catch(console.error)` | Synthetic monitor fail | **Shipped leftover:** `reportStatusCheckFailure` → `Sentry.captureException`. Per-check fetch flaps stay **degraded** on `/status` (Telegram #160). Admin `POST /api/status/run-checks` also captures. |
 | church-client / Electron | No SDK | Booth crash never reaches Sentry |
 | `healthAlerts._getActiveChurches` | SQL throw → `[]` | Daily churn cron silently no-ops |
 
-Relay Sentry will still stay quiet until those paths `captureException` or rethrow. That is **P1**, not this PR (too wide).
+Relay Sentry will still stay quiet on booth/portal SDK-less paths and other business catches. Status-check throws, AlertEngine send failures (#164), and Resend failure webhooks now capture.
 
 ---
 
@@ -220,7 +220,7 @@ Empty service windows still make non-EMERGENCY alerts **log-only**. That is by d
 ### P1 — same week, not during service
 
 1. **Last successful alert send** status component (Telegram HTTP `ok` + Slack `ok`). Page Andrew after N consecutive failures. ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) P1-9.) **Shipped** — `alert_delivery` component; `Sentry.captureException` + existing Andrew Telegram path after 3 consecutive send failures (`ALERT_SEND_FAILURE_THRESHOLD`).
-2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`. **Partial:** AlertEngine send failures now capture. Remaining: `runStatusChecks` throw, Resend `email.failed`.
+2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`. **Shipped:** AlertEngine (#164); `runStatusChecks` throw + Resend `email.failed` / bounce / complaint (this leftover).
 3. Portal/Electron Sentry (SDK + CSP already allowlisted + public DSN via a church `client-config` or build-time). Not a one-liner.
 4. Production Smoke: assert `aiConfigured === true` in prod; optional `telegram_bot_webhook.state != outage`.
 5. Lifecycle emails: `${appUrl}/church-portal` (tests pin `/portal` today). Marketing 307s; reseller collision if anyone uses `RELAY_URL/portal`.
@@ -254,6 +254,18 @@ Small high-confidence ops visibility only. No Sentry project created. No secrets
 | Portal SSE reconnect UI | `public/portal/portal.js`, `tests/church-portal.test.js` |
 | Leftover `/portal` | `server.js` onboard email, `electron-app/src/main.js`, `docs/quick-start.md` |
 | Pins | `tests/observability-p0.test.js`, `electron-app/test/portal-url.test.js` |
+
+### Leftover P1-2 after #160 / #164 (this PR)
+
+Silent failures on the named status + Resend paths. No new products. Telegram fetch flaps stay **degraded** (not Sentry).
+
+| Change | Files |
+|--------|-------|
+| `runStatusChecks` scheduled/initial throw → `Sentry.captureException` | `server.js` (`reportStatusCheckFailure`) |
+| Admin `POST /api/status/run-checks` throw → capture | `src/routes/statusComponents.js`, `tests/statusComponentsRoutes.test.js` |
+| Resend `email.failed` / `email.bounced` / `email.complained` → capture (no recipient PII) | `src/routes/resendWebhook.js`, `tests/resendWebhook.test.js` |
+| Status detail includes last Resend failure type (still operational) | `server.js` resend_webhook component |
+| Pins | `tests/observability-p0.test.js` |
 
 ---
 
