@@ -95,15 +95,37 @@ function resolveSessionRoom(liveRundown, plan, fallbackRoomId) {
   return (plan && plan.roomId) || '';
 }
 
+const LEGACY_VIEW_MODE_REDIRECTS = {
+  clock: 'clock',
+  teleprompter: 'prompter',
+  confidence: 'confidence',
+};
+
 function publicShareUrls(token, baseUrl) {
   const root = String(baseUrl || process.env.PUBLIC_URL || 'https://api.tallyconnect.app').replace(/\/+$/, '');
   return {
     url: `${root}/rundown/view/${token}`,
     timer_url: `${root}/rundown/timer/${token}`,
     clock_url: `${root}/rundown/clock/${token}`,
+    prompter_url: `${root}/rundown/prompter/${token}`,
+    confidence_url: `${root}/rundown/confidence/${token}`,
     show_url: `${root}/rundown/show/${token}`,
     share_token: token,
   };
+}
+
+/**
+ * Map historic portal query modes on /rundown/view/:token to dedicated pages.
+ * View still implements compact / prompter / large-text itself.
+ */
+function legacyViewDisplayRedirect(token, query = {}) {
+  const mode = String(query && query.mode || '').toLowerCase();
+  const dest = LEGACY_VIEW_MODE_REDIRECTS[mode];
+  if (!dest || !token) return null;
+  const params = new URLSearchParams(query);
+  params.delete('mode');
+  const qs = params.toString();
+  return `/rundown/${dest}/${encodeURIComponent(token)}${qs ? `?${qs}` : ''}`;
 }
 
 function decorateShare(share, baseUrl) {
@@ -124,4 +146,6 @@ module.exports = {
   resolveSessionRoom,
   publicShareUrls,
   decorateShare,
+  legacyViewDisplayRedirect,
+  LEGACY_VIEW_MODE_REDIRECTS,
 };

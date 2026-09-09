@@ -8,6 +8,8 @@ const {
   manualPlanToLivePlan,
   toLegacyLiveShowState,
   publicShareUrls,
+  decorateShare,
+  legacyViewDisplayRedirect,
 } = require('../src/rundownCanonical');
 
 describe('rundownCanonical helpers', () => {
@@ -52,14 +54,42 @@ describe('rundownCanonical helpers', () => {
     });
   });
 
-  it('includes dedicated studio clock URLs on share payloads', () => {
-    expect(publicShareUrls('abc123', 'https://api.tallyconnect.app')).toMatchObject({
+  it('packs every dedicated production-display URL on share payloads', () => {
+    expect(publicShareUrls('abc123', 'https://api.tallyconnect.app')).toEqual({
       url: 'https://api.tallyconnect.app/rundown/view/abc123',
       timer_url: 'https://api.tallyconnect.app/rundown/timer/abc123',
       clock_url: 'https://api.tallyconnect.app/rundown/clock/abc123',
+      prompter_url: 'https://api.tallyconnect.app/rundown/prompter/abc123',
+      confidence_url: 'https://api.tallyconnect.app/rundown/confidence/abc123',
       show_url: 'https://api.tallyconnect.app/rundown/show/abc123',
       share_token: 'abc123',
     });
+  });
+
+  it('keeps display and operator share URLs on their own tokens', () => {
+    const display = decorateShare({ token: 'disp-1', role: 'display' }, 'https://api.tallyconnect.app');
+    const operator = decorateShare({ token: 'op-1', role: 'operator' }, 'https://api.tallyconnect.app');
+
+    expect(display.role).toBe('display');
+    expect(display.prompter_url).toBe('https://api.tallyconnect.app/rundown/prompter/disp-1');
+    expect(display.confidence_url).toBe('https://api.tallyconnect.app/rundown/confidence/disp-1');
+    expect(display.clock_url).toBe('https://api.tallyconnect.app/rundown/clock/disp-1');
+    expect(display.show_url).toBe('https://api.tallyconnect.app/rundown/show/disp-1');
+    expect(operator.show_url).toBe('https://api.tallyconnect.app/rundown/show/op-1');
+    expect(display.prompter_url).not.toContain('op-1');
+    expect(operator.prompter_url).not.toContain('disp-1');
+  });
+
+  it('redirects only legacy view query modes that lack a view-page implementation', () => {
+    expect(legacyViewDisplayRedirect('abc123', { mode: 'clock', theme: 'light' }))
+      .toBe('/rundown/clock/abc123?theme=light');
+    expect(legacyViewDisplayRedirect('abc123', { mode: 'teleprompter' }))
+      .toBe('/rundown/prompter/abc123');
+    expect(legacyViewDisplayRedirect('abc123', { mode: 'confidence', theme: 'dark' }))
+      .toBe('/rundown/confidence/abc123?theme=dark');
+    expect(legacyViewDisplayRedirect('abc123', { mode: 'prompter' })).toBeNull();
+    expect(legacyViewDisplayRedirect('abc123', { mode: 'compact' })).toBeNull();
+    expect(legacyViewDisplayRedirect('abc123', {})).toBeNull();
   });
 
   it('maps LiveRundownManager state onto the legacy live-show payload', () => {

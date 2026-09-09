@@ -13,11 +13,14 @@ const require = createRequire(import.meta.url);
 const express = require('express');
 const { createClient } = require('./helpers/expressTestClient');
 
+const { legacyViewDisplayRedirect } = require('../src/rundownCanonical');
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const serverSrc = fs.readFileSync(path.join(here, '../server.js'), 'utf8');
 const clockHtml = fs.readFileSync(path.join(here, '../public/rundown-clock.html'), 'utf8');
 const liveRundownSrc = fs.readFileSync(path.join(here, '../src/routes/liveRundown.js'), 'utf8');
 const rundownCanonicalSrc = fs.readFileSync(path.join(here, '../src/rundownCanonical.js'), 'utf8');
+const portalSrc = fs.readFileSync(path.join(here, '../public/portal/portal.js'), 'utf8');
 
 function buildBoothClockApp() {
   const app = express();
@@ -25,12 +28,8 @@ function buildBoothClockApp() {
   app.use('/tools', express.static(path.join(here, '../public/tools')));
   app.get('/clock', (_req, res) => res.redirect(301, '/tools/clock/clock'));
   app.get('/rundown/view/:token', (req, res) => {
-    if (String(req.query.mode || '').toLowerCase() === 'clock') {
-      const params = new URLSearchParams(req.query);
-      params.delete('mode');
-      const qs = params.toString();
-      return res.redirect(302, `/rundown/clock/${encodeURIComponent(req.params.token)}${qs ? `?${qs}` : ''}`);
-    }
+    const dedicated = legacyViewDisplayRedirect(req.params.token, req.query);
+    if (dedicated) return res.redirect(302, dedicated);
     res.status(200).send('view');
   });
   app.get('/tools/clock/*', (_req, res) => {
@@ -100,6 +99,22 @@ describe('booth clock routes', () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/rundown/clock/abc123?theme=light');
   });
+
+  it('redirects legacy teleprompter and confidence view modes to dedicated pages', async () => {
+    const client = createClient(buildBoothClockApp());
+
+    const prompter = await client.get('/rundown/view/abc123?mode=teleprompter&theme=light');
+    expect(prompter.status).toBe(302);
+    expect(prompter.headers.location).toBe('/rundown/prompter/abc123?theme=light');
+
+    const confidence = await client.get('/rundown/view/abc123?mode=confidence');
+    expect(confidence.status).toBe(302);
+    expect(confidence.headers.location).toBe('/rundown/confidence/abc123');
+
+    const largeText = await client.get('/rundown/view/abc123?mode=prompter');
+    expect(largeText.status).toBe(200);
+    expect(largeText.text).toBe('view');
+  });
 });
 
 describe('studio clock client contracts', () => {
@@ -112,9 +127,27 @@ describe('studio clock client contracts', () => {
     expect(clockHtml).toMatch(/if \(tokenInvalid\) return/);
   });
 
-  it('includes clock_url on rundown share API payloads', () => {
+  it('includes dedicated display URLs on rundown share API payloads', () => {
     expect(rundownCanonicalSrc).toContain('clock_url: `${root}/rundown/clock/${token}`');
+    expect(rundownCanonicalSrc).toContain('prompter_url: `${root}/rundown/prompter/${token}`');
+    expect(rundownCanonicalSrc).toContain('confidence_url: `${root}/rundown/confidence/${token}`');
+    expect(serverSrc).toContain('legacyViewDisplayRedirect');
     expect(liveRundownSrc).toContain('packShareBundle');
     expect(liveRundownSrc).toContain('decorateShare');
+  });
+});
+
+describe('portal production-display share cards', () => {
+  it('links teleprompter, confidence, and clock to dedicated routes', () => {
+    const productionBlock = portalSrc.split('// Production displays:')[1].split('if (outputSuite)')[0];
+    expect(productionBlock).toContain('url: urls.prompterUrl');
+    expect(productionBlock).toContain('url: urls.confidenceUrl');
+    expect(productionBlock).toContain('url: urls.clockUrl');
+    expect(productionBlock).not.toContain("'teleprompter'");
+    expect(productionBlock).not.toContain("_rundownBuildModeUrl(publicUrl, 'confidence'");
+    expect(productionBlock).not.toContain("_rundownBuildModeUrl(publicUrl, 'clock'");
+    expect(portalSrc).toContain("'/rundown/prompter/'");
+    expect(portalSrc).toContain("'/rundown/confidence/'");
+    expect(portalSrc).toContain("'/rundown/clock/'");
   });
 });
