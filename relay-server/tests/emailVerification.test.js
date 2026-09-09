@@ -244,6 +244,9 @@ describe('POST /api/church/forgot-password', () => {
     expect(row.password_reset_token).toBeTruthy();
     expect(new Date(row.password_reset_expires) > new Date()).toBe(true);
     expect(mocks.lifecycleEmails.sendPasswordReset).toHaveBeenCalledOnce();
+    const resetArg = mocks.lifecycleEmails.sendPasswordReset.mock.calls[0][1];
+    expect(resetArg.resetUrl).toMatch(/^https:\/\/app\.example\.com\/reset-password\?token=/);
+    expect(resetArg.resetUrl).not.toContain('/portal/reset-password');
   });
 });
 

@@ -103,7 +103,8 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     await qRun('UPDATE churches SET password_reset_token = ?, password_reset_expires = ? WHERE churchId = ?', [resetToken, expiresAt, church.churchId]);
 
-    const resetUrl = `${APP_URL}/portal/reset-password?token=${resetToken}`;
+    // Landing hosts the reset form at /reset-password (200). /portal/reset-password 404s.
+    const resetUrl = `${String(APP_URL || 'https://tallyconnect.app').replace(/\/+$/, '')}/reset-password?token=${resetToken}`;
 
     if (lifecycleEmails) {
       lifecycleEmails.sendPasswordReset(church, { resetUrl }).catch(e => log(`[PasswordReset] ⚠ Reset email send failed for "${church.name}": ${e.message}`));

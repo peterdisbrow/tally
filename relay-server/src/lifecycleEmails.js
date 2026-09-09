@@ -4521,7 +4521,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           <p style="font-size: 15px; color: #333; line-height: 1.6;">
             We received a request to reset the portal password for <strong>Sample Church</strong>.
           </p>
-          ${this._cta('Reset Password', this.appUrl + '/portal/reset-password?token=sample-token')}
+          ${this._cta('Reset Password', this.appUrl + '/reset-password?token=sample-token')}
         `);
         return { html, text: '', subject: 'Reset your Tally password' };
       },
