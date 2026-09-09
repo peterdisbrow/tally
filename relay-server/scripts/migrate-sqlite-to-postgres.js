@@ -28,6 +28,7 @@ const PREFERRED_ORDER = [
   'email_preferences',
   'email_sends',
   'email_template_overrides',
+  'email_suppressions',
   'support_triage_runs',
   'support_tickets',
   'support_ticket_updates',

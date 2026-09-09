@@ -12,6 +12,7 @@ function createQueryClientMock(initial = {}) {
     emailSends: [...(initial.emailSends || [])],
     emailPreferences: [...(initial.emailPreferences || [])],
     emailUnsubscribes: [...(initial.emailUnsubscribes || [])],
+    emailSuppressions: [...(initial.emailSuppressions || [])],
     overrides: [...(initial.overrides || [])],
     leads: [...(initial.leads || [])],
     serviceEvents: [...(initial.serviceEvents || [])],
@@ -47,6 +48,9 @@ function createQueryClientMock(initial = {}) {
       }
       if (normalized.includes('from email_unsubscribes')) {
         return state.emailUnsubscribes.map((row) => ({ ...row }));
+      }
+      if (normalized.includes('from email_suppressions')) {
+        return state.emailSuppressions.map((row) => ({ ...row }));
       }
       if (normalized.includes('from sales_leads')) {
         return state.leads.map((row) => ({ ...row }));
@@ -121,6 +125,19 @@ function createQueryClientMock(initial = {}) {
         category,
         enabled,
         updated_at: updatedAt,
+      });
+      return { changes: 1, lastInsertRowid: null, rows: [] };
+    }
+
+    if (normalized.includes('into email_suppressions')) {
+      const [recipient, reason, source, emailId, createdAt] = params;
+      state.emailSuppressions = state.emailSuppressions.filter((row) => row.recipient !== recipient);
+      state.emailSuppressions.push({
+        recipient,
+        reason,
+        source,
+        email_id: emailId,
+        created_at: createdAt,
       });
       return { changes: 1, lastInsertRowid: null, rows: [] };
     }
@@ -463,5 +480,33 @@ describe('LifecycleEmails query-client support', () => {
     });
     // resendApiKey is empty so the response is no-api-key, not recipient-unsubscribed
     expect(result.reason).toBe('no-api-key');
+  });
+
+  it('suppressRecipient blocks all future sends to that address', async () => {
+    await settle(emails);
+    await emails.suppressRecipient({
+      recipient: 'pastor@grace.church',
+      reason: 'bounce',
+      source: 'resend',
+      emailId: 'em_1',
+    });
+    await settle(emails);
+
+    expect(queryClient.state.emailSuppressions).toEqual([
+      expect.objectContaining({
+        recipient: 'pastor@grace.church',
+        reason: 'bounce',
+      }),
+    ]);
+
+    const result = await emails.sendEmail({
+      churchId: 'church-1',
+      emailType: 'setup-reminder',
+      to: 'pastor@grace.church',
+      subject: 'Setup',
+      html: '<p>setup</p>',
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe('suppressed');
   });
 });
