@@ -1110,6 +1110,24 @@
         </div>
       </div>
       <p class="help-box">Alerts are classified by severity: <span style="color:#3b82f6">INFO</span> (logged only), <span style="color:#FFB74D">WARNING</span> (sent to on-call TD), <span style="color:#FF5252">CRITICAL</span> (sent + escalated after 90s), <span style="color:#FF5252;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#00E676">/ack_[code]</code>.</p>
+      <div class="card church-admin-only" id="slack-alerts-card">
+        <div class="card-title" data-i18n="notif.slack.title">Slack Alerts</div>
+        <p style="font-size:12px;color:#8B9DAF;margin-bottom:12px" data-i18n="notif.slack.desc">Paste an incoming webhook URL. Tally sends the same alerts Telegram gets — stream drops, equipment offline, failover — into your Slack channel.</p>
+        <div id="slack-status-row" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <span id="slack-status-dot" style="width:8px;height:8px;border-radius:50%;background:#556270;display:inline-block"></span>
+          <span id="slack-status-label" style="font-size:13px;color:#8B9DAF" data-i18n="notif.slack.not_connected">Not connected</span>
+        </div>
+        <div class="field">
+          <label data-i18n="notif.slack.webhook">Incoming webhook URL</label>
+          <input type="url" id="slack-webhook-url" placeholder="https://hooks.slack.com/services/..." autocomplete="off" spellcheck="false">
+        </div>
+        <p style="font-size:12px;color:#8B9DAF;margin:0 0 16px" data-i18n="notif.slack.help">Create one in Slack under Apps → Incoming Webhooks. After you save, Tally stores the URL for this church and never shows the full secret again.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" id="btn-save-slack" data-action="saveSlackWebhook" data-i18n="notif.slack.save">Save &amp; Test</button>
+          <button class="btn-secondary" id="btn-test-slack" data-action="testSlackWebhook" style="display:none" data-i18n="notif.slack.test">Send test</button>
+          <button class="btn-secondary" id="btn-remove-slack" data-action="removeSlackWebhook" style="display:none;color:var(--danger);border-color:var(--danger)" data-i18n="notif.slack.remove">Remove</button>
+        </div>
+      </div>
       <div id="alerts-content"><p style="color:#556270;text-align:center;padding:20px">Loading alerts...</p></div>
       <div class="card" style="margin-top:20px">
         <div class="card-title" data-i18n="notif.failover.title">Stream Auto-Recovery</div>

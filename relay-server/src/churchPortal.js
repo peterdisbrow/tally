@@ -26,6 +26,10 @@
  *   GET  /api/church/guest-tokens        list guest tokens
  *   POST /api/church/guest-tokens        generate token
  *   DELETE /api/church/guest-tokens/:tok revoke token
+ *   GET  /api/church/slack               Slack webhook status (masked)
+ *   PUT  /api/church/slack               set Slack incoming webhook (admin)
+ *   DELETE /api/church/slack             clear Slack webhook (admin)
+ *   POST /api/church/slack/test          send Slack test message (admin)
  *
  * Admin helper routes (requireAdmin):
  *   POST /api/churches/:churchId/portal-credentials  { email, password }
@@ -49,6 +53,7 @@ const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { escapeHtml } = require('./escapeHtml');
 const { generateCsrfToken, setCsrfCookie } = require('./csrf');
 const { encryptSecret, decryptSecret } = require('./secretCrypto');
+const { isValidSlackWebhookUrl: defaultIsValidSlackWebhookUrl, maskSlackWebhookUrl } = require('./slackWebhook');
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -626,7 +631,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, requireFeature, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, requireFeature, alertEngine, isValidSlackWebhookUrl = defaultIsValidSlackWebhookUrl, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
   // Fallback no-op gate when caller didn't pass requireFeature (e.g. older
   // callers, tests). Keeping the call sites cleaner than scattering ?: checks.
   const featureGate = typeof requireFeature === 'function'
@@ -828,6 +833,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'",
     "ALTER TABLE churches ADD COLUMN auto_recovery_enabled INTEGER DEFAULT 1",
     "ALTER TABLE churches ADD COLUMN leadership_emails TEXT DEFAULT ''",
+    "ALTER TABLE churches ADD COLUMN slack_webhook_url TEXT",
+    "ALTER TABLE churches ADD COLUMN slack_channel TEXT",
   ];
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
@@ -1110,7 +1117,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const tdsRows = await qAll('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC', [c.churchId]);
       tds = tdsRows.map(td => { const { password_hash, ...s } = td; s.has_password = !!password_hash; return s; });
     } catch {}
-    const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, ...safe } = c;
+    const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, slack_webhook_url, ...safe } = c;
 
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
@@ -4098,6 +4105,122 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const ok = lifecycleEmails.setPreference(req.church.churchId, category, enabled);
       if (!ok) return res.status(400).json({ error: 'Invalid category' });
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  function syncRuntimeSlack(churchId, webhookUrl, channel) {
+    const runtime = churches.get(churchId);
+    if (!runtime) return;
+    runtime.slack_webhook_url = webhookUrl || null;
+    runtime.slack_channel = channel || null;
+  }
+
+  function slackStatusPayload(row) {
+    const url = row?.slack_webhook_url || '';
+    return {
+      configured: !!url,
+      webhookUrl: maskSlackWebhookUrl(url),
+      channel: row?.slack_channel || '',
+    };
+  }
+
+  // ── GET /api/church/slack ───────────────────────────────────────────────────
+  // Cookie-session status. Never returns the full webhook secret.
+  app.get('/api/church/slack', authMiddleware, async (req, res) => {
+    try {
+      const row = await qOne(
+        'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
+        [req.church.churchId],
+      );
+      res.json(slackStatusPayload(row));
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── PUT /api/church/slack ───────────────────────────────────────────────────
+  app.put('/api/church/slack', adminMiddleware, async (req, res) => {
+    const churchId = req.church.churchId;
+    const webhookUrl = String(req.body?.webhookUrl || '').trim();
+    const channel = req.body?.channel != null ? String(req.body.channel).trim() || null : null;
+    const sendTest = req.body?.sendTest !== false;
+
+    if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
+    if (webhookUrl.includes('•')) {
+      return res.status(400).json({ error: 'Paste the full Slack incoming webhook URL. Masked values cannot be saved.' });
+    }
+    if (!isValidSlackWebhookUrl(webhookUrl)) {
+      return res.status(400).json({ error: 'Invalid Slack webhook URL. Must be an https:// URL on hooks.slack.com.' });
+    }
+
+    try {
+      await qRun(
+        'UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?',
+        [webhookUrl, channel, churchId],
+      );
+      syncRuntimeSlack(churchId, webhookUrl, channel);
+      log.info(`Slack webhook saved for church ${req.church.name || churchId}`);
+
+      const status = slackStatusPayload({ slack_webhook_url: webhookUrl, slack_channel: channel });
+      let testSent = false;
+      let testError = null;
+      if (sendTest && alertEngine?.sendSlackAlert) {
+        try {
+          await alertEngine.sendSlackAlert(
+            { ...req.church, slack_webhook_url: webhookUrl, slack_channel: channel, name: req.church.name },
+            'test_alert',
+            'INFO',
+            { church: req.church.name },
+            { likely_cause: 'This is a test message from Tally.', steps: ['Slack integration is working correctly!'] },
+          );
+          testSent = true;
+        } catch (e) {
+          testError = safeErrorMessage(e);
+        }
+      }
+      res.json({ saved: true, ...status, testSent, ...(testError ? { testError } : {}) });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── DELETE /api/church/slack ────────────────────────────────────────────────
+  app.delete('/api/church/slack', adminMiddleware, async (req, res) => {
+    const churchId = req.church.churchId;
+    try {
+      await qRun(
+        'UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?',
+        [churchId],
+      );
+      syncRuntimeSlack(churchId, null, null);
+      res.json({ removed: true, configured: false, webhookUrl: '', channel: '' });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── POST /api/church/slack/test ─────────────────────────────────────────────
+  app.post('/api/church/slack/test', adminMiddleware, async (req, res) => {
+    const churchId = req.church.churchId;
+    try {
+      const row = await qOne(
+        'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
+        [churchId],
+      );
+      if (!row?.slack_webhook_url) return res.status(400).json({ error: 'Slack not configured' });
+      if (!alertEngine?.sendSlackAlert) {
+        return res.status(500).json({ error: 'Slack test is unavailable right now' });
+      }
+      await alertEngine.sendSlackAlert(
+        { ...req.church, ...row, name: req.church.name },
+        'test_alert',
+        'INFO',
+        { church: req.church.name },
+        { likely_cause: 'This is a test message from Tally.', steps: ['Slack integration is working correctly!'] },
+      );
+      res.json({ sent: true, ...slackStatusPayload(row) });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }

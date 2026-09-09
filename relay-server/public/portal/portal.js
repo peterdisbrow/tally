@@ -388,6 +388,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.failover.drill.run': 'Test Alert System',
         'notif.telegram_card.title': 'Telegram Integration',
         'notif.telegram_chat_id': 'Your Telegram Chat ID',
+        'notif.slack.title': 'Slack Alerts',
+        'notif.slack.desc': 'Paste an incoming webhook URL. Tally sends the same alerts Telegram gets — stream drops, equipment offline, failover — into your Slack channel.',
+        'notif.slack.webhook': 'Incoming webhook URL',
+        'notif.slack.help': 'Create one in Slack under Apps \u2192 Incoming Webhooks. After you save, Tally stores the URL for this church and never shows the full secret again.',
+        'notif.slack.save': 'Save & Test',
+        'notif.slack.test': 'Send test',
+        'notif.slack.remove': 'Remove',
+        'notif.slack.connected': 'Connected',
+        'notif.slack.not_connected': 'Not connected',
+        'notif.slack.saved': 'Slack connected. A test message was sent.',
+        'notif.slack.saved_no_test': 'Slack connected.',
+        'notif.slack.tested': 'Test message sent to Slack.',
+        'notif.slack.removed': 'Slack alerts removed.',
+        'notif.slack.paste_url': 'Paste a Slack incoming webhook URL first.',
         // Engineer
         'engineer.page_sub': 'Help the AI Assistant understand your setup so it can diagnose problems faster and give better recommendations.',
         'engineer.training.title': 'Training Status',
@@ -757,6 +771,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.failover.drill.run': 'Ejecutar Prueba',
         'notif.telegram_card.title': 'Integraci\u00f3n con Telegram',
         'notif.telegram_chat_id': 'Tu ID de Chat de Telegram',
+        'notif.slack.title': 'Alertas de Slack',
+        'notif.slack.desc': 'Pega una URL de webhook entrante. Tally env\u00eda las mismas alertas que Telegram \u2014 ca\u00eddas de stream, equipo desconectado, failover \u2014 a tu canal de Slack.',
+        'notif.slack.webhook': 'URL del webhook entrante',
+        'notif.slack.help': 'Cr\u00e9alo en Slack en Apps \u2192 Incoming Webhooks. Despu\u00e9s de guardar, Tally guarda la URL de esta iglesia y no vuelve a mostrar el secreto completo.',
+        'notif.slack.save': 'Guardar y probar',
+        'notif.slack.test': 'Enviar prueba',
+        'notif.slack.remove': 'Quitar',
+        'notif.slack.connected': 'Conectado',
+        'notif.slack.not_connected': 'Sin conectar',
+        'notif.slack.saved': 'Slack conectado. Se envi\u00f3 un mensaje de prueba.',
+        'notif.slack.saved_no_test': 'Slack conectado.',
+        'notif.slack.tested': 'Mensaje de prueba enviado a Slack.',
+        'notif.slack.removed': 'Alertas de Slack eliminadas.',
+        'notif.slack.paste_url': 'Pega primero una URL de webhook de Slack.',
         // Engineer
         'engineer.page_sub': 'Ayuda al AI Assistant a entender tu configuraci\u00f3n para diagnosticar problemas m\u00e1s r\u00e1pido.',
         'engineer.training.title': 'Estado del Entrenamiento',
@@ -1289,7 +1317,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'profile') { loadProfile(); loadNotifications(); }
       if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
-      if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
+      if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); loadSlackSettings(); }
       if (id === 'automation') loadMacros();
       if (id === 'analytics') loadAnalytics();
       if (id === 'network-topology') loadNetworkTopology();
@@ -5138,6 +5166,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.querySelectorAll('.nav-item[data-page]').forEach(function(btn) {
         if (hidden.indexOf(btn.dataset.page) !== -1) btn.style.display = 'none';
       });
+      document.querySelectorAll('.church-admin-only').forEach(function(el) {
+        el.style.display = 'none';
+      });
       // TD indicator in sidebar
       var indicator = document.getElementById('td-session-indicator');
       if (indicator) {
@@ -7866,6 +7897,92 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       window.open('sms:?body=' + text, '_blank');
     }
 
+    // ── Slack alerts (church-admin self-serve) ────────────────────────────────
+    var _slackConfigured = false;
+    var _slackMaskedUrl = '';
+
+    function applySlackStatus(data) {
+      data = data || {};
+      _slackConfigured = !!data.configured;
+      _slackMaskedUrl = data.webhookUrl || '';
+      var dot = document.getElementById('slack-status-dot');
+      var label = document.getElementById('slack-status-label');
+      var input = document.getElementById('slack-webhook-url');
+      var testBtn = document.getElementById('btn-test-slack');
+      var removeBtn = document.getElementById('btn-remove-slack');
+      if (dot) dot.style.background = _slackConfigured ? '#00E676' : '#556270';
+      if (label) {
+        label.textContent = _slackConfigured
+          ? (typeof pt === 'function' ? pt('notif.slack.connected') : 'Connected')
+          : (typeof pt === 'function' ? pt('notif.slack.not_connected') : 'Not connected');
+        label.style.color = _slackConfigured ? '#00E676' : '#8B9DAF';
+      }
+      if (input) {
+        input.value = '';
+        input.placeholder = _slackMaskedUrl || 'https://hooks.slack.com/services/...';
+      }
+      if (testBtn) testBtn.style.display = _slackConfigured ? '' : 'none';
+      if (removeBtn) removeBtn.style.display = _slackConfigured ? '' : 'none';
+    }
+
+    async function loadSlackSettings() {
+      var card = document.getElementById('slack-alerts-card');
+      if (!card) return;
+      try {
+        var data = await api('GET', '/api/church/slack');
+        applySlackStatus(data);
+      } catch (e) {
+        applySlackStatus({ configured: false });
+      }
+    }
+
+    async function saveSlackWebhook() {
+      var input = document.getElementById('slack-webhook-url');
+      var url = ((input && input.value) || '').trim();
+      if (!url || url.indexOf('\u2022') !== -1) {
+        toast(typeof pt === 'function' ? pt('notif.slack.paste_url') : 'Paste a Slack incoming webhook URL first.', true);
+        return;
+      }
+      btnLoading('btn-save-slack', 'Saving\u2026');
+      try {
+        var data = await api('PUT', '/api/church/slack', { webhookUrl: url, sendTest: true });
+        applySlackStatus(data);
+        if (data.testError) toast(data.testError, true);
+        else if (data.testSent) toast(typeof pt === 'function' ? pt('notif.slack.saved') : 'Slack connected. A test message was sent.');
+        else toast(typeof pt === 'function' ? pt('notif.slack.saved_no_test') : 'Slack connected.');
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        btnReset('btn-save-slack');
+      }
+    }
+
+    async function testSlackWebhook() {
+      btnLoading('btn-test-slack', 'Sending\u2026');
+      try {
+        await api('POST', '/api/church/slack/test');
+        toast(typeof pt === 'function' ? pt('notif.slack.tested') : 'Test message sent to Slack.');
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        btnReset('btn-test-slack');
+      }
+    }
+
+    async function removeSlackWebhook() {
+      if (!window.confirm('Remove Slack alerts for this church?')) return;
+      btnLoading('btn-remove-slack', 'Removing\u2026');
+      try {
+        var data = await api('DELETE', '/api/church/slack');
+        applySlackStatus(data);
+        toast(typeof pt === 'function' ? pt('notif.slack.removed') : 'Slack alerts removed.');
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        btnReset('btn-remove-slack');
+      }
+    }
+
     // ── Alerts ────────────────────────────────────────────────────────────────
     var _alertsRoomsLoaded = false;
     async function loadAlertsRoomSelector() {
@@ -8888,7 +9005,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         title: 'Notifications & Failover',
         body: `
           <h3>Notification Channels</h3>
-          <p>Choose how Tally reaches your team. <strong>Telegram is the primary channel</strong> — it's fast, reliable, and supports the interactive buttons your TD needs to acknowledge alerts and run commands.</p>
+          <p>Choose how Tally reaches your team. <strong>Telegram is the primary channel</strong> — it's fast, reliable, and supports the interactive buttons your TD needs to acknowledge alerts and run commands. Slack is optional: paste an incoming webhook on the Alerts page to mirror the same alerts into a channel.</p>
           <h3>Stream Failover</h3>
           <p>This is Tally's "insurance policy" for your stream. When enabled, if your encoder signal drops for more than a few seconds, Tally will:</p>
           <ol style="padding-left:18px">
@@ -8948,7 +9065,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       alerts: {
         title: 'Alerts — Understanding Your Notifications',
         body: `
-          <p>Alerts are how Tally tells you something needs attention. They arrive in Telegram during service and appear here in the portal afterward.</p>
+          <p>Alerts are how Tally tells you something needs attention. They arrive in Telegram and Slack during service and appear here in the portal afterward.</p>
+          <h3>Slack</h3>
+          <p>Church admins can paste a Slack incoming webhook on this page. After you save, Tally sends the same production alerts Telegram gets. The full webhook URL is never shown again — only a masked hint that it is connected.</p>
           <h3>Alert Severity</h3>
           <ul>
             <li><strong style="color:#FF5252">Critical</strong> — Stream is down or about to fail. Respond immediately.</li>
@@ -17388,6 +17507,15 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'saveFailoverSettings':
         if (typeof saveFailoverSettings === 'function') saveFailoverSettings();
+        break;
+      case 'saveSlackWebhook':
+        if (typeof saveSlackWebhook === 'function') saveSlackWebhook();
+        break;
+      case 'testSlackWebhook':
+        if (typeof testSlackWebhook === 'function') testSlackWebhook();
+        break;
+      case 'removeSlackWebhook':
+        if (typeof removeSlackWebhook === 'function') removeSlackWebhook();
         break;
       case 'runFailoverDrill':
         if (typeof runFailoverDrill === 'function') runFailoverDrill();
