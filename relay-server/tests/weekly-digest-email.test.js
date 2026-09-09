@@ -152,6 +152,21 @@ describe('Weekly Digest Email (sendWeeklyDigestEmail)', () => {
     expect(result2.reason).toBe('already-sent');
   });
 
+  it('sends weekly digest to each leader (recipient-scoped dedup)', async () => {
+    const church = mockChurch();
+    const digestData = { reliability: 99, patterns: [], totalEvents: 2, autoRecovered: 0, sessionCount: 1 };
+
+    const first = await emails.sendWeeklyDigestEmail(church, digestData, 'td@grace.church');
+    const second = await emails.sendWeeklyDigestEmail(church, digestData, 'pastor@grace.church');
+    expect(first.reason).toBe('no-api-key');
+    expect(second.reason).toBe('no-api-key');
+    expect(db._emailSends).toHaveLength(2);
+    expect(db._emailSends.map((row) => row.recipient).sort()).toEqual([
+      'pastor@grace.church',
+      'td@grace.church',
+    ]);
+  });
+
   it('handles missing reliability gracefully', async () => {
     const church = mockChurch();
     const digestData = { patterns: [], totalEvents: 0, autoRecovered: 0, sessionCount: 0 };
@@ -271,6 +286,31 @@ describe('Monthly Report Email (sendMonthlyReportEmail)', () => {
     const result = await emails.sendMonthlyReportEmail(church, mar, 'td@grace.church');
 
     expect(result.reason).not.toBe('already-sent');
+  });
+
+  it('sends monthly report to each recipient (recipient-scoped dedup)', async () => {
+    const church = mockChurch();
+    const reportData = {
+      month: '2026-02',
+      monthLabel: 'February 2026',
+      servicesMonitored: 4,
+      alertsTriggered: 0,
+      autoRecovered: 0,
+      escalated: 0,
+      uptime: 100,
+    };
+
+    const first = await emails.sendMonthlyReportEmail(church, reportData, 'td@grace.church');
+    const second = await emails.sendMonthlyReportEmail(church, reportData, 'pastor@grace.church');
+    const dup = await emails.sendMonthlyReportEmail(church, reportData, 'TD@grace.church');
+
+    expect(first.reason).toBe('no-api-key');
+    expect(second.reason).toBe('no-api-key');
+    expect(dup.reason).toBe('already-sent');
+    expect(db._emailSends.map((row) => row.email_type)).toEqual([
+      'monthly-report-email-2026-02:td@grace.church',
+      'monthly-report-email-2026-02:pastor@grace.church',
+    ]);
   });
 
   it('returns no-recipient when toEmail is empty', async () => {

@@ -6,6 +6,20 @@
 **Method:** code + tests + live HTTP on GitHub release assets and marketing/portal URLs. No Resend dashboard, no Railway secret values, no Stripe Dashboard.  
 **No secrets** in this doc.
 
+### Shipped after this review (prepare-mode, no GTM)
+
+Code landed in a follow-up PR (this note). Does **not** need Andrew secrets or Stripe Dashboard:
+
+| ID | What |
+|----|------|
+| **P1-1** | Multi-recipient reports (session recap / weekly-leadership / monthly / post-service) now UNIQUE on `(church_id, email_type)` **including normalized recipient**. 2nd leader gets mail. Tests in `lifecycle-emails.test.js`, `weekly-digest-email.test.js`, `postServiceReport.test.js`. |
+| **P1-5 + §9 + P1-4** | `runCheck` skips lead drip, NPS, reviews, referral, win-back, multi-cam/viewer nudges, anniversary. `sendLeadWelcome` / `sendFeatureAnnouncement` no-op. NPS stays off even if `ENABLE_LIFECYCLE_MARKETING=1` (`/nps` still 404; no landing page in this repo). Re-enable GTM with that env when selling is allowed. |
+| **P1-7** | Unsubscribe sign + verify both use `UNSUBSCRIBE_SECRET \|\| JWT_SECRET` (`getUnsubscribeSecret()`). |
+| **P1-11** | `invoice-upcoming` month key treats Stripe unix **seconds** (and ms) consistently. |
+| **P2-17 (small)** | Lifecycle CTAs `${appUrl}/portal` → `/church-portal` (church portal, not reseller). |
+
+Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-2 tickets; P1-3 stream-down email; P1-6 env value; P1-8 dispute→Andrew; P1-9 email-change old inbox; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
+
 Companion audits: [`FEATURE_AUDIT_2026-09-08.md`](FEATURE_AUDIT_2026-09-08.md) (whole product; **stale** on Mac email URLs — #141 landed after it), [`ADMIN_DASHBOARD_REVIEW.md`](ADMIN_DASHBOARD_REVIEW.md) (Emails tab).
 
 This answers: *every email Tally can send, what actually fires, which links work, and what to fix in prepare-mode (no sales spam).*
@@ -66,8 +80,8 @@ Triggers (cron / webhook / HTTP)
 | `TALLY_WIN_INSTALLER_URL` | derived from `relay-server/package.json` version | Emergency override for the Windows `.exe` in email CTAs. |
 | `APP_URL` | `https://tallyconnect.app` | CTA host for most templates. |
 | `RELAY_URL` | `https://api.tallyconnect.app` | Verification links + unsubscribe base. Production refuses verification send if this is not `https://`. |
-| `UNSUBSCRIBE_SECRET` | falls back to `JWT_SECRET` | **Verifier** uses this. **Token signer** (`_buildUnsubscribeFooter`) uses `getJwtSecret()` = `JWT_SECRET` only. If `UNSUBSCRIBE_SECRET` is ever set to a *different* value, unsubscribe links 400. |
-| Feature flags / dry-run | none | Missing API key is the only “don’t send” switch. No `DISABLE_EMAILS`. |
+| `UNSUBSCRIBE_SECRET` | falls back to `JWT_SECRET` | **Signer and verifier** both use `getUnsubscribeSecret()` = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. |
+| Feature flags / dry-run | `ENABLE_LIFECYCLE_MARKETING` | Default **off** (prepare-mode). Missing API key is still the “don’t deliver” switch. Set `=1` to re-enable lead drip / win-back / reviews / referral / feature nudges. **NPS stays off** until `/nps` exists. |
 
 `FEATURE_AUDIT_2026-09-08.md` said Railway has `RESEND_API_KEY` and `FROM_EMAIL` / `UNSUBSCRIBE_SECRET` unset. **Not re-verified this session** (no Railway secret dump). Domain `tallyconnect.app` is treated as verified per product context; this review did not call Resend domains API.
 
@@ -120,7 +134,7 @@ Stripe **Checkout / Customer invoices** are **UNVERIFIED** here (Dashboard “su
 | `trial-expired` | `checkExpiredTrials` in `server.js` | portal | Your Tally trial has ended | `/portal` | yes | **WORKS** (`urgent`) |
 | `payment-failed` | Stripe `invoice.payment_failed` | portal | Action needed: payment failed for Tally | `/portal` | yes | **WORKS** (`urgent`) |
 | `payment-confirmed` | Stripe `checkout.session.completed` (not reactivation) | portal | Payment confirmed — {name} is on {tier} | `/portal` | no | **WORKS** (not a receipt) |
-| `invoice-upcoming-{YYYY-MM}` | Stripe `invoice.upcoming` | portal | Upcoming invoice: $X for Tally | `/portal` | **no** (prefix not mapped) | **PARTIAL** (date key bug — §5) |
+| `invoice-upcoming-{YYYY-MM}` | Stripe `invoice.upcoming` | portal | Upcoming invoice: $X for Tally | `/church-portal` | **no** (prefix not mapped) | **WORKS** (P1-11 seconds/ms date key) |
 | `cancellation-confirmation` | Stripe `customer.subscription.deleted` | portal | Your Tally subscription has been cancelled | `/portal` | no | **WORKS** |
 | `cancellation-scheduled-{YYYY-MM}` | Portal self-serve cancel-at-period-end | portal | same subject, inline HTML | `/portal` | no | **WORKS** (second cancel mail possible when Stripe later deletes) |
 | `upgrade-{old}-to-{new}` | Portal upgrade | portal | Plan upgraded to {Tier} | `/portal` | no | **WORKS** |
@@ -138,11 +152,11 @@ Stripe `customer.subscription.trial_will_end` is **logged only** — lifecycle t
 
 | Type | Trigger | To | Subject | CTA | Unsub? | Status |
 |------|---------|----|---------|-----|--------|--------|
-| `session-recap-{sessionId}` | Session end → `sessionRecap` | **leaders only** | Service Recap: {name} — {day} {date} | `/church-portal?church={id}` | yes (prefix) | **BROKEN** for 2nd+ leader (§5) |
-| `service-report-{reportId}` | `postServiceReport.generate` after session | **leaders only** | Service Report — {name} · {date} | none in text (“view portal”) | no | **BROKEN** for 2nd+ leader; overlaps recap |
-| `weekly-digest-{ISO week}` | Hourly Monday 13–16 UTC, Pro/managed, activity | **portal** | Weekly Report — {name} | `/portal` | yes | **WORKS** |
-| `weekly-digest-email-{weekStr}` | `weeklyDigest.js` (separate job) | **leaders** | Your Week in Review — {name} | `/church-portal?church=` | yes | **BROKEN** for 2nd+ leader; **double weekly** if both jobs run |
-| `monthly-report-email-{YYYY-MM}` | `monthlyReport.js` 1st-of-month path | portal **+** leaders | Monthly Production Report — {name} | `/church-portal?church=` | yes | **BROKEN** for 2nd+ recipient |
+| `session-recap-{sessionId}:{email}` | Session end → `sessionRecap` | **leaders only** | Service Recap: {name} — {day} {date} | `/church-portal?church={id}` | yes (prefix) | **WORKS** (P1-1 recipient-scoped dedup) |
+| `service-report-{reportId}:{email}` | `postServiceReport.generate` after session | **leaders only** | Service Report — {name} · {date} | none in text (“view portal”) | no | **WORKS** for 2nd+ leader (P1-1); still overlaps recap |
+| `weekly-digest-{ISO week}` | Hourly Monday 13–16 UTC, Pro/managed, activity | **portal** | Weekly Report — {name} | `/church-portal` | yes | **WORKS** |
+| `weekly-digest-email-{weekStr}:{email}` | `weeklyDigest.js` (separate job) | **leaders** | Your Week in Review — {name} | `/church-portal?church=` | yes | **WORKS** for 2nd+ leader (P1-1); **double weekly** if both jobs run (P1-10) |
+| `monthly-report-email-{YYYY-MM}:{email}` | `monthlyReport.js` 1st-of-month path | portal **+** leaders | Monthly Production Report — {name} | `/church-portal?church=` | yes | **WORKS** for 2nd+ recipient (P1-1) |
 | `monthly-roi-summary-{YYYY-MM}` | `sendMonthlyROISummary` | portal | {month} at {name} — here's what Tally prevented | `/portal` | yes | **DEAD** — nothing calls it |
 
 ### 2.4 Alerts vs Slack / Telegram
@@ -261,17 +275,17 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 
 | ID | Issue | Evidence | Fix shape |
 |----|--------|----------|-----------|
-| P1-1 | **Multi-recipient reports send once.** `email_sends` is UNIQUE `(church_id, email_type)`. Recap / weekly-leadership / monthly / post-service use one type per session/week/month, then loop leaders. Second address → `already-sent`. | `sendSessionRecapEmail`, `sendWeeklyDigestEmail`, `sendMonthlyReportEmail`, `postServiceReport._sendReportEmail` | Include normalized recipient in `emailType` (or drop unique and dedupe in code). |
+| P1-1 | **Multi-recipient reports send once.** `email_sends` is UNIQUE `(church_id, email_type)`. Recap / weekly-leadership / monthly / post-service use one type per session/week/month, then loop leaders. Second address → `already-sent`. | `sendSessionRecapEmail`, `sendWeeklyDigestEmail`, `sendMonthlyReportEmail`, `postServiceReport._sendReportEmail` | **Fixed:** `emailType` includes normalized recipient; reports send `urgent` so the 5-min church throttle does not drop the 2nd leader. |
 | P1-2 | **No support-ticket email.** Open / admin reply / resolve = SSE only. `lifecycleEmails` unused in the route module. | `supportTickets.js` | Add church + Andrew mail on P1 open and on admin reply. |
 | P1-3 | **No stream-down / outage email.** Email only after CRITICAL + 5 min no Telegram ack. Booths without Telegram/Slack get **nothing**. | `alertEngine.js` | Optional email for EMERGENCY/CRITICAL to portal + leaders (respect prefs). |
-| P1-4 | **NPS buttons 404.** | Live `tallyconnect.app/nps` **404** | Landing route or switch CTA to mailto / portal. Until then, **do not send**. |
-| P1-5 | **Lead drip has no unsubscribe category.** Marketing to captured emails. Footer not injected. | `_getCategoryForType` returns null for `lead-*` | Add `lead-nurture` category **or disable `_checkLeadNurture` + capture welcome** in prepare-mode. |
+| P1-4 | **NPS buttons 404.** | Live `tallyconnect.app/nps` **404** | **Don't send** until landing exists. `isNpsSurveyEnabled()` is hard-false. Do **not** invent `/nps` in this repo. |
+| P1-5 | **Lead drip has no unsubscribe category.** Marketing to captured emails. Footer not injected. | `_getCategoryForType` returns null for `lead-*` | **Fixed (prepare-mode):** `_checkLeadNurture` + `sendLeadWelcome` gated off. Capture still stores the lead. Re-enable with `ENABLE_LIFECYCLE_MARKETING=1` (then add `lead-nurture` category before sending). |
 | P1-6 | **“Reply to this email” with `noreply@`.** | Code now sends `reply_to` when `EMAIL_REPLY_TO` is set | **Code done.** Still need the Railway env value. |
-| P1-7 | **Unsubscribe secret split-brain.** Signer = `JWT_SECRET`; verifier = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. | `lifecycleEmails.js` vs `server.js` | Sign with the same secret the verifier uses. |
+| P1-7 | **Unsubscribe secret split-brain.** Signer = `JWT_SECRET`; verifier = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. | `lifecycleEmails.js` vs `server.js` | **Fixed:** both use `getUnsubscribeSecret()`. |
 | P1-8 | **Dispute mail goes to the church, not ops.** | `sendDisputeAlert` → `portal_email` | Also send to Andrew / admin list. |
 | P1-9 | **Email-change notice skips the old inbox.** | `sendEmailChangeConfirmation` | Send to old + new. |
 | P1-10 | **Two weekly digest engines.** Portal gets `weekly-digest-*` Monday UTC; leaders get `weekly-digest-email-*` from `weeklyDigest.js` with a **different week-id formula**. | both files | One job, one week key, recipient in dedup key. |
-| P1-11 | **`invoice-upcoming` month key.** `monthKey = new Date(dueDate)` treats Stripe unix **seconds** as ms → epoch month; builder then does `dueDate * 1000`. Dedup / date can be wrong. | `sendInvoiceUpcoming` vs `_buildInvoiceUpcomingEmail` | Use seconds consistently. |
+| P1-11 | **`invoice-upcoming` month key.** `monthKey = new Date(dueDate)` treats Stripe unix **seconds** as ms → epoch month; builder then does `dueDate * 1000`. Dedup / date can be wrong. | `sendInvoiceUpcoming` vs `_buildInvoiceUpcomingEmail` | **Fixed:** `stripeTimestampToDate` accepts seconds or ms. |
 
 ### P2 — polish / prepare-mode / drift
 
@@ -293,7 +307,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P2-14 | Admin nudge ignores `result.sent` | UI can lie. |
 | P2-15 | Telegram nudge ignores Slack-only setup | Day-5 mail is wrong if they already have Slack. |
 | P2-16 | `pre-service-friday-*` / `annual-renewal-reminder-*` uncategorized | No unsub footer. |
-| P2-17 | Mixed portal URLs | `/portal` (redirects) vs `/church-portal?church=` (church id in query is unnecessary after login). |
+| P2-17 | Mixed portal URLs | **Lifecycle CTAs** now `/church-portal`. Marketing `/portal` still 307s. |
 | P2-18 | Lead “case study” + trial length inconsistency | Don’t ship as proof. |
 | P2-19 | PII in logs | `sendEmail` / password-reset / leads log full recipient email. |
 | P2-20 | Rate limits | Helper now backs off on 429 (max 3). Cron can still burst across churches. |
@@ -395,11 +409,12 @@ Use Emails tab for **one-off** human notes (onboarding nudge, custom). Do not �
 P0 reliability/compliance in this PR is done. Remaining, in order:
 
 1. **Railway:** set `EMAIL_REPLY_TO` and `RESEND_WEBHOOK_SECRET`; confirm `RESEND_API_KEY` is the same team as the verified `tallyconnect.app` domain (§11).
-2. **P1-1** — recipient-scoped dedup so leadership lists work.
-3. **P1-2 / P1-3** — ticket reply + optional critical email (Sunday closed loop).
-4. **P1-5 + §9 pause** — stop lead/NPS/referral/win-back in `runCheck`.
-5. **P1-4** — don’t send NPS until `/nps` exists.
-6. **P1-7 / P1-11** — unsubscribe secret + invoice dates.
+2. **P1-2 / P1-3** — ticket reply + optional critical email (Sunday closed loop).
+3. **P1-4** — `/nps` landing in tally-landing (send path already gated off).
+4. **P1-8 / P1-9** — dispute→Andrew; email-change notice to old inbox.
+5. **P1-10** — one weekly digest job.
+
+**Done in code (no Railway):** P1-1 recipient dedup, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
 
 Do **not** build Resend Broadcasts / Automations (sales gated). Do **not** mass-email existing churches. Do **not** move everything to dashboard templates — code templates + admin overrides are fine.
 

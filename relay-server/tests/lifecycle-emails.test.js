@@ -292,7 +292,7 @@ describe('LifecycleEmails', () => {
       const church = mockChurch();
       const result = emails._buildTrialEndingSoonEmail(church, 3);
 
-      expect(result.html).toContain('https://test.tallyconnect.app/portal');
+      expect(result.html).toContain('https://test.tallyconnect.app/church-portal');
       expect(result.html).toContain('Keep Tally Running');
     });
 
@@ -797,6 +797,23 @@ describe('LifecycleEmails', () => {
       // Different session IDs — should not be blocked
       expect(result.reason).not.toBe('already-sent');
     });
+
+    it('session recap sends to each leader (recipient-scoped dedup)', async () => {
+      const church = mockChurch();
+      const session = { sessionId: 'sess-shared' };
+
+      const first = await emails.sendSessionRecapEmail(church, session, 'Pastor@grace.church');
+      const second = await emails.sendSessionRecapEmail(church, session, 'td@grace.church');
+      const dup = await emails.sendSessionRecapEmail(church, session, ' pastor@grace.church ');
+
+      expect(first.reason).toBe('no-api-key');
+      expect(second.reason).toBe('no-api-key');
+      expect(dup.reason).toBe('already-sent');
+
+      const types = db._emailSends.map((row) => row.email_type);
+      expect(types).toContain('session-recap-sess-shared:pastor@grace.church');
+      expect(types).toContain('session-recap-sess-shared:td@grace.church');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -896,6 +913,26 @@ describe('LifecycleEmails', () => {
       expect(decoded.email).toBe('a@b.com');
       // feature-tips category is the resolved value
       expect(decoded.category).toBe('feature-tips');
+    });
+
+    it('signs unsubscribe tokens with UNSUBSCRIBE_SECRET when set (P1-7)', () => {
+      const jwt = require('jsonwebtoken');
+      const prev = process.env.UNSUBSCRIBE_SECRET;
+      process.env.UNSUBSCRIBE_SECRET = 'unsub-only-secret';
+      process.env.NODE_ENV = 'test';
+      try {
+        const html = '<div>Hello world</div>';
+        const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+        const match = out.match(/\/unsubscribe\?token=([^"&]+)/);
+        expect(match).toBeTruthy();
+        const token = decodeURIComponent(match[1]);
+        const decoded = jwt.verify(token, 'unsub-only-secret');
+        expect(decoded.category).toBe('feature-tips');
+        expect(() => jwt.verify(token, 'test-jwt-secret')).toThrow();
+      } finally {
+        if (prev === undefined) delete process.env.UNSUBSCRIBE_SECRET;
+        else process.env.UNSUBSCRIBE_SECRET = prev;
+      }
     });
 
     it('injects an unsubscribe link for the connection-success onboarding email', () => {
@@ -1008,6 +1045,102 @@ describe('LifecycleEmails', () => {
     it('resubscribeRecipient swallows DB errors and returns false', () => {
       db.prepare = vi.fn(() => { throw new Error('table missing'); });
       expect(emails.resubscribeRecipient('c', 'a@b.com', 'feature-tips')).toBe(false);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Prepare-mode GTM pause + invoice month key
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('Prepare-mode marketing pause', () => {
+    afterEach(() => {
+      delete process.env.ENABLE_LIFECYCLE_MARKETING;
+    });
+
+    it('runCheck skips lead drip, NPS, and GTM/win-back by default', async () => {
+      const skipped = [
+        '_checkNPSSurvey',
+        '_checkLeadNurture',
+        '_checkReviewRequest',
+        '_checkReferralInvite',
+        '_checkEarlyWinBack',
+        '_checkWinBack',
+        '_checkCancellationSurvey',
+        '_checkMultiCamNudge',
+        '_checkViewerAnalyticsNudge',
+        '_checkFirstYearAnniversary',
+      ];
+      const spies = Object.fromEntries(skipped.map((name) => [name, vi.spyOn(emails, name)]));
+      const setup = vi.spyOn(emails, '_checkSetupReminders');
+      const inactivity = vi.spyOn(emails, '_checkInactivityAlert');
+
+      await emails.runCheck();
+
+      for (const name of skipped) {
+        expect(spies[name], name).not.toHaveBeenCalled();
+      }
+      expect(setup).toHaveBeenCalledOnce();
+      expect(inactivity).toHaveBeenCalledOnce();
+    });
+
+    it('ENABLE_LIFECYCLE_MARKETING=1 re-enables GTM except NPS (404 CTA)', async () => {
+      process.env.ENABLE_LIFECYCLE_MARKETING = '1';
+      const nps = vi.spyOn(emails, '_checkNPSSurvey');
+      const lead = vi.spyOn(emails, '_checkLeadNurture');
+      const winback = vi.spyOn(emails, '_checkWinBack');
+
+      await emails.runCheck();
+
+      expect(lead).toHaveBeenCalledOnce();
+      expect(winback).toHaveBeenCalledOnce();
+      expect(nps).not.toHaveBeenCalled();
+    });
+
+    it('sendLeadWelcome is a no-op in prepare-mode', async () => {
+      const result = await emails.sendLeadWelcome({ email: 'lead@example.com', name: 'Pat' });
+      expect(result).toEqual({ sent: false, reason: 'prepare-mode' });
+      expect(db._emailSends).toHaveLength(0);
+    });
+
+    it('sendLeadWelcome records when marketing is enabled', async () => {
+      process.env.ENABLE_LIFECYCLE_MARKETING = '1';
+      const result = await emails.sendLeadWelcome({ email: 'lead@example.com', name: 'Pat' });
+      expect(result.reason).toBe('no-api-key');
+      expect(db._emailSends[0].email_type).toBe('lead-welcome');
+    });
+
+    it('sendFeatureAnnouncement is a no-op in prepare-mode', async () => {
+      const result = await emails.sendFeatureAnnouncement({
+        featureKey: 'autopilot',
+        subject: 'New feature',
+        headline: 'AutoPilot',
+        body: '<p>hi</p>',
+      });
+      expect(result.reason).toBe('prepare-mode');
+      expect(result.sent).toBe(0);
+    });
+  });
+
+  describe('Invoice upcoming month key', () => {
+    it('uses Stripe unix seconds for the YYYY-MM dedup key, not Date(seconds-as-ms)', async () => {
+      const church = mockChurch();
+      const dueDate = Math.floor(Date.UTC(2026, 8, 15) / 1000); // 2026-09-15 UTC
+      const result = await emails.sendInvoiceUpcoming(church, { amount: 9900, dueDate });
+      expect(result.reason).toBe('no-api-key');
+      expect(db._emailSends[0].email_type).toBe('invoice-upcoming-2026-09');
+
+      const { html } = emails._buildInvoiceUpcomingEmail(church, { amount: 9900, dueDate });
+      expect(html).toContain('September');
+      expect(html).toContain('2026');
+      expect(html).not.toContain('1970');
+      expect(html).toContain('/church-portal');
+    });
+
+    it('also accepts millisecond timestamps', async () => {
+      const church = mockChurch();
+      const dueDate = Date.UTC(2026, 10, 2); // 2026-11-02 UTC
+      await emails.sendInvoiceUpcoming(church, { amount: 4900, dueDate });
+      expect(db._emailSends[0].email_type).toBe('invoice-upcoming-2026-11');
     });
   });
 });

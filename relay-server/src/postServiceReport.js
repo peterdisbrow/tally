@@ -532,7 +532,7 @@ Write the summary now:`;
       weekday: 'long', month: 'short', day: 'numeric',
     });
     const subject = `Service Report — ${this._getChurchName(church)} · ${dateStr}`;
-    const emailType = `service-report-${report.id}`;
+    const emailType = `service-report-${report.id}:${String(toEmail || '').trim().toLowerCase()}`;
 
     return this.lifecycleEmails.sendEmail({
       churchId: this._getChurchId(church),
@@ -541,6 +541,7 @@ Write the summary now:`;
       subject,
       html: report.report_html,
       text: this._buildReportText(report),
+      urgent: true,
     });
   }
 
