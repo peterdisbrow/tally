@@ -180,6 +180,7 @@ describe('POST /api/church/resend-verification', () => {
     expect(mocks.sendOnboardingEmail).toHaveBeenCalledOnce();
     const callArg = mocks.sendOnboardingEmail.mock.calls[0][0];
     expect(callArg.to).toBe('portal@church.com');
+    expect(callArg.requestId).toBe('existing-token');
     expect(callArg.html).toMatch(/existing-token/);
   });
 

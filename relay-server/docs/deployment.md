@@ -50,8 +50,11 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `RESEND_API_KEY` | | — | [Resend](https://resend.com) API key for transactional email |
-| `FROM_EMAIL` | | — | Sender address (e.g. `noreply@tallyhq.com`) |
+| `RESEND_API_KEY` | | — | [Resend](https://resend.com) API key for transactional email. Must belong to the same Resend team that owns `tallyconnect.app`. |
+| `FROM_EMAIL` | | `Tally <noreply@tallyconnect.app>` | Sender address |
+| `EMAIL_REPLY_TO` | | — | Reply-To (e.g. `support@tallyconnect.app`). Omit to leave replies unset. |
+| `RESEND_WEBHOOK_SECRET` | | — | Svix `whsec_…` from Resend → Webhooks. Required for bounce/complaint suppression. Endpoint: `https://api.tallyconnect.app/api/resend/webhook` |
+| `TALLY_WIN_INSTALLER_URL` | | derived from `package.json` version | Emergency override for the Windows `.exe` download in emails |
 
 ### Telegram Bot
 

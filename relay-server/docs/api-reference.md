@@ -408,6 +408,11 @@ Stripe webhook receiver. Verifies `stripe-signature` header. Raw body must be pr
 
 ---
 
+### `POST /api/resend/webhook`
+Resend delivery webhook. Verifies Svix headers (`svix-id`, `svix-timestamp`, `svix-signature`) against `RESEND_WEBHOOK_SECRET`. Raw body must be preserved. Hard bounce / complaint suppresses the recipient.
+
+---
+
 ### `GET /api/billing/status/:churchId` _(admin)_
 Returns the current billing status for a church.
 
