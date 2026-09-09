@@ -119,6 +119,9 @@ describe('emailVerification queryClient path', () => {
     expect(status).toBe(200);
     expect(body.sent).toBe(true);
     expect(mocks.lifecycleEmails.sendPasswordReset).toHaveBeenCalledOnce();
+    const resetArg = mocks.lifecycleEmails.sendPasswordReset.mock.calls[0][1];
+    expect(resetArg.resetUrl).toMatch(/^https:\/\/app\.example\.com\/reset-password\?token=/);
+    expect(resetArg.resetUrl).not.toContain('/portal/reset-password');
     const row = db.prepare('SELECT password_reset_token, password_reset_expires FROM churches WHERE churchId = ?').get('church-test-001');
     expect(row.password_reset_token).toBeTruthy();
     expect(new Date(row.password_reset_expires) > new Date()).toBe(true);
