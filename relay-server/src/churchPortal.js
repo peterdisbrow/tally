@@ -4870,6 +4870,19 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
         VALUES (?, ?, 'church', ?, ?)
       `, [ticketId, description || 'Ticket opened from church portal', req.church.churchId, nowIso]);
 
+      if (lifecycleEmails && typeof lifecycleEmails.sendSupportTicketEmail === 'function') {
+        lifecycleEmails.sendSupportTicketEmail(req.church, {
+          event: 'opened',
+          ticketId,
+          title,
+          message: description,
+          severity,
+          status: 'open',
+        }).catch((err) => {
+          console.error(`[ChurchPortal] Support ticket email failed ticket=${ticketId} church=${req.church.churchId}: ${err && err.message}`);
+        });
+      }
+
       res.status(201).json({ ticketId, status: 'open', createdAt: nowIso });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });

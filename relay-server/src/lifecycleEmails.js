@@ -2764,6 +2764,149 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
+  // ─── SEQUENCE 24b: SUPPORT TICKET CLOSED LOOP (P1-2) ─────────────────────
+  // Transactional — not gated by ENABLE_LIFECYCLE_MARKETING.
+  // Church portal_email plus Andrew/ops (ADMIN_EMAIL / ADMIN_SEED_EMAIL).
+  // event: 'opened' | 'admin-reply' | 'resolved'
+
+  async sendSupportTicketEmail(church, {
+    event,
+    ticketId,
+    title,
+    message,
+    severity,
+    status,
+    updateId,
+  } = {}) {
+    await this.ready;
+    const churchId = church?.churchId;
+    const ticketKey = String(ticketId || '').trim();
+    if (!churchId || !ticketKey) {
+      return { sent: false, reason: 'missing-ticket', deliveries: [] };
+    }
+
+    const recipients = uniqueEmailRecipients(church.portal_email, resolveOpsNotifyEmail());
+    if (!recipients.length) return { sent: false, reason: 'no-recipient', deliveries: [] };
+
+    let baseType;
+    if (event === 'opened') {
+      baseType = `support-ticket-opened-${ticketKey}`;
+    } else if (event === 'admin-reply') {
+      const replyKey = String(updateId || '').trim() || 'update';
+      baseType = `support-ticket-reply-${ticketKey}-${replyKey}`;
+    } else if (event === 'resolved') {
+      baseType = `support-ticket-resolved-${ticketKey}`;
+    } else {
+      return { sent: false, reason: 'unknown-event', deliveries: [] };
+    }
+
+    const { html, text, subject } = this._buildSupportTicketEmail(church, {
+      event,
+      ticketId: ticketKey,
+      title,
+      message,
+      severity,
+      status,
+    });
+
+    const deliveries = [];
+    for (const to of recipients) {
+      const result = await this.sendEmail({
+        churchId,
+        emailType: recipientScopedEmailType(baseType, to),
+        to,
+        subject,
+        html,
+        text,
+        urgent: true,
+      });
+      deliveries.push({ to, ...result });
+    }
+
+    const sent = deliveries.some((d) => d.sent);
+    const firstFail = deliveries.find((d) => !d.sent);
+    return {
+      sent,
+      id: deliveries.find((d) => d.sent)?.id,
+      reason: sent ? undefined : (firstFail?.reason || 'send-failed'),
+      deliveries,
+    };
+  }
+
+  _buildSupportTicketEmail(church, {
+    event,
+    ticketId,
+    title,
+    message,
+    severity,
+    status,
+  } = {}) {
+    const portalUrl = `${this.appUrl}/church-portal`;
+    const churchName = this._esc(church?.name || 'Your Church');
+    const rawTitle = String(title || 'Support ticket').trim().slice(0, 160) || 'Support ticket';
+    const safeTitle = this._esc(rawTitle);
+    const safeSeverity = this._esc(severity || 'P3');
+    const safeStatus = this._esc(status || '');
+    const safeTicketId = this._esc(String(ticketId || '').slice(0, 64));
+    const rawMessage = String(message || '').trim();
+    const excerpt = rawMessage.length > 800 ? `${rawMessage.slice(0, 800)}…` : rawMessage;
+    const safeMessage = this._esc(excerpt).replace(/\n/g, '<br>');
+
+    let heading;
+    let intro;
+    let subject;
+    if (event === 'opened') {
+      heading = 'Support ticket opened';
+      intro = `A support ticket was opened for <strong>${churchName}</strong>. We'll follow up by email — you don't need to keep the portal open.`;
+      subject = `Support ticket opened — ${rawTitle}`;
+    } else if (event === 'admin-reply') {
+      heading = 'Tally support replied';
+      intro = `We replied to your support ticket at <strong>${churchName}</strong>.`;
+      subject = `Tally support replied — ${rawTitle}`;
+    } else {
+      heading = 'Support ticket resolved';
+      intro = `Your support ticket at <strong>${churchName}</strong> is marked ${safeStatus || 'resolved'}.`;
+      subject = `Support ticket resolved — ${rawTitle}`;
+    }
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">${heading}</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">${intro}</p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 4px 0;">Title</td><td style="text-align: right; font-weight: 700;">${safeTitle}</td></tr>
+          <tr><td style="padding: 4px 0;">Severity</td><td style="text-align: right; font-weight: 700;">${safeSeverity}</td></tr>
+          ${safeStatus ? `<tr><td style="padding: 4px 0;">Status</td><td style="text-align: right; font-weight: 700;">${safeStatus}</td></tr>` : ''}
+          ${safeTicketId ? `<tr><td style="padding: 4px 0;">Ticket</td><td style="text-align: right; font-family: ui-monospace, monospace; font-size: 12px;">${safeTicketId}</td></tr>` : ''}
+        </table>
+        ${excerpt ? `<p style="font-size: 14px; color: #333; line-height: 1.6; margin: 16px 0 0;">${safeMessage}</p>` : ''}
+      </div>
+
+      ${this._cta('Open Church Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Reply to this email if you need to add more detail.
+      </p>
+    `);
+
+    const textLines = [
+      heading,
+      '',
+      `${church?.name || 'Your Church'} — ${rawTitle}`,
+      `Severity: ${severity || 'P3'}`,
+      status ? `Status: ${status}` : null,
+      ticketId ? `Ticket: ${ticketId}` : null,
+      excerpt ? `\n${excerpt}` : null,
+      '',
+      `Open portal: ${portalUrl}`,
+      '',
+      'Tally',
+    ].filter((line) => line !== null);
+
+    return { html, text: textLines.join('\n'), subject };
+  }
+
   // ─── SEQUENCE 25: URGENT ALERT ESCALATION ────────────────────────────────
   // Sent when a CRITICAL alert is escalated (5 minutes no acknowledgment).
   // Bypasses dedup — each escalation gets its own email.
@@ -4434,6 +4577,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'email-change-confirmation', name: 'Email Change',           trigger: 'On portal email change' },
     { type: 'first-service-completed', name: 'First Service Recap',      trigger: 'After first session ends' },
     { type: 'dispute-alert',           name: 'Dispute Alert',            trigger: 'Stripe webhook — charge.dispute.created' },
+    { type: 'support-ticket-opened',   name: 'Support Ticket Opened',    trigger: 'Church or admin opens a support ticket' },
+    { type: 'support-ticket-reply',    name: 'Support Ticket Reply',     trigger: 'Admin replies on a support ticket' },
+    { type: 'support-ticket-resolved', name: 'Support Ticket Resolved',  trigger: 'Ticket marked resolved or closed' },
     { type: 'urgent-alert-escalation', name: 'Urgent Alert Email',       trigger: 'Alert escalation — 5 min no ack' },
     { type: 'cancellation-survey',     name: 'Cancellation Survey',      trigger: 'Auto — 3 days after cancellation' },
     // Lead nurture drip
@@ -4746,6 +4892,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'email-change-confirmation': () => ({ ...this._buildEmailChangeEmail(sampleChurch, { oldEmail: 'old@example.com', newEmail: 'new@example.com' }), subject: 'Your Tally email has been updated' }),
       'first-service-completed': () => ({ ...this._buildFirstServiceCompletedEmail(sampleChurch, { grade: 'Clean Service', durationMinutes: 72, alerts: [], recoveries: 0 }), subject: 'First service in the books — here\'s how it went' }),
       'dispute-alert':           () => ({ ...this._buildDisputeAlertEmail(sampleChurch, { amount: 9900, reason: 'product_not_received' }), subject: 'Payment dispute opened — action required' }),
+      'support-ticket-opened':   () => this._buildSupportTicketEmail(sampleChurch, { event: 'opened', ticketId: 'preview-ticket', title: 'Stream is down', message: 'Program feed dropped at 10:15.', severity: 'P1', status: 'open' }),
+      'support-ticket-reply':    () => this._buildSupportTicketEmail(sampleChurch, { event: 'admin-reply', ticketId: 'preview-ticket', title: 'Stream is down', message: 'Checking the encoder now — hang tight.', severity: 'P1', status: 'in_progress' }),
+      'support-ticket-resolved': () => this._buildSupportTicketEmail(sampleChurch, { event: 'resolved', ticketId: 'preview-ticket', title: 'Stream is down', message: 'Encoder restarted and the stream is back.', severity: 'P1', status: 'resolved' }),
       'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: 'URGENT: stream_stopped at Sample Church' }),
       'cancellation-survey':     () => ({ ...this._buildCancellationSurveyEmail(sampleChurch), subject: 'Quick question — what could we have done better?' }),
       // Lead nurture drip
