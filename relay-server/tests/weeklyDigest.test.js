@@ -13,7 +13,8 @@ function createDb() {
       churchId TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       billing_tier TEXT DEFAULT 'pro',
-      leadership_emails TEXT
+      leadership_emails TEXT,
+      portal_email TEXT
     );
 
     CREATE TABLE service_sessions (
@@ -34,8 +35,8 @@ function createDb() {
   `);
 
   db.prepare(
-    'INSERT INTO churches (churchId, name, billing_tier, leadership_emails) VALUES (?, ?, ?, ?)'
-  ).run('church-1', 'Grace Community', 'pro', 'leader@grace.church');
+    'INSERT INTO churches (churchId, name, billing_tier, leadership_emails, portal_email) VALUES (?, ?, ?, ?, ?)'
+  ).run('church-1', 'Grace Community', 'pro', 'leader@grace.church', null);
 
   db.prepare(
     'INSERT INTO service_sessions (id, church_id, started_at, duration_minutes, grade) VALUES (?, ?, ?, ?, ?)'
@@ -101,5 +102,37 @@ describe('WeeklyDigest', () => {
     expect(global.fetch).toHaveBeenCalledOnce();
     expect(digest.churchMemory.writeWeeklyMemories).toHaveBeenCalledOnce();
     expect(digest.lifecycleEmails.sendWeeklyDigestEmail).toHaveBeenCalledOnce();
+    expect(digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls[0][2]).toBe('leader@grace.church');
+    expect(digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls[0][1].weekId).toMatch(/^\d{4}-W\d{2}$/);
+  });
+
+  it('emails portal_email when a church has no leadership list (P1-10)', async () => {
+    db.prepare(
+      'INSERT INTO churches (churchId, name, billing_tier, leadership_emails, portal_email) VALUES (?, ?, ?, ?, ?)'
+    ).run('church-portal-only', 'Portal Only', 'pro', null, 'pastor@portal.church');
+
+    digest.setLifecycleEmails({
+      sendWeeklyDigestEmail: vi.fn().mockResolvedValue({ sent: true }),
+    });
+
+    await digest.sendChurchDigests();
+
+    const recipients = digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls.map((call) => call[2]).sort();
+    expect(recipients).toEqual(['leader@grace.church', 'pastor@portal.church']);
+  });
+
+  it('emails unique union of portal_email and leadership_emails', async () => {
+    db.prepare(
+      'UPDATE churches SET portal_email = ?, leadership_emails = ? WHERE churchId = ?'
+    ).run('pastor@grace.church', 'leader@grace.church, PASTOR@grace.church', 'church-1');
+
+    digest.setLifecycleEmails({
+      sendWeeklyDigestEmail: vi.fn().mockResolvedValue({ sent: true }),
+    });
+
+    await digest.sendChurchDigests();
+
+    const recipients = digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls.map((call) => call[2]).sort();
+    expect(recipients).toEqual(['leader@grace.church', 'pastor@grace.church']);
   });
 });

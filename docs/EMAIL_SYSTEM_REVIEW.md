@@ -20,9 +20,10 @@ Code landed in a follow-up PR (this note). Does **not** need Andrew secrets or S
 | **P1-9** | `sendEmailChangeConfirmation` notifies **old inbox + new inbox**. |
 | **P1-11** | `invoice-upcoming` month key treats Stripe unix **seconds** (and ms) consistently. |
 | **P1-3** | EMERGENCY/CRITICAL with **no Telegram chat ID and no Slack webhook** now emails `portal_email` (+ `leadership_emails` if set) via `sendEmail`. Recipient-scoped 5-min window dedup. Prefs category `alerts` + suppressions honored. Empty schedule still log-only for non-EMERGENCY. |
+| **P1-10** | One weekly digest job (`WeeklyDigest.sendChurchDigests`). ISO week key `weekly-digest-email-{YYYY-Www}:{email}`. Recipients = unique(`portal_email` + `leadership_emails`). Lifecycle `_checkWeeklyDigest` no longer sends. |
 | **P2-17 (small)** | Lifecycle CTAs `${appUrl}/portal` → `/church-portal` (church portal, not reseller). |
 
-Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-6 env value; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
+Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-6 env value; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
 
 Companion audits: [`FEATURE_AUDIT_2026-09-08.md`](FEATURE_AUDIT_2026-09-08.md) (whole product; **stale** on Mac email URLs — #141 landed after it), [`ADMIN_DASHBOARD_REVIEW.md`](ADMIN_DASHBOARD_REVIEW.md) (Emails tab).
 
@@ -159,8 +160,7 @@ Stripe `customer.subscription.trial_will_end` is **logged only** — lifecycle t
 |------|---------|----|---------|-----|--------|--------|
 | `session-recap-{sessionId}:{email}` | Session end → `sessionRecap` | **leaders only** | Service Recap: {name} — {day} {date} | `/church-portal?church={id}` | yes (prefix) | **WORKS** (P1-1 recipient-scoped dedup) |
 | `service-report-{reportId}:{email}` | `postServiceReport.generate` after session | **leaders only** | Service Report — {name} · {date} | none in text (“view portal”) | no | **WORKS** for 2nd+ leader (P1-1); still overlaps recap |
-| `weekly-digest-{ISO week}` | Hourly Monday 13–16 UTC, Pro/managed, activity | **portal** | Weekly Report — {name} | `/church-portal` | yes | **WORKS** |
-| `weekly-digest-email-{weekStr}:{email}` | `weeklyDigest.js` (separate job) | **leaders** | Your Week in Review — {name} | `/church-portal?church=` | yes | **WORKS** for 2nd+ leader (P1-1); **double weekly** if both jobs run (P1-10) |
+| `weekly-digest-email-{ISO week}:{email}` | `weeklyDigest.js` Monday ~8am local; plus/pro/managed | **portal + leaders** (unique) | Your Week in Review — {name} | `/church-portal?church=` | yes | **WORKS** (P1-10 one job / ISO week / recipient dedup). Portal-only churches still mailed. |
 | `monthly-report-email-{YYYY-MM}:{email}` | `monthlyReport.js` 1st-of-month path | portal **+** leaders | Monthly Production Report — {name} | `/church-portal?church=` | yes | **WORKS** for 2nd+ recipient (P1-1) |
 | `monthly-roi-summary-{YYYY-MM}` | `sendMonthlyROISummary` | portal | {month} at {name} — here's what Tally prevented | `/portal` | yes | **DEAD** — nothing calls it |
 
@@ -293,7 +293,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | P1-7 | **Unsubscribe secret split-brain.** Signer = `JWT_SECRET`; verifier = `UNSUBSCRIBE_SECRET \|\| JWT_SECRET`. | `lifecycleEmails.js` vs `server.js` | **Fixed:** both use `getUnsubscribeSecret()`. |
 | P1-8 | **Dispute mail goes to the church, not ops.** | `sendDisputeAlert` → `portal_email` | **Fixed:** also send to `ADMIN_EMAIL` (fallback `ADMIN_SEED_EMAIL`). |
 | P1-9 | **Email-change notice skips the old inbox.** | `sendEmailChangeConfirmation` | **Fixed:** send to old + new. |
-| P1-10 | **Two weekly digest engines.** Portal gets `weekly-digest-*` Monday UTC; leaders get `weekly-digest-email-*` from `weeklyDigest.js` with a **different week-id formula**. | both files | One job, one week key, recipient in dedup key. |
+| P1-10 | **Two weekly digest engines.** Portal `weekly-digest-*` Monday UTC vs leaders `weekly-digest-email-*` with a different week-id. | both files | **Fixed:** one job (`sendChurchDigests`), ISO week key, recipient in dedup key. Portal-only churches still get the leadership report. |
 | P1-11 | **`invoice-upcoming` month key.** `monthKey = new Date(dueDate)` treats Stripe unix **seconds** as ms → epoch month; builder then does `dueDate * 1000`. Dedup / date can be wrong. | `sendInvoiceUpcoming` vs `_buildInvoiceUpcomingEmail` | **Fixed:** `stripeTimestampToDate` accepts seconds or ms. |
 
 ### P2 — polish / prepare-mode / drift
@@ -332,7 +332,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | Resend helper | `tests/resendClient.test.js` | Tags, keys, 429 retry, 4xx no-retry, Svix verify | — |
 | Resend webhook | `tests/resendWebhook.test.js` | 503 / 400 / bounce+complaint suppress | — |
 | Engine + PG cache | `tests/lifecycle-emails.query-client.test.js` | Dedup/prefs/unsub on query client | — |
-| Weekly / monthly HTML | `tests/weekly-digest-email.test.js` | Subjects, metrics, week/month keys | Dual-engine collision |
+| Weekly / monthly HTML | `tests/weekly-digest-email.test.js`, `weeklyDigest.test.js` | Subjects, ISO week key, portal+leader union, month keys | — |
 | Verify / reset API | `tests/emailVerification*.test.js` | Verify, resend, forgot, reset token | Live landing URL (added assertion this PR) |
 | Recap / report send | `tests/postServiceReport.test.js`, `weeklyDigest.test.js` | Calls `sendEmail` / digest when leaders set | Does **not** assert second recipient |
 | Unreachable-channel alert email | `tests/lifecycle-emails.test.js`, `tests/telegram-alert-delivery.test.js` | P1-3: portal+leaders, windowed recipient dedup, prefs/suppress, no email when Telegram/Slack dest exists, empty-schedule still log-only | Live Resend |
@@ -423,9 +423,9 @@ P0 reliability/compliance in this PR is done. Remaining, in order:
 2. **P1-2 / P1-3 done** — ticket closed-loop email and unreachable-channel CRITICAL/EMERGENCY email.
 3. **P1-4** — `/nps` landing in tally-landing (send path already gated off).
 4. **P1-8 / P1-9** — **done:** dispute→Andrew (`ADMIN_EMAIL`); email-change notice to old + new inbox.
-5. **P1-10** — one weekly digest job.
+5. **P1-10** — **done:** one weekly digest job.
 
-**Done in code (no Railway):** P1-1 recipient dedup, P1-2 ticket closed-loop email, P1-3 unreachable-channel critical email, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-8 dispute→ops, P1-9 email-change both inboxes, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
+**Done in code (no Railway):** P1-1 recipient dedup, P1-2 ticket closed-loop email, P1-3 unreachable-channel critical email, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-8 dispute→ops, P1-9 email-change both inboxes, P1-10 one weekly job, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
 
 Do **not** build Resend Broadcasts / Automations (sales gated). Do **not** mass-email existing churches. Do **not** move everything to dashboard templates — code templates + admin overrides are fine.
 

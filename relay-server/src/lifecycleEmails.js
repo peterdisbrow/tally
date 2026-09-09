@@ -114,6 +114,18 @@ function leadershipEmailList(raw) {
 }
 
 /**
+ * ISO week id `YYYY-Www` (UTC). Shared by weekly digest send + (legacy) portal checker.
+ * Do not use calendar-week-of-month — that collided across months (P1-10).
+ */
+function isoWeekId(date = new Date()) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+/**
  * Andrew / ops inbox. Reuses existing Railway names — do not invent OPS_EMAIL.
  * ADMIN_EMAIL is the legacy operator login address; ADMIN_SEED_EMAIL seeds super_admin.
  */
@@ -905,7 +917,7 @@ class LifecycleEmails {
    */
   async sendWeeklyDigestEmail(church, digestData, toEmail) {
     const now = new Date();
-    const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
+    const weekStr = digestData?.weekId || this._getWeekId(now);
     const emailType = recipientScopedEmailType(`weekly-digest-email-${weekStr}`, toEmail);
     const dateLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const churchName = this._esc(church.name || 'Your Church');
@@ -1114,7 +1126,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       await this._checkAnnualRenewalReminder();   // GAP 6: 30 days before annual renewal
 
       // ── Engagement ──
-      await this._checkWeeklyDigest();
+      // P1-10: weekly digest email is owned by WeeklyDigest.sendChurchDigests
+      // (ISO week key + recipient-scoped dedup). Do not send from runCheck.
       await this._checkInactivityAlert();          // GAP 11: 4+ weeks no sessions — ops, not GTM
 
       // Prepare-mode (§9 / P1-5): pause sales drip, NPS, reviews, referral,
@@ -1359,54 +1372,16 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     });
   }
 
-  // ─── SEQUENCE 8: WEEKLY DIGEST (Monday 8 AM) ──────────────────────────────
+  // ─── SEQUENCE 8: WEEKLY DIGEST ────────────────────────────────────────────
+  // Email send moved to WeeklyDigest.sendChurchDigests (P1-10). Kept as a
+  // no-op so stray callers cannot resurrect the portal-only dual path.
 
   async _checkWeeklyDigest() {
-    const now = new Date();
-    // Run on Mondays. Since the server runs in UTC, we check hours 13-16 (8am-11am US timezones).
-    // The dedup key (weekly-digest-{weekId}) ensures each church gets at most one per week.
-    if (now.getUTCDay() !== 1) return;
-    const utcHour = now.getUTCHours();
-    if (utcHour < 13 || utcHour > 16) return; // 13-16 UTC = 8am-11am ET / 5am-8am PT
-
-    const weekId = this._getWeekId(now);
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Weekly digest is a Pro+ feature (connect/plus get monthly reports at most)
-    const churches = await this._selectAll(`
-      SELECT churchId, name, portal_email, billing_tier
-      FROM churches
-      WHERE billing_status IN ('active', 'trialing')
-        AND portal_email IS NOT NULL
-        AND onboarding_app_connected_at IS NOT NULL
-        AND billing_tier IN ('pro', 'managed')
-    `);
-
-    for (const church of churches) {
-      const emailType = `weekly-digest-${weekId}`;
-      const stats = await this._gatherWeeklyStats(church.churchId, weekAgo);
-
-      // Only send if there was some activity (at least one session or event)
-      if (stats.totalEvents === 0 && stats.totalSessions === 0) continue;
-
-      const { html, text } = this._buildWeeklyDigestEmail(church, stats);
-      await this.sendEmail({
-        churchId: church.churchId,
-        emailType,
-        to: church.portal_email,
-        subject: `Weekly Report \u2014 ${church.name}`,
-        html,
-        text,
-      });
-    }
+    return;
   }
 
   _getWeekId(date) {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    return isoWeekId(date);
   }
 
   async _gatherWeeklyStats(churchId, sinceIso) {
@@ -5168,6 +5143,7 @@ module.exports = {
   resolveWinDownloadUrl,
   recipientScopedEmailType,
   uniqueEmailRecipients,
+  isoWeekId,
   resolveOpsNotifyEmail,
   stripeTimestampToDate,
   invoiceMonthKey,

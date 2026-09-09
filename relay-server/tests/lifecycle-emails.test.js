@@ -1083,6 +1083,12 @@ describe('LifecycleEmails', () => {
       expect(inactivity).toHaveBeenCalledOnce();
     });
 
+    it('runCheck does not send portal weekly-digest (P1-10: WeeklyDigest owns the job)', async () => {
+      const weekly = vi.spyOn(emails, '_checkWeeklyDigest');
+      await emails.runCheck();
+      expect(weekly).not.toHaveBeenCalled();
+    });
+
     it('ENABLE_LIFECYCLE_MARKETING=1 re-enables GTM except NPS (404 CTA)', async () => {
       process.env.ENABLE_LIFECYCLE_MARKETING = '1';
       const nps = vi.spyOn(emails, '_checkNPSSurvey');
@@ -1159,6 +1165,13 @@ describe('LifecycleEmails', () => {
       const { uniqueEmailRecipients } = require('../src/lifecycleEmails');
       expect(uniqueEmailRecipients(' Old@X.com ', 'old@x.com', '', 'new@x.com', 'not-an-email'))
         .toEqual(['old@x.com', 'new@x.com']);
+    });
+
+    it('isoWeekId is ISO week, not calendar week-of-month', () => {
+      const { isoWeekId } = require('../src/lifecycleEmails');
+      // 2026-03-23 is Monday of ISO week 13; week-of-month would be W04.
+      expect(isoWeekId(new Date('2026-03-23T15:00:00.000Z'))).toBe('2026-W13');
+      expect(isoWeekId(new Date('2026-01-01T12:00:00.000Z'))).toBe('2026-W01');
     });
 
     it('resolveOpsNotifyEmail prefers ADMIN_EMAIL then ADMIN_SEED_EMAIL', () => {
