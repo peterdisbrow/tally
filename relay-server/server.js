@@ -264,7 +264,7 @@ const { getUnsubscribeSecret } = require('./src/jwtSecret');
 const { sendResendEmail, buildIdempotencyKey, resolveReplyTo } = require('./src/resendClient');
 const PostServiceReport = require('./src/postServiceReport');
 
-const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, TIER_LIMITS } = require('./src/billing');
+const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, TIER_LIMITS, hasPaidBillingAccess } = require('./src/billing');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
@@ -2854,11 +2854,9 @@ function checkChurchPaidAccess(churchId) {
     return { allowed: true, ...snapshot, bypassed: true };
   }
 
-  if (snapshot.status === 'active') {
-    return { allowed: true, ...snapshot };
-  }
-
-  // For trialing: check if trial has expired
+  // Trial calendar expiry is live on the WS path (hourly cron is the other).
+  // Feature APIs (`checkAccess`) do not re-check trial_ends — keep that gap
+  // documented; grace alignment is the product rule both paths must share.
   if (snapshot.status === 'trialing') {
     if (snapshot.trialEndsAt && new Date(snapshot.trialEndsAt) < new Date()) {
       return {
@@ -2868,14 +2866,18 @@ function checkChurchPaidAccess(churchId) {
         message: 'Your free trial has ended. Subscribe at tallyconnect.app to continue.',
       };
     }
-    return { allowed: true, ...snapshot };
   }
 
-  // Grace period for past_due: allow access during the grace window
+  // Same paid-access rule as billing.checkAccess: active / trialing /
+  // past_due while the 7-day grace window is still open.
+  const paid = hasPaidBillingAccess({
+    billing_status: snapshot.status,
+    billing_grace_ends_at: snapshot.graceEndsAt,
+  });
+  if (paid.allowed) {
+    return { allowed: true, ...snapshot, ...(paid.inGracePeriod ? { inGracePeriod: true } : {}) };
+  }
   if (snapshot.status === 'past_due') {
-    if (snapshot.graceEndsAt && new Date(snapshot.graceEndsAt) > new Date()) {
-      return { allowed: true, ...snapshot, inGracePeriod: true };
-    }
     return {
       allowed: false,
       ...snapshot,

@@ -5,7 +5,8 @@
  *   - Trial period constant is 30 days
  *   - Grace period constant is 7 days
  *   - checkAccess: trialing status allows access (when Stripe enabled)
- *   - checkAccess: past_due / inactive / canceled statuses block access (Stripe enabled)
+ *   - checkAccess: past_due without grace / expired grace / inactive / canceled block (Stripe enabled)
+ *   - checkAccess: past_due within the 7-day grace window allows access (same as checkChurchPaidAccess)
  *   - checkAccess: null billing_tier falls back to 'connect' limits
  *   - checkAccess: unknown feature returns allowed:true (safe default)
  *   - Boundary: billing_status === 'trialing' is treated as active
@@ -164,10 +165,51 @@ describe('checkAccess — Stripe IS enabled (billing status enforced)', () => {
     expect(result.allowed).toBe(true);
   });
 
-  it('past_due status blocks access', () => {
+  it('trialing with expired billing_trial_ends still allows — trial calendar expiry is WS + cron, not checkAccess', () => {
+    const result = billing.checkAccess({
+      billing_tier: 'pro',
+      billing_status: 'trialing',
+      billing_trial_ends: new Date(Date.now() - 60 * 1000).toISOString(),
+    }, 'planning_center');
+    expect(result.allowed).toBe(true);
+  });
+
+  it('past_due without grace_ends_at blocks access', () => {
     const result = billing.checkAccess({ billing_tier: 'pro', billing_status: 'past_due' }, 'planning_center');
     expect(result.allowed).toBe(false);
     expect(result.reason).toMatch(/past_due/);
+  });
+
+  it('past_due within the 7-day grace window allows access (same as WS gate)', () => {
+    const graceEndsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const result = billing.checkAccess({
+      billing_tier: 'pro',
+      billing_status: 'past_due',
+      billing_grace_ends_at: graceEndsAt,
+    }, 'planning_center');
+    expect(result.allowed).toBe(true);
+  });
+
+  it('past_due after grace expires blocks access', () => {
+    const graceEndsAt = new Date(Date.now() - 60 * 1000).toISOString();
+    const result = billing.checkAccess({
+      billing_tier: 'pro',
+      billing_status: 'past_due',
+      billing_grace_ends_at: graceEndsAt,
+    }, 'planning_center');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/past_due/);
+  });
+
+  it('past_due grace still enforces tier limits', () => {
+    const graceEndsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const result = billing.checkAccess({
+      billing_tier: 'connect',
+      billing_status: 'past_due',
+      billing_grace_ends_at: graceEndsAt,
+    }, 'planning_center');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/Planning Center/);
   });
 
   it('inactive status blocks access', () => {
@@ -622,6 +664,20 @@ describe('BillingSystem._onPaymentSucceeded — recovery', () => {
 
     const record = db.prepare('SELECT status FROM billing_customers WHERE church_id = ?').get('ch1');
     expect(record.status).toBe('active');
+  });
+
+  it('clears billing_customers.grace_ends_at on recovery (not only runtime)', async () => {
+    const leftoverGrace = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
+    seedChurch(db, 'ch_grace_clear', { tier: 'pro', status: 'past_due' });
+    seedBillingCustomer(db, 'ch_grace_clear', {
+      tier: 'pro', status: 'past_due', subId: 'sub_grace_clear', graceEndsAt: leftoverGrace,
+    });
+
+    await billing._onPaymentSucceeded({ subscription: 'sub_grace_clear' });
+
+    const record = db.prepare('SELECT status, grace_ends_at FROM billing_customers WHERE church_id = ?').get('ch_grace_clear');
+    expect(record.status).toBe('active');
+    expect(record.grace_ends_at).toBeNull();
   });
 
   it('does not change status when record is already active', async () => {

@@ -92,6 +92,39 @@ const PRICE_ENV_KEYS = {
 const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
 const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
+
+/**
+ * Shared paid-access rule for the WS gate (`checkChurchPaidAccess` in server.js)
+ * and feature APIs (`BillingSystem.checkAccess` / `requireFeature`).
+ *
+ * Product intent: a failed payment starts a 7-day grace window. During that
+ * window the booth stays connected AND feature APIs (autopilot, scheduler,
+ * PCO, …) keep working. Blocking APIs while WS is allowed is a Sunday
+ * reliability footgun — keep these paths on the same rule.
+ *
+ * Allowed: `active`, `trialing`, and `past_due` while `billing_grace_ends_at`
+ * (or `grace_ends_at` / `graceEndsAt`) is still in the future. Missing or
+ * expired grace on `past_due` is denied. Trial calendar expiry is NOT applied
+ * here — that stays on the WS path + hourly cron.
+ *
+ * @param {object} church runtime church or row with billing_status + grace field
+ * @param {Date} [now]
+ * @returns {{ allowed: boolean, inGracePeriod: boolean, status: string }}
+ */
+function hasPaidBillingAccess(church, now = new Date()) {
+  const status = String(church?.billing_status || church?.status || 'inactive').toLowerCase();
+  if (status === 'active' || status === 'trialing') {
+    return { allowed: true, inGracePeriod: false, status };
+  }
+  if (status === 'past_due') {
+    const graceEndsAt = church.billing_grace_ends_at || church.grace_ends_at || church.graceEndsAt || null;
+    if (graceEndsAt && new Date(graceEndsAt) > now) {
+      return { allowed: true, inGracePeriod: true, status };
+    }
+    return { allowed: false, inGracePeriod: false, status };
+  }
+  return { allowed: false, inGracePeriod: false, status };
+}
 /** Free-month Stripe balance credits — live list prices ($49 / $99 / $149 / Event $99). */
 const TIER_MONTHLY_CENTS = {
   connect: 4900,   // $49
@@ -832,7 +865,7 @@ class BillingSystem {
     const billing = await this._getBillingBySubscriptionId(subId);
     if (billing && billing.status === 'past_due') {
       const now = new Date().toISOString();
-      await this._run(`UPDATE billing_customers SET status = 'active', updated_at = ? WHERE stripe_subscription_id = ?`, [now, subId]);
+      await this._run(`UPDATE billing_customers SET status = 'active', grace_ends_at = NULL, updated_at = ? WHERE stripe_subscription_id = ?`, [now, subId]);
       await this._run('UPDATE churches SET billing_status = ? WHERE churchId = ?', ['active', billing.church_id]);
       this._syncChurchRuntime(billing.church_id, {
         billing_status: 'active',
@@ -1128,6 +1161,9 @@ class BillingSystem {
   /**
    * Check if a church's billing allows a feature.
    * Returns { allowed: bool, reason?: string }
+   *
+   * Billing-status rule matches `hasPaidBillingAccess` / `checkChurchPaidAccess`:
+   * `past_due` is allowed while the 7-day grace window is still open.
    */
   checkAccess(church, feature) {
     const tier = church.billing_tier || 'connect';
@@ -1135,7 +1171,8 @@ class BillingSystem {
 
     // When Stripe is configured, enforce billing status (payment checks)
     if (this.isEnabled()) {
-      if (!['active', 'trialing'].includes(status)) {
+      const paid = hasPaidBillingAccess(church);
+      if (!paid.allowed) {
         return { allowed: false, reason: `Subscription ${status}. Visit tallyconnect.app to manage billing.` };
       }
     }
@@ -1392,6 +1429,7 @@ module.exports = {
   BILLING_INTERVALS,
   TRIAL_PERIOD_DAYS,
   GRACE_PERIOD_DAYS,
+  hasPaidBillingAccess,
   _setStripeClientForTests,
   _resetStripeClientForTests,
 };
