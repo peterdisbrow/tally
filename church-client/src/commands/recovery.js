@@ -108,11 +108,14 @@ async function recoveryReconnectDevice(agent, params) {
   const deviceId = (params.deviceId || '').toLowerCase();
   const results = [];
 
-  // Real agent methods: reconnectATEM / connectOBS / encoderBridge.connect.
+  // Real agent methods: reconnectATEM / connectOBS / connectVMix / connectCompanion / encoderBridge.connect.
   // Tests and older mocks used camelCase aliases — accept both.
 
   // If a specific device is requested, reconnect just that one
-  if (deviceId === 'atem' || (!deviceId && agent.atem && !agent.status.atem?.connected)) {
+  const atemDisconnected = !!(agent.atem && !agent.status.atem?.connected);
+  const switcherAtemDown = typeof agent.switcherManager?.getAllByType === 'function'
+    && agent.switcherManager.getAllByType('atem').some((sw) => !sw.connected);
+  if (deviceId === 'atem' || (!deviceId && (atemDisconnected || switcherAtemDown))) {
     const reconnect = resolveReconnect(agent, ['reconnectATEM', 'reconnectAtem']);
     if (reconnect) {
       await reconnect();
@@ -129,7 +132,7 @@ async function recoveryReconnectDevice(agent, params) {
   }
 
   if (deviceId === 'vmix' || (!deviceId && agent.vmix && !agent.status.vmix?.connected)) {
-    const reconnect = resolveReconnect(agent, ['reconnectVmix']);
+    const reconnect = resolveReconnect(agent, ['reconnectVmix', 'connectVMix']);
     if (reconnect) {
       await reconnect();
       results.push('vMix reconnection triggered');
@@ -151,7 +154,7 @@ async function recoveryReconnectDevice(agent, params) {
   }
 
   if (deviceId === 'companion' || (!deviceId && agent.companion && !agent.status.companion?.connected)) {
-    const reconnect = resolveReconnect(agent, ['reconnectCompanion']);
+    const reconnect = resolveReconnect(agent, ['reconnectCompanion', 'connectCompanion']);
     if (reconnect) {
       await reconnect();
       results.push('Companion reconnection triggered');

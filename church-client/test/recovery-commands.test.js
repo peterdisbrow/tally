@@ -166,6 +166,44 @@ test('recovery.reconnectDevice uses ChurchAVAgent.reconnectATEM (real method nam
   assert.ok(result.includes('ATEM reconnection triggered'));
 });
 
+test('recovery.reconnectDevice uses ChurchAVAgent.connectVMix when reconnectVmix is missing', async () => {
+  let called = false;
+  const agent = {
+    vmix: {},
+    status: { vmix: { connected: false } },
+    connectVMix: async () => { called = true; },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('vMix reconnection triggered'));
+});
+
+test('recovery.reconnectDevice uses ChurchAVAgent.connectCompanion when reconnectCompanion is missing', async () => {
+  let called = false;
+  const agent = {
+    companion: {},
+    status: { companion: { connected: false } },
+    connectCompanion: async () => { called = true; },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('Companion reconnection triggered'));
+});
+
+test('recovery.reconnectDevice kicks reconnectATEM when SwitcherManager ATEM is down', async () => {
+  let called = false;
+  const agent = {
+    status: { atem: { connected: false } },
+    switcherManager: {
+      getAllByType: (type) => (type === 'atem' ? [{ id: 'atem-1', connected: false }] : []),
+    },
+    reconnectATEM: () => { called = true; return [{ id: 'atem-1', kicked: true }]; },
+  };
+  const result = await commandHandlers['recovery.reconnectDevice'](agent, {});
+  assert.ok(called);
+  assert.ok(result.includes('ATEM reconnection triggered'));
+});
+
 test('recovery.reconnectDevice uses ChurchAVAgent.connectOBS when reconnectObs is missing', async () => {
   let called = false;
   const agent = {

@@ -38,5 +38,15 @@ test('tray Start/Stop is bound to agentProcess, not relay connected', () => {
 });
 
 test('tray offline copy does not claim local monitoring when agent is stopped', () => {
-  assert.match(MAIN_JS, /agentRunning \? 'Offline Mode — Local monitoring active' : 'Agent stopped'/);
+  assert.match(MAIN_JS, /agentRunning \? t\('tray\.offlineLocal'\) : t\('tray\.agentStopped'\)/);
+  assert.doesNotMatch(MAIN_JS, /agentRunning \? 'Offline Mode — Local monitoring active' : 'Agent stopped'/);
+});
+
+test('tray menu Open Church Portal uses i18n key tray.clientPortal', () => {
+  assert.match(MAIN_JS, /t\('tray\.clientPortal'\)/);
+});
+
+test('relay health OFFLINE sends an OS notification (not only agent stdout)', () => {
+  assert.match(MAIN_JS, /_notifyOnce\('relay-health-offline'/);
+  assert.match(MAIN_JS, /t\('notifications\.relayOffline'\)/);
 });

@@ -58,7 +58,7 @@ Scores are 1–5 against *Sunday-indispensable*, not feature count. **Honesty ov
 | **Reliability** | **3 / 5** | Reconnect, crash backoff, and SSE status are designed for unattended booths. Failover will not auto-switch-back. `recovery.reconnectDevice` called methods the agent does not have (fixed in this PR). Live reconnect is **unproven**. |
 | **Trust** | **2 / 5** | Download/marketing can read as “1.1.67 signed Mac.” Release notes correctly say Mac is carry-forward **1.1.66**. Tray used to claim “Local monitoring active” when the agent was stopped (fixed). Unsigned Windows = SmartScreen. Failover homepage copy vs globally forced-off auto-recover. |
 | **Security** | **3 / 5** | Relay host allowlist, `safeStorage` / DPAPI, secrets via env not `ps`. Deep links reject `relayUrl`. Token is a 30-day app JWT reused for WS. Unsigned Win installer. Electron has no Sentry (also means no crash PII leak — tradeoff). |
-| **Polish** | **3 / 5** | Sign-in, room picker every launch, onboarding chat, hide-to-tray, login items, tray i18n (`en`/`es`). Renderer dashboard still English. Registration-code sign-in is **not** in Electron (Telegram/admin only). |
+| **Polish** | **3 / 5** | Sign-in, room picker every launch, onboarding chat, hide-to-tray, login items, tray i18n (`en`/`es`). Renderer dashboard Sunday offline/status strings now use i18n; the rest of the dashboard is still English. Registration-code sign-in is **not** in Electron (Telegram/admin only). |
 | **Observability** | **2 / 5** | `~/.church-av/logs/tally-app.log` (10 MB rotate) + agent `agent_log` over WS + `system.diagnosticBundle`. No Electron Sentry. No protocol-version handshake. Fleet Monitor is dark with 0 connected booths. |
 
 **Overall: 2.6 / 5 — shippable as a supervised install, not yet Sunday-invisible.**
@@ -199,7 +199,7 @@ Agent `watchdogTick` every **30s** (unless `--no-watchdog`). Dedup 5 minutes per
 
 `obsHealthCheck.js` is **not** wired into `index.js` (library + tests only).
 
-`recovery.reconnectDevice` (relay AutoRecovery `connection_lost`) called `reconnectAtem` / `reconnectObs` / `reconnectEncoder`. The agent exposes **`reconnectATEM`**, **`connectOBS`**, **`encoderBridge.connect`**. Command was a silent no-op. **Fixed in this PR** (aliases + real names). When SwitcherManager owns ATEM, `reconnectATEM()` still returns immediately (switcher has its own reconnect) — documented as P1.
+`recovery.reconnectDevice` (relay AutoRecovery `connection_lost`) called `reconnectAtem` / `reconnectObs` / `reconnectEncoder`. The agent exposes **`reconnectATEM`**, **`connectOBS`**, **`encoderBridge.connect`**. Command was a silent no-op. **Fixed in this PR** (aliases + real names). When SwitcherManager owns ATEM, `reconnectATEM()` now kicks `AtemSwitcher.reconnect()` (cancels pending backoff). Also aliases `connectVMix` / `connectCompanion`.
 
 ---
 
@@ -280,13 +280,13 @@ ProPresenter poll rate is the main resource risk on a weak booth PC / busy LAN. 
 ### P1 — same week, not during service
 
 1. Keep failover auto-recover **off**; if re-enabled, persist across boot + bounce cap (do not just delete the `UPDATE`).
-2. SwitcherManager ATEM: `reconnectATEM()` no-ops — wire AutoRecovery into `AtemSwitcher` reconnect.
+2. SwitcherManager ATEM: `reconnectATEM()` no-ops — wire AutoRecovery into `AtemSwitcher` reconnect. **Fixed in leftover polish PR** — `reconnectATEM()` now calls `SwitcherManager.reconnectByType('atem')`, which cancels pending backoff and retries immediately.
 3. ProPresenter ~8 HTTP/s — raise poll interval; historic storm risk.
-4. Tray/OS notify on relay health OFFLINE (not only agent stdout).
+4. Tray/OS notify on relay health OFFLINE (not only agent stdout). **Fixed in leftover polish PR** (`_notifyOnce` on health probe OFFLINE, 10 min cooldown).
 5. Surface `billing_*` WS close in the dashboard (not just generic 1008).
 6. Electron Sentry (or at least crash report upload) — dark Sunday crashes are invisible.
 7. Pass `--room-id` on spawn (CLI already exists) so config-file races cannot bind the wrong room.
-8. Renderer i18n for the dashboard (tray already translated).
+8. Renderer i18n for the dashboard (tray already translated). **Partial in leftover polish PR** — Sunday offline/status strings (banner, toast, connectivity chip, tray offline copy) now use existing `en`/`es` i18n. Rest of dashboard still English.
 9. Marketing/download page: stop saying Mac 1.1.67 signed until Studio uploads.
 10. `obsHealthCheck` unused; vMix/Companion have no reconnect helpers.
 
@@ -312,6 +312,16 @@ Small, high-confidence P0s only. No signing changes. No failover flip.
 | Tray Start/Stop + copy use `!!agentProcess` | TD can stop a running agent when relay is down; no false “Local monitoring active” |
 | `recovery.reconnectDevice` resolves `reconnectATEM` / `connectOBS` / `encoderBridge.connect` | AutoRecovery `connection_lost` can actually poke devices |
 
+### Leftover polish (code-only follow-up)
+
+| Fix | Why |
+|-----|-----|
+| `reconnectATEM()` kicks `AtemSwitcher.reconnect()` via `SwitcherManager.reconnectByType('atem')` | Tray / AutoRecovery reconnect is no longer a silent no-op when SwitcherManager owns ATEM; pending 60s backoff is cancelled |
+| `AtemSwitcher` connect-failure clears `_reconnecting` before reschedule | Failed reconnect attempts can queue the next try instead of stalling the loop |
+| `recovery.reconnectDevice` aliases `connectVMix` / `connectCompanion` | Same silent-no-op class as the ATEM/OBS naming miss |
+| Renderer dashboard + tray offline/status copy use existing i18n | TDs on `es` locale see Sunday banner/toast/connectivity strings in Spanish |
+| OS notify on relay health OFFLINE | Probe flip is visible even if agent stdout never printed persistent-failure |
+
 ---
 
 ## 11. Validation
@@ -324,6 +334,8 @@ Small, high-confidence P0s only. No signing changes. No failover flip.
 | `latest-mac.yml` | version **1.1.66**, date 2026-05-05 |
 | church-client recovery unit tests | **35/35 pass** (includes `reconnectATEM` / `connectOBS` / `encoderBridge.connect`) |
 | electron-app unit tests | **322/322 pass** including tray/offline source contracts |
+| church-client SwitcherManager ATEM reconnect | Covered in `test/switcher-reconnect.test.js` + recovery aliases |
+| electron-app dashboard i18n contracts | Sunday offline/status keys in `en`/`es`; renderer uses `t()` |
 
 **Not verified (and not claimed):** signed Mac Gatekeeper, Windows SmartScreen, a connected booth WS, hardware watchdog, failover drill, or auto-update on a real install.
 

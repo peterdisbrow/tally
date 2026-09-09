@@ -1519,8 +1519,24 @@ class ChurchAVAgent {
   }
 
   reconnectATEM() {
-    // When using SwitcherManager, reconnection is handled by AtemSwitcher instances
-    if (this.switcherManager && this.switcherManager.size > 0) return;
+    // SwitcherManager owns ATEM lifecycle when any switchers are registered
+    // (including legacy atemIp auto-migrated to atem-1). Kick that path so
+    // recovery.reconnectDevice / tray is not a silent no-op.
+    if (this.switcherManager && this.switcherManager.size > 0) {
+      const atems = this.switcherManager.getAllByType('atem');
+      if (atems.length > 0) {
+        const results = this.switcherManager.reconnectByType('atem', { immediate: true });
+        const kicked = results.filter((r) => r.kicked).length;
+        if (kicked > 0) {
+          this.health.atem.reconnects++;
+          console.log(`   SwitcherManager: kicked ATEM reconnect on ${kicked} switcher(s)`);
+        } else {
+          const reasons = results.map((r) => `${r.id}:${r.reason}`).join(', ') || 'none';
+          console.log(`   SwitcherManager: ATEM reconnect not kicked (${reasons})`);
+        }
+        return results;
+      }
+    }
     if (this._stopping || this.atemReconnecting || !this.config.atemIp) return;
     this.health.atem.reconnects++;
     this.atemReconnecting = true;

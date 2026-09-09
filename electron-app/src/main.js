@@ -505,7 +505,7 @@ function updateTray() {
   const state = computeTrayState();
   const agentRunning = !!agentProcess;
   // Build a fingerprint of all values that affect the tray menu
-  const fingerprint = `${state}|${agentRunning}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
+  const fingerprint = `${i18n.getLocale()}|${state}|${agentRunning}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
   if (fingerprint === _lastTrayState) return;
   _lastTrayState = fingerprint;
   tray.setImage(getTrayIcon(state));
@@ -529,7 +529,7 @@ function updateTray() {
   // down we must not claim "Local monitoring active" (Sunday-trust).
   const statusLine = connected
     ? `${isLive ? '● LIVE — ' : ''}${deviceCount} device${deviceCount !== 1 ? 's' : ''} connected`
-    : (agentRunning ? 'Offline Mode — Local monitoring active' : 'Agent stopped');
+    : (agentRunning ? t('tray.offlineLocal') : t('tray.agentStopped'));
 
   // Billing status line for tray
   const billingTier = agentStatus.billingTier || '';
@@ -566,7 +566,7 @@ function updateTray() {
     // and the TD could not stop monitoring from the tray.
     { label: agentRunning ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => agentRunning ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: 'Open Church Portal', click: () => shell.openExternal('https://tallyconnect.app/church-portal') },
+    { label: t('tray.clientPortal'), click: () => shell.openExternal('https://tallyconnect.app/church-portal') },
     { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
     { type: 'separator' },
@@ -1292,6 +1292,10 @@ const _relayHealthMonitor = createRelayHealthMonitor({
       stopLocalStatusFallback();
     } else {
       startLocalStatusFallback();
+      // Sunday path: OS notify when the /health probe actually flips OFFLINE,
+      // not only when agent stdout happens to print a persistent-failure line.
+      const { t } = i18n;
+      _notifyOnce('relay-health-offline', t('notifications.relayOffline'), t('notifications.relayOfflineBody'), 10 * 60 * 1000);
     }
   },
   onPoll: (state) => {
