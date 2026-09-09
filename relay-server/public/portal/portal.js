@@ -16745,6 +16745,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         };
 
         es.onerror = function() {
+          if (!document.hidden) {
+            var txtLive = document.getElementById('stat-status-text');
+            var staleLive = document.getElementById('equip-staleness');
+            if (txtLive && txtLive.textContent !== 'Offline') {
+              txtLive.textContent = 'Reconnecting…';
+            }
+            if (staleLive) {
+              staleLive.textContent = 'Live updates reconnecting';
+              staleLive.style.color = '#F59E0B';
+            }
+          }
           es.close();
           // Exponential backoff up to 30s
           setTimeout(connect, reconnectDelay);

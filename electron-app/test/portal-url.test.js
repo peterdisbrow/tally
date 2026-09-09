@@ -16,10 +16,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { PORTAL_BASE, buildPortalUrl } = require('../src/portal-url');
 
 test('PORTAL_BASE points to the production church portal', () => {
   assert.equal(PORTAL_BASE, 'https://tallyconnect.app/church-portal');
+});
+
+test('tray Open Church Portal uses canonical /church-portal, not leftover /portal', () => {
+  const main = fs.readFileSync(path.join(__dirname, '../src/main.js'), 'utf8');
+  assert.match(main, /tallyconnect\.app\/church-portal/);
+  assert.doesNotMatch(main, /tallyconnect\.app\/portal['"]/);
 });
 
 // ─── Engineer route — the PR #60 regression case ────────────────────────────

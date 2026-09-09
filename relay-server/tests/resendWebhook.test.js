@@ -30,6 +30,7 @@ describe('POST /api/resend/webhook', () => {
   afterEach(() => {
     if (prevSecret === undefined) delete process.env.RESEND_WEBHOOK_SECRET;
     else process.env.RESEND_WEBHOOK_SECRET = prevSecret;
+    setupResendWebhook.resetLastResendWebhookAt();
   });
 
   it('returns 503 when RESEND_WEBHOOK_SECRET is unset', async () => {
@@ -107,5 +108,31 @@ describe('POST /api/resend/webhook', () => {
       expect(status).toBe(200);
     }
     expect(suppressRecipient).not.toHaveBeenCalled();
+  });
+
+  it('records last received timestamp only after a valid signature', async () => {
+    process.env.RESEND_WEBHOOK_SECRET = SECRET;
+    expect(setupResendWebhook.getLastResendWebhookAt()).toBeNull();
+    const client = buildApp({ suppressRecipient: vi.fn() });
+
+    await client.post('/api/resend/webhook', {
+      body: JSON.stringify({ type: 'email.delivered', data: { to: ['ok@x.com'] } }),
+      headers: {
+        'svix-id': 'msg_1',
+        'svix-timestamp': String(Math.floor(Date.now() / 1000)),
+        'svix-signature': 'v1,not-valid',
+      },
+    });
+    expect(setupResendWebhook.getLastResendWebhookAt()).toBeNull();
+
+    const payload = JSON.stringify({ type: 'email.delivered', data: { email_id: 'em_ok', to: ['ok@x.com'] } });
+    const { status } = await client.post('/api/resend/webhook', {
+      body: payload,
+      headers: signResendWebhook(payload, SECRET),
+    });
+    expect(status).toBe(200);
+    const lastAt = setupResendWebhook.getLastResendWebhookAt();
+    expect(typeof lastAt).toBe('string');
+    expect(Number.isNaN(Date.parse(lastAt))).toBe(false);
   });
 });

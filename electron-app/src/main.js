@@ -566,7 +566,7 @@ function updateTray() {
     // and the TD could not stop monitoring from the tray.
     { label: agentRunning ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => agentRunning ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: 'Open Church Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
+    { label: 'Open Church Portal', click: () => shell.openExternal('https://tallyconnect.app/church-portal') },
     { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
     { type: 'separator' },

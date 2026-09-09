@@ -85,7 +85,16 @@ app.use(helmet({
       scriptSrcAttr: ["'none'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", 'wss:', 'ws:', 'https://worldtimeapi.org'],
+      connectSrc: [
+        "'self'",
+        'wss:',
+        'ws:',
+        'https://worldtimeapi.org',
+        // Admin SPA Sentry (#151) posts envelopes here. Without this, browser
+        // init succeeds and every event is silently CSP-blocked.
+        'https://*.ingest.sentry.io',
+        'https://*.ingest.us.sentry.io',
+      ],
       mediaSrc: ["'self'", "blob:", "https://*.facebook.com", "https://*.fbcdn.net"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       frameSrc: ["https://www.facebook.com", "https://web.facebook.com"],
@@ -3074,11 +3083,29 @@ async function runStatusChecks() {
     }
 
     if (TALLY_BOT_TOKEN) {
-      try {
-        const webhookInfo = await timedFetch(`https://api.telegram.org/bot${TALLY_BOT_TOKEN}/getWebhookInfo`, {
-          timeoutMs: 8000,
-          readJson: true,
+      let webhookInfo = null;
+      let telegramFetchError = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          webhookInfo = await timedFetch(`https://api.telegram.org/bot${TALLY_BOT_TOKEN}/getWebhookInfo`, {
+            timeoutMs: 8000,
+            readJson: true,
+          });
+          telegramFetchError = null;
+          break;
+        } catch (error) {
+          telegramFetchError = error;
+        }
+      }
+      if (!webhookInfo) {
+        // A one-shot fetch blip is not "Telegram is down" — historic incidents
+        // were 60s `fetch failed` flaps. Degraded, not outage.
+        checks.push({
+          componentId: 'telegram_bot_webhook',
+          name: 'Telegram Bot Webhook',
+          result: { state: 'degraded', detail: `Telegram API unreachable: ${telegramFetchError?.message || 'fetch failed'}` },
         });
+      } else {
         const payload = webhookInfo.body || {};
         const webhookUrl = payload.result?.url || '';
         const expectedUrl = TALLY_BOT_WEBHOOK_URL || '';
@@ -3093,16 +3120,19 @@ async function runStatusChecks() {
           result.state = 'degraded';
           result.detail = `High Telegram pending_update_count (${backlogCount})`;
         }
+        const lastErrorDate = Number(payload.result?.last_error_date || 0);
+        const lastErrorMessage = String(payload.result?.last_error_message || '').slice(0, 160);
+        if (result.state === 'operational' && lastErrorDate > 0) {
+          const ageSec = Math.floor(Date.now() / 1000) - lastErrorDate;
+          if (ageSec >= 0 && ageSec < 600) {
+            result.state = 'degraded';
+            result.detail = `Telegram last_error ${ageSec}s ago${lastErrorMessage ? `: ${lastErrorMessage}` : ''}`;
+          }
+        }
         checks.push({
           componentId: 'telegram_bot_webhook',
           name: 'Telegram Bot Webhook',
           result: { ...result, latencyMs: webhookInfo.latencyMs },
-        });
-      } catch (error) {
-        checks.push({
-          componentId: 'telegram_bot_webhook',
-          name: 'Telegram Bot Webhook',
-          result: { state: 'outage', detail: error.message },
         });
       }
     } else {
@@ -3129,7 +3159,15 @@ async function runStatusChecks() {
         componentId: 'resend_webhook',
         name: 'Resend Webhook',
         result: process.env.RESEND_WEBHOOK_SECRET
-          ? { state: 'operational', detail: 'RESEND_WEBHOOK_SECRET configured' }
+          ? {
+              state: 'operational',
+              detail: (() => {
+                const lastAt = require('./src/routes/resendWebhook').getLastResendWebhookAt?.();
+                return lastAt
+                  ? `Secret configured; last event ${lastAt}`
+                  : 'Secret configured; no events since process start';
+              })(),
+            }
           : { state: 'degraded', detail: 'RESEND_WEBHOOK_SECRET not set — bounce/complaint handling off' },
       });
     } else {
@@ -3169,6 +3207,15 @@ async function runStatusChecks() {
       result: stripeConfigured
         ? { state: 'operational', detail: 'Stripe keys configured' }
         : { state: 'degraded', detail: 'Stripe not configured yet' },
+    });
+
+    const aiConfigured = Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
+    checks.push({
+      componentId: 'ai_assistant',
+      name: 'AI Assistant',
+      result: aiConfigured
+        ? { state: 'operational', detail: 'ANTHROPIC_API_KEY configured' }
+        : { state: 'degraded', detail: 'ANTHROPIC_API_KEY not set — Claude features use templates' },
     });
 
     for (const check of checks) {
@@ -4816,7 +4863,7 @@ const _wsHandlers = createWebSocketHandlers({
             );
             log(`[onboarding] First app connection for "${church.name}"`);
             if (dbRow.portal_email) {
-              const portalUrl = `${APP_URL}/portal`;
+              const portalUrl = `${String(APP_URL || '').replace(/\/$/, '')}/church-portal`;
               sendOnboardingEmail({
                 to: dbRow.portal_email,
                 churchId: church.churchId,
@@ -7251,6 +7298,9 @@ process.on('unhandledRejection', (reason, _promise) => {
     error: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+  }
   // Do NOT exit — the server can continue serving other requests.
 });
 
@@ -7264,6 +7314,9 @@ process.on('uncaughtException', (err, origin) => {
     error: err?.message,
     stack: err?.stack,
   });
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
   gracefulShutdown('uncaughtException', 1);
 });
 

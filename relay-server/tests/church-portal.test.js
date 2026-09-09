@@ -2092,6 +2092,18 @@ describe('Church portal HTML Sunday path', () => {
   });
 });
 
+describe('Church portal SSE reconnect visibility', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../public/portal/portal.js'), 'utf8');
+
+  it('surfaces EventSource errors instead of reconnecting silently', () => {
+    expect(src).toContain('es.onerror');
+    expect(src).toContain('Reconnecting…');
+    expect(src).toContain('Live updates reconnecting');
+  });
+});
+
 describe('Church portal billing return URLs', () => {
   it('POST /api/church/billing/reactivate points Stripe at /church-portal, not marketing /portal', async () => {
     const reactivate = vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/test' });

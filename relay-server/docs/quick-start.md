@@ -25,7 +25,7 @@ Before you start, make sure you have:
 3. Enter your church name, location, and service schedule
 4. Check your email — you'll receive a **connection token** and a **6-character registration code**
 
-> **Already have an account?** Log in at tallyconnect.app/portal to retrieve your token from the Settings tab.
+> **Already have an account?** Log in at tallyconnect.app/church-portal to retrieve your token from the Settings tab.
 
 ---
 

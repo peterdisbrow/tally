@@ -333,6 +333,32 @@ describe('GET /api/health — detailed health', () => {
     expect(body.realtime.coordination.observedChurches).toBe(3);
     expect(body.realtime.coordination.localChurches).toBe(3);
   });
+
+  it('exposes aiConfigured as a boolean without leaking the API key', () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    try {
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test-do-not-echo';
+      const ctx = makeCtx();
+      const { app, routes } = makeApp();
+      setupHealthRoutes(app, ctx);
+      const { body } = callRoute(routes, '/api/health');
+      expect(body.aiConfigured).toBe(true);
+      const raw = JSON.stringify(body);
+      expect(raw).not.toContain('sk-ant-test-do-not-echo');
+      expect(raw).not.toContain('ANTHROPIC_API_KEY');
+
+      delete process.env.ANTHROPIC_API_KEY;
+      const unset = callRoute(routes, '/api/health').body;
+      expect(unset.aiConfigured).toBe(false);
+
+      process.env.ANTHROPIC_API_KEY = '   ';
+      const blank = callRoute(routes, '/api/health').body;
+      expect(blank.aiConfigured).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prev;
+    }
+  });
 });
 
 // ─── GET /health — mirrors /api/health ────────────────────────────────────────
@@ -387,6 +413,7 @@ describe('GET /health — same handler as /api/health', () => {
     expect(health.registeredChurches).toBe(apiHealth.registeredChurches);
     expect(health.connectedChurches).toBe(apiHealth.connectedChurches);
     expect(health.totalMessagesRelayed).toBe(apiHealth.totalMessagesRelayed);
+    expect(health.aiConfigured).toBe(apiHealth.aiConfigured);
   });
 });
 
