@@ -247,7 +247,7 @@ Sales/marketing alerts: **none in the engine.** Health cron excludes non-active/
 | Client watchdog / battery / silence | church-client tests | Strong for *typed* paths |
 | Client `sendAlert` stream-down | Was untyped; **this PR adds type tests** | Electron packaging still must ship the client |
 | `/ack_` → `acknowledgeAlert` | Engine unit tests exist; bot wiring is new | No full `handleUpdate` e2e |
-| Empty schedule = no page | Indirect via schedule tests | Worth an explicit engine test (P1) |
+| Empty schedule = no page | Indirect via schedule tests | **Shipped:** explicit engine test — empty `service_times` → non-EMERGENCY `logged_outside_window` (intentional silent Sunday) |
 | Live Sunday | **None** | 0 connected churches |
 
 ---
@@ -262,7 +262,7 @@ Scored for **Cogcomm / LCC on a Sunday**, not for feature count.
 | **Trust** | **2 / 5** | 90s vs 5 min; `/ack_` lied; “Settings → Alerts” does not exist; “Tally already fixed it” never left the booth computer. After this PR, ack/resolve match the copy better. Remaining: snake_case titles, failover inbox split. |
 | **Security** | **3 / 5** | Slack URL allowlisted. Stored **plaintext** (unlike YT/FB). Admin API returns full webhook. Telegram tokens in env (correct). No secrets invented in this PR. |
 | **Polish** | **2 / 5** | Admin severity filter was case-mismatched (`CRITICAL` vs `critical`) — fixed. Slack fields dump internals. No quiet hours on the channels churches actually use. |
-| **Observability** | **2 / 5** | Console lines + Slack/Telegram HTTP errors (Slack 4xx now logged). No “alert delivered” metric. Status page watches the **interactive** webhook, not “did LCC get the stream-down page.” Sentry on relay exists; alert send failures are `console.error` only. |
+| **Observability** | **2 / 5** | Console lines + Slack/Telegram HTTP errors (Slack 4xx now logged). **Last successful send** is now a status component (`alert_delivery`) plus Sentry/Andrew page after 3 consecutive HTTP failures. Status still also watches the interactive webhook. |
 
 ---
 
@@ -324,7 +324,7 @@ Shipped here (small, high-confidence only):
 6. Classify `encoder_offline` / `signal_loss` as CRITICAL **or** remove them from bypass (they are unused and mis-labeled WARNING).
 7. Stop dumping `church.status` into Slack fields.
 8. Pre-service **pass** only if a TD asked; fail always.
-9. Metric + status component: “last successful alert send” (not just webhook getMe).
+9. Metric + status component: “last successful alert send” (not just webhook getMe). **Shipped** — `alert_delivery` status component + Sentry/Andrew page after 3 consecutive Telegram or Slack HTTP failures.
 10. Delete or rewrite `telegram-setup.md` Settings → Alerts.
 
 ### P2 — later

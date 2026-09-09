@@ -44,4 +44,10 @@ describe('Observability P0 pins', () => {
     expect(statusTabSrc).toMatch(/case 'outage'/);
     expect(statusTabSrc).toMatch(/c\.state === 'down' \|\| c\.state === 'outage'/);
   });
+
+  it('exposes last-successful alert send as a status component', () => {
+    expect(serverSrc).toContain("componentId: 'alert_delivery'");
+    expect(serverSrc).toContain('getDeliveryStatusComponent');
+    expect(serverSrc).toContain('No outbound alert sends since process start');
+  });
 });

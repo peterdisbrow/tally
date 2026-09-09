@@ -2109,6 +2109,17 @@ describe('Church portal HTML Sunday path', () => {
     expect(html).toContain('id="alerts-schedule-quiet-banner"');
   });
 
+  it('duplicates Telegram chat ID entry onto Alerts, not only Profile', () => {
+    expect(html).toContain('id="telegram-chat-id"');
+    expect(html).toContain('id="alerts-telegram-chat-id"');
+    expect(html).toContain('id="alerts-telegram-card"');
+    const alertsStart = html.indexOf('id="page-alerts"');
+    const alertsEnd = html.indexOf('id="alerts-content"');
+    expect(alertsStart).toBeGreaterThan(-1);
+    expect(alertsEnd).toBeGreaterThan(alertsStart);
+    expect(html.slice(alertsStart, alertsEnd)).toContain('id="alerts-telegram-chat-id"');
+  });
+
   it('labels Engineer chat separately from rule-based Triage', () => {
     expect(html).toContain('data-i18n="nav.engineer">Engineer chat');
     expect(html).toContain('data-i18n="nav.triage">Triage');
@@ -2132,6 +2143,13 @@ describe('Church portal SSE reconnect visibility', () => {
     expect(src).toContain('es.onerror');
     expect(src).toContain('Reconnecting…');
     expect(src).toContain('Live updates reconnecting');
+  });
+
+  it('includes a set-service-windows onboarding step (empty schedule = silent Sunday)', () => {
+    expect(src).toContain("key: 'schedule'");
+    expect(src).toContain('churchHasServiceWindows');
+    expect(src).toContain("onboarding.step.schedule.label");
+    expect(src).toContain('Empty schedule = silent Sunday');
   });
 });
 

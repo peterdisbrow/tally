@@ -42,7 +42,7 @@ Relay Node Sentry is initialized (`SENTRY_DSN` present on Railway). The Sentry o
 | **`GET /api/status` + `/status` page** | Uptime monitor + public HTML | Operational even at 0/6 booths (correct). Components = keys/HTTP, not delivery | **PARTIAL** |
 | **Status components** | Synthetic 1-min checks | 7 components. Telegram = interactive webhook. Resend = secret present (webhook created **today**). Admin Status tab mapped `outage` → Unknown | **PARTIAL → P0s this PR** |
 | **Production Smoke** | GitHub every 6h | Public health + components **PASS**. Authenticated login/churches/billing **PASS** (secrets are set). Does not assert `aiConfigured` or connected booths | **WORKING** (shallow) |
-| **Logs / metrics** | Railway search + `/api/health.realtime` | `LOG_FORMAT=json` on Railway. In-process `runtimeMetrics` on health. No BetterUptime. No “last alert send” | **PARTIAL** |
+| **Logs / metrics** | Railway search + `/api/health.realtime` | `LOG_FORMAT=json` on Railway. In-process `runtimeMetrics` on health. No BetterUptime. **Alert delivery** status component + last-success timestamps **this leftover PR** | **PARTIAL → last-send chip shipped** |
 | **Page Andrew** | Sunday fail → Telegram | `ANDREW_TELEGRAM_CHAT_ID` set. Health/offline crons + AlertEngine escalation. **No “send failed” page.** Empty service windows = log-only (except EMERGENCY) | **PARTIAL** — see [`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) |
 
 **Do not invent secrets.** `ALERT_BOT_TOKEN` stays unset (falls back to `TALLY_BOT_TOKEN`). This PR does not print `SENTRY_DSN`.
@@ -191,7 +191,7 @@ Empty service windows still make non-EMERGENCY alerts **log-only**. That is by d
 | Gap | Finding | This PR? |
 |-----|---------|----------|
 | **Portal SSE silent fail** | `EventSource.onerror` closed + backoff, no UI | **Yes** — `Reconnecting…` / amber staleness (skip when `document.hidden`) |
-| **No “did page arrive”** | AlertEngine send is fire-and-forget | **No** (P1 — needs last-success timestamp + Andrew ping on repeated fail) |
+| **“Did the page arrive?”** | AlertEngine send is fire-and-forget | **Leftover PR** — `alert_delivery` status component (last Telegram/Slack HTTP ok) + Sentry + Andrew Telegram after 3 consecutive failures |
 | **AI readiness chip** | Health/status silent on Anthropic | **Yes** — `aiConfigured` + status component `ai_assistant` (boolean / “key configured” only) |
 | **Resend webhook health** | Secret check only; webhook exists in Resend as of today | **Yes** — detail includes last verified event since boot. Zero volume still **operational** (prepare mode) |
 | **`/billing/success` leftover** | Live marketing **404**. Checkout fallback already `/church-portal` in #159 | **No extra** — already shipped |
@@ -219,8 +219,8 @@ Empty service windows still make non-EMERGENCY alerts **log-only**. That is by d
 
 ### P1 — same week, not during service
 
-1. **Last successful alert send** status component (Telegram HTTP `ok` + Slack `ok`). Page Andrew after N consecutive failures. ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) P1-9.)
-2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`.
+1. **Last successful alert send** status component (Telegram HTTP `ok` + Slack `ok`). Page Andrew after N consecutive failures. ([`ALERTS_REVIEW.md`](ALERTS_REVIEW.md) P1-9.) **Shipped** — `alert_delivery` component; `Sentry.captureException` + existing Andrew Telegram path after 3 consecutive send failures (`ALERT_SEND_FAILURE_THRESHOLD`).
+2. `Sentry.captureException` on AlertEngine send failure, `runStatusChecks` throw, Resend `email.failed`. **Partial:** AlertEngine send failures now capture. Remaining: `runStatusChecks` throw, Resend `email.failed`.
 3. Portal/Electron Sentry (SDK + CSP already allowlisted + public DSN via a church `client-config` or build-time). Not a one-liner.
 4. Production Smoke: assert `aiConfigured === true` in prod; optional `telegram_bot_webhook.state != outage`.
 5. Lifecycle emails: `${appUrl}/church-portal` (tests pin `/portal` today). Marketing 307s; reseller collision if anyone uses `RELAY_URL/portal`.

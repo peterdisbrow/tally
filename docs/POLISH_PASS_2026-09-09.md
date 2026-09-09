@@ -15,8 +15,13 @@ Sources: `ALERTS_REVIEW.md`, `CHURCH_PORTAL_REVIEW.md`, `AI_SURFACES_REVIEW.md`,
 ## Parked
 
 - **Annual “save 25%”.** Not in relay-server portal/signup. Live Stripe is 12× monthly (`BILLING_STRIPE_REVIEW.md`). Copy lives on **tally-landing** — separate PR.
-- Telegram chat ID still on Profile, not Alerts.
-- Onboarding checklist still has no “set service windows” step.
 - PCO OAuth, TD API RBAC, portal Sentry, idle timeout.
 - Founding / limited-spots / Enterprise $499 landing copy.
 - Historical review docs still mention the old 90s mismatch (snapshots, not operator copy).
+
+## Shipped later (alert-delivery leftover PR)
+
+- Telegram chat ID duplicated onto **Alerts** (`#alerts-telegram-chat-id`), still on Profile.
+- Onboarding checklist: **Set service windows** step (empty schedule = silent Sunday).
+- `alert_delivery` status component + consecutive send-failure page (Sentry + Andrew Telegram).
+- Explicit engine test: empty schedule → non-EMERGENCY alerts log-only (intentional).

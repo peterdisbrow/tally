@@ -566,6 +566,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'onboarding.step.telegram.open': 'Open Telegram',
         'onboarding.step.telegram.download': 'Download Telegram',
         'onboarding.step.telegram.skip': 'Skip for now \u2014 set up later',
+        'onboarding.step.schedule.label': 'Set service windows',
+        'onboarding.step.schedule.detail': 'Empty schedule = silent Sunday. Non-emergency alerts stay log-only until you set when you meet.',
+        'onboarding.step.schedule.btn': 'Set schedule',
         'onboarding.step.failover.label': 'Test your alert system',
         'onboarding.step.failover.detail': 'Confirm your phone gets notified if something goes wrong during service',
         'onboarding.step.failover.btn': 'Run Test',
@@ -952,6 +955,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'onboarding.step.telegram.open': 'Abrir Telegram',
         'onboarding.step.telegram.download': 'Descargar Telegram',
         'onboarding.step.telegram.skip': 'Saltar por ahora \u2014 configurar despu\u00e9s',
+        'onboarding.step.schedule.label': 'Configura las ventanas de servicio',
+        'onboarding.step.schedule.detail': 'Sin horario, el domingo queda en silencio. Las alertas que no son de emergencia solo se registran hasta que indiques cu\u00e1ndo se re\u00fanen.',
+        'onboarding.step.schedule.btn': 'Configurar horario',
         'onboarding.step.failover.label': 'Prueba tu sistema de alertas',
         'onboarding.step.failover.detail': 'Confirma que recibes notificaci\u00f3n en tu tel\u00e9fono si algo falla durante el servicio',
         'onboarding.step.failover.btn': 'Ejecutar Prueba',
@@ -1323,7 +1329,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'profile') { loadProfile(); loadNotifications(); }
       if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
-      if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); loadSlackSettings(); }
+      if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); loadSlackSettings(); loadNotifications(); }
       if (id === 'automation') loadMacros();
       if (id === 'analytics') loadAnalytics();
       if (id === 'network-topology') loadNetworkTopology();
@@ -3837,6 +3843,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       body.innerHTML = html;
     }
 
+    function churchHasServiceWindows(d) {
+      d = d || {};
+      function nonempty(parsed) {
+        if (!parsed) return false;
+        if (Array.isArray(parsed)) return parsed.length > 0;
+        if (typeof parsed === 'object') {
+          return Object.keys(parsed).some(function(k) {
+            return Array.isArray(parsed[k]) && parsed[k].length > 0;
+          });
+        }
+        return false;
+      }
+      function parse(raw) {
+        if (raw == null || raw === '') return null;
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch (e) { return null; }
+      }
+      return nonempty(parse(d.service_times)) || nonempty(parse(d.schedule)) || nonempty(parse(d.serviceTimes));
+    }
+
     function renderOnboarding(d) {
       const container = document.getElementById('onboarding-checklist');
       const itemsEl = document.getElementById('onboarding-items');
@@ -3864,6 +3890,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
             + ' <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>'
             + '<br><span class="onboard-skip-link" data-action="skipTelegramStep" style="font-size:11px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
+        },
+        {
+          key: 'schedule',
+          done: churchHasServiceWindows(d),
+          label: pt('onboarding.step.schedule.label'),
+          detail: pt('onboarding.step.schedule.detail'),
+          action: '<span class="onboard-action-btn" data-action="showPage" data-page="rooms" data-tab="tab-schedule">' + pt('onboarding.step.schedule.btn') + '</span>',
         },
         {
           key: 'failover',
@@ -6099,6 +6132,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Notifications ─────────────────────────────────────────────────────────
+    function applyTelegramChatId(value) {
+      var v = value || '';
+      ['telegram-chat-id', 'alerts-telegram-chat-id'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.value = v;
+      });
+    }
+
+    function readTelegramChatId() {
+      var alertsEl = document.getElementById('alerts-telegram-chat-id');
+      var profileEl = document.getElementById('telegram-chat-id');
+      if (alertsEl && document.getElementById('page-alerts') && document.getElementById('page-alerts').classList.contains('active')) {
+        return alertsEl.value;
+      }
+      if (alertsEl && alertsEl.value) return alertsEl.value;
+      return profileEl ? profileEl.value : '';
+    }
+
     async function loadNotifications() {
       try {
         const d = await fetchChurchProfile();
@@ -6108,7 +6159,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('notif-sync').checked = notifData.sync !== false;
         document.getElementById('notif-digest').checked = !!notifData.digest;
         document.getElementById('notif-auto-recovery').checked = d.autoRecoveryEnabled !== false && d.autoRecoveryEnabled !== 0;
-        document.getElementById('telegram-chat-id').value = d.telegramChatId || '';
+        applyTelegramChatId(d.telegramChatId || d.telegram_chat_id || '');
         // Populate failover dropdowns from live equipment status
         if (d.status) populateFailoverInputs(d.status);
       } catch(e) { toast('Failed to load notifications', true); }
@@ -6126,11 +6177,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             sync:     document.getElementById('notif-sync').checked,
             digest:   document.getElementById('notif-digest').checked,
           },
-          telegramChatId: document.getElementById('telegram-chat-id').value,
+          telegramChatId: readTelegramChatId(),
           autoRecoveryEnabled: document.getElementById('notif-auto-recovery').checked,
         });
+        applyTelegramChatId(readTelegramChatId());
         invalidateChurchProfileCache();
         toast('Notification preferences saved');
+      } catch(e) { toast(e.message, true); }
+    }
+
+    async function saveAlertsTelegramChatId() {
+      var el = document.getElementById('alerts-telegram-chat-id') || document.getElementById('telegram-chat-id');
+      try {
+        await api('PUT', '/api/church/me', {
+          telegramChatId: el ? el.value : '',
+        });
+        applyTelegramChatId(el ? el.value : '');
+        invalidateChurchProfileCache();
+        toast('Telegram chat ID saved');
       } catch(e) { toast(e.message, true); }
     }
 
@@ -17571,6 +17635,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Notifications / failover
       case 'saveNotifications':
         if (typeof saveNotifications === 'function') saveNotifications();
+        break;
+      case 'saveAlertsTelegramChatId':
+        if (typeof saveAlertsTelegramChatId === 'function') saveAlertsTelegramChatId();
         break;
       case 'saveFailoverSettings':
         if (typeof saveFailoverSettings === 'function') saveFailoverSettings();
