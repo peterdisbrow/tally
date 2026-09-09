@@ -4,8 +4,21 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+
+function defaultCaptureException(err) {
+  try {
+    const Sentry = require('@sentry/node');
+    if (Sentry && typeof Sentry.captureException === 'function') {
+      Sentry.captureException(err);
+    }
+  } catch {
+    // SDK optional in unit tests
+  }
+}
+
 module.exports = function setupStatusComponentRoutes(app, ctx) {
-  const { db, queryClient, requireAdmin, runStatusChecks, lastStatusCheckAt } = ctx;
+  const { db, queryClient, requireAdmin, runStatusChecks } = ctx;
+  const captureException = ctx.captureException || defaultCaptureException;
   const useQueryClient = queryClient
     && typeof queryClient.query === 'function'
     && typeof queryClient.queryOne === 'function';
@@ -51,6 +64,7 @@ module.exports = function setupStatusComponentRoutes(app, ctx) {
       await runStatusChecks();
       res.json({ ok: true, checkedAt: ctx.lastStatusCheckAt() });
     } catch (error) {
+      try { captureException(error); } catch { /* never fail the 500 */ }
       res.status(500).json({ ok: false, error: error.message });
     }
   });

@@ -13,14 +13,14 @@ const { createClient } = require('./helpers/expressTestClient');
 
 const SECRET = `whsec_${Buffer.from('webhook-test-secret').toString('base64')}`;
 
-function buildApp(lifecycleEmails) {
+function buildApp(lifecycleEmails, extras = {}) {
   const app = express();
   app.use(express.json({
     verify: (req, _res, buf) => {
       req.rawBody = buf.toString('utf8');
     },
   }));
-  setupResendWebhook(app, { lifecycleEmails, log: () => {} });
+  setupResendWebhook(app, { lifecycleEmails, log: () => {}, ...extras });
   return createClient(app);
 }
 
@@ -134,5 +134,58 @@ describe('POST /api/resend/webhook', () => {
     const lastAt = setupResendWebhook.getLastResendWebhookAt();
     expect(typeof lastAt).toBe('string');
     expect(Number.isNaN(Date.parse(lastAt))).toBe(false);
+    expect(setupResendWebhook.getLastResendFailure()).toBeNull();
+  });
+
+  it('captures email.failed, bounce, and complaint to Sentry without recipient PII', async () => {
+    process.env.RESEND_WEBHOOK_SECRET = SECRET;
+    const captureException = vi.fn();
+    const suppressRecipient = vi.fn().mockResolvedValue({ suppressed: true });
+    const client = buildApp({ suppressRecipient }, { captureException });
+
+    for (const type of ['email.failed', 'email.bounced', 'email.complained']) {
+      captureException.mockClear();
+      const payload = JSON.stringify({
+        type,
+        data: { email_id: `em_${type}`, to: ['secret.person@church.org'] },
+      });
+      const { status } = await client.post('/api/resend/webhook', {
+        body: payload,
+        headers: signResendWebhook(payload, SECRET),
+      });
+      expect(status).toBe(200);
+      expect(captureException).toHaveBeenCalledTimes(1);
+      const [err, hint] = captureException.mock.calls[0];
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe(`Resend ${type}`);
+      expect(err.message).not.toMatch(/church\.org|secret\.person/i);
+      expect(hint.tags.resend_event).toBe(type);
+      expect(hint.extra.emailId).toBe(`em_${type}`);
+      expect(hint.extra.recipientCount).toBe(1);
+      expect(JSON.stringify(hint)).not.toMatch(/church\.org|secret\.person/i);
+    }
+
+    const lastFailure = setupResendWebhook.getLastResendFailure();
+    expect(lastFailure).toEqual({
+      type: 'email.complained',
+      at: setupResendWebhook.getLastResendWebhookAt(),
+    });
+  });
+
+  it('does not capture delivered events to Sentry', async () => {
+    process.env.RESEND_WEBHOOK_SECRET = SECRET;
+    const captureException = vi.fn();
+    const client = buildApp({ suppressRecipient: vi.fn() }, { captureException });
+    const payload = JSON.stringify({
+      type: 'email.delivered',
+      data: { email_id: 'em_ok', to: ['ok@x.com'] },
+    });
+    const { status } = await client.post('/api/resend/webhook', {
+      body: payload,
+      headers: signResendWebhook(payload, SECRET),
+    });
+    expect(status).toBe(200);
+    expect(captureException).not.toHaveBeenCalled();
+    expect(setupResendWebhook.getLastResendFailure()).toBeNull();
   });
 });

@@ -2229,9 +2229,21 @@ if (TALLY_BOT_TOKEN) {
 
 // ─── PLATFORM STATUS CHECKS (1-minute synthetic monitor) ────────────────────
 
+// Unexpected throws from the whole run (DB upsert, etc.). Per-component fetch
+// failures stay on the status page as degraded/outage — do not Sentry those
+// (Telegram 60s flaps were #160).
+function reportStatusCheckFailure(label, error) {
+  console.error(`[StatusChecks] ${label}:`, error?.message || error);
+  try {
+    Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+  } catch {
+    // SDK optional in unit tests
+  }
+}
+
 _intervals.push(setInterval(() => {
   runStatusChecks().catch((e) => {
-    console.error('[StatusChecks] scheduled run failed:', e.message);
+    reportStatusCheckFailure('scheduled run failed', e);
   });
 }, 60_000));
 
@@ -3094,6 +3106,7 @@ async function runStatusChecks() {
           telegramFetchError = null;
           break;
         } catch (error) {
+          // Fetch blip → retry / degraded. Not Sentry — #160.
           telegramFetchError = error;
         }
       }
@@ -3162,10 +3175,14 @@ async function runStatusChecks() {
           ? {
               state: 'operational',
               detail: (() => {
-                const lastAt = require('./src/routes/resendWebhook').getLastResendWebhookAt?.();
-                return lastAt
-                  ? `Secret configured; last event ${lastAt}`
-                  : 'Secret configured; no events since process start';
+                const webhook = require('./src/routes/resendWebhook');
+                const lastAt = webhook.getLastResendWebhookAt?.();
+                const lastFailure = webhook.getLastResendFailure?.();
+                if (!lastAt) return 'Secret configured; no events since process start';
+                if (lastFailure?.type && lastFailure?.at) {
+                  return `Secret configured; last event ${lastAt}; last ${lastFailure.type} ${lastFailure.at}`;
+                }
+                return `Secret configured; last event ${lastAt}`;
               })(),
             }
           : { state: 'degraded', detail: 'RESEND_WEBHOOK_SECRET not set — bounce/complaint handling off' },
@@ -7140,7 +7157,7 @@ async function startServer() {
   log(`Tally Relay startup complete — all services ready`);
   log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
   runStatusChecks().catch((e) => {
-    console.error('[StatusChecks] initial run failed:', e.message);
+    reportStatusCheckFailure('initial run failed', e);
   });
 }
 

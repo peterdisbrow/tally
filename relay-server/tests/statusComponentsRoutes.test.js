@@ -6,7 +6,7 @@
  * realistic query execution without a running server.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createRequire } from 'module';
 
@@ -291,8 +291,10 @@ describe('POST /api/status/run-checks', () => {
   });
 
   it('returns 500 with { ok: false, error } when runStatusChecks throws', async () => {
+    const captureException = vi.fn();
     const ctx = makeCtx(db, {
       runStatusChecks: async () => { throw new Error('Check failed'); },
+      captureException,
     });
     const { app, routes } = makeApp();
     setupStatusComponentRoutes(app, ctx);
@@ -301,5 +303,8 @@ describe('POST /api/status/run-checks', () => {
     expect(status).toBe(500);
     expect(body.ok).toBe(false);
     expect(body.error).toBe('Check failed');
+    expect(captureException).toHaveBeenCalledTimes(1);
+    expect(captureException.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(captureException.mock.calls[0][0].message).toBe('Check failed');
   });
 });

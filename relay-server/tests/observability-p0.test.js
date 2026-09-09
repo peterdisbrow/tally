@@ -50,4 +50,24 @@ describe('Observability P0 pins', () => {
     expect(serverSrc).toContain('getDeliveryStatusComponent');
     expect(serverSrc).toContain('No outbound alert sends since process start');
   });
+
+  it('captures unexpected runStatusChecks throws to Sentry (not Telegram fetch flaps)', () => {
+    expect(serverSrc).toContain('function reportStatusCheckFailure');
+    expect(serverSrc).toContain("reportStatusCheckFailure('scheduled run failed'");
+    expect(serverSrc).toContain("reportStatusCheckFailure('initial run failed'");
+    const helperStart = serverSrc.indexOf('function reportStatusCheckFailure');
+    const helper = serverSrc.slice(helperStart, helperStart + 500);
+    expect(helper).toContain('Sentry.captureException');
+
+    const telegramStart = serverSrc.indexOf('let telegramFetchError = null;');
+    const telegramBlock = serverSrc.slice(telegramStart, telegramStart + 2200);
+    expect(telegramBlock).toContain("state: 'degraded'");
+    expect(telegramBlock).not.toContain('Sentry.captureException');
+    expect(telegramBlock).not.toContain('reportStatusCheckFailure');
+  });
+
+  it('surfaces last Resend failure type on the status component without changing outage policy', () => {
+    expect(serverSrc).toContain('getLastResendFailure');
+    expect(serverSrc).toContain('last ${lastFailure.type} ${lastFailure.at}');
+  });
 });
