@@ -3454,7 +3454,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="rooms">Set up your schedule ' + SVG.arrowRight + '</a></span>';
+          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" data-action="showPage" data-page="rooms" data-tab="tab-schedule">Set up your schedule ' + SVG.arrowRight + '</a></span>';
         } else {
           body.innerHTML = html;
         }
@@ -17057,6 +17057,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof showPage === 'function') {
           var navBtn = document.querySelector('.nav-item[data-page="' + page + '"]') || btn;
           showPage(page, navBtn);
+          var tab = btn.dataset.tab;
+          if (tab && typeof switchTab === 'function') switchTab(tab);
         }
         break;
 

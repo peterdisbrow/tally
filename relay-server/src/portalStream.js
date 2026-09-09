@@ -24,6 +24,13 @@
  * view of the church (e.g. the runtime mirror's getObservedChurch).
  */
 
+/** Cookie JWTs: church admin (`church_portal`) or TD (`td_portal`). */
+function churchIdFromPortalSession(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.type !== 'church_portal' && payload.type !== 'td_portal') return null;
+  return payload.churchId || null;
+}
+
 function buildPortalSnapshot(church) {
   return {
     type: 'status_snapshot',
@@ -85,6 +92,7 @@ function startPortalSnapshotHeartbeat({ portalSseClients, getObservedChurch, int
 }
 
 module.exports = {
+  churchIdFromPortalSession,
   buildPortalSnapshot,
   sendPortalSnapshotToClient,
   broadcastPortalSnapshot,

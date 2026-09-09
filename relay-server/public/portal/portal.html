@@ -95,6 +95,7 @@
           </div>
         </div>
         <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+        <button id="btn-open-profile" class="btn-secondary church-admin-only" data-action="showPage" data-page="profile" style="width:100%;margin-bottom:6px;font-size:11px">Church Profile</button>
         <button id="btn-td-change-pw" class="btn-secondary" data-action="tdChangePassword" style="width:100%;margin-bottom:6px;font-size:11px;display:none">Change Password</button>
       </div>
       <button class="view-mode-toggle sidebar-view-mode-toggle" data-action="toggleViewMode" title="Switch between simple and advanced view">
@@ -539,10 +540,10 @@
         </div>
       </div>
 
-      <div class="card advanced-only" id="schedule-overview-card" data-section-id="schedule-overview-card">
+      <div class="card" id="schedule-overview-card" data-section-id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
-          <button class="btn-secondary" data-action="showPage" data-page="rooms" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
+          <button class="btn-secondary" data-action="showPage" data-page="rooms" data-tab="tab-schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#8B9DAF">Loading schedule…</div>
       </div>
@@ -2273,7 +2274,7 @@
         <div class="card-title" style="margin-bottom:12px">Service Windows</div>
         <div id="ai-triage-windows" style="display:flex;flex-direction:column;gap:8px"></div>
         <div id="ai-triage-no-windows" style="display:none;color:#556270;font-size:13px;text-align:center;padding:20px">
-          No service schedule configured. <a href="#" data-action="showPage" data-page="profile" style="color:#00E676">Set up your schedule</a>
+          No service schedule configured. <a href="#" data-action="showPage" data-page="rooms" data-tab="tab-schedule" style="color:#00E676">Set up your schedule</a>
         </div>
       </div>
 

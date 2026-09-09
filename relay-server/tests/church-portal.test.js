@@ -372,7 +372,7 @@ function seedChurchB(db) {
  * Build a real Express app with the church portal routes registered.
  * Returns { app, db, churches } for testing.
  */
-function buildApp() {
+function buildApp(overrides = {}) {
   const db = createTestDb();
   seedChurchA(db);
   seedChurchB(db);
@@ -428,12 +428,17 @@ function buildApp() {
     sendSlackAlert: vi.fn().mockResolvedValue(undefined),
   };
 
+  const scheduleEngine = {
+    applyPortalSchedule: vi.fn().mockResolvedValue([]),
+    applyChurchWindowConfig: vi.fn(),
+  };
+
   const { setupChurchPortal } = require('../src/churchPortal');
   const queryClient = new SqliteQueryClient(db);
   setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
     signalFailover,
     aiTriageEngine,
-    billing: null,
+    billing: overrides.billing !== undefined ? overrides.billing : null,
     lifecycleEmails: null,
     preServiceCheck: null,
     sessionRecap: null,
@@ -444,9 +449,10 @@ function buildApp() {
     guestTdMode: null,
     queryClient,
     alertEngine,
+    scheduleEngine,
   });
 
-  return { app, db, churches, signalFailover, aiTriageEngine, alertEngine };
+  return { app, db, churches, signalFailover, aiTriageEngine, alertEngine, scheduleEngine };
 }
 
 /**
@@ -461,7 +467,7 @@ function request(app) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('Church Portal API', () => {
-  let app, db, churches, client, signalFailover, aiTriageEngine, alertEngine;
+  let app, db, churches, client, signalFailover, aiTriageEngine, alertEngine, scheduleEngine;
   let tokenA, tokenB;
 
   beforeEach(() => {
@@ -472,6 +478,7 @@ describe('Church Portal API', () => {
     signalFailover = built.signalFailover;
     aiTriageEngine = built.aiTriageEngine;
     alertEngine = built.alertEngine;
+    scheduleEngine = built.scheduleEngine;
     client = request(app);
     tokenA = issueToken(CHURCH_A_ID);
     tokenB = issueToken(CHURCH_B_ID);
@@ -942,6 +949,16 @@ describe('Church Portal API', () => {
         body: schedule,
       });
       expect(churches.get(CHURCH_A_ID).schedule).toEqual(schedule);
+    });
+
+    it('PUT /api/church/schedule notifies scheduleEngine so Sunday windows go live', async () => {
+      const schedule = { sunday: [{ start: '09:00', end: '11:00', label: 'Worship' }] };
+      const putRes = await client.put('/api/church/schedule', {
+        ...authHeaders(tokenA),
+        body: schedule,
+      });
+      expect(putRes.status).toBe(200);
+      expect(scheduleEngine.applyPortalSchedule).toHaveBeenCalledWith(CHURCH_A_ID, schedule);
     });
 
   });
@@ -2054,5 +2071,46 @@ describe('Church Portal API', () => {
       });
       expect(res.status).toBe(403);
     });
+  });
+});
+
+describe('Church portal HTML Sunday path', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '../public/portal/portal.html'), 'utf8');
+
+  it('exposes Church Profile from Settings and schedule links to Equipment → Schedule', () => {
+    expect(html).toContain('id="btn-open-profile"');
+    expect(html).toContain('data-page="profile"');
+    expect(html).toContain('data-page="rooms" data-tab="tab-schedule"');
+    expect(html).not.toMatch(/Set up your schedule[\s\S]{0,200}data-page="profile"/);
+  });
+
+  it('keeps the overview schedule card visible in Simple view', () => {
+    expect(html).toContain('id="schedule-overview-card"');
+    expect(html).not.toMatch(/id="schedule-overview-card"[^>]*advanced-only/);
+  });
+});
+
+describe('Church portal billing return URLs', () => {
+  it('POST /api/church/billing/reactivate points Stripe at /church-portal, not marketing /portal', async () => {
+    const reactivate = vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/test' });
+    const built = buildApp({ billing: { reactivate } });
+    built.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?').run('canceled', CHURCH_A_ID);
+    const token = issueToken(CHURCH_A_ID);
+    const client = request(built.app);
+
+    const res = await client.post('/api/church/billing/reactivate', {
+      headers: { cookie: `tally_church_session=${token}` },
+      body: { tier: 'connect', billingInterval: 'monthly' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(reactivate).toHaveBeenCalled();
+    const args = reactivate.mock.calls[0][0];
+    expect(args.successUrl).toMatch(/\/church-portal\?reactivated=true$/);
+    expect(args.cancelUrl).toMatch(/\/church-portal$/);
+    expect(args.successUrl).not.toContain('/portal?');
+    built.db.close();
   });
 });

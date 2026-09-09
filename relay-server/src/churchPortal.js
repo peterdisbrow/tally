@@ -166,6 +166,14 @@ function issueTdToken(tdId, churchId, accessLevel, jwtSecret, roomId) {
   return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
 }
 
+/** Canonical church-portal URL on the API host (marketing `/portal` 404s). */
+function churchPortalHomeUrl(req) {
+  const origin = String(
+    (req && req.headers && req.headers.origin) || process.env.RELAY_URL || 'https://api.tallyconnect.app',
+  ).replace(/\/$/, '');
+  return `${origin}/church-portal`;
+}
+
 function generateRegistrationCode(db) {
   return _genRegCode(db);
 }
@@ -631,7 +639,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, requireFeature, alertEngine, isValidSlackWebhookUrl = defaultIsValidSlackWebhookUrl, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, requireFeature, alertEngine, scheduleEngine, isValidSlackWebhookUrl = defaultIsValidSlackWebhookUrl, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
   // Fallback no-op gate when caller didn't pass requireFeature (e.g. older
   // callers, tests). Keeping the call sites cleaner than scattering ?: checks.
   const featureGate = typeof requireFeature === 'function'
@@ -1884,6 +1892,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (safePatch.audio_via_atem !== undefined || safePatch.timezone || safePatch.auto_recovery_enabled !== undefined) {
       pushConfigToClients(churchId, 'profile', safePatch);
     }
+    const windowEngine = scheduleEngine || aiTriageEngine?.scheduleEngine;
+    if (windowEngine && typeof windowEngine.applyChurchWindowConfig === 'function'
+        && (safePatch.timezone !== undefined || safePatch.church_type !== undefined || safePatch.event_expires_at !== undefined)) {
+      windowEngine.applyChurchWindowConfig(churchId, {
+        timezone: safePatch.timezone,
+        churchType: safePatch.church_type,
+        eventExpiresAt: safePatch.event_expires_at,
+      });
+    }
     res.json({ ok: true });
   });
 
@@ -2898,6 +2915,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       await qRun('UPDATE churches SET schedule = ? WHERE churchId = ?', [JSON.stringify(req.body), churchId]);
       const runtime = churches.get(churchId);
       if (runtime) runtime.schedule = req.body;
+      const windowEngine = scheduleEngine || aiTriageEngine?.scheduleEngine;
+      if (windowEngine && typeof windowEngine.applyPortalSchedule === 'function') {
+        await windowEngine.applyPortalSchedule(churchId, req.body);
+      }
       res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -3362,7 +3383,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           const stripe = Stripe(STRIPE_KEY);
           const session = await stripe.billingPortal.sessions.create({
             customer: billingRow.stripe_customer_id,
-            return_url: req.headers.origin || 'https://tallyconnect.app',
+            return_url: churchPortalHomeUrl(req),
           });
           portalUrl = session.url;
         }
@@ -3504,8 +3525,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         churchId: church.churchId,
         tier: tier || church.billing_tier,
         billingInterval: billingInterval || church.billing_interval,
-        successUrl: 'https://tallyconnect.app/portal?reactivated=true',
-        cancelUrl: 'https://tallyconnect.app/portal',
+        successUrl: churchPortalHomeUrl(req) + '?reactivated=true',
+        cancelUrl: churchPortalHomeUrl(req),
       });
 
       res.json(result);
@@ -3660,13 +3681,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
               Changed your mind? Reactivate your subscription before it expires:
             </p>
 
-            ${lifecycleEmails._cta('Reactivate Here', lifecycleEmails.appUrl + '/portal')}
+            ${lifecycleEmails._cta('Reactivate Here', churchPortalHomeUrl())}
 
             <p style="font-size: 14px; color: #666; line-height: 1.6;">
               We'd love to know why you cancelled &mdash; reply to this email and let us know. Your feedback helps us improve.
             </p>
           `),
-          text: `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate || 'the end of your billing period'}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${lifecycleEmails.appUrl}/portal\n\nTally`,
+          text: `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate || 'the end of your billing period'}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${churchPortalHomeUrl()}\n\nTally`,
         }).catch(e => console.error('[Billing] Cancel confirmation email failed:', e.message));
       }
 
