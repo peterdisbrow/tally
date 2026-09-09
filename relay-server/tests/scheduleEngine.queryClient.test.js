@@ -86,4 +86,25 @@ describe('ScheduleEngine query client', () => {
     const stored = db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get('church-1');
     expect(JSON.parse(stored.service_times)).toEqual(nextSchedule);
   });
+
+  it('applyPortalSchedule hydrates cache so isServiceWindow sees portal saves', async () => {
+    db.prepare(`
+      INSERT INTO churches (churchId, name, service_times, timezone, church_type, event_expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('church-portal', 'Portal Church', '[]', 'UTC', 'recurring', null);
+    await engine._loadCache();
+
+    expect(engine.getSchedule('church-portal')).toEqual([]);
+    expect(engine.isServiceWindow('church-portal')).toBe(false);
+
+    const allDay = [{ start: '00:00', end: '23:59', label: 'All day' }];
+    await engine.applyPortalSchedule('church-portal', {
+      sunday: allDay, monday: allDay, tuesday: allDay, wednesday: allDay,
+      thursday: allDay, friday: allDay, saturday: allDay,
+    });
+
+    const sched = engine.getSchedule('church-portal');
+    expect(sched.length).toBe(7);
+    expect(engine.isServiceWindow('church-portal')).toBe(true);
+  });
 });

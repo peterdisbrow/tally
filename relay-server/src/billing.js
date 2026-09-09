@@ -965,8 +965,8 @@ class BillingSystem {
     const sessionParams = {
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl || `${process.env.APP_URL || 'https://tallyconnect.app'}/portal?reactivated=true`,
-      cancel_url: cancelUrl || `${process.env.APP_URL || 'https://tallyconnect.app'}/portal`,
+      success_url: successUrl || `${(process.env.RELAY_URL || 'https://api.tallyconnect.app').replace(/\/$/, '')}/church-portal?reactivated=true`,
+      cancel_url: cancelUrl || `${(process.env.RELAY_URL || 'https://api.tallyconnect.app').replace(/\/$/, '')}/church-portal`,
       metadata: { churchId, tier: effectiveTier, billingInterval: effectiveInterval, reactivation: 'true' },
       allow_promotion_codes: true,
     };

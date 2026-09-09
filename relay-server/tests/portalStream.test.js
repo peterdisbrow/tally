@@ -14,6 +14,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
+  churchIdFromPortalSession,
   buildPortalSnapshot,
   sendPortalSnapshotToClient,
   broadcastPortalSnapshot,
@@ -92,6 +93,20 @@ function makeRuntime() {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe('churchIdFromPortalSession', () => {
+  it('accepts church admin and TD portal JWTs', () => {
+    expect(churchIdFromPortalSession({ type: 'church_portal', churchId: 'ch-1' })).toBe('ch-1');
+    expect(churchIdFromPortalSession({ type: 'td_portal', churchId: 'ch-2', tdId: 'td-9' })).toBe('ch-2');
+  });
+
+  it('rejects other token types and empty payloads', () => {
+    expect(churchIdFromPortalSession({ type: 'admin', churchId: 'ch-1' })).toBeNull();
+    expect(churchIdFromPortalSession({ type: 'church_app', churchId: 'ch-1' })).toBeNull();
+    expect(churchIdFromPortalSession({ type: 'td_portal' })).toBeNull();
+    expect(churchIdFromPortalSession(null)).toBeNull();
+  });
+});
 
 describe('buildPortalSnapshot', () => {
   it('emits a status_snapshot frame containing every instance and the merged status', () => {

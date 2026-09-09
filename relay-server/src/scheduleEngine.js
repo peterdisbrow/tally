@@ -251,6 +251,35 @@ class ScheduleEngine {
     return this._setScheduleAsync(churchId, serviceTimes);
   }
 
+  /**
+   * Portal Equipment → Schedule writes `churches.schedule` (object format).
+   * Production uses a query-client engine whose window checks read an
+   * in-memory cache loaded at boot — without this, "Schedule saved" is a
+   * silent no-op until process restart (empty cache = no Sunday pages).
+   */
+  async applyPortalSchedule(churchId, scheduleObj, extra = {}) {
+    if (!churchId) return [];
+    const scheduleRaw = JSON.stringify(scheduleObj && typeof scheduleObj === 'object' ? scheduleObj : {});
+    const updates = { scheduleRaw };
+    if (extra.timezone !== undefined) updates.timezone = extra.timezone || '';
+    if (extra.churchType !== undefined) updates.churchType = extra.churchType || '';
+    if (extra.eventExpiresAt !== undefined) updates.eventExpiresAt = extra.eventExpiresAt || null;
+    this._updateChurchCache(churchId, updates);
+    const legacy = this._normalizeToLegacy(scheduleObj);
+    await this.setSchedule(churchId, legacy);
+    return legacy;
+  }
+
+  /** Keep timezone / church-type cache in sync with portal profile saves. */
+  applyChurchWindowConfig(churchId, extra = {}) {
+    if (!churchId) return;
+    const updates = {};
+    if (extra.timezone !== undefined) updates.timezone = extra.timezone || '';
+    if (extra.churchType !== undefined) updates.churchType = extra.churchType || '';
+    if (extra.eventExpiresAt !== undefined) updates.eventExpiresAt = extra.eventExpiresAt || null;
+    if (Object.keys(updates).length) this._updateChurchCache(churchId, updates);
+  }
+
   _setScheduleSync(churchId, serviceTimes) {
     this.db.prepare("UPDATE churches SET service_times = ? WHERE churchId = ?")
       .run(JSON.stringify(serviceTimes), churchId);

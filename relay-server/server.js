@@ -283,6 +283,7 @@ const { createStatusBatcher } = require('./src/statusBatcher');
 const {
   sendPortalSnapshotToClient,
   startPortalSnapshotHeartbeat,
+  churchIdFromPortalSession,
 } = require('./src/portalStream');
 const { createRuntimeCoordinator } = require('./src/runtimeCoordination');
 const { createRuntimeMetrics } = require('./src/runtimeMetrics');
@@ -2505,6 +2506,7 @@ setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
   queryClient,
   requireFeature,
   alertEngine,
+  scheduleEngine,
   isValidSlackWebhookUrl,
   onRoomCreated(churchId, roomId) {
     if (!roomRegistry.has(churchId)) roomRegistry.set(churchId, new Set());
@@ -2533,8 +2535,8 @@ app.get('/api/church/stream', (req, res) => {
   let churchId;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    if (payload.type !== 'church_portal') throw new Error('wrong type');
-    churchId = payload.churchId;
+    churchId = churchIdFromPortalSession(payload);
+    if (!churchId) throw new Error('wrong type');
   } catch {
     return res.status(401).json({ error: 'Session expired' });
   }
