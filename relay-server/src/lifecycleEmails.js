@@ -60,7 +60,7 @@ function recipientScopedEmailType(baseType, recipient) {
  * so Date.now() and Stripe payloads both produce the same calendar month.
  */
 function stripeTimestampToDate(value) {
-  if (value == null || value === '') return new Date();
+  if (value === null || value === undefined || value === '') return new Date();
   const n = Number(value);
   if (!Number.isFinite(n)) return new Date();
   return new Date(n < 1e12 ? n * 1000 : n);
