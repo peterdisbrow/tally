@@ -75,6 +75,8 @@ jobs:
   church-client:
     name: Church Client Tests
     runs-on: ubuntu-latest
+    # Fail the job instead of blocking the queue if a test leaves an open handle.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
