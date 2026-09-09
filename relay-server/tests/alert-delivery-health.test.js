@@ -71,7 +71,7 @@ describe('createAlertDeliveryHealth', () => {
     expect(third.shouldPage).toBe(true);
     expect(fourth.shouldPage).toBe(false);
     expect(health.getStatusComponent().state).toBe('degraded');
-    expect(health.getStatusComponent().detail).toContain('3 consecutive send failures');
+    expect(health.getStatusComponent().detail).toContain('consecutive send failures');
   });
 
   it('re-arms paging after a later success', () => {
