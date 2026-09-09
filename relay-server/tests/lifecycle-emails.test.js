@@ -1379,4 +1379,106 @@ describe('LifecycleEmails', () => {
       expect(emails._getCategoryForType('support-ticket-opened-tkt-1:pastor@grace.church')).toBeNull();
     });
   });
+
+  describe('P1-3 unreachable-channel critical alert email', () => {
+    const nowMs = 1_700_000_000_000; // fixed window for dedup keys
+
+    it('maps critical-alert-* types to the alerts category', () => {
+      expect(LifecycleEmails.EMAIL_CATEGORIES.alerts.types).toContain('critical-alert');
+      expect(emails._getCategoryForType('critical-alert-stream_stopped-123:pastor@grace.church')).toBe('alerts');
+    });
+
+    it('builds a windowed recipient-scoped email type', () => {
+      const {
+        criticalAlertEmailType,
+        DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS,
+      } = require('../src/lifecycleEmails');
+      const type = criticalAlertEmailType('stream_stopped', 'Pastor@Grace.church', nowMs);
+      expect(type).toBe(`critical-alert-stream_stopped-${Math.floor(nowMs / DEFAULT_CRITICAL_ALERT_EMAIL_WINDOW_MS)}:pastor@grace.church`);
+    });
+
+    it('emails portal_email and leadership_emails once per window', async () => {
+      const church = mockChurch({
+        leadership_emails: 'Leader@Grace.church, pastor@grace.church, not-an-email',
+      });
+      const first = await emails.sendCriticalAlertEmail(church, {
+        alertType: 'stream_stopped',
+        severity: 'CRITICAL',
+        nowMs,
+      });
+      expect(first.reason).toBe('no-api-key');
+      expect(first.deliveries).toHaveLength(2);
+      expect(db._emailSends.map((row) => row.email_type).sort()).toEqual([
+        `critical-alert-stream_stopped-${Math.floor(nowMs / (5 * 60 * 1000))}:leader@grace.church`,
+        `critical-alert-stream_stopped-${Math.floor(nowMs / (5 * 60 * 1000))}:pastor@grace.church`,
+      ].sort());
+
+      const again = await emails.sendCriticalAlertEmail(church, {
+        alertType: 'stream_stopped',
+        nowMs: nowMs + 60_000,
+      });
+      expect(again.deliveries.every((d) => d.reason === 'already-sent')).toBe(true);
+      expect(db._emailSends).toHaveLength(2);
+
+      await emails.sendCriticalAlertEmail(church, {
+        alertType: 'stream_stopped',
+        nowMs: nowMs + 5 * 60 * 1000,
+      });
+      expect(db._emailSends).toHaveLength(4);
+    });
+
+    it('does not share a dedup key across alert types', async () => {
+      const church = mockChurch();
+      await emails.sendCriticalAlertEmail(church, { alertType: 'stream_stopped', nowMs });
+      await emails.sendCriticalAlertEmail(church, { alertType: 'audio_muted', nowMs });
+      const types = db._emailSends.map((row) => row.email_type);
+      expect(types.some((t) => t.includes('stream_stopped'))).toBe(true);
+      expect(types.some((t) => t.includes('audio_muted'))).toBe(true);
+      expect(types).toHaveLength(2);
+    });
+
+    it('returns no-recipient when portal and leaders are empty', async () => {
+      const result = await emails.sendCriticalAlertEmail(mockChurch({
+        portal_email: '',
+        leadership_emails: '',
+      }), { alertType: 'multiple_systems_down', severity: 'EMERGENCY' });
+      expect(result).toEqual({ sent: false, reason: 'no-recipient', deliveries: [] });
+      expect(db._emailSends).toHaveLength(0);
+    });
+
+    it('skips an opted-out alerts category and still records the other recipient', async () => {
+      vi.spyOn(emails, '_isOptedOut').mockReturnValue(true);
+      const result = await emails.sendCriticalAlertEmail(mockChurch(), {
+        alertType: 'stream_stopped',
+        nowMs,
+      });
+      expect(result.sent).toBe(false);
+      expect(result.deliveries[0].reason).toBe('opted-out');
+      expect(db._emailSends).toHaveLength(0);
+    });
+
+    it('skips a suppressed inbox and still mails the other leader', async () => {
+      await emails.suppressRecipient({
+        recipient: 'pastor@grace.church',
+        reason: 'bounce',
+        source: 'resend',
+      });
+      const result = await emails.sendCriticalAlertEmail(mockChurch({
+        leadership_emails: 'leader@grace.church',
+      }), { alertType: 'stream_stopped', nowMs });
+      expect(result.deliveries.find((d) => d.to === 'pastor@grace.church').reason).toBe('suppressed');
+      expect(result.deliveries.find((d) => d.to === 'leader@grace.church').reason).toBe('no-api-key');
+      expect(db._emailSends).toHaveLength(1);
+      expect(db._emailSends[0].recipient).toBe('leader@grace.church');
+    });
+
+    it('preview copy says Telegram/Slack are unset, not 90 seconds', () => {
+      const preview = emails.getPreview('critical-alert');
+      expect(preview.html).toContain('CRITICAL');
+      expect(preview.html).toContain('Telegram and Slack are not configured');
+      expect(preview.html).toContain('/church-portal');
+      expect(preview.html).not.toContain('90 seconds');
+      expect(preview.text).toContain('backup page');
+    });
+  });
 });

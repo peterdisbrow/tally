@@ -30,6 +30,15 @@ const CRITICAL_BYPASS_TYPES = new Set([
 const DEFAULT_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
+ * True when a Telegram chat ID or Slack webhook can actually receive a page.
+ * Empty string, whitespace, and "0" are treated as unset.
+ */
+function hasAlertDestination(value) {
+  const s = String(value == null ? '' : value).trim();
+  return s.length > 0 && s !== '0';
+}
+
+/**
  * Resolve the Telegram token used to *send* alerts.
  * Prefer the dedicated alerts bot; fall back to the interactive Tally bot so
  * Sunday pages still go out when ALERT_BOT_TOKEN is not set yet.
@@ -317,6 +326,7 @@ class AlertEngine {
     this.resellerSystem = options.resellerSystem || null;
     // Optional: PushNotificationService for mobile push alerts
     this.pushNotifications = options.pushNotifications || null;
+    this.lifecycleEmails = options.lifecycleEmails || null;
     this.captureException = options.captureException || defaultCaptureException;
     this.deliveryHealth = options.deliveryHealth || createAlertDeliveryHealth({
       failureThreshold: options.alertSendFailureThreshold,
@@ -703,6 +713,10 @@ class AlertEngine {
       console.warn('Slack config lookup failed:', e.message);
     }
 
+    const tdChatId = await this._resolveTelegramChatId(church);
+    const telegramDest = hasAlertDestination(tdChatId);
+    const slackDest = hasAlertDestination(slackChurch.slack_webhook_url);
+
     let msg = '';
     if (botToken) {
       // Build message (white-labeled with brand name if reseller church)
@@ -728,23 +742,8 @@ class AlertEngine {
       msgLines.push('', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
       msg = msgLines.join('\n');
 
-      // Determine on-call TD chat ID
-      // Priority: on-call rotation > church td_telegram_chat_id
-      let tdChatId = church.td_telegram_chat_id;
-      if (this.onCallRotation) {
-        try {
-          const onCallTd = await this.onCallRotation.getOnCallTD(church.churchId);
-          if (onCallTd?.telegramChatId) {
-            tdChatId = onCallTd.telegramChatId;
-            console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
-          }
-        } catch (e) {
-          console.warn('  ↳ On-call lookup failed, falling back to default TD:', e.message);
-        }
-      }
-
       // Send to TD
-      if (tdChatId) {
+      if (telegramDest) {
         await this.sendTelegramMessage(tdChatId, botToken, msg);
       }
 
@@ -757,7 +756,28 @@ class AlertEngine {
     // Send Slack alert if configured (same class of alerts Telegram gets)
     await this.sendSlackAlert(slackChurch, alertType, severity, context, diagnosis);
 
-    if (!botToken && !slackChurch.slack_webhook_url) {
+    // P1-3: booths with no Telegram chat ID and no Slack webhook currently get
+    // nothing until (maybe) the 5-min escalation, which still assumes Telegram.
+    // Email portal_email (+ leaders if set) for EMERGENCY/CRITICAL only.
+    let emailed = false;
+    if ((severity === 'CRITICAL' || severity === 'EMERGENCY') && !telegramDest && !slackDest && this.lifecycleEmails) {
+      try {
+        const emailChurch = await this._enrichChurchForAlertEmail(slackChurch);
+        await this.lifecycleEmails.sendCriticalAlertEmail(emailChurch, {
+          alertType,
+          context,
+          severity,
+          diagnosis,
+          alertId,
+        });
+        emailed = true;
+        console.log('  ↳ No Telegram/Slack destination — emailed portal as backup');
+      } catch (e) {
+        console.error('[AlertEngine] Critical alert email failed:', e.message);
+      }
+    }
+
+    if (!botToken && !slackDest && !emailed) {
       return { alertId, severity, action: 'no_bot_token' };
     }
 
@@ -778,8 +798,9 @@ class AlertEngine {
             await this.sendTelegramMessage(this.adminChatId, botToken,
               `🚨 ESCALATED (no TD response in 5 min)\n\n${msg}`);
           }
-          // Also send escalation email as backup
-          if (this.lifecycleEmails) {
+          // Church escalation email assumes a Telegram dest that never acked.
+          // Skip it when we already used the unreachable-channel email path.
+          if (this.lifecycleEmails && telegramDest) {
             this.lifecycleEmails.sendUrgentAlertEscalation(church, { alertType, context, alertId }).catch(e => console.error('[AlertEngine] Escalation email failed:', e.message));
           }
         }
@@ -788,7 +809,41 @@ class AlertEngine {
       this.activeAlerts.set(alertId, { church, alertType, context, severity, sentAt: now, escalationTimer: timer, acknowledged: false });
     }
 
-    return { alertId, severity, action: 'notified' };
+    return { alertId, severity, action: emailed && !telegramDest && !slackDest ? 'emailed' : 'notified' };
+  }
+
+  async _resolveTelegramChatId(church) {
+    let tdChatId = church.td_telegram_chat_id;
+    if (this.onCallRotation) {
+      try {
+        const onCallTd = await this.onCallRotation.getOnCallTD(church.churchId);
+        if (onCallTd?.telegramChatId) {
+          tdChatId = onCallTd.telegramChatId;
+          console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
+        }
+      } catch (e) {
+        console.warn('  ↳ On-call lookup failed, falling back to default TD:', e.message);
+      }
+    }
+    return tdChatId;
+  }
+
+  async _enrichChurchForAlertEmail(church) {
+    if (church.portal_email && church.leadership_emails != null) return church;
+    try {
+      const row = await this._queryOne(
+        'SELECT portal_email, leadership_emails FROM churches WHERE churchId = ?',
+        [church.churchId],
+      );
+      if (!row) return church;
+      return {
+        ...church,
+        portal_email: church.portal_email || row.portal_email,
+        leadership_emails: church.leadership_emails != null ? church.leadership_emails : row.leadership_emails,
+      };
+    } catch {
+      return church;
+    }
   }
 
   // ─── SLACK INTEGRATION ───────────────────────────────────────────────────
@@ -1001,4 +1056,5 @@ module.exports = {
   resolveAlertBotToken,
   inferAlertTypeFromMessage,
   createAlertDeliveryHealth,
+  hasAlertDestination,
 };

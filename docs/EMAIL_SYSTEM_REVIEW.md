@@ -19,9 +19,10 @@ Code landed in a follow-up PR (this note). Does **not** need Andrew secrets or S
 | **P1-8** | `sendDisputeAlert` now also notifies Andrew/ops via `ADMIN_EMAIL` (fallback `ADMIN_SEED_EMAIL`). Church `portal_email` still gets the mail. No new env product. |
 | **P1-9** | `sendEmailChangeConfirmation` notifies **old inbox + new inbox**. |
 | **P1-11** | `invoice-upcoming` month key treats Stripe unix **seconds** (and ms) consistently. |
+| **P1-3** | EMERGENCY/CRITICAL with **no Telegram chat ID and no Slack webhook** now emails `portal_email` (+ `leadership_emails` if set) via `sendEmail`. Recipient-scoped 5-min window dedup. Prefs category `alerts` + suppressions honored. Empty schedule still log-only for non-EMERGENCY. |
 | **P2-17 (small)** | Lifecycle CTAs `${appUrl}/portal` → `/church-portal` (church portal, not reseller). |
 
-Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-3 stream-down email; P1-6 env value; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
+Still deferred (needs ops / larger work): Railway `EMAIL_REPLY_TO` / `RESEND_WEBHOOK_SECRET` / key-team check; P1-6 env value; P1-10 dual weekly engines; `/nps` landing in tally-landing; Stripe Dashboard; dedicated ALERT_BOT_TOKEN.
 
 Companion audits: [`FEATURE_AUDIT_2026-09-08.md`](FEATURE_AUDIT_2026-09-08.md) (whole product; **stale** on Mac email URLs — #141 landed after it), [`ADMIN_DASHBOARD_REVIEW.md`](ADMIN_DASHBOARD_REVIEW.md) (Emails tab).
 
@@ -50,6 +51,7 @@ Triggers (cron / webhook / HTTP)
         │
         ├─ LifecycleEmails.sendEmail()          ── primary path (dedup + throttle + opt-out + suppress + footer)
         ├─ LifecycleEmails.send* bypasses       ── password-reset, email-change, urgent-alert, sendManual
+        ├─ LifecycleEmails.sendCriticalAlertEmail() ── EMERGENCY/CRITICAL, no Telegram dest + no Slack (via sendEmail)
         └─ server.js sendOnboardingEmail()      ── verification + first-app-connection only
                 │
                 ▼
@@ -172,15 +174,17 @@ Realtime alerts are **not** email-first.
 | **Telegram** | WARNING+ in service window (or EMERGENCY anytime), if bot token + TD chat (on-call wins) | `sendTelegramMessage` |
 | **Slack** | Same class, if `slack_webhook_url` | `sendSlackAlert` (independent of Telegram) |
 | **Push** | If `pushNotifications` configured | Firebase — **CODE_ONLY** per feature audit |
-| **Email** | CRITICAL, **unacked after 5 minutes**, then `sendUrgentAlertEscalation` | portal_email |
+| **Email** | (1) EMERGENCY/CRITICAL **immediately** if no Telegram dest **and** no Slack webhook → `sendCriticalAlertEmail`. (2) CRITICAL unacked after 5 min **and** a Telegram dest existed → `sendUrgentAlertEscalation` | portal_email (+ leaders on path 1) |
 | **Email** | Support ticket opened / admin reply / resolved | portal_email + ops |
 
 | Type | Trigger | To | Subject | Status |
 |------|---------|----|---------|--------|
-| `urgent-alert-{alertId}` | Escalation timer | portal | URGENT: {alertType} at {name} | **PARTIAL** — body says “90 seconds”; timer is **300_000 ms**. Bypasses `sendEmail` (no footer, no category). No stream-down email for WARNING. |
+| `critical-alert-{type}-{window}:{email}` | EMERGENCY/CRITICAL, no Telegram chat ID, no Slack webhook | portal + `leadership_emails` | `{CRITICAL\|EMERGENCY}: {alertType} at {name}` | **WORKS** (P1-3). Uses `sendEmail` (`alerts` category, suppressions, recipient-scoped 5-min window). |
+| `urgent-alert-{alertId}` | Escalation timer (only if Telegram dest existed) | portal | URGENT: {alertType} at {name} | **PARTIAL** — body says “90 seconds”; timer is **300_000 ms**. Bypasses `sendEmail` (no footer, no category). No stream-down email for WARNING. |
 | `support-ticket-opened-{ticketId}:{email}` | Ticket create (`supportTickets.js` + church portal) | **church portal_email + Andrew/ops (`ADMIN_EMAIL`)** | Support ticket opened — {title} | **WORKS** (P1-2; transactional; recipient-scoped dedup) |
 | `support-ticket-reply-{ticketId}-{updateId}:{email}` | Admin POST update (not church replies) | same | Tally support replied — {title} | **WORKS** (P1-2) |
 | `support-ticket-resolved-{ticketId}:{email}` | Admin reply/PUT to resolved or closed | same | Support ticket resolved — {title} | **WORKS** (P1-2) |
+
 
 ### 2.5 Password / profile / invites / admin
 
@@ -282,7 +286,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 |----|--------|----------|-----------|
 | P1-1 | **Multi-recipient reports send once.** `email_sends` is UNIQUE `(church_id, email_type)`. Recap / weekly-leadership / monthly / post-service use one type per session/week/month, then loop leaders. Second address → `already-sent`. | `sendSessionRecapEmail`, `sendWeeklyDigestEmail`, `sendMonthlyReportEmail`, `postServiceReport._sendReportEmail` | **Fixed:** `emailType` includes normalized recipient; reports send `urgent` so the 5-min church throttle does not drop the 2nd leader. |
 | P1-2 | **No support-ticket email.** Open / admin reply / resolve = SSE only. `lifecycleEmails` unused in the route module. | `supportTickets.js` | **Fixed:** church + ops mail on open; church + ops on admin reply and resolve/close. SSE kept. Not marketing. |
-| P1-3 | **No stream-down / outage email.** Email only after CRITICAL + 5 min no Telegram ack. Booths without Telegram/Slack get **nothing**. | `alertEngine.js` | Optional email for EMERGENCY/CRITICAL to portal + leaders (respect prefs). |
+| P1-3 | **No stream-down / outage email.** Email only after CRITICAL + 5 min no Telegram ack. Booths without Telegram/Slack get **nothing**. | `alertEngine.js` | **Fixed:** `sendCriticalAlertEmail` on EMERGENCY/CRITICAL when Telegram dest and Slack webhook are both unset. Portal + leaders. `alerts` prefs + suppressions. Windowed recipient-scoped dedup. Empty schedule still log-only. |
 | P1-4 | **NPS buttons 404.** | Live `tallyconnect.app/nps` **404** | **Don't send** until landing exists. `isNpsSurveyEnabled()` is hard-false. Do **not** invent `/nps` in this repo. |
 | P1-5 | **Lead drip has no unsubscribe category.** Marketing to captured emails. Footer not injected. | `_getCategoryForType` returns null for `lead-*` | **Fixed (prepare-mode):** `_checkLeadNurture` + `sendLeadWelcome` gated off. Capture still stores the lead. Re-enable with `ENABLE_LIFECYCLE_MARKETING=1` (then add `lead-nurture` category before sending). |
 | P1-6 | **“Reply to this email” with `noreply@`.** | Code now sends `reply_to` when `EMAIL_REPLY_TO` is set | **Code done.** Still need the Railway env value. |
@@ -331,6 +335,7 @@ Tests: `lifecycle-emails.test.js` asserts latest URLs and **no** `v1.0.1` / `Tal
 | Weekly / monthly HTML | `tests/weekly-digest-email.test.js` | Subjects, metrics, week/month keys | Dual-engine collision |
 | Verify / reset API | `tests/emailVerification*.test.js` | Verify, resend, forgot, reset token | Live landing URL (added assertion this PR) |
 | Recap / report send | `tests/postServiceReport.test.js`, `weeklyDigest.test.js` | Calls `sendEmail` / digest when leaders set | Does **not** assert second recipient |
+| Unreachable-channel alert email | `tests/lifecycle-emails.test.js`, `tests/telegram-alert-delivery.test.js` | P1-3: portal+leaders, windowed recipient dedup, prefs/suppress, no email when Telegram/Slack dest exists, empty-schedule still log-only | Live Resend |
 | Tickets | `tests/supportTickets-routes.test.js` | CRUD / triage + open/reply/resolve email wiring | Telegram / AI-triage open paths |
 
 No test hits the live Resend API. `reply_to` and sanitized tags are asserted against mocked fetch. No Linux assets.
@@ -344,7 +349,7 @@ Already present and useful in prepare-mode: verification, welcome, connection-su
 **Missing or weak for a real booth:**
 
 1. **Ticket closed-loop email** — **done (P1-2).** Open / admin reply / resolve go to portal_email + ops.
-2. **Stream-down / encoder-down email** when Telegram/Slack unset (or as a 10-min digest after service).
+2. **Stream-down / encoder-down email** when Telegram/Slack unset — **done** for EMERGENCY/CRITICAL (`sendCriticalAlertEmail`). WARNING stays Telegram/Slack/log-only.
 3. **Registration code in setup-reminder** (connection-success has `/register CODE`; setup-reminder does not repeat the code).
 4. **One first-Sunday packet** (gear green, Telegram, schedule, who gets recaps) instead of four overlapping Day 3–7 mails + trial-ending-7d on the same week.
 5. **Post-service follow-up that is one email**, not recap + AI report + (maybe) weekly.
@@ -390,6 +395,7 @@ Sales/GTM is paused. Keep **trust + setup + Sunday + money**. Turn **off** nurtu
 | Payment fail / grace / upcoming invoice | existing billing set | Don’t lose Sunday monitoring |
 | Password reset / email change (both addresses) | transactional | Security |
 | CRITICAL unacked | urgent email **plus** Telegram/Slack | Backup page |
+| CRITICAL/EMERGENCY, no Telegram dest, no Slack | `critical-alert-*` to portal (+ leaders) | Backup page when paging channels are unset |
 
 ### Pause (code stays; don’t fire)
 
@@ -414,12 +420,12 @@ Use Emails tab for **one-off** human notes (onboarding nudge, custom). Do not �
 P0 reliability/compliance in this PR is done. Remaining, in order:
 
 1. **Railway:** set `EMAIL_REPLY_TO` and `RESEND_WEBHOOK_SECRET`; confirm `RESEND_API_KEY` is the same team as the verified `tallyconnect.app` domain (§11).
-2. **P1-3** — optional critical / stream-down email (Sunday closed loop).
+2. **P1-2 / P1-3 done** — ticket closed-loop email and unreachable-channel CRITICAL/EMERGENCY email.
 3. **P1-4** — `/nps` landing in tally-landing (send path already gated off).
 4. **P1-8 / P1-9** — **done:** dispute→Andrew (`ADMIN_EMAIL`); email-change notice to old + new inbox.
 5. **P1-10** — one weekly digest job.
 
-**Done in code (no Railway):** P1-1 recipient dedup, P1-2 ticket closed-loop email, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-8 dispute→ops, P1-9 email-change both inboxes, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
+**Done in code (no Railway):** P1-1 recipient dedup, P1-2 ticket closed-loop email, P1-3 unreachable-channel critical email, P1-5/§9 prepare-mode pause, P1-7 unsub secret, P1-8 dispute→ops, P1-9 email-change both inboxes, P1-11 invoice month key, lifecycle `/church-portal` CTAs.
 
 Do **not** build Resend Broadcasts / Automations (sales gated). Do **not** mass-email existing churches. Do **not** move everything to dashboard templates — code templates + admin overrides are fine.
 
