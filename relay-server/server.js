@@ -2502,6 +2502,8 @@ setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
   planningCenter,
   queryClient,
   requireFeature,
+  alertEngine,
+  isValidSlackWebhookUrl,
   onRoomCreated(churchId, roomId) {
     if (!roomRegistry.has(churchId)) roomRegistry.set(churchId, new Set());
     roomRegistry.get(churchId).add(roomId);

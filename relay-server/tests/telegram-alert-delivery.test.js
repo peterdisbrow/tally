@@ -34,7 +34,8 @@ function createTestDb() {
       td_telegram_chat_id TEXT DEFAULT '',
       td_name TEXT DEFAULT '',
       alert_bot_token TEXT DEFAULT '',
-      slack_webhook_url TEXT DEFAULT ''
+      slack_webhook_url TEXT DEFAULT '',
+      slack_channel TEXT DEFAULT ''
     )
   `);
   return db;
@@ -122,6 +123,35 @@ describe('Telegram alert delivery — HTTP contract', () => {
     const result = await noTokenEngine.sendAlert(church, 'audio_silence', {});
     expect(result.action).toBe('no_bot_token');
     expect(telegram.calls).toHaveLength(0);
+  });
+
+  it('still sends Slack when Telegram has no bot token', async () => {
+    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, {});
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
+      .run('church-slack-only', 'Slack Only', webhookUrl);
+    const church = makeChurch({
+      churchId: 'church-slack-only',
+      name: 'Slack Only',
+      alert_bot_token: '',
+      slack_webhook_url: webhookUrl,
+    });
+
+    const result = await noTokenEngine.sendAlert(church, 'audio_silence', {});
+    expect(result.action).toBe('notified');
+    expect(telegram.calls).toHaveLength(0);
+    const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('https://hooks.slack.com/'),
+    );
+    expect(slackCalls).toHaveLength(1);
+  });
+
+  it('does not skip Telegram when Slack is also configured', async () => {
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    const church = makeChurch({ slack_webhook_url: webhookUrl });
+    await engine.sendAlert(church, 'audio_silence', { dbfs: -60 });
+    expect(telegram.calls).toHaveLength(1);
+    expect(telegram.calls[0].text).toContain('AUDIO SILENCE');
   });
 
   it('falls back to defaultBotToken when church row has no token', async () => {

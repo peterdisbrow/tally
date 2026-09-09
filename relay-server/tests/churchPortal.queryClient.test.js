@@ -53,7 +53,9 @@ function createDb() {
       onboarding_dismissed INTEGER DEFAULT 0,
       onboarding_failover_tested_at TEXT,
       onboarding_team_invited_at TEXT,
-      ingest_stream_key TEXT
+      ingest_stream_key TEXT,
+      slack_webhook_url TEXT,
+      slack_channel TEXT
     );
     CREATE TABLE billing_customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

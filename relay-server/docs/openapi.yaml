@@ -2697,6 +2697,92 @@ paths:
         '200':
           description: Test message sent
 
+  /api/church/slack:
+    get:
+      tags: [Slack]
+      summary: Get this church's Slack webhook status
+      operationId: getChurchPortalSlack
+      description: |
+        Church portal cookie session. Returns whether Slack is connected and a
+        masked webhook hint. Never returns the full incoming-webhook secret.
+      responses:
+        '200':
+          description: Slack status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  webhookUrl:
+                    type: string
+                    description: Masked URL; empty when not configured
+                  channel:
+                    type: string
+        '401':
+          description: Not authenticated
+    put:
+      tags: [Slack]
+      summary: Save this church's Slack incoming webhook
+      operationId: updateChurchPortalSlack
+      description: |
+        Church admin cookie session + CSRF. Stores the webhook for this church
+        and optionally sends a test message. Response is always masked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhookUrl]
+              properties:
+                webhookUrl:
+                  type: string
+                  format: uri
+                  description: Must be an HTTPS hooks.slack.com URL
+                channel:
+                  type: string
+                sendTest:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Config saved (masked)
+        '400':
+          description: Invalid or missing webhook URL
+        '401':
+          description: Not authenticated
+        '403':
+          description: Admin access or CSRF required
+    delete:
+      tags: [Slack]
+      summary: Remove this church's Slack integration
+      operationId: deleteChurchPortalSlack
+      responses:
+        '200':
+          description: Integration removed
+        '401':
+          description: Not authenticated
+        '403':
+          description: Admin access or CSRF required
+
+  /api/church/slack/test:
+    post:
+      tags: [Slack]
+      summary: Send a Slack test message for this church
+      operationId: testChurchPortalSlack
+      description: Church admin cookie session + CSRF. Uses the stored webhook.
+      responses:
+        '200':
+          description: Test message sent
+        '400':
+          description: Slack not configured
+        '401':
+          description: Not authenticated
+        '403':
+          description: Admin access or CSRF required
+
   # ── TELEGRAM ──────────────────────────────────────────────────────────────────
 
   /api/telegram-webhook:

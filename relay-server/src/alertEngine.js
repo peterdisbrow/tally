@@ -608,59 +608,78 @@ class AlertEngine {
     const botToken = church.alert_bot_token || this.defaultBotToken;
     if (!botToken) {
       console.warn('  ↳ No bot token configured — cannot send Telegram alert');
+    }
+
+    // Slack is independent of Telegram. Load the stored webhook so portal-saved
+    // config still fires even if the in-memory church object is stale.
+    let slackChurch = church;
+    try {
+      const dbChurch = await this._queryOne(
+        'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
+        [church.churchId],
+      );
+      if (dbChurch) slackChurch = { ...church, ...dbChurch };
+    } catch (e) {
+      console.warn('Slack config lookup failed:', e.message);
+    }
+
+    let msg = '';
+    if (botToken) {
+      // Build message (white-labeled with brand name if reseller church)
+      const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
+      const brandName = this._getBrandName(church);
+      const alertTitle = brandName !== 'Tally'
+        ? `${icon} *${brandName} — ${alertType.replace(/_/g, ' ')} at ${church.name}*`
+        : `${icon} *${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}*`;
+      const msgLines = [alertTitle];
+      if (brandName === 'Tally') msgLines.push(`Church: ${church.name}`);
+      msgLines.push(`Time: ${ts}`, '', `💡 Likely cause: ${diagnosis.likely_cause}`);
+      diagnosis.steps.forEach((s, i) => msgLines.push(`${i + 1}. ${s}`));
+      // Include recovery status if available
+      if (recoveryResult && recoveryResult.attempted) {
+        if (recoveryResult.success) {
+          msgLines.push('', `✅ *Tally auto-recovered:* ${recoveryResult.command || 'recovery action'} succeeded.`);
+        } else {
+          msgLines.push('', `❌ *Auto-recovery failed:* ${recoveryResult.command || 'recovery action'} did not resolve the issue. Manual intervention needed.`);
+        }
+      } else {
+        msgLines.push('', diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.');
+      }
+      msgLines.push('', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
+      msg = msgLines.join('\n');
+
+      // Determine on-call TD chat ID
+      // Priority: on-call rotation > church td_telegram_chat_id
+      let tdChatId = church.td_telegram_chat_id;
+      if (this.onCallRotation) {
+        try {
+          const onCallTd = await this.onCallRotation.getOnCallTD(church.churchId);
+          if (onCallTd?.telegramChatId) {
+            tdChatId = onCallTd.telegramChatId;
+            console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
+          }
+        } catch (e) {
+          console.warn('  ↳ On-call lookup failed, falling back to default TD:', e.message);
+        }
+      }
+
+      // Send to TD
+      if (tdChatId) {
+        await this.sendTelegramMessage(tdChatId, botToken, msg);
+      }
+
+      // EMERGENCY → also notify the admin contact immediately
+      if (severity === 'EMERGENCY' && this.adminChatId) {
+        await this.sendTelegramMessage(this.adminChatId, botToken, `[ESCALATED] ${msg}`);
+      }
+    }
+
+    // Send Slack alert if configured (same class of alerts Telegram gets)
+    await this.sendSlackAlert(slackChurch, alertType, severity, context, diagnosis);
+
+    if (!botToken && !slackChurch.slack_webhook_url) {
       return { alertId, severity, action: 'no_bot_token' };
     }
-
-    // Build message (white-labeled with brand name if reseller church)
-    const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
-    const brandName = this._getBrandName(church);
-    const alertTitle = brandName !== 'Tally'
-      ? `${icon} *${brandName} — ${alertType.replace(/_/g, ' ')} at ${church.name}*`
-      : `${icon} *${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}*`;
-    const msgLines = [alertTitle];
-    if (brandName === 'Tally') msgLines.push(`Church: ${church.name}`);
-    msgLines.push(`Time: ${ts}`, '', `💡 Likely cause: ${diagnosis.likely_cause}`);
-    diagnosis.steps.forEach((s, i) => msgLines.push(`${i + 1}. ${s}`));
-    // Include recovery status if available
-    if (recoveryResult && recoveryResult.attempted) {
-      if (recoveryResult.success) {
-        msgLines.push('', `✅ *Tally auto-recovered:* ${recoveryResult.command || 'recovery action'} succeeded.`);
-      } else {
-        msgLines.push('', `❌ *Auto-recovery failed:* ${recoveryResult.command || 'recovery action'} did not resolve the issue. Manual intervention needed.`);
-      }
-    } else {
-      msgLines.push('', diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.');
-    }
-    msgLines.push('', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
-    const msg = msgLines.join('\n');
-
-    // Determine on-call TD chat ID
-    // Priority: on-call rotation > church td_telegram_chat_id
-    let tdChatId = church.td_telegram_chat_id;
-    if (this.onCallRotation) {
-      try {
-        const onCallTd = await this.onCallRotation.getOnCallTD(church.churchId);
-        if (onCallTd?.telegramChatId) {
-          tdChatId = onCallTd.telegramChatId;
-          console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
-        }
-      } catch (e) {
-        console.warn('  ↳ On-call lookup failed, falling back to default TD:', e.message);
-      }
-    }
-
-    // Send to TD
-    if (tdChatId) {
-      await this.sendTelegramMessage(tdChatId, botToken, msg);
-    }
-
-    // EMERGENCY → also notify the admin contact immediately
-    if (severity === 'EMERGENCY' && this.adminChatId) {
-      await this.sendTelegramMessage(this.adminChatId, botToken, `[ESCALATED] ${msg}`);
-    }
-
-    // Send Slack alert if configured
-    await this.sendSlackAlert(church, alertType, severity, context, diagnosis);
 
     // Send mobile push notification if configured
     if (this.pushNotifications) {
@@ -675,7 +694,7 @@ class AlertEngine {
         if (alert && !alert.acknowledged) {
           console.log('  ↳ No ack after 5min — escalating to admin contact');
           await this._run('UPDATE alerts SET escalated = 1 WHERE id = ?', [alertId]);
-          if (this.adminChatId) {
+          if (this.adminChatId && botToken && msg) {
             await this.sendTelegramMessage(this.adminChatId, botToken,
               `🚨 ESCALATED (no TD response in 5 min)\n\n${msg}`);
           }

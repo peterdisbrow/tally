@@ -71,7 +71,9 @@ function createTestDb() {
       timezone TEXT DEFAULT 'UTC',
       campus_id TEXT,
       room_id TEXT,
-      room_name TEXT
+      room_name TEXT,
+      slack_webhook_url TEXT,
+      slack_channel TEXT
     )
   `);
   db.exec(`
@@ -422,6 +424,10 @@ function buildApp() {
     getTimeContext: vi.fn().mockReturnValue({ context: 'off_hours' }),
   };
 
+  const alertEngine = {
+    sendSlackAlert: vi.fn().mockResolvedValue(undefined),
+  };
+
   const { setupChurchPortal } = require('../src/churchPortal');
   const queryClient = new SqliteQueryClient(db);
   setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
@@ -437,9 +443,10 @@ function buildApp() {
     aiRateLimiter: null,
     guestTdMode: null,
     queryClient,
+    alertEngine,
   });
 
-  return { app, db, churches, signalFailover, aiTriageEngine };
+  return { app, db, churches, signalFailover, aiTriageEngine, alertEngine };
 }
 
 /**
@@ -454,7 +461,7 @@ function request(app) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('Church Portal API', () => {
-  let app, db, churches, client, signalFailover, aiTriageEngine;
+  let app, db, churches, client, signalFailover, aiTriageEngine, alertEngine;
   let tokenA, tokenB;
 
   beforeEach(() => {
@@ -464,6 +471,7 @@ describe('Church Portal API', () => {
     churches = built.churches;
     signalFailover = built.signalFailover;
     aiTriageEngine = built.aiTriageEngine;
+    alertEngine = built.alertEngine;
     client = request(app);
     tokenA = issueToken(CHURCH_A_ID);
     tokenB = issueToken(CHURCH_B_ID);
@@ -515,6 +523,10 @@ describe('Church Portal API', () => {
       ['POST', '/api/church/review'],
       ['GET', '/api/church/referrals'],
       ['GET', '/api/church/alerts'],
+      ['GET', '/api/church/slack'],
+      ['PUT', '/api/church/slack'],
+      ['DELETE', '/api/church/slack'],
+      ['POST', '/api/church/slack/test'],
       ['GET', '/api/church/analytics'],
       ['GET', '/api/church/session/active'],
     ];
@@ -751,6 +763,7 @@ describe('Church Portal API', () => {
       expect(res.body.churchId).toBe(CHURCH_A_ID);
       expect(res.body.portal_password_hash).toBeUndefined();
       expect(res.body.token).toBeUndefined();
+      expect(res.body.slack_webhook_url).toBeUndefined();
       expect(res.body).toHaveProperty('connected');
       expect(res.body).toHaveProperty('notifications');
       expect(res.body).toHaveProperty('autoRecoveryEnabled');
@@ -1688,6 +1701,170 @@ describe('Church Portal API', () => {
       expect(res.body.name).toBe('TD Extra');
     });
 
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Slack self-serve (church session)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Portal Slack alerts', () => {
+    const webhookUrl = 'https://hooks.slack.com/services/T123/B456/abcdefsecret';
+
+    it('GET /api/church/slack returns not configured by default', async () => {
+      const res = await client.get('/api/church/slack', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(false);
+      expect(res.body.webhookUrl).toBe('');
+    });
+
+    it('PUT /api/church/slack saves webhook, masks it, and sends a test', async () => {
+      const res = await client.put('/api/church/slack', {
+        ...authHeaders(tokenA),
+        body: { webhookUrl, sendTest: true },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(true);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.testSent).toBe(true);
+      expect(res.body.webhookUrl).toMatch(/••••/);
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+      expect(alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
+
+      const row = db.prepare('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?').get(CHURCH_A_ID);
+      expect(row.slack_webhook_url).toBe(webhookUrl);
+      expect(churches.get(CHURCH_A_ID).slack_webhook_url).toBe(webhookUrl);
+    });
+
+    it('GET /api/church/slack never echoes the full webhook secret', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
+        .run(webhookUrl, '#booth', CHURCH_A_ID);
+      const res = await client.get('/api/church/slack', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.channel).toBe('#booth');
+      expect(res.body.webhookUrl).toContain('T12');
+      expect(res.body.webhookUrl).toMatch(/••••/);
+      expect(res.body.webhookUrlFull).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+    });
+
+    it('GET /api/church/me never includes slack_webhook_url after save', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?').run(webhookUrl, CHURCH_A_ID);
+      const res = await client.get('/api/church/me', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.slack_webhook_url).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+    });
+
+    it('PUT /api/church/slack rejects an invalid webhook URL', async () => {
+      const res = await client.put('/api/church/slack', {
+        ...authHeaders(tokenA),
+        body: { webhookUrl: 'https://evil.example/webhook' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/invalid slack webhook/i);
+    });
+
+    it('PUT /api/church/slack rejects a masked placeholder', async () => {
+      const res = await client.put('/api/church/slack', {
+        ...authHeaders(tokenA),
+        body: { webhookUrl: 'https://hooks.slack.com/services/T12••••/••••••••' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/full slack incoming webhook/i);
+    });
+
+    it('PUT /api/church/slack does not touch another church', async () => {
+      await client.put('/api/church/slack', {
+        ...authHeaders(tokenA),
+        body: { webhookUrl },
+      });
+      const rowB = db.prepare('SELECT slack_webhook_url FROM churches WHERE churchId = ?').get(CHURCH_B_ID);
+      expect(rowB.slack_webhook_url).toBeFalsy();
+    });
+
+    it('POST /api/church/slack/test sends via alertEngine', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?').run(webhookUrl, CHURCH_A_ID);
+      const res = await client.post('/api/church/slack/test', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.sent).toBe(true);
+      expect(res.body.configured).toBe(true);
+      expect(JSON.stringify(res.body)).not.toContain('abcdefsecret');
+      expect(alertEngine.sendSlackAlert).toHaveBeenCalledOnce();
+    });
+
+    it('POST /api/church/slack/test returns 400 when not configured', async () => {
+      const res = await client.post('/api/church/slack/test', authHeaders(tokenA));
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not configured/i);
+    });
+
+    it('DELETE /api/church/slack clears the webhook', async () => {
+      db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
+        .run(webhookUrl, '#alerts', CHURCH_A_ID);
+      churches.get(CHURCH_A_ID).slack_webhook_url = webhookUrl;
+
+      const res = await client.delete('/api/church/slack', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.removed).toBe(true);
+      expect(res.body.configured).toBe(false);
+
+      const row = db.prepare('SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?').get(CHURCH_A_ID);
+      expect(row.slack_webhook_url).toBeNull();
+      expect(row.slack_channel).toBeNull();
+      expect(churches.get(CHURCH_A_ID).slack_webhook_url).toBeNull();
+    });
+
+    it('rejects TD sessions on write routes', async () => {
+      const { hashPassword } = require('../src/auth');
+      db.prepare(
+        "INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone, password_hash, portal_enabled, access_level) VALUES (?, ?, ?, ?, ?, 1, 'td', ?, '', ?, 1, 'operator')"
+      ).run(CHURCH_A_ID, 'slack_td', 'slack_td', 'Slack TD', new Date().toISOString(), 'slacktd@alpha.org', hashPassword('tdpass123'));
+      const td = db.prepare("SELECT id FROM church_tds WHERE email = 'slacktd@alpha.org'").get();
+      const tdToken = jwt.sign(
+        { type: 'td_portal', tdId: td.id, churchId: CHURCH_A_ID, accessLevel: 'operator' },
+        JWT_SECRET,
+        { expiresIn: '7d' },
+      );
+
+      const getRes = await client.get('/api/church/slack', authHeaders(tdToken));
+      expect(getRes.status).toBe(200);
+
+      const putRes = await client.put('/api/church/slack', {
+        ...authHeaders(tdToken),
+        body: { webhookUrl },
+      });
+      expect(putRes.status).toBe(403);
+
+      const delRes = await client.delete('/api/church/slack', authHeaders(tdToken));
+      expect(delRes.status).toBe(403);
+    });
+
+    it('requires CSRF on PUT when a session cookie is present', async () => {
+      const { csrfMiddleware, generateCsrfToken } = require('../src/csrf');
+      const wrapped = express();
+      wrapped.use(express.json());
+      wrapped.use(require('cookie-parser')());
+      wrapped.use(csrfMiddleware);
+      wrapped.use(app);
+      const csrfClient = request(wrapped);
+      const csrf = generateCsrfToken();
+
+      const missing = await csrfClient.put('/api/church/slack', {
+        cookie: `tally_church_session=${tokenA}; tally_csrf=${csrf}`,
+        body: { webhookUrl },
+      });
+      expect(missing.status).toBe(403);
+      expect(missing.body.error).toMatch(/csrf/i);
+
+      const ok = await csrfClient.put('/api/church/slack', {
+        cookie: `tally_church_session=${tokenA}; tally_csrf=${csrf}`,
+        headers: { 'x-csrf-token': csrf },
+        body: { webhookUrl },
+      });
+      expect(ok.status).toBe(200);
+      csrfClient.close();
+    });
   });
 
   // ── TD Room Assignments ──────────────────────────────────────────────────
