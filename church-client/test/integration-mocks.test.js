@@ -334,5 +334,6 @@ test('integration-mocks: REGISTRY enumerates expected mock device set', () => {
   assert.deepEqual(names, [
     'atem', 'birddog', 'companion', 'obs', 'planning-center',
     'propresenter', 'resolume', 'sq', 'teradek', 'tricaster', 'videohub',
+    'visca-ptz',
   ]);
 });
