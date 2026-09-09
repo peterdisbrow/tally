@@ -13321,6 +13321,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return _rundownBuildModeUrl(baseUrl, '', { columns: columnId, hideEmpty: '1' });
     }
 
+    function _rundownDedicatedShareUrl(providedUrl, dedicatedPath, token) {
+      var fromShare = _rundownNormalizeShareUrl(providedUrl);
+      if (fromShare) return fromShare;
+      if (!token) return '';
+      return _rundownNormalizeShareUrl(new URL(dedicatedPath + token, window.location.origin).href);
+    }
+
     function _rundownResolveShareUrls(share) {
       var display = (share && (share.display || (share.role === 'display' ? share : null))) || null;
       var operator = (share && (share.operator || (share.role === 'operator' ? share : null))) || null;
@@ -13341,14 +13348,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } else if (token) {
         showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + token, window.location.origin).href);
       }
-      var prompterUrl = '';
-      if (token) {
-        prompterUrl = _rundownNormalizeShareUrl(new URL('/rundown/prompter/' + token, window.location.origin).href);
-      }
-      var clockUrl = '';
-      if (token) {
-        clockUrl = _rundownNormalizeShareUrl(new URL('/rundown/clock/' + token, window.location.origin).href);
-      }
+      var prompterUrl = _rundownDedicatedShareUrl(
+        (display && display.prompter_url) || (share && share.prompter_url),
+        '/rundown/prompter/',
+        token
+      );
+      var confidenceUrl = _rundownDedicatedShareUrl(
+        (display && display.confidence_url) || (share && share.confidence_url),
+        '/rundown/confidence/',
+        token
+      );
+      var clockUrl = _rundownDedicatedShareUrl(
+        (display && display.clock_url) || (share && share.clock_url),
+        '/rundown/clock/',
+        token
+      );
       var readonlyShowUrl = '';
       if (displayToken) {
         readonlyShowUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + displayToken, window.location.origin).href);
@@ -13363,6 +13377,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         timerUrl: timerUrl,
         showUrl: showUrl,
         prompterUrl: prompterUrl,
+        confidenceUrl: confidenceUrl,
         clockUrl: clockUrl,
         readonlyShowUrl: readonlyShowUrl
       };
@@ -13659,7 +13674,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Production displays: teleprompter, confidence monitor, studio clock
       var productionSections = [];
-      if (publicUrl) {
+      if (urls.prompterUrl || urls.confidenceUrl || urls.clockUrl) {
         productionSections.push(_rundownBuildSectionCard(
           'Production displays',
           'Specialized full-screen views for stage, green room, and studio environments. Each runs from the same share token.',
@@ -13668,7 +13683,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               kicker: 'Presenter aid',
               title: 'Teleprompter',
               description: 'Full-screen scrolling view showing the current item title, notes, and script in large readable text. Ideal for confidence monitors facing presenters.',
-              url: _rundownBuildModeUrl(publicUrl, 'teleprompter', {}),
+              url: urls.prompterUrl,
               badge: 'Stage',
               badgeBg: 'rgba(171,71,188,0.10)',
               badgeColor: '#CE93D8',
@@ -13678,7 +13693,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               kicker: 'Green room',
               title: 'Confidence Monitor',
               description: 'Displays the current and next item with countdown, designed for backstage or green room screens so talent knows what is coming.',
-              url: _rundownBuildModeUrl(publicUrl, 'confidence', {}),
+              url: urls.confidenceUrl,
               badge: 'Backstage',
               badgeBg: 'rgba(0,230,118,0.12)',
               badgeColor: '#00E676',
@@ -13688,7 +13703,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               kicker: 'Studio utility',
               title: 'Studio Clock',
               description: 'Large wall-clock display with current time and current cue countdown. Opened as a dedicated studio clock page.',
-              url: urls.clockUrl || _rundownBuildModeUrl(publicUrl, 'clock', {}),
+              url: urls.clockUrl,
               badge: 'Utility',
               badgeBg: 'rgba(255,167,38,0.10)',
               badgeColor: '#FFB74D',
