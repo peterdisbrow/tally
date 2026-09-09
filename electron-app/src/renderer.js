@@ -3819,12 +3819,11 @@ if (api.getRelayStatus) {
   }).catch(() => { /* ignore */ });
 }
 
-// Local-status snapshots (received only while relay is offline). The status
-// has already been merged into agentStatus by the main process, so the next
-// onStatus tick will pick it up. We don't need to do anything here yet, but
-// we keep the subscription so the channel stays alive and is easy to extend.
+// Local-status snapshots (received only while relay is offline). Main merges
+// into agentStatus and also emits `status` so onStatus refreshes the dashboard.
+// Keep this subscription so the channel stays alive and is easy to extend.
 if (api.onLocalStatus) {
-  api.onLocalStatus(() => { /* renderer uses agentStatus path; nothing to do */ });
+  api.onLocalStatus(() => { /* dashboard updates via onStatus after main emit */ });
 }
 
 // Pause chat polling when window is hidden to tray

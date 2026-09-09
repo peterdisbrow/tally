@@ -96,42 +96,64 @@ async function recoveryRestartRecording(agent, params) {
  * Params:
  *   deviceId: optional specific device to reconnect
  */
+function resolveReconnect(agent, aliases, fallback) {
+  for (const name of aliases) {
+    if (typeof agent[name] === 'function') return agent[name].bind(agent);
+  }
+  if (typeof fallback === 'function') return fallback;
+  return null;
+}
+
 async function recoveryReconnectDevice(agent, params) {
   const deviceId = (params.deviceId || '').toLowerCase();
   const results = [];
 
+  // Real agent methods: reconnectATEM / connectOBS / encoderBridge.connect.
+  // Tests and older mocks used camelCase aliases — accept both.
+
   // If a specific device is requested, reconnect just that one
   if (deviceId === 'atem' || (!deviceId && agent.atem && !agent.status.atem?.connected)) {
-    if (typeof agent.reconnectAtem === 'function') {
-      await agent.reconnectAtem();
+    const reconnect = resolveReconnect(agent, ['reconnectATEM', 'reconnectAtem']);
+    if (reconnect) {
+      await reconnect();
       results.push('ATEM reconnection triggered');
     }
   }
 
   if (deviceId === 'obs' || (!deviceId && agent.obs && !agent.status.obs?.connected)) {
-    if (typeof agent.reconnectObs === 'function') {
-      await agent.reconnectObs();
+    const reconnect = resolveReconnect(agent, ['reconnectObs', 'connectOBS']);
+    if (reconnect) {
+      await reconnect();
       results.push('OBS reconnection triggered');
     }
   }
 
   if (deviceId === 'vmix' || (!deviceId && agent.vmix && !agent.status.vmix?.connected)) {
-    if (typeof agent.reconnectVmix === 'function') {
-      await agent.reconnectVmix();
+    const reconnect = resolveReconnect(agent, ['reconnectVmix']);
+    if (reconnect) {
+      await reconnect();
       results.push('vMix reconnection triggered');
     }
   }
 
   if (deviceId === 'encoder' || (!deviceId && agent.encoderBridge && !agent.status.encoder?.connected)) {
-    if (typeof agent.reconnectEncoder === 'function') {
-      await agent.reconnectEncoder();
+    const reconnect = resolveReconnect(
+      agent,
+      ['reconnectEncoder'],
+      typeof agent.encoderBridge?.connect === 'function'
+        ? () => agent.encoderBridge.connect()
+        : null,
+    );
+    if (reconnect) {
+      await reconnect();
       results.push('Encoder reconnection triggered');
     }
   }
 
   if (deviceId === 'companion' || (!deviceId && agent.companion && !agent.status.companion?.connected)) {
-    if (typeof agent.reconnectCompanion === 'function') {
-      await agent.reconnectCompanion();
+    const reconnect = resolveReconnect(agent, ['reconnectCompanion']);
+    if (reconnect) {
+      await reconnect();
       results.push('Companion reconnection triggered');
     }
   }
