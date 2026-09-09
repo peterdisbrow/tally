@@ -103,6 +103,7 @@ class AtemSwitcher extends Switcher {
     this._stopping = false;
     this._reconnecting = false;
     this._reconnectDelay = 2000;
+    this._reconnectTimer = null;
     this._connectedAt = null;
     this._stabilityTimer = null;
     this._prevPgm = null;
@@ -139,6 +140,7 @@ class AtemSwitcher extends Switcher {
 
   async connect() {
     this._stopping = false;
+    if (this._timecodeInterval) { clearInterval(this._timecodeInterval); this._timecodeInterval = null; }
 
     // Clean up previous instance
     if (this._atem) {
@@ -155,14 +157,38 @@ class AtemSwitcher extends Switcher {
         await this._atem.connect(this.ip);
       } catch (e) {
         console.warn(`⚠️  [${this.id}] ATEM connection failed: ${e.message}`);
+        // Drop the in-flight flag so _scheduleReconnect can actually queue the
+        // next attempt. Previously this no-op'd when already in a reconnect loop.
+        this._reconnecting = false;
         this._scheduleReconnect();
       }
     }
   }
 
+  /**
+   * Kick (or re-kick) the reconnect path. Used by AutoRecovery / tray
+   * `recovery.reconnectDevice` so a TD does not wait out a 60s backoff.
+   * Cancels a pending timer and schedules an immediate retry.
+   *
+   * @param {{ immediate?: boolean }} [opts]
+   * @returns {{ kicked: boolean, reason: string }}
+   */
+  reconnect({ immediate = true } = {}) {
+    if (this._stopping || !this.ip) return { kicked: false, reason: 'unavailable' };
+    if (this.connected) return { kicked: false, reason: 'already-connected' };
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this._reconnecting = false;
+    const scheduled = this._scheduleReconnect({ delay: immediate ? 0 : undefined });
+    return { kicked: !!scheduled, reason: scheduled ? 'scheduled' : 'not-scheduled' };
+  }
+
   async disconnect() {
     this._stopping = true;
     this._reconnecting = false;
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._stabilityTimer) { clearTimeout(this._stabilityTimer); this._stabilityTimer = null; }
     if (this._timecodeInterval) { clearInterval(this._timecodeInterval); this._timecodeInterval = null; }
     try { if (this._atem) await this._atem.disconnect(); } catch { /* ignore */ }
@@ -406,15 +432,19 @@ class AtemSwitcher extends Switcher {
     });
   }
 
-  _scheduleReconnect() {
-    if (this._stopping || this._reconnecting || !this.ip) return;
+  _scheduleReconnect({ delay } = {}) {
+    if (this._stopping || !this.ip) return false;
+    if (this._reconnectTimer) return false;
     this._reconnecting = true;
 
-    const delay = this._reconnectDelay;
-    this._reconnectDelay = Math.min(this._reconnectDelay * 2, 60_000);
+    const wait = delay != null ? delay : this._reconnectDelay;
+    if (delay == null) {
+      this._reconnectDelay = Math.min(this._reconnectDelay * 2, 60_000);
+    }
 
-    console.log(`   [${this.id}] Reconnecting ATEM in ${delay / 1000}s...`);
-    setTimeout(async () => {
+    console.log(`   [${this.id}] Reconnecting ATEM in ${wait / 1000}s...`);
+    this._reconnectTimer = setTimeout(async () => {
+      this._reconnectTimer = null;
       try {
         await this.connect();
       } catch (e) {
@@ -422,7 +452,8 @@ class AtemSwitcher extends Switcher {
         console.warn(`⚠️  [${this.id}] ATEM reconnect failed: ${e.message}`);
         this._scheduleReconnect();
       }
-    }, delay);
+    }, wait);
+    return true;
   }
 
   _updateIdentity(state) {

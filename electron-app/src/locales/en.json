@@ -20,7 +20,16 @@
     "failover": "Failover",
     "connected": "Connected",
     "disconnected": "Disconnected",
-    "offline": "Relay disconnected — monitoring is paused"
+    "offline": "Relay disconnected — monitoring is paused",
+    "noInternet": "No Internet",
+    "offlineMode": "Offline Mode",
+    "relayOffline": "Relay Offline",
+    "online": "Online",
+    "relayConnected": "Relay connected",
+    "relayOfflineShort": "Relay offline",
+    "localConnectionsActive": "Local connections active",
+    "monitoring": "Monitoring",
+    "stopped": "Stopped"
   },
   "tabs": {
     "status": "Status",
@@ -35,17 +44,29 @@
     "setup": "Setup",
     "signOut": "Sign Out",
     "exportConfig": "Export Config",
-    "importConfig": "Import Config"
+    "importConfig": "Import Config",
+    "noInternetConnection": "No Internet Connection",
+    "noInternetDetail": "Local device monitoring continues. Network scanning works offline. Changes sync when connected.",
+    "relayUnreachable": "Relay unreachable — running in local mode",
+    "relayUnreachableDetail": "Device connections maintained locally. Portal sync and AI features unavailable.",
+    "lastRelayConnection": "Last relay connection: {{time}}",
+    "noRelaySinceStart": "No relay connection since this app started.",
+    "reconnected": "Reconnected to relay",
+    "reconnectingIn": "Reconnecting in {{seconds}}s...",
+    "reconnecting": "Reconnecting...",
+    "sessionInvalidated": "Session was invalidated by the server. Please sign in again."
   },
   "tray": {
     "openDashboard": "Open Dashboard",
     "startMonitoring": "Start Monitoring",
     "stopMonitoring": "Stop Monitoring",
-    "clientPortal": "Client Portal",
+    "clientPortal": "Open Church Portal",
     "helpSupport": "Help & Support",
     "checkForUpdates": "Check for Updates",
     "signOut": "Sign Out",
-    "quit": "Quit"
+    "quit": "Quit",
+    "offlineLocal": "Offline Mode — Local monitoring active",
+    "agentStopped": "Agent stopped"
   },
   "notifications": {
     "atemDisconnected": "ATEM Disconnected",
@@ -56,7 +77,9 @@
     "updateAvailable": "Update Available",
     "updateReady": "Update Ready",
     "stillRunning": "Tally Connect is still running",
-    "stillRunningBody": "Tally Connect is still running in your system tray."
+    "stillRunningBody": "Tally Connect is still running in your system tray.",
+    "relayOffline": "Relay Unreachable",
+    "relayOfflineBody": "Tally cannot reach the relay. Local monitoring continues if the agent is running."
   },
   "errors": {
     "wrongPassword": "Wrong password. Please check your password and try again.",
@@ -64,7 +87,8 @@
     "rateLimited": "Too many sign-in attempts. Please wait a few minutes and try again.",
     "networkUnreachable": "Could not reach the Tally Connect server. Check your internet connection.",
     "sessionExpired": "Session expired. Please sign in again.",
-    "sessionInvalidated": "Session was invalidated by the server. Please sign in again."
+    "sessionInvalidated": "Session was invalidated by the server. Please sign in again.",
+    "relayLostReconnecting": "Lost connection to relay server -- reconnecting..."
   },
   "preService": {
     "runCheck": "Run Check Now",

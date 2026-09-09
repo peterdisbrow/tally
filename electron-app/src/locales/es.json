@@ -20,7 +20,16 @@
     "failover": "Conmutación",
     "connected": "Conectado",
     "disconnected": "Desconectado",
-    "offline": "Relay desconectado — el monitoreo está pausado"
+    "offline": "Relay desconectado — el monitoreo está pausado",
+    "noInternet": "Sin internet",
+    "offlineMode": "Modo sin conexión",
+    "relayOffline": "Relay desconectado",
+    "online": "En línea",
+    "relayConnected": "Relay conectado",
+    "relayOfflineShort": "Relay desconectado",
+    "localConnectionsActive": "Conexiones locales activas",
+    "monitoring": "Monitoreando",
+    "stopped": "Detenido"
   },
   "tabs": {
     "status": "Estado",
@@ -35,17 +44,29 @@
     "setup": "Configurar",
     "signOut": "Cerrar sesión",
     "exportConfig": "Exportar config",
-    "importConfig": "Importar config"
+    "importConfig": "Importar config",
+    "noInternetConnection": "Sin conexión a internet",
+    "noInternetDetail": "El monitoreo local de dispositivos continúa. El escaneo de red funciona sin conexión. Los cambios se sincronizan al reconectar.",
+    "relayUnreachable": "Relay inalcanzable — modo local",
+    "relayUnreachableDetail": "Las conexiones de dispositivos se mantienen localmente. Sincronización del portal y funciones de IA no disponibles.",
+    "lastRelayConnection": "Última conexión al relay: {{time}}",
+    "noRelaySinceStart": "Sin conexión al relay desde que se inició esta app.",
+    "reconnected": "Reconectado al relay",
+    "reconnectingIn": "Reconectando en {{seconds}}s...",
+    "reconnecting": "Reconectando...",
+    "sessionInvalidated": "La sesión fue invalidada por el servidor. Por favor inicia sesión de nuevo."
   },
   "tray": {
     "openDashboard": "Abrir panel",
     "startMonitoring": "Iniciar monitoreo",
     "stopMonitoring": "Detener monitoreo",
-    "clientPortal": "Portal del cliente",
+    "clientPortal": "Abrir portal de la iglesia",
     "helpSupport": "Ayuda y soporte",
     "checkForUpdates": "Buscar actualizaciones",
     "signOut": "Cerrar sesión",
-    "quit": "Salir"
+    "quit": "Salir",
+    "offlineLocal": "Modo sin conexión — monitoreo local activo",
+    "agentStopped": "Agente detenido"
   },
   "notifications": {
     "atemDisconnected": "ATEM desconectado",
@@ -56,7 +77,9 @@
     "updateAvailable": "Actualización disponible",
     "updateReady": "Actualización lista",
     "stillRunning": "Tally Connect sigue ejecutándose",
-    "stillRunningBody": "Tally Connect sigue ejecutándose en la bandeja del sistema."
+    "stillRunningBody": "Tally Connect sigue ejecutándose en la bandeja del sistema.",
+    "relayOffline": "Relay inalcanzable",
+    "relayOfflineBody": "Tally no puede alcanzar el relay. El monitoreo local continúa si el agente está en ejecución."
   },
   "errors": {
     "wrongPassword": "Contraseña incorrecta. Por favor verifica tu contraseña e intenta de nuevo.",
@@ -64,7 +87,8 @@
     "rateLimited": "Demasiados intentos de inicio de sesión. Por favor espera unos minutos e intenta de nuevo.",
     "networkUnreachable": "No se pudo conectar al servidor de Tally Connect. Verifica tu conexión a internet.",
     "sessionExpired": "Sesión expirada. Por favor inicia sesión de nuevo.",
-    "sessionInvalidated": "La sesión fue invalidada por el servidor. Por favor inicia sesión de nuevo."
+    "sessionInvalidated": "La sesión fue invalidada por el servidor. Por favor inicia sesión de nuevo.",
+    "relayLostReconnecting": "Se perdió la conexión con el relay — reconectando..."
   },
   "preService": {
     "runCheck": "Verificar ahora",

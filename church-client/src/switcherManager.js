@@ -104,6 +104,32 @@ class SwitcherManager {
   /** Number of registered switchers. */
   get size() { return this._switchers.size; }
 
+  /**
+   * Kick reconnect on every switcher of `type`.
+   * Used by ChurchAVAgent.reconnectATEM so AutoRecovery / tray
+   * `recovery.reconnectDevice` is not a silent no-op when SwitcherManager
+   * owns the ATEM lifecycle.
+   *
+   * @param {string} type
+   * @param {{ immediate?: boolean }} [opts]
+   * @returns {Array<{ id: string, kicked: boolean, reason: string }>}
+   */
+  reconnectByType(type, { immediate = true } = {}) {
+    const results = [];
+    for (const sw of this.getAllByType(type)) {
+      if (typeof sw.reconnect === 'function') {
+        const result = sw.reconnect({ immediate });
+        results.push({ id: sw.id, kicked: !!result?.kicked, reason: result?.reason || 'reconnect' });
+      } else if (typeof sw.connect === 'function') {
+        try { void sw.connect(); } catch { /* connect logs its own failure */ }
+        results.push({ id: sw.id, kicked: true, reason: 'connect' });
+      } else {
+        results.push({ id: sw.id, kicked: false, reason: 'no-reconnect-method' });
+      }
+    }
+    return results;
+  }
+
   // ─── Status ─────────────────────────────────────────────────────────────
 
   /**

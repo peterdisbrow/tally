@@ -1,4 +1,37 @@
 const api = window.electronAPI;
+
+// ─── i18n (renderer) ────────────────────────────────────────────────────────
+// Locales come from main via getLocaleData. Keep a tiny lookup here because
+// i18n.js is CommonJS and cannot be loaded as a classic renderer script.
+let _i18nLocale = 'en';
+let _i18nLocales = {};
+
+function t(key, vars) {
+  const parts = key.split('.');
+  function lookup(dict) {
+    let obj = dict;
+    for (const p of parts) { obj = obj && typeof obj === 'object' ? obj[p] : undefined; }
+    return typeof obj === 'string' ? obj : null;
+  }
+  let value = lookup(_i18nLocales[_i18nLocale]);
+  if (value == null && _i18nLocale !== 'en') value = lookup(_i18nLocales.en);
+  if (value == null) value = lookup(_i18nLocales.en);
+  if (value == null) return key;
+  if (vars && typeof vars === 'object') {
+    value = value.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in vars ? String(vars[k]) : `{{${k}}}`));
+  }
+  return value;
+}
+
+async function initI18n() {
+  try {
+    if (!api?.getLocaleData) return;
+    const data = await api.getLocaleData();
+    if (data?.locales) _i18nLocales = data.locales;
+    if (data?.locale) _i18nLocale = data.locale;
+  } catch { /* keep English fallbacks from locale files once loaded */ }
+}
+
 let _onboardingScanResults = {};
 let _onboardingSending = false;
 let isRunning = false;
@@ -239,8 +272,8 @@ function updateControlRoom(status) {
   }
   if (heroSub) {
     const parts = [];
-    if (relayOk) parts.push('Relay connected');
-    else if (!_monitoringStoppedByUser) parts.push('Relay offline');
+    if (relayOk) parts.push(t('status.relayConnected'));
+    else if (!_monitoringStoppedByUser) parts.push(t('status.relayOfflineShort'));
     if (status.streaming || (status.encoder && typeof status.encoder === 'object' && status.encoder.live)) parts.push('LIVE');
     if (!parts.length) parts.push('No issues detected');
     heroSub.textContent = parts.join(' \u00B7 ');
@@ -252,13 +285,13 @@ function updateControlRoom(status) {
   if (connIndicator) {
     connIndicator.classList.remove('offline', 'disconnected');
     if (relayOk) {
-      connLabel.textContent = 'Connected';
+      connLabel.textContent = t('status.connected');
     } else if (!navigator.onLine) {
       connIndicator.classList.add('disconnected');
-      connLabel.textContent = 'No Internet';
+      connLabel.textContent = t('status.noInternet');
     } else {
       connIndicator.classList.add('offline');
-      connLabel.textContent = 'Offline Mode';
+      connLabel.textContent = t('status.offlineMode');
     }
   }
 
@@ -280,7 +313,7 @@ function updateControlRoom(status) {
   } else {
     if (atemCard) atemCard.style.display = '';
     setCard('cr-card-atem', atemOk ? 'ok' : 'error',
-      atemOk ? (status.atemModel || 'Connected') : 'Disconnected',
+      atemOk ? (status.atemModel || t('status.connected')) : t('status.disconnected'),
       atemOk ? `PGM: ${status.program || '--'}` : '');
   }
 
@@ -293,7 +326,7 @@ function updateControlRoom(status) {
     const encTitle = document.getElementById('cr-encoder-title');
     if (encTitle) encTitle.textContent = status.encoderType || 'Encoder';
     setCard('cr-card-encoder', encoderOk ? 'ok' : 'error',
-      encoderOk ? 'Connected' : 'Disconnected',
+      encoderOk ? t('status.connected') : t('status.disconnected'),
       encoderOk && status.fps ? `${status.fps} FPS` : '');
   }
 
@@ -317,7 +350,7 @@ function updateControlRoom(status) {
   } else {
     if (compCard) compCard.style.display = '';
     setCard('cr-card-companion', companionOk ? 'ok' : 'error',
-      companionOk ? 'Connected' : 'Disconnected', '');
+      companionOk ? t('status.connected') : t('status.disconnected'), '');
   }
 
   // ProPresenter
@@ -328,14 +361,14 @@ function updateControlRoom(status) {
     if (ppCard) ppCard.style.display = '';
     const ppOk = getStatusActive(status.proPresenter);
     setCard('cr-card-propresenter', ppOk ? 'ok' : 'error',
-      ppOk ? (status.ppPresentation || 'Connected') : 'Disconnected',
+      ppOk ? (status.ppPresentation || t('status.connected')) : t('status.disconnected'),
       status.ppSlide || '');
   }
 
   // Network
   setCard('cr-card-network', relayOk ? 'ok' : (navigator.onLine ? 'warning' : 'error'),
-    relayOk ? 'Online' : (navigator.onLine ? 'Relay Offline' : 'No Internet'),
-    'Local connections active');
+    relayOk ? t('status.online') : (navigator.onLine ? t('status.relayOffline') : t('status.noInternet')),
+    t('status.localConnectionsActive'));
 
   // Audio
   const audioOk = status.audio && !status.audio.muted && !status.audio.silence;
@@ -371,9 +404,9 @@ function updateControlRoom(status) {
   }
   if (bottomLabel) {
     if (isRunning) {
-      bottomLabel.textContent = isLive ? 'LIVE' : (relayOk ? 'Monitoring' : 'Offline Mode');
+      bottomLabel.textContent = isLive ? 'LIVE' : (relayOk ? t('status.monitoring') : t('status.offlineMode'));
     } else {
-      bottomLabel.textContent = 'Stopped';
+      bottomLabel.textContent = t('status.stopped');
     }
   }
   if (bottomBtn) {
@@ -403,12 +436,12 @@ function updateOfflineBannerText(relayOk) {
   }
 
   if (!relayOk && !navigator.onLine) {
-    if (offlineBannerText) offlineBannerText.textContent = 'No Internet Connection';
-    if (offlineBannerDetail) offlineBannerDetail.textContent = 'Local device monitoring continues. Network scanning works offline. Changes sync when connected.';
+    if (offlineBannerText) offlineBannerText.textContent = t('dashboard.noInternetConnection');
+    if (offlineBannerDetail) offlineBannerDetail.textContent = t('dashboard.noInternetDetail');
     offlineBanner.style.display = '';
   } else if (!relayOk) {
-    if (offlineBannerText) offlineBannerText.textContent = 'Relay unreachable \u2014 running in local mode';
-    if (offlineBannerDetail) offlineBannerDetail.textContent = 'Device connections maintained locally. Portal sync and AI features unavailable.';
+    if (offlineBannerText) offlineBannerText.textContent = t('dashboard.relayUnreachable');
+    if (offlineBannerDetail) offlineBannerDetail.textContent = t('dashboard.relayUnreachableDetail');
     offlineBanner.style.display = '';
   } else {
     offlineBanner.style.display = 'none';
@@ -419,10 +452,10 @@ function updateOfflineBannerText(relayOk) {
   if (offlineBannerStale && !relayOk) {
     const since = _relayHealthLastSeen || _cachedStatusTime;
     if (since) {
-      offlineBannerStale.textContent = `Last relay connection: ${formatTimeAgo(since)}`;
+      offlineBannerStale.textContent = t('dashboard.lastRelayConnection', { time: formatTimeAgo(since) });
       offlineBannerStale.style.display = '';
     } else {
-      offlineBannerStale.textContent = 'No relay connection since this app started.';
+      offlineBannerStale.textContent = t('dashboard.noRelaySinceStart');
       offlineBannerStale.style.display = '';
     }
   } else if (offlineBannerStale) {
@@ -434,7 +467,7 @@ function updateOfflineBannerText(relayOk) {
 function showReconnectedToast() {
   const toast = document.getElementById('reconnected-toast');
   if (!toast) return;
-  toast.textContent = 'Reconnected to relay';
+  toast.textContent = t('dashboard.reconnected');
   toast.classList.add('show');
   if (_reconnectedToastTimer) clearTimeout(_reconnectedToastTimer);
   _reconnectedToastTimer = setTimeout(() => {
@@ -507,7 +540,7 @@ function friendlyError(err) {
 
   // WebSocket errors
   if (lower.includes('websocket') || lower.includes('ws error') || lower.includes('ws close')) {
-    return _friendlyWithPrefix(msg, "Lost connection to relay server -- reconnecting...");
+    return _friendlyWithPrefix(msg, t('errors.relayLostReconnecting'));
   }
 
   // DNS / host not found
@@ -705,6 +738,8 @@ async function init() {
   try {
     if (!api) throw new Error('Desktop bridge unavailable (window.electronAPI missing).');
 
+    await initI18n();
+
     // Use process.platform (via preload bridge) for reliable macOS detection on Apple Silicon.
     // navigator.platform returns "" on arm64 in Electron 35+, breaking is-mac CSS.
     const isMac = api.getPlatform ? api.getPlatform() === 'darwin' : /^mac/i.test(navigator.platform);
@@ -752,7 +787,7 @@ async function init() {
       if (typeof resetDeviceState === 'function') resetDeviceState();
       _cachedStatus = null;
       showSignIn();
-      showSignInMessage('Session was invalidated by the server. Please sign in again.', 'var(--warn)');
+      showSignInMessage(t('errors.sessionInvalidated'), 'var(--warn)');
     });
 
     // Listen for sign-out triggered from the system tray or factory reset
@@ -3432,9 +3467,9 @@ function startReconnectCountdown() {
   const update = () => {
     const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
     if (remaining > 0) {
-      countdownEl.textContent = `Reconnecting in ${remaining}s...`;
+      countdownEl.textContent = t('dashboard.reconnectingIn', { seconds: remaining });
     } else {
-      countdownEl.textContent = 'Reconnecting...';
+      countdownEl.textContent = t('dashboard.reconnecting');
       clearReconnectCountdown();
     }
   };
