@@ -160,7 +160,7 @@ Stripe `customer.subscription.trial_will_end` is **logged only** — lifecycle t
 |------|---------|----|---------|-----|--------|--------|
 | `session-recap-{sessionId}:{email}` | Session end → `sessionRecap` | **leaders only** | Service Recap: {name} — {day} {date} | `/church-portal?church={id}` | yes (prefix) | **WORKS** (P1-1 recipient-scoped dedup) |
 | `service-report-{reportId}:{email}` | `postServiceReport.generate` after session | **leaders only** | Service Report — {name} · {date} | none in text (“view portal”) | no | **WORKS** for 2nd+ leader (P1-1); still overlaps recap |
-| `weekly-digest-email-{ISO week}:{email}` | `weeklyDigest.js` Monday ~8am local; plus/pro/managed | **portal + leaders** (unique) | Your Week in Review — {name} | `/church-portal?church=` | yes | **WORKS** (P1-10 one job / ISO week / recipient dedup). Portal-only churches still mailed. |
+| `weekly-digest-email-{ISO week}:{email}` | `weeklyDigest.js` Monday ~8am local; plus/pro/managed | **portal + leaders** (unique) | Your Week in Review — {name} | `/church-portal?church=` | yes | **WORKS** (P1-10 one job / ISO week / recipient dedup). Portal-only churches still mailed. Email does not require a Telegram bot token. |
 | `monthly-report-email-{YYYY-MM}:{email}` | `monthlyReport.js` 1st-of-month path | portal **+** leaders | Monthly Production Report — {name} | `/church-portal?church=` | yes | **WORKS** for 2nd+ recipient (P1-1) |
 | `monthly-roi-summary-{YYYY-MM}` | `sendMonthlyROISummary` | portal | {month} at {name} — here's what Tally prevented | `/portal` | yes | **DEAD** — nothing calls it |
 

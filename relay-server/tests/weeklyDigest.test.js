@@ -135,4 +135,15 @@ describe('WeeklyDigest', () => {
     const recipients = digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls.map((call) => call[2]).sort();
     expect(recipients).toEqual(['leader@grace.church', 'pastor@grace.church']);
   });
+
+  it('sends digest email even when no Telegram bot token is set', async () => {
+    digest.setLifecycleEmails({
+      sendWeeklyDigestEmail: vi.fn().mockResolvedValue({ sent: true }),
+    });
+
+    await digest.sendChurchDigests();
+
+    expect(digest.lifecycleEmails.sendWeeklyDigestEmail).toHaveBeenCalledOnce();
+    expect(digest.lifecycleEmails.sendWeeklyDigestEmail.mock.calls[0][2]).toBe('leader@grace.church');
+  });
 });

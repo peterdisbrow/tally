@@ -477,12 +477,12 @@ class WeeklyDigest {
   }
 
   /**
-   * Generate and send per-church digest excerpts to TDs via Telegram.
-   * Gated to Pro+ tier churches only.
+   * Generate and send per-church digest excerpts (email + Telegram).
+   * Email does not require a Telegram bot token (P1-10).
+   * Telegram notes stay gated on the configured bot token.
    */
   async sendChurchDigests() {
     const botToken = this._botToken;
-    if (!botToken) return;
 
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -542,15 +542,17 @@ class WeeklyDigest {
 
         const text = lines.join('\n');
 
-        // Send to TDs via Telegram
-        const tds = await this._all(
-          'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
-          [church.churchId]
-        );
+        // Send to TDs via Telegram when a bot token is configured
+        if (botToken) {
+          const tds = await this._all(
+            'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1',
+            [church.churchId]
+          );
 
-        for (const td of tds) {
-          if (!td.telegram_chat_id) continue;
-          await this._sendTelegram(td.telegram_chat_id, botToken, text);
+          for (const td of tds) {
+            if (!td.telegram_chat_id) continue;
+            await this._sendTelegram(td.telegram_chat_id, botToken, text);
+          }
         }
 
         // One weekly email job: leadership report template, ISO week key,
