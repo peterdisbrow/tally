@@ -80,9 +80,11 @@ export default function AdminPage() {
       try {
         // Fetch user profile to validate JWT + get latest role
         const profile = await api('/api/admin/me');
-        if (profile?.user) {
-          setUser(profile.user);
-          sessionStorage.setItem('tally_admin_user', JSON.stringify(profile.user));
+        // /api/admin/me returns a flat user object; tolerate a wrapped { user } too.
+        const me = profile?.user || profile;
+        if (me?.id || me?.email) {
+          setUser(me);
+          sessionStorage.setItem('tally_admin_user', JSON.stringify(me));
         }
 
         // Also check relay health

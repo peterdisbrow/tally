@@ -101,9 +101,11 @@ export default function StatusTab({ api, role }) {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
           {[
             ['Uptime', formatUptime(health.uptime), C.green],
-            ['Churches', health.churches || 0, C.white],
-            ['Connected', health.connected || 0, C.green],
-            ['Memory', health.memory ? `${health.memory.heap_used_mb || health.memory.rss_mb || 0} MB` : '\u2014', C.blue],
+            ['Churches', health.registeredChurches ?? health.churches ?? 0, C.white],
+            ['Connected', health.connectedChurches ?? health.connected ?? 0, C.green],
+            ['Memory', (health.memoryUsage || health.memory)
+              ? `${(health.memoryUsage || health.memory).heap_used_mb || (health.memoryUsage || health.memory).rss_mb || 0} MB`
+              : '\u2014', C.blue],
           ].map(([lbl, val, color]) => (
             <div key={lbl} style={s.statCard}>
               <div style={s.statLbl}>{lbl}</div>
