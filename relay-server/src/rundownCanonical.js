@@ -128,6 +128,35 @@ function legacyViewDisplayRedirect(token, query = {}) {
   return `/rundown/${dest}/${encodeURIComponent(token)}${qs ? `?${qs}` : ''}`;
 }
 
+function shareTokenOf(share) {
+  if (!share) return '';
+  return String(share.share_token || share.token || '').trim();
+}
+
+/**
+ * Dedicated-page URLs for a display + operator share bundle.
+ * Display tokens power sanctuary screens. Operator tokens power booth Live Mode.
+ */
+function resolveShareOutputUrls(bundle, baseUrl) {
+  const display = (bundle && (bundle.display || (bundle.role === 'display' ? bundle : null))) || null;
+  const operator = (bundle && (bundle.operator || (bundle.role === 'operator' ? bundle : null))) || null;
+  const displayToken = shareTokenOf(display) || (bundle && !bundle.display && !bundle.operator ? shareTokenOf(bundle) : '');
+  const operatorToken = shareTokenOf(operator);
+  const displayUrls = displayToken ? publicShareUrls(displayToken, baseUrl) : {};
+  const operatorUrls = operatorToken ? publicShareUrls(operatorToken, baseUrl) : {};
+  return {
+    displayToken,
+    operatorToken,
+    displayViewUrl: displayUrls.url || '',
+    displayTimerUrl: displayUrls.timer_url || '',
+    displayClockUrl: displayUrls.clock_url || '',
+    displayPrompterUrl: displayUrls.prompter_url || '',
+    displayConfidenceUrl: displayUrls.confidence_url || '',
+    displayShowUrl: displayUrls.show_url || '',
+    operatorShowUrl: operatorUrls.show_url || '',
+  };
+}
+
 function decorateShare(share, baseUrl) {
   if (!share) return null;
   return {
@@ -148,4 +177,5 @@ module.exports = {
   decorateShare,
   legacyViewDisplayRedirect,
   LEGACY_VIEW_MODE_REDIRECTS,
+  resolveShareOutputUrls,
 };

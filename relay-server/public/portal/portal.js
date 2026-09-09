@@ -277,7 +277,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.audio.monitoring': 'Monitoring',
         'overview.rundown.title': 'Service Checklist',
         'overview.live_rundown.title': 'Live Rundown',
-        'overview.live_rundown.desc': 'One Start Live. One GO. Timers, show mode, Companion, and the desktop app all follow this session.',
+        'overview.live_rundown.desc': 'Open Sunday’s plan. Press Start Live. Copy a Display link for sanctuary screens.',
         'overview.live_rundown.cta': 'Open Live Rundown',
         'overview.live_rundown.now': 'Now',
         'overview.live_rundown.open_live': 'Go to Live Session',
@@ -660,7 +660,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.audio.monitoring': 'Monitoreo',
         'overview.rundown.title': 'Gu\u00ed\u00f3n del Servicio',
         'overview.live_rundown.title': 'Rundown en Vivo',
-        'overview.live_rundown.desc': 'Un Start Live. Un GO. Timers, modo show, Companion y la app de escritorio siguen esta sesi\u00f3n.',
+        'overview.live_rundown.desc': 'Abre el plan del domingo. Pulsa Start Live. Copia un enlace Display para las pantallas.',
         'overview.live_rundown.cta': 'Abrir Rundown en Vivo',
         'overview.live_rundown.now': 'Ahora',
         'overview.live_rundown.open_live': 'Ir a la sesi\u00f3n en vivo',
@@ -9301,10 +9301,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         .trim();
     }
 
+    function _isCanonicalLiveState(state) {
+      if (!state) return false;
+      if (state.state === 'ended' || state.active === false) return false;
+      return !!(state.isLive || state.state === 'active' || state.active);
+    }
+
+    function _isPlanCanonicallyLive(planId) {
+      if (!planId) return false;
+      var keys = Object.keys(_rundownStatsByRoom || {});
+      for (var i = 0; i < keys.length; i++) {
+        var state = _rundownStatsByRoom[keys[i]];
+        if (state && state.planId === planId && _isCanonicalLiveState(state)) return true;
+      }
+      return false;
+    }
+
+    function _openLivePlanInEditor(state) {
+      if (!state || !state.planId) {
+        loadRundownManager();
+        return;
+      }
+      _applyCanonicalLiveState(state);
+      if (state.planId !== _companionActionsPlanId) {
+        loadCompanionActionsCache(state.planId);
+      }
+      rundownSelectPlan(state.planId, state.source || 'manual');
+    }
+
     function loadRundownPage() {
       // Reset view immediately so stale editor doesn't flash on re-entry
       showRundownView('manager');
-      // Fetch all active sessions, then show the one for the selected room
+      // Fetch all active sessions. If this room is live, open that plan in the editor.
       console.log('[rundown] loadRundownPage, CHURCH_ID:', CHURCH_ID);
       api('GET', '/api/churches/' + CHURCH_ID + '/live-rundown/state?all=1').then(function(data) {
         _rundownStatsByRoom = {};
@@ -9314,16 +9342,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             _rundownStatsByRoom[entry.roomId || ''] = entry.state;
           }
         }
-        // Show session for the current room (or default '')
         var roomKey = _selectedRoomId || '';
         var roomState = _rundownStatsByRoom[roomKey] || null;
-        if (roomState) {
-          _rundownState = roomState;
-          if (roomState.planId && roomState.planId !== _companionActionsPlanId) {
-            loadCompanionActionsCache(roomState.planId);
-          }
-          showRundownView('active');
-          renderRundownActive(roomState);
+        if (_isCanonicalLiveState(roomState) && roomState.planId) {
+          _openLivePlanInEditor(roomState);
         } else {
           _rundownState = null;
           loadRundownManager();
@@ -9353,10 +9375,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (importBtn) importBtn.style.display = 'none';
       if (templatesModal) templatesModal.style.display = 'none';
       if (editor) editor.style.display = 'none';
+      // Leftover second live stack — never surface it. Sunday lives in the editor.
       if (view === 'active') {
-        if (active) active.style.display = '';
-        if (pageHeader) pageHeader.style.display = '';
-      } else if (view === 'manager') {
+        view = _rundownSelectedPlanId ? 'editor' : 'manager';
+      }
+      if (view === 'manager') {
         if (manager) manager.style.display = '';
         if (newBtn) newBtn.style.display = '';
         if (importBtn) importBtn.style.display = 'inline-flex';
@@ -9703,13 +9726,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var durStr = dur > 0 ? Math.floor(dur / 60) + 'm' : '';
       var dateStr = p.serviceDate || '';
       var updatedStr = p.updatedAt ? _rundownRelativeTime(p.updatedAt) : '';
-      var liveClass = p.status === 'live' ? ' is-live' : '';
+      var sessionLive = _isPlanCanonicallyLive(p.id);
+      var liveClass = sessionLive ? ' is-live' : '';
       var sourceLabel = p.source === 'pco' ? '<span style="font-size:10px;color:#42A5F5;background:rgba(66,165,245,0.1);padding:1px 5px;border-radius:3px;margin-left:4px">PCO</span>' : '';
 
       var html = '<div class="rundown-dash-card' + liveClass + '" data-action="rundownSelectPlan" data-plan-id="' + p.id + '" data-plan-source="' + (p.source || 'manual') + '">';
       html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">';
       html += '<div class="card-title">' + escapeHtml(p.title) + sourceLabel + '</div>';
-      html += '<span class="rundown-status-badge status-' + (p.status || 'draft') + '">' + escapeHtml(RUNDOWN_STATUS_LABELS[p.status] || 'Draft') + '</span>';
+      if (sessionLive) {
+        html += '<span class="live-badge-pulse">LIVE</span>';
+      } else {
+        html += '<span class="rundown-status-badge status-' + (p.status || 'draft') + '">' + escapeHtml(RUNDOWN_STATUS_LABELS[p.status] || 'Draft') + '</span>';
+      }
       html += '</div>';
 
       html += '<div class="card-meta">';
@@ -9722,7 +9750,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
       html += '</div>';
 
-      if (updatedStr) {
+      if (sessionLive) {
+        html += '<div style="font-size:12px;color:#00E676;margin-top:6px;font-weight:600">Open to GO or End Live</div>';
+      } else if (updatedStr) {
         html += '<div style="font-size:11px;color:#3A4556;margin-top:4px">Edited ' + escapeHtml(updatedStr) + '</div>';
       }
 
@@ -13440,11 +13470,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return _rundownBuildModeUrl(baseUrl, '', { columns: columnId, hideEmpty: '1' });
     }
 
-    function _rundownDedicatedShareUrl(providedUrl, dedicatedPath, token) {
-      var fromShare = _rundownNormalizeShareUrl(providedUrl);
-      if (fromShare) return fromShare;
-      if (!token) return '';
-      return _rundownNormalizeShareUrl(new URL(dedicatedPath + token, window.location.origin).href);
+    function _rundownDedicatedShareUrl(obj, key, path, token) {
+      if (obj && obj[key]) return _rundownNormalizeShareUrl(obj[key]);
+      if (token) return _rundownNormalizeShareUrl(new URL(path + token, window.location.origin).href);
+      return '';
     }
 
     function _rundownResolveShareUrls(share) {
@@ -13453,41 +13482,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var displayToken = (display && (display.share_token || display.token)) || (share && share.share_token ? String(share.share_token) : '');
       var operatorToken = (operator && (operator.share_token || operator.token)) || '';
       var token = displayToken || operatorToken;
-      var publicUrl = _rundownNormalizeShareUrl((display && display.url) || (share && share.url));
-      var timerUrl = _rundownNormalizeShareUrl((display && display.timer_url) || (share && share.timer_url));
-      var showUrl = '';
-      if (!publicUrl && token) {
-        publicUrl = _rundownNormalizeShareUrl(new URL('/rundown/view/' + token, window.location.origin).href);
-      }
-      if (!timerUrl && token) {
-        timerUrl = _rundownNormalizeShareUrl(new URL('/rundown/timer/' + token, window.location.origin).href);
-      }
-      if (operatorToken) {
-        showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + operatorToken, window.location.origin).href);
-      } else if (token) {
-        showUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + token, window.location.origin).href);
-      }
-      var prompterUrl = _rundownDedicatedShareUrl(
-        (display && display.prompter_url) || (share && share.prompter_url),
-        '/rundown/prompter/',
-        token
-      );
-      var confidenceUrl = _rundownDedicatedShareUrl(
-        (display && display.confidence_url) || (share && share.confidence_url),
-        '/rundown/confidence/',
-        token
-      );
-      var clockUrl = _rundownDedicatedShareUrl(
-        (display && display.clock_url) || (share && share.clock_url),
-        '/rundown/clock/',
-        token
-      );
-      var readonlyShowUrl = '';
-      if (displayToken) {
-        readonlyShowUrl = _rundownNormalizeShareUrl(new URL('/rundown/show/' + displayToken, window.location.origin).href);
-      } else if (showUrl) {
-        readonlyShowUrl = _rundownBuildModeUrl(showUrl, '', { readonly: '1' });
-      }
+      var publicUrl = _rundownDedicatedShareUrl(display, 'url', '/rundown/view/', displayToken)
+        || _rundownDedicatedShareUrl(share, 'url', '/rundown/view/', token);
+      var timerUrl = _rundownDedicatedShareUrl(display, 'timer_url', '/rundown/timer/', displayToken)
+        || _rundownDedicatedShareUrl(share, 'timer_url', '/rundown/timer/', token);
+      var clockUrl = _rundownDedicatedShareUrl(display, 'clock_url', '/rundown/clock/', displayToken)
+        || _rundownDedicatedShareUrl(share, 'clock_url', '/rundown/clock/', token);
+      var prompterUrl = _rundownDedicatedShareUrl(display, 'prompter_url', '/rundown/prompter/', displayToken)
+        || _rundownDedicatedShareUrl(share, 'prompter_url', '/rundown/prompter/', token);
+      var confidenceUrl = _rundownDedicatedShareUrl(display, 'confidence_url', '/rundown/confidence/', displayToken)
+        || _rundownDedicatedShareUrl(share, 'confidence_url', '/rundown/confidence/', token);
+      var showUrl = _rundownDedicatedShareUrl(operator, 'show_url', '/rundown/show/', operatorToken);
+      var readonlyShowUrl = _rundownDedicatedShareUrl(display, 'show_url', '/rundown/show/', displayToken);
       return {
         token: token,
         displayToken: displayToken,
@@ -13571,7 +13577,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var planTitle = (_rundownSelectedPlan && _rundownSelectedPlan.title) || 'This rundown';
       var publicUrl = _rundownBuildModeUrl(urls.publicUrl, '', {});
       var compactUrl = _rundownBuildModeUrl(urls.publicUrl, 'compact', {});
-      var prompterUrl = _rundownBuildModeUrl(urls.publicUrl, 'prompter', {});
+      var prompterUrl = urls.prompterUrl || _rundownBuildModeUrl(urls.publicUrl, 'prompter', {});
       var timerUrl = _rundownBuildModeUrl(urls.timerUrl, '', {});
       var stageUrl = _rundownBuildModeUrl(urls.timerUrl, 'stage', {});
       var confidenceUrl = _rundownBuildModeUrl(urls.timerUrl, 'confidence', {});
@@ -13604,7 +13610,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function _rundownRenderShareLinks(share) {
       var urls = _rundownResolveShareUrls(share || {});
-      var demoSetup = _rundownBuildDemoSetup(share);
       var publicUrl = urls.publicUrl;
       var timerUrl = urls.timerUrl;
       var expiryEl = document.getElementById('rundown-share-expiry');
@@ -13613,86 +13618,62 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var operatorWrap = document.getElementById('rundown-share-operator-wrap');
       var operatorLinks = document.getElementById('rundown-share-operator-links');
       var sections = [];
-      var timerSections = [];
       var operatorItems = [];
       var hasOperatorLinks = false;
 
       if (introEl) {
-        introEl.textContent = 'Display links are read-only. Operator links can Start Live and GO. Public screens should always use a display link.';
+        introEl.innerHTML = '<strong style="color:#F0F2F4">Operator</strong> controls the show (Start Live / GO). <strong style="color:#F0F2F4">Display</strong> is read-only for sanctuary screens.';
       }
 
-      if (demoSetup.publicUrl || demoSetup.prompterUrl || demoSetup.stageUrl || demoSetup.timerUrl) {
-        sections.push(_rundownBuildSectionCard(
-          'Suggested launch order',
-          'Use this when you want a polished three-screen setup quickly: one desk view, one large text view, and one timer display.',
-          [
-            _rundownBuildOutputCard({
-              kicker: 'Desk screen',
-              title: 'Caller / producer',
-              description: 'Best default desk view for the person running items.',
-              url: demoSetup.publicUrl || demoSetup.compactUrl,
-              badge: 'Step 1',
-              badgeBg: 'rgba(0,230,118,0.12)',
-              badgeColor: '#00E676',
-              accent: '#00E676',
-            }),
-            _rundownBuildOutputCard({
-              kicker: 'Stage display',
-              title: 'Large Text screen',
-              description: 'Large, stage-friendly item following for presenters or backstage monitors.',
-              url: demoSetup.prompterUrl || demoSetup.publicUrl,
-              badge: 'Step 2',
-              badgeBg: 'rgba(171,71,188,0.10)',
-              badgeColor: '#CE93D8',
-              accent: '#CE93D8',
-            }),
-            _rundownBuildOutputCard({
-              kicker: 'Stage Display',
-              title: 'Detailed timer',
-              description: 'Countdown-focused display for speakers and production timing.',
-              url: demoSetup.stageUrl || demoSetup.timerUrl,
-              badge: 'Step 3',
-              badgeBg: 'rgba(255,167,38,0.10)',
-              badgeColor: '#FFB74D',
-              accent: '#FFB74D',
-            })
-          ],
-          { label: 'Sample Setup', bg: 'rgba(255,255,255,0.05)', fg: '#F0F2F4' }
-        ));
-      }
-
+      var sundayCards = [];
       if (urls.showUrl) {
+        sundayCards.push(_rundownBuildOutputCard({
+          kicker: 'Operator',
+          title: 'Booth control',
+          description: 'Start Live, GO, Back, and pause. Keep this link off volunteer screens.',
+          url: urls.showUrl,
+          badge: 'Operator',
+          badgeBg: 'rgba(255,167,38,0.10)',
+          badgeColor: '#FFB74D',
+          accent: '#FFB74D',
+        }));
+      }
+      if (urls.timerUrl) {
+        sundayCards.push(_rundownBuildOutputCard({
+          kicker: 'Display',
+          title: 'Sanctuary timer',
+          description: 'Read-only countdown for sanctuary, green room, and confidence screens.',
+          url: urls.timerUrl,
+          badge: 'Display',
+          badgeBg: 'rgba(0,230,118,0.12)',
+          badgeColor: '#00E676',
+          accent: '#00E676',
+        }));
+      }
+      if (urls.readonlyShowUrl) {
+        sundayCards.push(_rundownBuildOutputCard({
+          kicker: 'Display',
+          title: 'Follow-along',
+          description: 'Read-only live cue. Safe for volunteer phones — cannot GO.',
+          url: urls.readonlyShowUrl,
+          badge: 'Display',
+          badgeBg: 'rgba(0,230,118,0.12)',
+          badgeColor: '#00E676',
+          accent: '#00E676',
+        }));
+      }
+      if (sundayCards.length) {
         sections.push(_rundownBuildSectionCard(
-          'Live Mode',
-          'Operator links can Start Live and GO. Display links follow the same session but cannot change it — the server rejects control from display tokens.',
-          [
-            _rundownBuildOutputCard({
-              kicker: 'Operator link',
-              title: 'Live Mode',
-              description: 'Booth control: Start Live, GO, Back, pause, and quick edits. Keep this link off volunteer screens.',
-              url: urls.showUrl,
-              badge: 'Operator',
-              badgeBg: 'rgba(255,167,38,0.10)',
-              badgeColor: '#FFB74D',
-              accent: '#FFB74D',
-            }),
-            _rundownBuildOutputCard({
-              kicker: 'Display link',
-              title: 'Read-Only Live Mode',
-              description: 'Follows the live cue and countdown. Safe for sanctuary, green room, and volunteer phones — display tokens cannot GO.',
-              url: urls.readonlyShowUrl,
-              badge: 'Display',
-              badgeBg: 'rgba(0,230,118,0.12)',
-              badgeColor: '#00E676',
-              accent: '#00E676',
-            })
-          ],
-          { label: 'Operator', bg: 'rgba(255,167,38,0.10)', fg: '#FFB74D' }
+          'Sunday links',
+          'Copy Operator for the booth. Copy Display for every public screen.',
+          sundayCards,
+          { label: 'Primary', bg: 'rgba(0,230,118,0.12)', fg: '#00E676' }
         ));
       }
 
+      var moreSections = [];
       if (urls.prompterUrl) {
-        sections.push(_rundownBuildSectionCard(
+        moreSections.push(_rundownBuildSectionCard(
           'Teleprompter',
           'Full-screen scrolling teleprompter output. Auto-scrolls to follow live cues. Supports mirror mode, font sizing, dark/light themes, and keyboard shortcuts.',
           [
@@ -13712,7 +13693,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       if (publicUrl) {
-        sections.push(_rundownBuildSectionCard(
+        moreSections.push(_rundownBuildSectionCard(
           'Public view modes',
           'Read-only public views built from the same token. Full view is best for desk-side review; compact and large text are better on larger screens.',
           [
@@ -13752,7 +13733,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       if (timerUrl) {
-        timerSections.push(_rundownBuildSectionCard(
+        moreSections.push(_rundownBuildSectionCard(
           'Timer modes',
           'The same token powers every countdown view. Use the default timer for speakers, detailed mode for production screens, and stage display mode for high-visibility countdowns.',
           [
@@ -13834,7 +13815,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       if (outputSuite) {
-        outputSuite.innerHTML = sections.concat(timerSections).concat(productionSections).join('');
+        var moreHtml = moreSections.concat(productionSections).filter(Boolean).join('');
+        outputSuite.innerHTML = sections.join('')
+          + (moreHtml
+            ? '<details style="margin-top:4px;border-radius:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);padding:12px 14px">'
+              + '<summary style="cursor:pointer;font-size:12px;font-weight:700;color:#8B9DAF;list-style:none">More screens (optional)</summary>'
+              + '<div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">' + moreHtml + '</div>'
+              + '</details>'
+            : '');
       }
 
       if (_rundownSelectedPlan && _rundownSelectedPlan.source !== 'pco' && Array.isArray(_rundownColumns)) {
@@ -13965,7 +13953,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (urls.showUrl) _rundownOpenUrl(urls.showUrl);
         _updateSharedBadge(true);
       };
-      if (_rundownShareData && _rundownShareData.share_token) {
+      if (_rundownShareData && _rundownResolveShareUrls(_rundownShareData).showUrl) {
         openShow(_rundownShareData);
         return;
       }
@@ -13981,7 +13969,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (urls.publicUrl) _rundownOpenUrl(urls.publicUrl);
         _updateSharedBadge(true);
       };
-      if (_rundownShareData && _rundownShareData.share_token) {
+      if (_rundownShareData && _rundownResolveShareUrls(_rundownShareData).publicUrl) {
         openView(_rundownShareData);
         return;
       }
@@ -14000,7 +13988,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         _updateSharedBadge(true);
         toast('Opened sample setup');
       };
-      if (_rundownShareData && _rundownShareData.share_token) {
+      if (_rundownShareData && _rundownResolveShareUrls(_rundownShareData).publicUrl) {
         openWindows(_rundownShareData);
         return;
       }
@@ -14036,7 +14024,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function rundownCopyShareLink() {
       var urls = _rundownResolveShareUrls(_rundownShareData || {});
-      var url = _rundownBuildModeUrl(urls.publicUrl, '', {});
+      var url = urls.timerUrl || urls.publicUrl;
       if (!url) return;
       _rundownCopyTextToClipboard(url, null, 'Copy Link');
     }
@@ -15951,11 +15939,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     function renderRundownInactive() {
+      if (_rundownSelectedPlan) {
+        _liveShowState = null;
+        _stopLiveShowTimer();
+        renderRundownEditor(_rundownSelectedPlan);
+        return;
+      }
       showRundownView('manager');
       loadRundownManager();
     }
 
     function renderRundownActive(state) {
+      // Leftover second live stack. Route operators into the editor instead.
+      if (state && state.planId) {
+        _openLivePlanInEditor(state);
+        return;
+      }
+      loadRundownManager();
+    }
+
+    function _renderRundownActiveLegacy(state) {
       var noSession = document.getElementById('rundown-no-session');
       var active = document.getElementById('rundown-active');
       if (noSession) noSession.style.display = 'none';
@@ -16288,9 +16291,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             loadCompanionActionsCache(data.planId);
           }
           if (document.getElementById('page-rundown').classList.contains('active')) {
-            showRundownView('active');
-            renderRundownActive(data);
+            if (_isCanonicalLiveState(data)) _applyCanonicalLiveState(data);
+            var editorEl = document.getElementById('rundown-editor');
+            var editorOpen = editorEl && editorEl.style.display !== 'none';
+            if (editorOpen && _rundownSelectedPlan && (!_rundownSelectedPlan.id || _rundownSelectedPlan.id === data.planId)) {
+              renderRundownEditor(_rundownSelectedPlan);
+              _startLiveShowTimer();
+            } else {
+              var managerEl = document.getElementById('rundown-manager');
+              if (managerEl && managerEl.style.display !== 'none') renderRundownDashboard();
+            }
           }
+          refreshLiveRundownOverviewCta();
         }
         // Update sidebar indicator — show if any room is live
         var indicator = document.getElementById('td-session-indicator');
@@ -16337,9 +16349,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         delete _rundownStatsByRoom[msgRoomId];
         if (msgRoomId === myRoomId) {
           _rundownState = null;
+          if (_liveShowState) {
+            _stopLiveShowTimer();
+            _liveShowState = null;
+          }
           if (document.getElementById('page-rundown').classList.contains('active')) {
             renderRundownInactive();
           }
+          refreshLiveRundownOverviewCta();
         }
         var indicator = document.getElementById('td-session-indicator');
         var remainingLive = Object.keys(_rundownStatsByRoom).length;
@@ -17192,12 +17209,12 @@ document.addEventListener('DOMContentLoaded', function() {
           function doCopy(share) {
             _rundownShareData = share;
             var urls = _rundownResolveShareUrls(share || {});
-            var url = _rundownBuildModeUrl(urls.publicUrl, '', {});
+            var url = urls.timerUrl || urls.publicUrl;
             if (!url) { toast('No share link available', true); return; }
             _rundownCopyTextToClipboard(url, btn, 'Share');
-            toast('Link copied to clipboard!');
+            toast('Display link copied');
           }
-          if (_rundownShareData && _rundownShareData.share_token) {
+          if (_rundownShareData && _rundownResolveShareUrls(_rundownShareData).timerUrl) {
             doCopy(_rundownShareData);
           } else {
             _rundownEnsureShare(_rundownSelectedPlan.id).then(doCopy).catch(function(e) { toast('Failed: ' + e.message, true); });
