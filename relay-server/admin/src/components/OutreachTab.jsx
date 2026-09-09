@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { C, s } from './adminStyles';
 
 export default function OutreachTab({ api }) {
-  const [messageType, setMessageType] = useState('introduction');
+  const [messageType, setMessageType] = useState('cold-dm');
   const [prospectName, setProspectName] = useState('');
   const [churchName, setChurchName] = useState('');
   const [source, setSource] = useState('website');
@@ -11,23 +11,20 @@ export default function OutreachTab({ api }) {
   const [generating, setGenerating] = useState(false);
   const [err, setErr] = useState('');
 
+  // Must match OUTREACH_TYPE_PROMPTS / OUTREACH_SOURCE_CONTEXT in server.js
   const MESSAGE_TYPES = [
-    { value: 'introduction', label: 'Introduction' },
-    { value: 'follow_up', label: 'Follow Up' },
-    { value: 'demo_invite', label: 'Demo Invite' },
-    { value: 'onboarding', label: 'Onboarding' },
-    { value: 'check_in', label: 'Check In' },
-    { value: 'upgrade', label: 'Upgrade Pitch' },
-    { value: 'reactivation', label: 'Reactivation' },
+    { value: 'cold-dm', label: 'Cold DM' },
+    { value: 'healthcheck-followup', label: 'Health Check Follow-up' },
+    { value: 'group-reply', label: 'Group Reply' },
+    { value: 'email', label: 'Email' },
   ];
 
   const SOURCES = [
-    { value: 'website', label: 'Website' },
-    { value: 'referral', label: 'Referral' },
-    { value: 'conference', label: 'Conference' },
-    { value: 'social', label: 'Social Media' },
-    { value: 'cold', label: 'Cold Outreach' },
-    { value: 'other', label: 'Other' },
+    { value: 'facebook', label: 'Facebook' },
+    { value: 'youtube', label: 'YouTube' },
+    { value: 'reddit', label: 'Reddit' },
+    { value: 'direct', label: 'Direct' },
+    { value: 'healthcheck', label: 'Health Check' },
   ];
 
   async function generate() {
