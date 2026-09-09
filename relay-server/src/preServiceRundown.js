@@ -69,7 +69,7 @@ class PreServiceRundown {
     this.broadcastToPortal = opts.broadcastToPortal;
     this.postSystemChatMessage = opts.postSystemChatMessage || (() => {});
     this.makeCommandSender = opts.makeCommandSender || null;
-    this.alertBotToken = opts.alertBotToken || process.env.ALERT_BOT_TOKEN;
+    this.alertBotToken = opts.alertBotToken || process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
 
     // Active rundowns keyed by churchId
     this._active = new Map(); // churchId → rundown object

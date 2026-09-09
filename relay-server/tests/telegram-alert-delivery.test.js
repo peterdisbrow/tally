@@ -21,7 +21,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { AlertEngine, ALERT_CLASSIFICATIONS, DEFAULT_DEDUP_WINDOW_MS } from '../src/alertEngine.js';
+import { AlertEngine, ALERT_CLASSIFICATIONS, DEFAULT_DEDUP_WINDOW_MS, inferAlertTypeFromMessage, resolveAlertBotToken } from '../src/alertEngine.js';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ describe('Telegram alert delivery — HTTP contract', () => {
   });
 
   it('skips Telegram entirely when no bot token is configured anywhere', async () => {
-    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, {});
+    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, { defaultBotToken: '' });
     const church = makeChurch({ alert_bot_token: '' });
 
     const result = await noTokenEngine.sendAlert(church, 'audio_silence', {});
@@ -126,7 +126,7 @@ describe('Telegram alert delivery — HTTP contract', () => {
   });
 
   it('still sends Slack when Telegram has no bot token', async () => {
-    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, {});
+    const noTokenEngine = new AlertEngine(db, { isServiceWindow: () => true }, { defaultBotToken: '' });
     const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
     db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
       .run('church-slack-only', 'Slack Only', webhookUrl);
@@ -499,5 +499,71 @@ describe('Telegram alert delivery — cross-church isolation', () => {
     const callB = telegram.calls.find(c => c.chatId === 'chat-B');
     expect(callA?.botToken).toBe('token-A');
     expect(callB?.botToken).toBe('token-B');
+  });
+});
+
+// ─── 8. Token fallback + message inference + auto-recovery resolve ──────────
+
+describe('Alert token fallback and Sunday-path inference', () => {
+  const savedAlert = process.env.ALERT_BOT_TOKEN;
+  const savedTally = process.env.TALLY_BOT_TOKEN;
+
+  afterEach(() => {
+    if (savedAlert === undefined) delete process.env.ALERT_BOT_TOKEN;
+    else process.env.ALERT_BOT_TOKEN = savedAlert;
+    if (savedTally === undefined) delete process.env.TALLY_BOT_TOKEN;
+    else process.env.TALLY_BOT_TOKEN = savedTally;
+  });
+
+  it('falls back to TALLY_BOT_TOKEN when ALERT_BOT_TOKEN is missing', () => {
+    delete process.env.ALERT_BOT_TOKEN;
+    process.env.TALLY_BOT_TOKEN = 'interactive-bot';
+    expect(resolveAlertBotToken()).toBe('interactive-bot');
+  });
+
+  it('prefers ALERT_BOT_TOKEN when both are set', () => {
+    process.env.ALERT_BOT_TOKEN = 'alerts-bot';
+    process.env.TALLY_BOT_TOKEN = 'interactive-bot';
+    expect(resolveAlertBotToken()).toBe('alerts-bot');
+  });
+
+  it('infers stream-down and mute types from church-client copy', () => {
+    expect(inferAlertTypeFromMessage('Stream STOPPED', 'info')).toBe('stream_stopped');
+    expect(inferAlertTypeFromMessage('ATEM streaming STOPPED (YouTube)', 'warning')).toBe('atem_stream_stopped');
+    expect(inferAlertTypeFromMessage('🔴 Teradek stream stopped', 'critical')).toBe('encoder_stream_stopped');
+    expect(inferAlertTypeFromMessage('🔴 vMix stream stopped unexpectedly', 'critical')).toBe('vmix_stream_stopped');
+    expect(inferAlertTypeFromMessage('🔇 AUDIO: Master output was MUTED on console', 'critical')).toBe('audio_muted');
+    expect(inferAlertTypeFromMessage('ATEM connected', 'info')).toBeNull();
+  });
+});
+
+describe('notifyAutoRecovery', () => {
+  let db, engine, telegram;
+
+  beforeEach(() => {
+    db = createTestDb();
+    engine = createEngine(db);
+    telegram = captureTelegramFetches();
+  });
+
+  afterEach(() => {
+    engine.clearDedupState('church-1');
+    db.close();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends a Telegram resolve and Slack resolve after auto-recovery', async () => {
+    const webhookUrl = 'https://hooks.slack.com/services/T1/B2/secret';
+    db.prepare('INSERT INTO churches (churchId, name, slack_webhook_url) VALUES (?, ?, ?)')
+      .run('church-1', 'First Tally Church', webhookUrl);
+    const church = makeChurch({ slack_webhook_url: webhookUrl });
+    await engine.notifyAutoRecovery(church, 'stream_stopped', { command: 'obs.startStream' });
+    expect(telegram.calls).toHaveLength(1);
+    expect(telegram.calls[0].text).toContain('auto-recovered');
+    expect(telegram.calls[0].text).toContain('stream stopped');
+    const slackCalls = telegram.fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('https://hooks.slack.com/'),
+    );
+    expect(slackCalls).toHaveLength(1);
   });
 });

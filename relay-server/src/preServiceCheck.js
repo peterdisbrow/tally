@@ -60,7 +60,7 @@ class PreServiceCheck {
     this.versionConfig = versionConfig || null;
     this.tallyBot = null;
     this.sendCommand = null;
-    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
+    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
     this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
     this._tickPromise = null;

@@ -216,7 +216,7 @@ const heartbeatInterval = setInterval(() => {
 }, HEARTBEAT_PING_INTERVAL_MS);
 
 const { ScheduleEngine } = require('./src/scheduleEngine');
-const { AlertEngine } = require('./src/alertEngine');
+const { AlertEngine, inferAlertTypeFromMessage, resolveAlertBotToken } = require('./src/alertEngine');
 const { VersionConfig } = require('./src/versionConfig');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { AITriageEngine } = require('./src/aiTriage');
@@ -1473,7 +1473,7 @@ const aiTriageEngine = new AITriageEngine(queryClient, scheduleEngine, {
 const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, queryClient);
 autoRecovery.signalFailover = signalFailover; // allow autoRecovery to defer to failover
 const weeklyDigest = new WeeklyDigest(queryClient);
-weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
+weeklyDigest.setNotificationConfig(resolveAlertBotToken());
 const rundownEngine = new RundownEngine(queryClient);
 
 // Live Rundown — show-calling with PCO or manual service plans.
@@ -1500,7 +1500,7 @@ const guestTdMode = new GuestTdMode(queryClient, {
 
 const monthlyReport = new MonthlyReport({
   db: queryClient,
-  defaultBotToken: process.env.ALERT_BOT_TOKEN,
+  defaultBotToken: resolveAlertBotToken(),
   adminChatId: process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID,
 });
 
@@ -1523,7 +1523,7 @@ sessionRecap.setRoomResolver((churchId, instanceName) => {
 });
 sessionRecap.churchMemory = churchMemory;
 sessionRecap.setNotificationConfig(
-  process.env.ALERT_BOT_TOKEN,
+  resolveAlertBotToken(),
   process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID
 );
 aiTriageEngine.setSessionRecap(sessionRecap); // Let triage detect active streaming sessions
@@ -2188,6 +2188,7 @@ if (TALLY_BOT_TOKEN) {
     chatEngine,
     scheduler,
     signalFailover,
+    alertEngine,
   });
   log('Telegram bot initialized');
 
@@ -2323,6 +2324,7 @@ setupAdminPanel(app, db, churches, resellerSystem, {
   lifecycleEmails,
   logAudit,
   queryClient,
+  alertEngine,
   getObservedChurch,
   listObservedChurches,
   requirePermission,
@@ -2335,7 +2337,7 @@ preServiceCheck = new PreServiceCheck({
   db: queryClient,
   scheduleEngine,
   churches,
-  defaultBotToken: process.env.ALERT_BOT_TOKEN,
+  defaultBotToken: resolveAlertBotToken(),
   adminChatId: ADMIN_TELEGRAM_CHAT_ID,
   sessionRecap,
   versionConfig,
@@ -2354,7 +2356,7 @@ const preServiceRundown = new PreServiceRundown({
   broadcastToPortal,
   postSystemChatMessage,
   makeCommandSender,
-  alertBotToken: process.env.ALERT_BOT_TOKEN,
+  alertBotToken: resolveAlertBotToken(),
 });
 
 // Hook service window transitions for pre-service rundown lifecycle
@@ -4970,6 +4972,9 @@ const _wsHandlers = createWebSocketHandlers({
   },
   onAlert(church, msg, alertEvent) {
     runtimeMetrics.record('church.alert.in');
+    if (!msg.alertType) {
+      msg.alertType = inferAlertTypeFromMessage(msg.message, msg.severity);
+    }
     if (msg.alertType) {
       // Extract instance/room context from the resolved alertEvent
       const alertInstanceName = alertEvent?.instance || null;
@@ -5013,6 +5018,9 @@ const _wsHandlers = createWebSocketHandlers({
             await sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
             if (recovery.command) await churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
             log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
+            const dbChurch = await loadChurchById(church.churchId);
+            alertEngine.notifyAutoRecovery({ ...church, ...dbChurch }, msg.alertType, recovery)
+              .catch(e => console.error('[AlertEngine] Auto-recovery notify failed:', e.message));
           } else {
             if (recovery.attempted && recovery.command) await churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
             const dbChurch = await loadChurchById(church.churchId);

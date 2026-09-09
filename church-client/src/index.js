@@ -1393,7 +1393,8 @@ class ChurchAVAgent {
         if (wasStreaming !== isStreaming) {
           this.sendAlert(
             `ATEM streaming ${isStreaming ? 'STARTED' : 'STOPPED'}${this.status.atem.streamingService ? ` (${this.status.atem.streamingService})` : ''}`,
-            isStreaming ? 'info' : 'warning'
+            isStreaming ? 'info' : 'critical',
+            isStreaming ? 'stream_started' : 'atem_stream_stopped',
           );
           // Stream Protection: notify of state change
           if (this.streamProtection) {
@@ -1691,7 +1692,11 @@ class ChurchAVAgent {
         this.status.obs.streaming = outputActive;
         if (!this._encoderManaged) this.status.encoder.live = !!outputActive;
         if (wasStreaming !== outputActive) {
-          this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
+          this.sendAlert(
+            `Stream ${outputActive ? 'STARTED' : 'STOPPED'}`,
+            outputActive ? 'info' : 'critical',
+            outputActive ? 'stream_started' : 'stream_stopped',
+          );
           this.sendStatus();
           // Stream Protection: notify of OBS state change
           if (this.streamProtection) {
@@ -1838,7 +1843,7 @@ class ChurchAVAgent {
       const isLive = s.live || s.streaming;
       if (wasLive && !isLive && s.connected) {
         const encoderType = s.type || this.config.encoder?.type || 'Encoder';
-        this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical');
+        this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical', 'encoder_stream_stopped');
         this.sendStatus();
         // Reset bitrate tracking + switch back to slow poll
         this._bitrateBaseline = null;
@@ -1859,7 +1864,7 @@ class ChurchAVAgent {
       }
       if (!wasLive && isLive) {
         const encoderType = s.type || this.config.encoder?.type || 'Encoder';
-        this.sendAlert(`✅ ${encoderType} streaming started`, 'info');
+        this.sendAlert(`✅ ${encoderType} streaming started`, 'info', 'stream_started');
         this.sendStatus();
         // Switch to fast poll for failover detection
         if (!this._fastEncoderPoll) {
@@ -2499,7 +2504,7 @@ class ChurchAVAgent {
         this.logIdentity('vmix', 'vMix identity:', vmixIdentity);
 
         if (wasStreaming && !status.streaming) {
-          this.sendAlert('🔴 vMix stream stopped unexpectedly', 'critical');
+          this.sendAlert('🔴 vMix stream stopped unexpectedly', 'critical', 'vmix_stream_stopped');
         }
         if (wasRecording && !status.recording) {
           this.sendAlert('⚠️ vMix recording stopped', 'warning');
@@ -2543,7 +2548,7 @@ class ChurchAVAgent {
       const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${status.model ? ` ${status.model}` : ''}`;
       this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
       console.log(`✅ ${mixerConfig.type} console connected`);
-      if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
+      if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning', 'audio_muted');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
       this.status.mixer = { connected: false, type: mixerConfig.type, model: status.model || null, mainMuted: false, mainFader: null, scene: null };
@@ -2572,7 +2577,7 @@ class ChurchAVAgent {
         };
         const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${this.status.mixer.model ? ` ${this.status.mixer.model}` : ''}`;
         this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
-        if (!wasMuted && status.mainMuted) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical');
+        if (!wasMuted && status.mainMuted) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical', 'audio_muted');
         if (wasMuted && !status.mainMuted) this.sendAlert('✅ Audio master unmuted', 'info');
         this.sendStatus();
       } catch { /* ignore poll errors */ }
@@ -2726,9 +2731,11 @@ class ChurchAVAgent {
     }, 100);
   }
 
-  sendAlert(message, severity = 'warning') {
+  sendAlert(message, severity = 'warning', alertType = null) {
     console.log(`[ALERT] ${message}`);
-    this.sendToRelay({ type: 'alert', message, severity });
+    const payload = { type: 'alert', message, severity };
+    if (alertType) payload.alertType = alertType;
+    this.sendToRelay(payload);
 
     // Track recent alerts for diagnostic bundles
     this._recentAlerts.push({ message, severity, timestamp: Date.now() });

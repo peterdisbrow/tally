@@ -29,7 +29,7 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
   const state = new Map();
 
   // ── Telegram alert helper ───────────────────────────────────────────────────
-  const BOT_TOKEN  = process.env.ALERT_BOT_TOKEN;
+  const BOT_TOKEN  = process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN;
   const CHAT_ID    = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
   let pollInFlight = null;
 

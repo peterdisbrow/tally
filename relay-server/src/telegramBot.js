@@ -624,7 +624,7 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, queryClient = null, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler, signalFailover }) {
+  constructor({ botToken, adminChatId, db, queryClient = null, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler, signalFailover, alertEngine }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -640,6 +640,7 @@ class TallyBot {
     this.chatEngine      = chatEngine      || null;
     this.scheduler       = scheduler       || null;
     this.signalFailover  = signalFailover  || null;
+    this.alertEngine     = alertEngine     || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
     this._churchesById = new Map();
     this._churchesByCode = new Map();
@@ -1444,10 +1445,23 @@ class TallyBot {
 
     // ── Failover ack/recover commands ─────────────────────────────────────
     const ackMatch = text.match(/^\/ack_([a-f0-9]+)/i);
-    if (ackMatch && this.signalFailover) {
-      this.signalFailover.onTdAcknowledge(church.churchId);
+    if (ackMatch) {
+      if (this.signalFailover) {
+        this.signalFailover.onTdAcknowledge(church.churchId);
+      }
+      if (this.alertEngine) {
+        try {
+          const alertId = await this.alertEngine.findAlertByPrefix(ackMatch[1]);
+          if (alertId) {
+            const td = this._getTdByChatId(chatId);
+            await this.alertEngine.acknowledgeAlert(alertId, td?.name || 'TD');
+          }
+        } catch (e) {
+          console.warn('[TallyBot] Alert ack failed:', e.message);
+        }
+      }
       return this.sendMessage(chatId,
-        `✅ Got it — Tally will stand by and let you handle it.\nWhen you're ready to switch back, reply /recover_${ackMatch[1]}`
+        `✅ Got it — acknowledged. Escalation cancelled.\nIf you were in failover standby, reply /recover_${ackMatch[1]} when the main source is back.`
       );
     }
 

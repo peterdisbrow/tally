@@ -14,6 +14,38 @@ const CRITICAL_BYPASS_TYPES = new Set([
 
 const DEFAULT_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * Resolve the Telegram token used to *send* alerts.
+ * Prefer the dedicated alerts bot; fall back to the interactive Tally bot so
+ * Sunday pages still go out when ALERT_BOT_TOKEN is not set yet.
+ * Do not invent a token — callers still no-op when both env vars are empty.
+ */
+function resolveAlertBotToken(explicit) {
+  if (explicit !== undefined && explicit !== null) return String(explicit);
+  return process.env.ALERT_BOT_TOKEN || process.env.TALLY_BOT_TOKEN || '';
+}
+
+/**
+ * Map known church-client `sendAlert(message)` strings to taxonomy types.
+ * Older booth builds omit `alertType`, so stream-down / mute never reached
+ * Telegram or Slack. Keep this conservative — unknown copy stays untyped.
+ */
+function inferAlertTypeFromMessage(message, severity) {
+  const m = String(message || '');
+  if (!m) return null;
+  if (/ATEM streaming STOPPED/i.test(m)) return 'atem_stream_stopped';
+  if (/vMix stream stopped/i.test(m)) return 'vmix_stream_stopped';
+  if (/stream stopped/i.test(m) && /teradek|magewell|osprey|liveu|encoder/i.test(m)) {
+    return 'encoder_stream_stopped';
+  }
+  if (/^Stream STOPPED$/i.test(m)) return 'stream_stopped';
+  if (/master output was MUTED/i.test(m) || /Audio console master is MUTED/i.test(m)) {
+    return 'audio_muted';
+  }
+  if (severity === 'critical' && /stream stopped/i.test(m)) return 'stream_stopped';
+  return null;
+}
+
 const SQLITE_FALLBACK_CONFIG = {
   driver: 'sqlite',
   isSqlite: true,
@@ -262,7 +294,7 @@ class AlertEngine {
     this.client = this._resolveClient(dbOrClient);
     this.scheduleEngine = scheduleEngine;
     this.adminChatId = options.adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
-    this.defaultBotToken = options.defaultBotToken || process.env.ALERT_BOT_TOKEN;
+    this.defaultBotToken = resolveAlertBotToken(options.defaultBotToken);
     this.activeAlerts = new Map(); // alertId → { church, alertType, context, severity, sentAt, escalationTimer }
     // Optional: OnCallRotation instance injected after construction
     this.onCallRotation = options.onCallRotation || null;
@@ -739,15 +771,51 @@ class AlertEngine {
     };
 
     try {
-      await fetch(church.slack_webhook_url, {
+      const resp = await fetch(church.slack_webhook_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(5000),
       });
+      if (!resp.ok) {
+        const body = await resp.text();
+        console.error(`Slack alert failed: ${resp.status} ${body}`);
+        return false;
+      }
+      return true;
     } catch (e) {
       console.error('Slack alert failed:', e.message);
+      return false;
     }
+  }
+
+  /**
+   * Sunday "Tally already fixed it" notice — Slack + Telegram, no new CRITICAL.
+   */
+  async notifyAutoRecovery(church, alertType, recoveryResult = null) {
+    const brand = this._getBrandName(church);
+    const label = String(alertType || 'issue').replace(/_/g, ' ');
+    const cmd = recoveryResult?.command || 'recovery action';
+    const telegramMsg = `✅ *${brand} auto-recovered:* ${label}\n${cmd} succeeded. No action needed.`;
+
+    const botToken = church.alert_bot_token || this.defaultBotToken;
+    const tdChatId = church.td_telegram_chat_id;
+    if (botToken && tdChatId) {
+      await this.sendTelegramMessage(tdChatId, botToken, telegramMsg);
+    }
+
+    let slackChurch = church;
+    try {
+      const dbChurch = await this._queryOne(
+        'SELECT slack_webhook_url, slack_channel FROM churches WHERE churchId = ?',
+        [church.churchId],
+      );
+      if (dbChurch) slackChurch = { ...church, ...dbChurch };
+    } catch (e) {
+      console.warn('Slack config lookup failed:', e.message);
+    }
+    await this.sendSlackResolution(slackChurch, alertType);
+    return { action: 'recovered' };
   }
 
   async sendSlackAcknowledgment(church, alertType, responder) {
@@ -863,4 +931,12 @@ class AlertEngine {
   }
 }
 
-module.exports = { AlertEngine, ALERT_CLASSIFICATIONS, DIAGNOSIS_TEMPLATES, CRITICAL_BYPASS_TYPES, DEFAULT_DEDUP_WINDOW_MS };
+module.exports = {
+  AlertEngine,
+  ALERT_CLASSIFICATIONS,
+  DIAGNOSIS_TEMPLATES,
+  CRITICAL_BYPASS_TYPES,
+  DEFAULT_DEDUP_WINDOW_MS,
+  resolveAlertBotToken,
+  inferAlertTypeFromMessage,
+};

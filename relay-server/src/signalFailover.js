@@ -1157,6 +1157,7 @@ class SignalFailover {
         || dbChurch?.telegram_bot_token
         || dbChurch?.telegramBotToken
         || process.env.ALERT_BOT_TOKEN
+        || process.env.TALLY_BOT_TOKEN
         || process.env.TELEGRAM_BOT_TOKEN;
       const tdChatId = dbChurch?.td_telegram_chat_id || dbChurch?.tdChatId;
 
