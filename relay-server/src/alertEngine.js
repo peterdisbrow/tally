@@ -4,6 +4,21 @@
 
 const { v4: uuidv4 } = require('uuid');
 const { createQueryClient } = require('./db');
+const {
+  createAlertDeliveryHealth,
+  DEFAULT_ALERT_SEND_FAILURE_THRESHOLD,
+} = require('./alertDeliveryHealth');
+
+function defaultCaptureException(err) {
+  try {
+    const Sentry = require('@sentry/node');
+    if (Sentry && typeof Sentry.captureException === 'function') {
+      Sentry.captureException(err);
+    }
+  } catch {
+    // SDK optional in unit tests
+  }
+}
 
 // Alert types that always bypass deduplication and send immediately
 const CRITICAL_BYPASS_TYPES = new Set([
@@ -302,6 +317,10 @@ class AlertEngine {
     this.resellerSystem = options.resellerSystem || null;
     // Optional: PushNotificationService for mobile push alerts
     this.pushNotifications = options.pushNotifications || null;
+    this.captureException = options.captureException || defaultCaptureException;
+    this.deliveryHealth = options.deliveryHealth || createAlertDeliveryHealth({
+      failureThreshold: options.alertSendFailureThreshold,
+    });
 
     // ─── Deduplication state ──────────────────────────────────────────────────
     // dedupState: Map<"churchId::alertType" → { count, firstSeen, lastContext, timer }>
@@ -362,6 +381,35 @@ class AlertEngine {
   /** Attach push notification service for mobile alerts */
   setPushNotifications(service) {
     this.pushNotifications = service;
+  }
+
+  getDeliveryStatusComponent() {
+    return this.deliveryHealth.getStatusComponent();
+  }
+
+  async _recordDelivery(channel, ok, error) {
+    const result = this.deliveryHealth.record(channel, { ok, error });
+    if (!result.shouldPage) return;
+    const lastOk = result.lastSuccessAt || 'never';
+    const err = new Error(
+      `Alert ${channel} send failed ${result.consecutiveFailures} times in a row: ${result.lastError}. Last successful ${channel} send: ${lastOk}`,
+    );
+    err.code = 'ALERT_SEND_FAILURE';
+    try { this.captureException(err); } catch { /* never throw from health */ }
+    console.error(`[AlertEngine] ${err.message} — paging admin contact`);
+    this._pageAndrewSendFailure(err.message).catch((e) => {
+      console.error('[AlertEngine] Admin send-failure page failed:', e.message);
+    });
+  }
+
+  async _pageAndrewSendFailure(message) {
+    if (!this.adminChatId || !this.defaultBotToken) return;
+    await this.sendTelegramMessage(
+      this.adminChatId,
+      this.defaultBotToken,
+      `🚨 ${message}\nSunday pages may be silent.`,
+      { skipHealth: true },
+    );
   }
 
   /**
@@ -779,12 +827,16 @@ class AlertEngine {
       });
       if (!resp.ok) {
         const body = await resp.text();
-        console.error(`Slack alert failed: ${resp.status} ${body}`);
+        const errMsg = `${resp.status} ${body}`.trim();
+        console.error(`Slack alert failed: ${errMsg}`);
+        await this._recordDelivery('slack', false, errMsg);
         return false;
       }
+      await this._recordDelivery('slack', true);
       return true;
     } catch (e) {
       console.error('Slack alert failed:', e.message);
+      await this._recordDelivery('slack', false, e.message);
       return false;
     }
   }
@@ -870,7 +922,8 @@ class AlertEngine {
     }
   }
 
-  async sendTelegramMessage(chatId, botToken, message) {
+  async sendTelegramMessage(chatId, botToken, message, options = {}) {
+    const skipHealth = options.skipHealth === true;
     try {
       const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
       const resp = await fetch(url, {
@@ -881,10 +934,17 @@ class AlertEngine {
       });
       if (!resp.ok) {
         const body = await resp.text();
-        console.error(`Telegram API error: ${resp.status} ${body}`);
+        const errMsg = `${resp.status} ${body}`.trim();
+        console.error(`Telegram API error: ${errMsg}`);
+        if (!skipHealth) await this._recordDelivery('telegram', false, errMsg);
+        return false;
       }
+      if (!skipHealth) await this._recordDelivery('telegram', true);
+      return true;
     } catch (e) {
       console.error(`Telegram send failed: ${e.message}`);
+      if (!skipHealth) await this._recordDelivery('telegram', false, e.message);
+      return false;
     }
   }
 
@@ -937,6 +997,8 @@ module.exports = {
   DIAGNOSIS_TEMPLATES,
   CRITICAL_BYPASS_TYPES,
   DEFAULT_DEDUP_WINDOW_MS,
+  DEFAULT_ALERT_SEND_FAILURE_THRESHOLD,
   resolveAlertBotToken,
   inferAlertTypeFromMessage,
+  createAlertDeliveryHealth,
 };

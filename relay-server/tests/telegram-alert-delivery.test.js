@@ -22,6 +22,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { AlertEngine, ALERT_CLASSIFICATIONS, DEFAULT_DEDUP_WINDOW_MS, inferAlertTypeFromMessage, resolveAlertBotToken } from '../src/alertEngine.js';
+import { ScheduleEngine } from '../src/scheduleEngine.js';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────
 
@@ -458,6 +459,32 @@ describe('Telegram alert delivery — service window gating', () => {
     const adminCall = telegram.calls.find(c => c.chatId === 'admin-chat-id');
     expect(adminCall).toBeTruthy();
     expect(adminCall.text).toContain('[ESCALATED]');
+  });
+
+  it('empty schedule is intentional: non-EMERGENCY alerts are log-only (silent Sunday)', async () => {
+    // Churches that never set Equipment → Schedule have isServiceWindow() === false.
+    // WARNING/CRITICAL pages stay in the DB; only EMERGENCY still sends.
+    db = createTestDb();
+    db.exec(`ALTER TABLE churches ADD COLUMN service_times TEXT DEFAULT '[]'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN church_type TEXT DEFAULT 'recurring'`);
+    db.exec(`ALTER TABLE churches ADD COLUMN event_expires_at TEXT`);
+    db.prepare('INSERT INTO churches (churchId, name, service_times) VALUES (?, ?, ?)')
+      .run('church-1', 'First Tally Church', '[]');
+
+    const scheduleEngine = new ScheduleEngine(db);
+    expect(scheduleEngine.isServiceWindow('church-1')).toBe(false);
+
+    engine = new AlertEngine(db, scheduleEngine, { defaultBotToken: 'default-bot-token' });
+    telegram = captureTelegramFetches();
+
+    const result = await engine.sendAlert(makeChurch(), 'stream_stopped', {});
+    expect(result.action).toBe('logged_outside_window');
+    expect(telegram.calls).toHaveLength(0);
+    const rows = db.prepare('SELECT alert_type, severity FROM alerts').all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].alert_type).toBe('stream_stopped');
+    expect(rows[0].severity).toBe('CRITICAL');
   });
 });
 

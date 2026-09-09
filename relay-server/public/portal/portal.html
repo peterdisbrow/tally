@@ -1133,6 +1133,16 @@
           <button class="btn-secondary" id="btn-remove-slack" data-action="removeSlackWebhook" style="display:none;color:var(--danger);border-color:var(--danger)" data-i18n="notif.slack.remove">Remove</button>
         </div>
       </div>
+      <div class="card" id="alerts-telegram-card">
+        <div class="card-title" data-i18n="notif.telegram_card.title">Telegram Integration</div>
+        <p style="font-size:12px;color:#8B9DAF;margin-bottom:12px">Same chat ID as Profile. Required for Sunday Telegram pages — Slack is optional.</p>
+        <div class="field">
+          <label data-i18n="notif.telegram_chat_id">Your Telegram Chat ID</label>
+          <input type="text" id="alerts-telegram-chat-id" placeholder="1234567890">
+        </div>
+        <p style="font-size:12px;color:#8B9DAF;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#00E676">@userinfobot</a> on Telegram to get your chat ID, or send <code style="color:#00E676">/register</code> to @TallyConnectBot.</p>
+        <button class="btn-primary" id="btn-save-alerts-telegram" data-action="saveAlertsTelegramChatId">Save chat ID</button>
+      </div>
       <div id="alerts-content"><p style="color:#556270;text-align:center;padding:20px">Loading alerts...</p></div>
       <div class="card" style="margin-top:20px">
         <div class="card-title" data-i18n="notif.failover.title">Stream Auto-Recovery</div>

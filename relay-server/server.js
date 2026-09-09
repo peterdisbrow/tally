@@ -3218,6 +3218,15 @@ async function runStatusChecks() {
         : { state: 'degraded', detail: 'ANTHROPIC_API_KEY not set — Claude features use templates' },
     });
 
+    const alertDelivery = typeof alertEngine.getDeliveryStatusComponent === 'function'
+      ? alertEngine.getDeliveryStatusComponent()
+      : { state: 'operational', detail: 'No outbound alert sends since process start' };
+    checks.push({
+      componentId: 'alert_delivery',
+      name: 'Alert Delivery',
+      result: alertDelivery,
+    });
+
     for (const check of checks) {
       await upsertStatusComponent({
         componentId: check.componentId,
