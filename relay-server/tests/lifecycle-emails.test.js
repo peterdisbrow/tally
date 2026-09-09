@@ -1265,4 +1265,118 @@ describe('LifecycleEmails', () => {
       }
     });
   });
+
+  describe('P1-2 support-ticket closed loop', () => {
+    const originalAdminEmail = process.env.ADMIN_EMAIL;
+    const originalSeedEmail = process.env.ADMIN_SEED_EMAIL;
+
+    afterEach(() => {
+      if (originalAdminEmail === undefined) delete process.env.ADMIN_EMAIL;
+      else process.env.ADMIN_EMAIL = originalAdminEmail;
+      if (originalSeedEmail === undefined) delete process.env.ADMIN_SEED_EMAIL;
+      else process.env.ADMIN_SEED_EMAIL = originalSeedEmail;
+    });
+
+    it('sendSupportTicketEmail mails church and ops with recipient-scoped types', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const result = await emails.sendSupportTicketEmail(mockChurch(), {
+        event: 'opened',
+        ticketId: 'tkt-open-1',
+        title: 'Stream is down',
+        message: 'Program feed dropped',
+        severity: 'P1',
+        status: 'open',
+      });
+
+      expect(result.reason).toBe('no-api-key');
+      expect(result.deliveries).toHaveLength(2);
+      const types = db._emailSends.map((row) => row.email_type);
+      expect(types).toContain('support-ticket-opened-tkt-open-1:pastor@grace.church');
+      expect(types).toContain('support-ticket-opened-tkt-open-1:andrew@tallyconnect.app');
+    });
+
+    it('sendSupportTicketEmail still notifies ops when the church has no portal_email', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const result = await emails.sendSupportTicketEmail(mockChurch({ portal_email: null }), {
+        event: 'admin-reply',
+        ticketId: 'tkt-reply-1',
+        updateId: 42,
+        title: 'Stream is down',
+        message: 'Checking the encoder',
+        severity: 'P1',
+        status: 'in_progress',
+      });
+      expect(result.deliveries).toHaveLength(1);
+      expect(db._emailSends[0].email_type).toBe('support-ticket-reply-tkt-reply-1-42:andrew@tallyconnect.app');
+    });
+
+    it('resolved event uses a per-ticket recipient-scoped type and is not marketing-gated', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const result = await emails.sendSupportTicketEmail(mockChurch(), {
+        event: 'resolved',
+        ticketId: 'tkt-res-1',
+        title: 'Stream is down',
+        message: 'Back up',
+        severity: 'P2',
+        status: 'resolved',
+      });
+      expect(result.deliveries).toHaveLength(2);
+      expect(db._emailSends.map((row) => row.email_type)).toEqual(expect.arrayContaining([
+        'support-ticket-resolved-tkt-res-1:pastor@grace.church',
+        'support-ticket-resolved-tkt-res-1:andrew@tallyconnect.app',
+      ]));
+      const built = emails._buildSupportTicketEmail(mockChurch(), {
+        event: 'opened',
+        ticketId: 'tkt-html',
+        title: '<script>alert(1)</script>',
+        message: 'ok',
+        severity: 'P3',
+        status: 'open',
+      });
+      expect(built.html).toContain('&lt;script&gt;');
+      expect(built.html).not.toContain('<script>alert(1)</script>');
+      expect(built.html).toContain('/church-portal');
+    });
+
+    it('rejects unknown events and missing ticket ids without recording a send', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      const missing = await emails.sendSupportTicketEmail(mockChurch(), { event: 'opened' });
+      expect(missing.reason).toBe('missing-ticket');
+      const unknown = await emails.sendSupportTicketEmail(mockChurch(), {
+        event: 'nudge',
+        ticketId: 'tkt-x',
+      });
+      expect(unknown.reason).toBe('unknown-event');
+      expect(db._emailSends).toHaveLength(0);
+    });
+
+    it('dedups a second opened send for the same ticket and recipient', async () => {
+      process.env.ADMIN_EMAIL = 'andrew@tallyconnect.app';
+      await emails.sendSupportTicketEmail(mockChurch(), {
+        event: 'opened',
+        ticketId: 'tkt-dup',
+        title: 'Once',
+      });
+      const second = await emails.sendSupportTicketEmail(mockChurch(), {
+        event: 'opened',
+        ticketId: 'tkt-dup',
+        title: 'Twice',
+      });
+      expect(second.deliveries.every((d) => d.reason === 'already-sent')).toBe(true);
+      expect(db._emailSends).toHaveLength(2);
+    });
+
+    it('registers support-ticket types in EMAIL_REGISTRY and getPreview', () => {
+      const types = LifecycleEmails.EMAIL_REGISTRY.map((e) => e.type);
+      expect(types).toEqual(expect.arrayContaining([
+        'support-ticket-opened',
+        'support-ticket-reply',
+        'support-ticket-resolved',
+      ]));
+      const preview = emails.getPreview('support-ticket-opened');
+      expect(preview.subject).toMatch(/Support ticket opened/i);
+      expect(preview.html).toContain('Sample Church');
+      expect(emails._getCategoryForType('support-ticket-opened-tkt-1:pastor@grace.church')).toBeNull();
+    });
+  });
 });

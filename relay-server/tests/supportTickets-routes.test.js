@@ -31,6 +31,7 @@ function createDb() {
       churchId TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT DEFAULT '',
+      portal_email TEXT DEFAULT '',
       token TEXT DEFAULT '',
       registeredAt TEXT NOT NULL
     )
@@ -116,8 +117,15 @@ function createDb() {
 function seedChurch(db, opts = {}) {
   const churchId = opts.churchId || uuidv4();
   db.prepare(
-    'INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)'
-  ).run(churchId, opts.name || 'Support Church', 'sup@church.com', 'tok', new Date().toISOString());
+    'INSERT INTO churches (churchId, name, email, portal_email, token, registeredAt) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(
+    churchId,
+    opts.name || 'Support Church',
+    'sup@church.com',
+    opts.portal_email || 'sup@church.com',
+    'tok',
+    new Date().toISOString(),
+  );
   return churchId;
 }
 
@@ -736,5 +744,118 @@ describe('POST /api/church/:churchId/diagnostic-bundle', () => {
     });
     expect(status).toBe(503);
     expect(body.error).toMatch(/not connected/i);
+  });
+});
+
+// ─── P1-2 support-ticket email closed loop ───────────────────────────────────
+
+describe('support ticket email closed loop', () => {
+  let db, client, sendSupportTicketEmail;
+
+  beforeEach(() => {
+    db = createDb();
+    sendSupportTicketEmail = vi.fn().mockResolvedValue({ sent: true, deliveries: [] });
+    client = makeClient(buildApp(db, { lifecycleEmails: { sendSupportTicketEmail } }).app);
+  });
+  afterEach(() => client.close());
+
+  it('emails church + ops when a ticket is opened', async () => {
+    const churchId = seedChurch(db, { portal_email: 'pastor@grace.church' });
+    const triageId = seedTriage(db, churchId);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.post('/api/support/tickets', {
+      token,
+      body: { triageId, title: 'Stream down!', description: 'Program feed dropped' },
+    });
+    expect(status).toBe(201);
+    expect(sendSupportTicketEmail).toHaveBeenCalledOnce();
+    const [churchArg, payload] = sendSupportTicketEmail.mock.calls[0];
+    expect(churchArg.churchId).toBe(churchId);
+    expect(churchArg.portal_email).toBe('pastor@grace.church');
+    expect(payload.event).toBe('opened');
+    expect(payload.ticketId).toBe(body.ticketId);
+    expect(payload.title).toBe('Stream down!');
+    expect(payload.message).toBe('Program feed dropped');
+  });
+
+  it('emails on admin reply and uses resolved (not reply) when status becomes resolved', async () => {
+    const churchId = seedChurch(db);
+    const adminId = seedAdmin(db);
+    const ticketId = uuidv4();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO support_tickets (id, church_id, triage_id, issue_category, severity, title, status, forced_bypass, diagnostics_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ticketId, churchId, null, 'other', 'P3', 'Issue', 'open', 0, '{}', 'a', now, now);
+    const token = issueAdminToken(adminId);
+
+    const reply = await client.post(`/api/support/tickets/${ticketId}/updates`, {
+      token,
+      body: { message: 'Working on it', status: 'in_progress' },
+    });
+    expect(reply.status).toBe(200);
+    expect(sendSupportTicketEmail).toHaveBeenCalledTimes(1);
+    expect(sendSupportTicketEmail.mock.calls[0][1].event).toBe('admin-reply');
+    expect(sendSupportTicketEmail.mock.calls[0][1].updateId).toBeTruthy();
+
+    const resolve = await client.post(`/api/support/tickets/${ticketId}/updates`, {
+      token,
+      body: { message: 'Fixed the encoder', status: 'resolved' },
+    });
+    expect(resolve.status).toBe(200);
+    expect(sendSupportTicketEmail).toHaveBeenCalledTimes(2);
+    expect(sendSupportTicketEmail.mock.calls[1][1].event).toBe('resolved');
+    expect(sendSupportTicketEmail.mock.calls[1][1].ticketId).toBe(ticketId);
+  });
+
+  it('does not email when the church posts an update', async () => {
+    const churchId = seedChurch(db);
+    const ticketId = uuidv4();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO support_tickets (id, church_id, triage_id, issue_category, severity, title, status, forced_bypass, diagnostics_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ticketId, churchId, null, 'other', 'P3', 'Issue', 'open', 0, '{}', 'a', now, now);
+    const token = issueChurchToken(churchId);
+    const { status } = await client.post(`/api/support/tickets/${ticketId}/updates`, {
+      token,
+      body: { message: 'Waiting for your reply', status: 'waiting_customer' },
+    });
+    expect(status).toBe(200);
+    expect(sendSupportTicketEmail).not.toHaveBeenCalled();
+  });
+
+  it('emails on admin PUT when status becomes resolved, not on title-only edits', async () => {
+    const churchId = seedChurch(db);
+    const adminId = seedAdmin(db);
+    const ticketId = uuidv4();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO support_tickets (id, church_id, triage_id, issue_category, severity, title, status, forced_bypass, diagnostics_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ticketId, churchId, null, 'other', 'P3', 'Issue', 'open', 0, '{}', 'a', now, now);
+    const token = issueAdminToken(adminId);
+
+    const titleOnly = await client.put(`/api/support/tickets/${ticketId}`, {
+      token,
+      body: { title: 'Updated Title' },
+    });
+    expect(titleOnly.status).toBe(200);
+    expect(sendSupportTicketEmail).not.toHaveBeenCalled();
+
+    const resolved = await client.put(`/api/support/tickets/${ticketId}`, {
+      token,
+      body: { status: 'resolved' },
+    });
+    expect(resolved.status).toBe(200);
+    expect(sendSupportTicketEmail).toHaveBeenCalledOnce();
+    expect(sendSupportTicketEmail.mock.calls[0][1]).toMatchObject({
+      event: 'resolved',
+      ticketId,
+      status: 'resolved',
+    });
+  });
+
+  it('still creates the ticket when lifecycleEmails is missing', async () => {
+    client.close();
+    client = makeClient(buildApp(db).app);
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status } = await client.post('/api/support/tickets', {
+      token,
+      body: { forceBypass: true, severity: 'P1', title: 'Stream is down right now' },
+    });
+    expect(status).toBe(201);
   });
 });

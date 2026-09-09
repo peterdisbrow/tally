@@ -439,7 +439,7 @@ function buildApp(overrides = {}) {
     signalFailover,
     aiTriageEngine,
     billing: overrides.billing !== undefined ? overrides.billing : null,
-    lifecycleEmails: null,
+    lifecycleEmails: overrides.lifecycleEmails !== undefined ? overrides.lifecycleEmails : null,
     preServiceCheck: null,
     sessionRecap: null,
     weeklyDigest: null,
@@ -1566,6 +1566,35 @@ describe('Church Portal API', () => {
       const ticketRow = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(ticketRes.body.ticketId);
       expect(ticketRow).toBeTruthy();
       expect(ticketRow.triage_id).toBe(triageRes.body.triageId);
+    });
+
+    it('emails church + ops when a portal ticket is opened', async () => {
+      client.close();
+      try { db.close(); } catch { /* already closed */ }
+      const sendSupportTicketEmail = vi.fn().mockResolvedValue({ sent: true, deliveries: [] });
+      const built = buildApp({ lifecycleEmails: { sendSupportTicketEmail } });
+      app = built.app;
+      db = built.db;
+      client = request(app);
+      tokenA = issueToken(CHURCH_A_ID);
+
+      const triageRes = await client.post('/api/church/support/triage', {
+        ...authHeaders(tokenA),
+        body: { issueCategory: 'stream_down', severity: 'P1', summary: 'Encoder died' },
+      });
+      expect(triageRes.status).toBe(201);
+
+      const ticketRes = await client.post('/api/church/support/tickets', {
+        ...authHeaders(tokenA),
+        body: { triageId: triageRes.body.triageId, title: 'Encoder died', description: 'No program out' },
+      });
+      expect(ticketRes.status).toBe(201);
+      expect(sendSupportTicketEmail).toHaveBeenCalledOnce();
+      const [churchArg, payload] = sendSupportTicketEmail.mock.calls[0];
+      expect(churchArg.churchId).toBe(CHURCH_A_ID);
+      expect(payload.event).toBe('opened');
+      expect(payload.ticketId).toBe(ticketRes.body.ticketId);
+      expect(payload.title).toBe('Encoder died');
     });
 
     it('report endpoints return seeded analytics data through the shared client', async () => {

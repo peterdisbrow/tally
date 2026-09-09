@@ -67,6 +67,19 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     hasQueryClient ? queryClient.run(sql, params) : db.prepare(sql).run(...params)
   );
 
+  function isResolvedStatus(status) {
+    return status === 'resolved' || status === 'closed';
+  }
+
+  function queueSupportTicketEmail(church, payload) {
+    if (!lifecycleEmails || typeof lifecycleEmails.sendSupportTicketEmail !== 'function') return;
+    const churchId = church?.churchId || payload?.churchId || 'unknown';
+    const ticketId = payload?.ticketId || 'unknown';
+    lifecycleEmails.sendSupportTicketEmail(church, payload).catch((err) => {
+      console.error(`[SupportTickets] Email failed ticket=${ticketId} church=${churchId}: ${err && err.message}`);
+    });
+  }
+
   async function buildSupportDiagnostics(churchId, options = {}) {
     const runtime = churches.get(churchId);
     const now = Date.now();
@@ -473,6 +486,15 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       nowIso,
     ]);
 
+    queueSupportTicketEmail(church, {
+      event: 'opened',
+      ticketId,
+      title,
+      message: description,
+      severity,
+      status: 'open',
+    });
+
     res.status(201).json({
       ticketId,
       churchId,
@@ -585,7 +607,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       nextStatus = requestedStatus;
     }
 
-    await qRun(`
+    const updateInsert = await qRun(`
       INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
       VALUES (?, ?, ?, ?, ?)
     `, [
@@ -606,6 +628,20 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
         ticketId: ticket.id,
         status: nextStatus,
         updatedAt: nowIso,
+      });
+    }
+
+    if (req.supportActor?.type !== 'church') {
+      const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [ticket.church_id]);
+      const becameResolved = isResolvedStatus(nextStatus) && !isResolvedStatus(ticket.status);
+      queueSupportTicketEmail(church || { churchId: ticket.church_id }, {
+        event: becameResolved ? 'resolved' : 'admin-reply',
+        ticketId: ticket.id,
+        title: ticket.title,
+        message: message.slice(0, 4000),
+        severity: ticket.severity,
+        status: nextStatus,
+        updateId: updateInsert?.lastInsertRowid || nowIso,
       });
     }
 
@@ -646,6 +682,19 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
         ticketId: ticket.id,
         status: patch.status || ticket.status,
         updatedAt: patch.updated_at,
+      });
+    }
+
+    const becameResolved = patch.status && isResolvedStatus(patch.status) && !isResolvedStatus(ticket.status);
+    if (becameResolved) {
+      const church = await qOne('SELECT * FROM churches WHERE churchId = ?', [ticket.church_id]);
+      queueSupportTicketEmail(church || { churchId: ticket.church_id }, {
+        event: 'resolved',
+        ticketId: ticket.id,
+        title: patch.title || ticket.title,
+        message: patch.description || ticket.description,
+        severity: patch.severity || ticket.severity,
+        status: patch.status,
       });
     }
 
