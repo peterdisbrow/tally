@@ -602,6 +602,47 @@ describe('Fallback mode (no API key)', () => {
       if (oldKey) process.env.ANTHROPIC_API_KEY = oldKey;
     }
   });
+
+  it('processOnboardingMessage uses fallback when Anthropic fetch rejects', async () => {
+    const db = createTestDb();
+    seedChurch(db);
+    const oldKey = process.env.ANTHROPIC_API_KEY;
+    const oldFetch = global.fetch;
+    process.env.ANTHROPIC_API_KEY = 'sk-test-not-a-real-key';
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+    try {
+      const result = await processOnboardingMessage(db, 'church-1', 'hi', {}, null);
+      expect(result.reply).toBeTruthy();
+      expect(result.state).toBe('gear');
+      expect(result.quickReplies.length).toBeGreaterThan(0);
+    } finally {
+      if (oldKey) process.env.ANTHROPIC_API_KEY = oldKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+      global.fetch = oldFetch;
+    }
+  });
+
+  it('processOnboardingMessage uses fallback when Anthropic returns HTTP 500', async () => {
+    const db = createTestDb();
+    seedChurch(db);
+    const oldKey = process.env.ANTHROPIC_API_KEY;
+    const oldFetch = global.fetch;
+    process.env.ANTHROPIC_API_KEY = 'sk-test-not-a-real-key';
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'internal error',
+    });
+    try {
+      const result = await processOnboardingMessage(db, 'church-1', 'hello', {}, null);
+      expect(result.reply).toBeTruthy();
+      expect(result.state).toBeTruthy();
+    } finally {
+      if (oldKey) process.env.ANTHROPIC_API_KEY = oldKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+      global.fetch = oldFetch;
+    }
+  });
 });
 
 // ─── O. quickReplies in response ─────────────────────────────────────────────

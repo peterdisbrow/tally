@@ -3929,10 +3929,12 @@ module.exports = function setupLiveRundownRoutes(app, ctx) {
         // Call Claude API
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
-          return res.status(500).json({ error: 'AI import not configured — ANTHROPIC_API_KEY not set' });
+          return res.status(503).json({
+            error: 'AI import is not available right now. Build the rundown manually or try again later.',
+          });
         }
 
-        const anthropic = new Anthropic({ apiKey });
+        const anthropic = new Anthropic({ apiKey, timeout: 20_000 });
 
         const systemPrompt = `You are a church service rundown parser. Given a document (text, image, or PDF content) that describes a church service order, worship set, or event schedule, extract structured rundown items.
 
@@ -3979,7 +3981,9 @@ Rules:
           if (!jsonMatch) throw new Error('No JSON found in response');
           parsed = JSON.parse(jsonMatch[0]);
         } catch (parseErr) {
-          return res.status(500).json({ error: 'Failed to parse AI response', detail: responseText.slice(0, 500) });
+          return res.status(502).json({
+            error: 'Could not parse that document. Try a clearer PDF or paste the order of service as text.',
+          });
         }
 
         // Validate structure

@@ -368,14 +368,22 @@ async function callOnboardingAI(messages, systemPrompt) {
     });
 
     if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error(`Anthropic API ${resp.status}: ${body.slice(0, 200)}`);
+      const body = await resp.text().catch(() => '');
+      console.warn(`[onboardingChat] Anthropic API ${resp.status}: ${body.slice(0, 200)}`);
+      return null;
     }
 
     const data = await resp.json();
     const raw = data?.content?.[0]?.text?.trim();
-    if (!raw) throw new Error('Empty response from AI');
+    if (!raw) {
+      console.warn('[onboardingChat] Empty AI response — using template fallback');
+      return null;
+    }
     return raw;
+  } catch (err) {
+    // Key present but Anthropic timed out / network / 5xx: never 500 the wizard.
+    console.warn('[onboardingChat] AI call failed, using template fallback:', err.message);
+    return null;
   } finally {
     clearTimeout(timeoutId);
   }
