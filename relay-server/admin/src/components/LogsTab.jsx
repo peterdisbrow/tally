@@ -166,7 +166,11 @@ export default function LogsTab({ api }) {
               {logs.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ ...s.td, textAlign: 'center', color: C.muted, padding: '24px 0' }}>
-                    {loading ? 'Loading…' : 'No logs in selected window'}
+                    {loading
+                      ? 'Loading…'
+                      : churches.length === 0
+                        ? 'No churches yet. Agent logs appear after a booth connects.'
+                        : 'No logs in selected window'}
                   </td>
                 </tr>
               ) : logs.map(row => {

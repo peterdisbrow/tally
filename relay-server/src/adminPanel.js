@@ -13,6 +13,8 @@ const { isLikelyTestOrSpamChurch } = require('./churchNameValidation');
 
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
+// HMAC cookie is the reseller HTML portal session (`role: 'reseller'`).
+// Admin SPA never sets this cookie — it uses Bearer JWT in sessionStorage.
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -637,6 +639,12 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Session middleware ────────────────────────────────────────────────────
 
+  function rejectAdminAuth(req, res, error = 'unauthorized') {
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error });
+    // SPA login lives on the same client as /admin/ (GET /admin/login is not a separate form).
+    return res.redirect('/admin/');
+  }
+
   async function requireAdminSession(req, res, next) {
     // Allow programmatic access via x-api-key header (timing-safe comparison to prevent brute-force timing attacks)
     const apiKey = req.headers['x-api-key'];
@@ -649,28 +657,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       }
     }
 
-    const payload = getSession(req);
-    if (payload && payload.role === 'admin') {
-      // Verify the admin is still active in the DB; reject if userId is absent (can't verify)
-      if (!payload.userId) {
-        const isApi = req.path.startsWith('/api/');
-        if (isApi) return res.status(401).json({ error: 'Session missing user identity — re-authenticate' });
-        return res.redirect('/admin/login');
-      }
-      const user = await qOne(
-        'SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1',
-        [payload.userId],
-      );
-      if (!user) {
-        const isApi = req.path.startsWith('/api/');
-        if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
-        return res.redirect('/admin/login');
-      }
-      req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
-      return next();
-    }
+    // HMAC cookie `tally_session` with role === 'admin' is leftover. The SPA never
+    // sets it (Bearer JWT). Reseller cookies stay on requireResellerSession.
+    // Do not grant admin API access from that cookie path.
 
-    // JWT Bearer token fallback (tally-landing proxy sends this)
+    // JWT Bearer token (admin SPA + tally-landing proxy)
     const authHeader = req.headers['authorization'] || '';
     if (authHeader.startsWith('Bearer ') && opts.jwt && opts.JWT_SECRET) {
       try {
@@ -682,9 +673,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
             [jwtPayload.userId],
           );
           if (!user) {
-            const isApi = req.path.startsWith('/api/');
-            if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
-            return res.redirect('/admin/login');
+            return rejectAdminAuth(req, res, 'Account deactivated or not found');
           }
           req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
           return next();
@@ -692,9 +681,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       } catch { /* fall through to 401 */ }
     }
 
-    const isApi = req.path.startsWith('/api/');
-    if (isApi) return res.status(401).json({ error: 'unauthorized' });
-    return res.redirect('/admin/login');
+    return rejectAdminAuth(req, res);
   }
 
   function requireResellerSession(req, res, next) {

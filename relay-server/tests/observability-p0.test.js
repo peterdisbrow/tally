@@ -16,6 +16,18 @@ describe('Observability P0 pins', () => {
     path.join(here, 'admin/src/components/StatusTab.jsx'),
     'utf8',
   );
+  const adminMainSrc = fs.readFileSync(
+    path.join(here, 'admin/src/main.jsx'),
+    'utf8',
+  );
+  const adminPanelSrc = fs.readFileSync(
+    path.join(here, 'src/adminPanel.js'),
+    'utf8',
+  );
+  const monitorTabSrc = fs.readFileSync(
+    path.join(here, 'admin/src/components/MonitorTab.jsx'),
+    'utf8',
+  );
 
   it('allows browser Sentry envelopes through Helmet connect-src', () => {
     expect(serverSrc).toContain('https://*.ingest.sentry.io');
@@ -69,5 +81,24 @@ describe('Observability P0 pins', () => {
   it('surfaces last Resend failure type on the status component without changing outage policy', () => {
     expect(serverSrc).toContain('getLastResendFailure');
     expect(serverSrc).toContain('last ${lastFailure.type} ${lastFailure.at}');
+  });
+
+  it('admin SPA still inits Sentry from VITE_SENTRY_DSN or GET /api/admin/client-config', () => {
+    expect(adminMainSrc).toContain('/api/admin/client-config');
+    expect(adminMainSrc).toContain('sentryDsn');
+    expect(adminMainSrc).toContain('Sentry.init');
+    expect(adminMainSrc).toContain('VITE_SENTRY_DSN');
+  });
+
+  it('does not grant admin session from leftover HMAC tally_session cookies', () => {
+    expect(adminPanelSrc).toContain("HMAC cookie `tally_session` with role === 'admin' is leftover");
+    expect(adminPanelSrc).not.toMatch(/payload && payload\.role === 'admin'/);
+    expect(adminPanelSrc).not.toContain("res.redirect('/admin/login')");
+  });
+
+  it('Monitor empty state is honest, not Waiting for data', () => {
+    expect(monitorTabSrc).toContain('fleetEmptyState');
+    expect(monitorTabSrc).toContain('hlsIdleState');
+    expect(monitorTabSrc).not.toContain('Waiting for data...');
   });
 });

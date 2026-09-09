@@ -1,14 +1,16 @@
 import { C, s } from './adminStyles';
+import { ZERO_CONNECTED_NOTE } from '../monitorEmptyCopy';
 
 export default function SundayStrip({ overview }) {
+  const loaded = overview != null;
   const connected = overview?.onlineNow ?? 0;
   const unacked = overview?.unackedAlerts ?? overview?.activeAlerts ?? 0;
   const inService = overview?.inServiceNow ?? 0;
 
   const pills = [
-    { label: 'Connected', value: connected, color: connected > 0 ? C.green : C.muted },
-    { label: 'Open unacked alerts', value: unacked, color: unacked > 0 ? C.red : C.muted },
-    { label: 'In service window now', value: inService, color: inService > 0 ? C.yellow : C.muted },
+    { label: 'Connected', value: loaded ? connected : '—', color: connected > 0 ? C.green : C.muted },
+    { label: 'Open unacked alerts', value: loaded ? unacked : '—', color: unacked > 0 ? C.red : C.muted },
+    { label: 'In service window now', value: loaded ? inService : '—', color: inService > 0 ? C.yellow : C.muted },
   ];
 
   return (
@@ -32,6 +34,11 @@ export default function SundayStrip({ overview }) {
           <span style={{ fontSize: 12, color: C.muted }}>{p.label}</span>
         </div>
       ))}
+      {loaded && connected === 0 && (
+        <div style={{ width: '100%', fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+          {ZERO_CONNECTED_NOTE}
+        </div>
+      )}
     </div>
   );
 }

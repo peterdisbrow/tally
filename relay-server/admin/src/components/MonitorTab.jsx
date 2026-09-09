@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { C, s, ENCODER_TYPE_NAMES } from './adminStyles';
+import { fleetEmptyState, hlsIdleState } from '../monitorEmptyCopy';
 
 export default function MonitorTab({ token, api }) {
   const [churches, setChurches] = useState([]);
@@ -798,11 +799,13 @@ export default function MonitorTab({ token, api }) {
             </span>
           </div>
           {err && <span style={{ fontSize: 12, color: C.muted }}>{err}</span>}
-          {streaming > 0 && (
+          {streaming > 0 ? (
             <span style={{ fontSize: 13, color: C.muted }}>
               {streaming} active stream{streaming > 1 ? 's' : ''}
             </span>
-          )}
+          ) : connected ? (
+            <span style={{ fontSize: 13, color: C.muted }}>No live ingest</span>
+          ) : null}
         </div>
         <button style={s.btn('secondary')} onClick={handleRefresh}>{'\u21BB'} Refresh</button>
       </div>
@@ -843,9 +846,26 @@ export default function MonitorTab({ token, api }) {
 
       {/* Church table */}
       {filtered.length === 0 ? (
-        <div style={s.empty}>
-          {churches.length === 0 ? 'Waiting for data...' : 'No matching churches'}
-        </div>
+        (() => {
+          const empty = fleetEmptyState({
+            sseConnected: connected,
+            churchCount: churches.length,
+            onlineCount: online,
+            filter,
+            showOnlyOnline,
+            reconnecting: Boolean(err),
+          });
+          return (
+            <div style={{ ...s.card, textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.white, marginBottom: 8 }}>
+                {empty.title}
+              </div>
+              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, maxWidth: 440, margin: '0 auto' }}>
+                {empty.body}
+              </div>
+            </div>
+          );
+        })()
       ) : (
         <div style={s.card}>
           <table style={s.table}>
@@ -929,7 +949,15 @@ export default function MonitorTab({ token, api }) {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
                               {/* Left: stream preview */}
                               <div>
-                                {displayStream?.active ? (
+                                {streamKey === null ? (
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    minHeight: 160, background: C.surface, borderRadius: 8,
+                                    border: `1px solid ${C.border}`, color: C.muted, fontSize: 13,
+                                  }}>
+                                    Loading preview…
+                                  </div>
+                                ) : displayStream?.active ? (
                                   <div>
                                     <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                                       <span style={s.badge(C.red)}>{'\uD83D\uDD34'} LIVE</span>
@@ -953,16 +981,22 @@ export default function MonitorTab({ token, api }) {
                                     />
                                   </div>
                                 ) : (
-                                  <div style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    minHeight: 200, background: C.surface, borderRadius: 8,
-                                    border: `1px solid ${C.border}`, color: C.muted, fontSize: 13,
-                                  }}>
-                                    <div style={{ textAlign: 'center' }}>
-                                      <span style={{ ...s.badge(C.muted), marginBottom: 8, display: 'inline-block' }}>Offline</span>
-                                      <div>Stream offline {'\u2014'} waiting for RTMP input</div>
-                                    </div>
-                                  </div>
+                                  (() => {
+                                    const idle = hlsIdleState({ boothConnected: Boolean(c.connected) });
+                                    return (
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        minHeight: 160, background: C.surface, borderRadius: 8,
+                                        border: `1px dashed ${C.border}`, color: C.muted, fontSize: 13,
+                                      }}>
+                                        <div style={{ textAlign: 'center', maxWidth: 360, padding: '16px 20px' }}>
+                                          <span style={{ ...s.badge(C.muted), marginBottom: 10, display: 'inline-block' }}>{idle.badge}</span>
+                                          <div style={{ fontWeight: 600, color: C.white, marginBottom: 6 }}>{idle.title}</div>
+                                          <div style={{ lineHeight: 1.55 }}>{idle.body}</div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()
                                 )}
 
                                 {/* Encoder stats */}

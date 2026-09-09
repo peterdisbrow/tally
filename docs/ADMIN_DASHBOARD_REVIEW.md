@@ -40,7 +40,7 @@ Three overlapping gates. The SPA uses **#1**. Legacy / CLI / Electron / syntheti
 
 1. **Admin JWT (SPA)** — `POST /api/admin/login` (`relay-server/src/routes/adminAuth.js`). Rate-limited **5 / 15 min**. Returns `{ token, user }` with `type: 'admin'`, **8h** expiry. Browser stores token + user in **`sessionStorage`** (`tally_admin_token`, `tally_admin_user`). Subsequent calls send `Authorization: Bearer`. `GET /api/admin/me` re-validates.
 2. **Legacy `x-api-key`** — `ADMIN_API_KEY` (Railway). Accepted by `requireAdmin` and `requireAdminSession`. Used by Production Smoke-adjacent internals, Electron preview snaps, and the **Admin API Proxy** synthetic check.
-3. **HMAC cookie `tally_session`** — leftover in `adminPanel.js`. Cookie path only accepts `payload.role === 'admin'` (literal string, not RBAC). The SPA never sets this cookie. Treat as **DEAD** for the dashboard Andrew uses.
+3. **HMAC cookie `tally_session`** — leftover in `adminPanel.js` for the **reseller** HTML portal. Admin SPA never sets this cookie. `requireAdminSession` no longer accepts `role === 'admin'` cookies (leftover polish). Treat as **DEAD** for the dashboard Andrew uses.
 
 **First user:** if `admin_users` is empty, boot seeds a `super_admin` from `ADMIN_SEED_EMAIL` + `ADMIN_SEED_PASSWORD` (`server.js` ~1035). Railway also still has `ADMIN_EMAIL` / `ADMIN_PASSWORD` names — those are **not** what the SPA login form posts.
 
@@ -144,7 +144,7 @@ Client-side tabs only (no URL routes). Sidebar: `Sidebar.jsx` + `NAV_GROUPS` in 
 | Tickets | **PARTIAL** | List/detail only. No status change, no reply. Write APIs are `/api/support/tickets/:id`. |
 | Emails | **WORKING** | e2e asserts catalog + Preview. `RESEND_API_KEY` present. |
 | Monitor SSE | **WORKING** | JWT accepted as `?token=` (`server.js` ~4660). Unauth → live `401`. |
-| Monitor HLS / RTMP keys | **PARTIAL** | Routes live. Preview needs an ingest. `api.tallyconnect.app:1935` is closed; Railway TCP proxy is the real ingest (see feature audit). **0 connected / 0 streams** at probe time. |
+| Monitor HLS / RTMP keys | **PARTIAL** | Routes live. Preview needs an ingest. Empty fleet shows a calm no-booths card (not a black player). `api.tallyconnect.app:1935` is closed; Railway TCP proxy is the real ingest (see feature audit). **0 connected / 0 streams** at original probe time. |
 | Status components | **WORKING** | Live: relay, portal, admin proxy, password-reset email, Stripe, Telegram — all operational. |
 | Status health stat cards | **BROKEN** → **fixed in this PR** | UI read `health.churches` / `health.connected` / `health.memory`. API returns `registeredChurches` / `connectedChurches` / `memoryUsage`. Cards showed **0 / 0 / —**. |
 | `/api/admin/me` profile refresh | **BROKEN** → **fixed in this PR** | API returns a flat user (`tests/adminAuth.test.js`). SPA expected `profile.user`, so role never refreshed after login. Login itself still worked. |
@@ -156,7 +156,7 @@ Client-side tabs only (no URL routes). Sidebar: `Sidebar.jsx` + `NAV_GROUPS` in 
 | Sunday command / send-command | **DEAD** | API exists; no ops button. |
 | Audit / funnel / overview KPIs | **DEAD** | APIs only. |
 | Self password change | **DEAD** | API only. |
-| Browser Sentry on this SPA | **DEAD** | Relay Node SDK exists; admin Vite app has no Sentry. |
+| Browser Sentry on this SPA | **WORKING** (code) | `@sentry/react` inits from `VITE_SENTRY_DSN` or `GET /api/admin/client-config`. Confirmed still wired in leftover polish. |
 
 ---
 
@@ -236,7 +236,7 @@ If a church emails “I can’t get into admin,” they mean the **church portal
 - **Tickets look actionable** (toolbar, “Actions”) but you can only View.
 - **Outreach (before this PR)** looked finished and always failed.
 - **Status health cards (before this PR)** always showed 0 churches.
-- **Monitor** will say “Waiting for data…” until SSE connects — easy to read as “broken” on a weekday with 0 agents.
+- **Monitor** (before the leftover polish PR) said “Waiting for data…” until SSE connected — easy to read as “broken” on a weekday with 0 agents. Now: connecting / no-booths copy, not a black player.
 - **Outreach / Growth** sits next to Sunday ops. North star is prepare-mode, not sales.
 
 ### Observability
@@ -292,7 +292,7 @@ Aligned with Tally’s north star: **reliability, calm, prepare-mode — not sal
 3. Onboarding funnel + nudge UI (API exists).
 4. Unify `/api/churches` vs `/api/admin/churches` so Logs/Rooms/Churches cannot diverge.
 5. Browser tests for Monitor SSE + Status cards (e2e today only covers login + Emails catalog).
-6. Retire HMAC `tally_session` + `/admin/login` redirect language in `requireAdminSession`.
+6. ~~Retire HMAC `tally_session` + `/admin/login` redirect language in `requireAdminSession`.~~ Done in leftover polish: cookie path no longer grants admin; HTML redirects to `/admin/`. Reseller HMAC cookies unchanged.
 
 ---
 
@@ -321,7 +321,16 @@ Small UI/API contract fixes from the original review, plus the P0/P1 admin dashb
 | **Change password** | Sidebar → `PUT /api/admin/me/password`. |
 | **Outreach nav** | Hidden for `admin` / `engineer`. Kept for `sales` and `super_admin`. |
 
-**Still out of scope:** `ALERT_BOT_TOKEN`, Monitor HLS empty-state polish, P2 deep links / send-command palette.
+**Still out of scope:** `ALERT_BOT_TOKEN`, P2 deep links / send-command palette.
+
+### Leftovers closed in a follow-up PR (2026-09-09)
+
+| Item | What shipped |
+|------|----------------|
+| **Monitor HLS empty state** | Fleet with 0 booths / 0 streams shows a calm empty card (`No booths online`), not “Waiting for data…”. Expanded preview is a dashed idle panel, not a black player. |
+| **0 connected copy** | Sunday strip + Churches list say the fleet is dark until a booth runs Tally Connect. Logs empty copy matches. |
+| **HMAC `tally_session` admin path** | `requireAdminSession` no longer grants access from leftover `role === 'admin'` cookies. SPA stays Bearer JWT; reseller HMAC cookies unchanged. Unauth HTML redirects to `/admin/` (SPA login). |
+| **SPA Sentry** | Confirmed still inits from `VITE_SENTRY_DSN` or public `GET /api/admin/client-config`. No code change. |
 
 Admin SPA is built in Docker at deploy time (`public/admin/` is gitignored). These source fixes ship on the next relay image build. To get browser Sentry from the same Railway DSN without a rebuild, `/api/admin/client-config` reads `SENTRY_DSN` at runtime. Optional Docker build-args: `VITE_SENTRY_DSN` or `SENTRY_DSN`.
 

@@ -200,6 +200,19 @@ describe('GET /api/admin/client-config', () => {
     expect(status).toBe(200);
     expect(body).toHaveProperty('sentryDsn');
   });
+
+  it('passes Railway SENTRY_DSN through for SPA runtime init', async () => {
+    const prev = process.env.SENTRY_DSN;
+    process.env.SENTRY_DSN = 'https://publicKey@o0.ingest.us.sentry.io/0';
+    try {
+      const { status, body } = await client.get('/api/admin/client-config');
+      expect(status).toBe(200);
+      expect(body.sentryDsn).toBe('https://publicKey@o0.ingest.us.sentry.io/0');
+    } finally {
+      if (prev === undefined) delete process.env.SENTRY_DSN;
+      else process.env.SENTRY_DSN = prev;
+    }
+  });
 });
 
 // ─── GET /api/admin/me ────────────────────────────────────────────────────────
