@@ -74,6 +74,26 @@ describe('booth clock routes', () => {
     expect(quote.text).toContain('TallyConnect Production Clock');
   });
 
+  it('serves the tally-landing Production Clock hashes and drops stale bundles', () => {
+    const clockDir = path.join(here, '../public/tools/clock');
+    const html = fs.readFileSync(path.join(clockDir, 'index.html'), 'utf8');
+    const assets = fs.readdirSync(path.join(clockDir, 'assets'));
+
+    expect(html).toContain('/tools/clock/assets/index-DR04vamf.js');
+    expect(html).toContain('/tools/clock/assets/index-BBVGjS4P.css');
+    expect(html).not.toContain('index-BREot0gW.js');
+    expect(html).not.toContain('index-C3SVvvwb.css');
+
+    expect(assets).toEqual(expect.arrayContaining([
+      'hero-bg-CMFx691j.jpg',
+      'index-BBVGjS4P.css',
+      'index-DR04vamf.js',
+      'Index-DQuTWlas.js',
+    ]));
+    expect(assets).not.toContain('index-BREot0gW.js');
+    expect(assets).not.toContain('index-C3SVvvwb.css');
+  });
+
   it('redirects legacy view?mode=clock shares to /rundown/clock/:token', async () => {
     const client = createClient(buildBoothClockApp());
     const res = await client.get('/rundown/view/abc123?mode=clock&theme=light');
