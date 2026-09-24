@@ -9,8 +9,10 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node --test --test-timeout=60000 --test-force-exit test/*.test.js",
-    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test --test-timeout=60000 --test-force-exit test/*.test.js",
+    "test": "node --test --test-timeout=60000 --test-concurrency=4 test/*.test.js && npm run test:sim",
+    "test:unit": "node --test --test-timeout=60000 --test-concurrency=4 test/*.test.js",
+    "test:sim": "node --test --test-timeout=180000 --test-concurrency=2 test/sim/*.test.js",
+    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test --test-timeout=60000 --test-concurrency=4 test/*.test.js",
     "mocks": "node test/mocks/launcher.js"
   },
   "dependencies": {

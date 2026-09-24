@@ -57,7 +57,10 @@ program
   .option('-n, --name <name>', 'Label for this system (e.g., "Main Sanctuary")')
   .option('-c, --companion <url>', 'Companion HTTP API URL')
   .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
-  .option('--relay-status-mode <mode>', 'How status updates are sent to the relay (delta or full)', 'delta')
+  // No commander default here: a default would always win over the config
+  // file's relayStatusMode (loadConfig applies CLI opts on top). The 'delta'
+  // default is applied in loadConfig when neither is set.
+  .option('--relay-status-mode <mode>', 'How status updates are sent to the relay (delta or full; default delta)')
   .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
   .option('--room-id <id>', 'Room ID to bind this instance to')
   .option('--room-name <name>', 'Room display name (auto-resolved if --room-id is set)')
@@ -368,7 +371,8 @@ class ChurchAVAgent {
       audioViaAtem: false,
       audioViaAtemSource: 'none', // 'none' | 'auto' | 'manual'
       obs: {
-        connected: false,
+        connected: false, error: null,
+        scenes: [], currentScene: null,
         app: null,
         version: null,
         websocketVersion: null,
@@ -1661,6 +1665,17 @@ class ChurchAVAgent {
 
   // ─── OBS CONNECTION ───────────────────────────────────────────────────────
 
+  /**
+   * True when OBS events should drive status.encoder directly: either no
+   * EncoderBridge owns it, or the bridge's encoder IS this OBS (Equipment UI
+   * "OBS Studio" → encoder.type 'obs', sharing the agent's socket). Otherwise
+   * (e.g. Teradek encoder + OBS for scenes) an OBS drop must not touch it.
+   */
+  _obsOwnsEncoderStatus() {
+    if (!this._encoderManaged) return true;
+    return String(this.config.encoder?.type || '').trim().toLowerCase() === 'obs';
+  }
+
   async connectOBS() {
     if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
     const obsUrl = this.getObsUrlForConnection();
@@ -1672,11 +1687,20 @@ class ChurchAVAgent {
     if (!this.obs) {
       this.obs = new OBSWebSocket();
 
+      // ConnectionOpened fires when the TCP/WebSocket opens — BEFORE the
+      // obs-websocket Hello/Identify handshake (and before auth is checked).
+      // Only 'Identified' means OBS actually accepted us, so that is the only
+      // event allowed to flip status.obs.connected to true.
       this.obs.on('ConnectionOpened', () => {
+        console.log('🔌 OBS socket open — identifying...');
+      });
+
+      this.obs.on('Identified', () => {
         console.log('✅ OBS connected');
         this.status.obs.connected = true;
         this.status.obs.app = 'OBS Studio';
-        if (!this._encoderManaged) this.status.encoder.connected = true;
+        this.status.obs.error = null;
+        if (this._obsOwnsEncoderStatus()) this.status.encoder.connected = true;
         this._obsReconnectDelay = 5000; // reset backoff on success
         // Stream Protection: OBS reconnected
         if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(true);
@@ -1687,31 +1711,79 @@ class ChurchAVAgent {
             this.status.obs.websocketVersion = ver?.obsWebSocketVersion || null;
             const identity = `OBS Studio${this.status.obs.version ? ` v${this.status.obs.version}` : ''}${this.status.obs.websocketVersion ? ` (WS ${this.status.obs.websocketVersion})` : ''}`;
             this.logIdentity('obs', 'OBS identity:', identity);
-            this.sendStatus();
           } catch { /* optional */ }
+          // Read current output state right away: if OBS was already live or
+          // recording before Tally connected, no StateChanged event will come.
+          try {
+            const ss = await this.obs.call('GetStreamStatus');
+            this.status.obs.streaming = !!ss?.outputActive;
+            if (this._obsOwnsEncoderStatus()) this.status.encoder.live = !!ss?.outputActive;
+          } catch { /* optional */ }
+          try {
+            const sl = await this.obs.call('GetSceneList');
+            // obs-websocket lists scenes bottom-up; the OBS UI shows them top-down.
+            this.status.obs.scenes = Array.isArray(sl?.scenes)
+              ? sl.scenes.map((x) => x.sceneName).filter(Boolean).reverse()
+              : [];
+            this.status.obs.currentScene = sl?.currentProgramSceneName || null;
+          } catch { /* optional */ }
+          try {
+            const rs = await this.obs.call('GetRecordStatus');
+            this.status.obs.recording = !!rs?.outputActive;
+          } catch { /* optional */ }
+          this.sendStatus();
         })();
         this.sendStatus();
       });
 
-      this.obs.on('ConnectionClosed', () => {
+      this.obs.on('ConnectionClosed', (err) => {
         if (this._stopping) return;
         if (!this.isObsMonitoringEnabled()) return;
+        const code = err?.code;
+        const wasConnected = this.status.obs.connected;
         this.health.obs.reconnects++;
-        console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
+        // Surface *why* OBS refused us (obs-websocket close codes).
+        if (code === 4009) {
+          this.status.obs.error = this.config.obsPassword
+            ? 'Authentication failed — check the OBS WebSocket password'
+            : 'OBS requires a password — enter the OBS WebSocket password';
+        } else if (code === 4010) {
+          this.status.obs.error = 'OBS WebSocket version not supported — needs obs-websocket v5 (OBS 28+)';
+        } else if (!wasConnected && this.status.obs.error && /password|version/i.test(this.status.obs.error)) {
+          // keep the auth/version reason until a successful Identify
+        } else {
+          this.status.obs.error = null;
+        }
+        console.warn(`⚠️  OBS disconnected${code ? ` (code ${code}${err?.message ? `: ${err.message}` : ''})` : ''}. Retrying in ${this._obsReconnectDelay / 1000}s...`);
         this.status.obs.connected = false;
-        if (!this._encoderManaged) this.status.encoder.connected = false;
+        // Output state is unknown while disconnected — never leave a stale
+        // "LIVE"/"REC" from before the drop on screen.
+        this.status.obs.streaming = false;
+        this.status.obs.recording = false;
+        this.status.obs.bitrate = null;
+        this.status.obs.fps = null;
+        this.status.obs.currentScene = null;
+        this._prevObsBytes = null;
+        if (this._obsOwnsEncoderStatus()) {
+          this.status.encoder.connected = false;
+          this.status.encoder.live = false;
+        }
         // Stream Protection: OBS disconnected
         if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(false);
         this.sendStatus();
         const delay = this._obsReconnectDelay;
-        this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
+        // OBS lives on the booth PC / LAN: a reconnect attempt is one cheap
+        // local WebSocket open. Cap at 10 s so an operator restarting a
+        // crashed OBS mid-service sees Tally pick it up within ~10 s (the old
+        // 60 s cap meant up to a minute of "OBS disconnected" after OBS was back).
+        this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 10_000);
         setTimeout(() => this.connectOBS(), delay);
       });
 
       this.obs.on('StreamStateChanged', ({ outputActive }) => {
         const wasStreaming = this.status.obs.streaming;
         this.status.obs.streaming = outputActive;
-        if (!this._encoderManaged) this.status.encoder.live = !!outputActive;
+        if (this._obsOwnsEncoderStatus()) this.status.encoder.live = !!outputActive;
         if (wasStreaming !== outputActive) {
           this.sendAlert(
             `Stream ${outputActive ? 'STARTED' : 'STOPPED'}`,
@@ -1730,8 +1802,21 @@ class ChurchAVAgent {
         }
       });
 
+      // Scene state for the booth's OBS scene switcher (Commands panel).
+      this.obs.on('CurrentProgramSceneChanged', ({ sceneName }) => {
+        this.status.obs.currentScene = sceneName || null;
+        this.sendStatus();
+      });
+      this.obs.on('SceneListChanged', ({ scenes }) => {
+        if (Array.isArray(scenes)) {
+          this.status.obs.scenes = scenes.map((x) => x.sceneName).filter(Boolean).reverse();
+          this.sendStatus();
+        }
+      });
+
       this.obs.on('RecordStateChanged', ({ outputActive }) => {
         this.status.obs.recording = outputActive;
+        if (this._obsOwnsEncoderStatus()) this.status.encoder.recording = !!outputActive;
         this.sendStatus();
       });
 
@@ -1744,7 +1829,7 @@ class ChurchAVAgent {
             const stats = await this.obs.call('GetStats');
             this.status.obs.fps = Math.round(stats.activeFps || 0);
             this.status.obs.cpuUsage = Math.round(stats.cpuUsage || 0);
-            if (!this._encoderManaged) {
+            if (this._obsOwnsEncoderStatus()) {
               this.status.encoder.fps = this.status.obs.fps;
               this.status.encoder.cpuUsage = this.status.obs.cpuUsage;
               this.status.encoder.congestion = typeof stats.outputCongestion === 'number'
@@ -1771,7 +1856,7 @@ class ChurchAVAgent {
             } else {
               this.status.obs.bitrate = null;
             }
-            if (!this._encoderManaged) {
+            if (this._obsOwnsEncoderStatus()) {
               this.status.encoder.bitrateKbps = this.status.obs.bitrate;
               this.status.encoder.live = !!streamStatus.outputActive;
             }
@@ -2685,9 +2770,23 @@ class ChurchAVAgent {
     }
   }
 
+  _releaseStatusDebounce() {
+    setTimeout(() => {
+      this._statusDebounce = false;
+      // Trailing edge: a change that arrived during the window must still be
+      // sent (previously it was silently dropped until the next 3 s tick).
+      if (this._statusPending) {
+        this._statusPending = false;
+        this.sendStatus();
+      }
+    }, 100);
+  }
+
   sendStatus() {
-    // Debounce rapid status sends (e.g. multiple device events within 100ms)
-    if (this._statusDebounce) return;
+    // Coalesce rapid status sends (e.g. multiple device events within 100ms):
+    // first call sends immediately, calls inside the window schedule exactly
+    // one trailing send when it closes.
+    if (this._statusDebounce) { this._statusPending = true; return; }
     this._statusDebounce = true;
     // Sync switcher state to legacy fields before sending
     if (this.switcherManager && this.switcherManager.size > 0) {
@@ -2718,9 +2817,7 @@ class ChurchAVAgent {
     if (fullStatus.resolume)    fullStatus.resolume.configured    = !!cfg.resolume?.host;
     if (fullStatus.ptz)         fullStatus.ptz.configured         = !!cfg.ptz?.some(c => c.ip);
     if (this.relay?.readyState !== WebSocket.OPEN) {
-      setTimeout(() => {
-        this._statusDebounce = false;
-      }, 100);
+      this._releaseStatusDebounce();
       return;
     }
 
@@ -2747,9 +2844,7 @@ class ChurchAVAgent {
     } else {
       this.sendToRelay({ type: 'status_update', status: fullStatus, isFull: true, statusMode: 'full' });
     }
-    setTimeout(() => {
-      this._statusDebounce = false;
-    }, 100);
+    this._releaseStatusDebounce();
   }
 
   sendAlert(message, severity = 'warning', alertType = null) {

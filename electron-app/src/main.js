@@ -44,6 +44,8 @@ i18n.detectAndApplyLocale();
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
 const roomRejoin = require('./room-rejoin');
+const { buildTrayDeviceSummary } = require('./tray-status');
+const { isRelayAuthFailure } = require('./agent-auth-detect');
 const equipmentTester = require('./equipment-tester');
 const problemFinderBridge = require('./problem-finder-bridge');
 const autostart = require('./autostart');
@@ -519,25 +521,17 @@ function updateTray() {
   const state = computeTrayState();
   const agentRunning = !!agentProcess;
   // Build a fingerprint of all values that affect the tray menu
-  const fingerprint = `${i18n.getLocale()}|${state}|${agentRunning}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
+  const traySummary = buildTrayDeviceSummary(agentStatus);
+  const fingerprint = `${i18n.getLocale()}|${state}|${agentRunning}|${!!agentStatus.relay}|${traySummary.fingerprint}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
   if (fingerprint === _lastTrayState) return;
   _lastTrayState = fingerprint;
   tray.setImage(getTrayIcon(state));
 
   const connected = agentStatus.relay;
-  const atemOk = agentStatus.atem;
-  const encoderOk = agentStatus.encoder || agentStatus.obs;
-  const compOk = agentStatus.companion;
-  const encLabel = agentStatus.encoderType || 'OBS';
-  const isLive = agentStatus.streaming || (agentStatus.encoder && typeof agentStatus.encoder === 'object' && agentStatus.encoder.live);
-
-  // Count connected devices
-  let deviceCount = 0;
-  if (atemOk) deviceCount++;
-  if (encoderOk) deviceCount++;
-  if (compOk) deviceCount++;
-  if (agentStatus.proPresenter) deviceCount++;
-  if (agentStatus.resolume) deviceCount++;
+  // Device objects ({connected:false}) are truthy — only .connected===true
+  // counts (see tray-status.js; the tray used to say "ATEM: ✓ Connected"
+  // for a configured-but-disconnected ATEM).
+  const { deviceCount, isLive } = traySummary;
 
   // Status line follows process state, not just relay. When the agent is
   // down we must not claim "Local monitoring active" (Sunday-trust).
@@ -560,12 +554,7 @@ function updateTray() {
   }
 
   // Device status detail lines
-  const deviceLines = [];
-  if (atemOk) deviceLines.push(`  ATEM: ✓ Connected`);
-  else if (agentStatus.atem !== null && agentStatus.atem !== undefined) deviceLines.push(`  ATEM: ✗ Disconnected`);
-  if (encoderOk) deviceLines.push(`  ${encLabel}: ✓ Connected`);
-  else if (agentStatus.encoder !== null || agentStatus.obs !== undefined) deviceLines.push(`  ${encLabel}: ✗ Disconnected`);
-  if (compOk) deviceLines.push(`  Companion: ✓ Connected`);
+  const deviceLines = traySummary.lines;
 
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
@@ -765,13 +754,10 @@ function resolveChurchClientPaths() {
 let _authInvalidFired = false;
 function _detectAgentAuthFailure(text) {
   if (_authInvalidFired) return; // Already handled — don't fire multiple times
-  const AUTH_PATTERNS = [
-    '1008', 'Invalid token', 'Authentication failed', 'Token expired',
-    'token expired', 'jwt expired', 'Unauthorized', 'auth rejected',
-    'auth: reject', 'Not authorized',
-  ];
-  const isAuthFailure = AUTH_PATTERNS.some((p) => text.includes(p));
-  if (!isAuthFailure) return;
+  // Only a relay rejection of OUR session counts. Device auth failures (wrong
+  // OBS password → "Authentication failed.", a 401 "Unauthorized" from
+  // Companion/PCO, a port containing "1008") must never sign the booth out.
+  if (!isRelayAuthFailure(text)) return;
 
   _authInvalidFired = true;
   appendAppLog('SYSTEM', 'Auth failure detected in agent output — stopping restart loop');
@@ -848,7 +834,7 @@ function startAgent() {
     custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
     'atem-streaming': 'ATEM Mini',
   };
-  agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
+  agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || (config.obsUrl ? 'OBS' : '');
 
   // Mark unconfigured devices as null so the UI hides their status pills.
   // When configured, reset to disconnected so a prior run's connected:true
@@ -860,7 +846,10 @@ function startAgent() {
   // OBS is its own device family: when neither OBS nor an encoder is configured,
   // null hides the Encoder card (obs:false alone showed a red "Disconnected"
   // Encoder card on an ATEM-only booth).
+  // Configured: start from disconnected so a previous run's connected:true
+  // cannot linger on screen until the new agent reports.
   if (!config.obsUrl) agentStatus.obs = null;
+  else agentStatus.obs = { connected: false };
   agentStatus.resolume = config.resolume?.host
     ? { connected: false, host: config.resolume.host, port: config.resolume.port || 8080, version: null }
     : null;
@@ -1840,7 +1829,10 @@ ipcMain.handle('send-command', async (_, cmd, params) => {
     const resp = await fetch(`${relayHttp}/api/church/app/send-command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
-      body: JSON.stringify({ command: cmd, params: params || {} }),
+      // wait:true → relay returns the agent's real command_result (or an error),
+      // so the booth never shows "OK" for a command that failed.
+      body: JSON.stringify({ command: cmd, params: params || {}, wait: true }),
+      signal: AbortSignal.timeout(20000),
     });
     return await resp.json();
   } catch (e) {

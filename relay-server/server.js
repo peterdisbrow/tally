@@ -5138,6 +5138,7 @@ const _wsHandlers = createWebSocketHandlers({
     }
   },
   onCommandResult(church, cmdResultMsg) {
+    require('./src/commandResultWaiters').resolveCommandResult(cmdResultMsg);
     if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
     if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
     Promise.resolve(runtimeCoordinator.publishEvent('command_result', {

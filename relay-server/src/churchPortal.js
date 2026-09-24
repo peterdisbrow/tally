@@ -2749,12 +2749,23 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       params: params || {},
       source: 'app',
     });
+    // Opt-in: { wait: true } waits for the client's command_result so callers
+    // (booth app) can show the real outcome instead of a blind "sent".
+    const wantWait = req.body?.wait === true || req.query.wait === '1';
+    const pending = wantWait
+      ? require('./commandResultWaiters').waitForCommandResult(commandId, Math.min(Math.max(Number(req.body?.timeoutMs) || 8000, 1000), 15000))
+      : null;
     try {
       for (const sock of openSockets) sock.send(payload);
-      res.json({ sent: true, commandId });
     } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
+      return res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
     }
+    if (!pending) return res.json({ sent: true, commandId });
+    pending.then((r) => {
+      if (r.timedOut) return res.status(504).json({ sent: true, commandId, error: 'No response from Tally on the booth computer (timed out)' });
+      if (r.error) return res.json({ sent: true, commandId, error: String(r.error) });
+      return res.json({ sent: true, commandId, result: r.result ?? null });
+    });
   });
 
   // ── Scheduler routes (church portal) ────────────────────────────────────────

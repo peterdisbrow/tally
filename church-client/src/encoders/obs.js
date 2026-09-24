@@ -35,9 +35,18 @@ class ObsEncoder {
   /** Accept an external OBS instance from the agent (avoids double connection) */
   setObs(obs) {
     this._obs = obs;
-    // Only mark connected if the OBS instance is actually connected
-    this._connected = !!(obs && obs.identified);
+    this._shared = !!obs;
   }
+
+  // Shared socket: the agent owns (re)connects, so "connected" must be read
+  // live from obs-websocket-js on every call. (It used to be snapshotted once
+  // in setObs(): an OBS that died later stayed "connected" forever, and an OBS
+  // started after Tally never became connected.)
+  get _connected() {
+    if (this._shared) return !!(this._obs && this._obs.identified);
+    return !!this.__connected;
+  }
+  set _connected(v) { this.__connected = !!v; }
 
   async connect() {
     if (this._obs) return this._connected;

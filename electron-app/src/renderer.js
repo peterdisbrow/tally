@@ -391,9 +391,14 @@ function updateControlRoom(status) {
     if (encCard) encCard.style.display = '';
     const encTitle = document.getElementById('cr-encoder-title');
     if (encTitle) encTitle.textContent = status.encoderType || 'Encoder';
+    // When disconnected, say WHY on the card itself (e.g. wrong OBS password) —
+    // the detailed Encoder section is below the fold on a booth screen.
+    const encObj = status.obs && typeof status.obs === 'object' ? status.obs : null;
+    const encEncObj = status.encoder && typeof status.encoder === 'object' ? status.encoder : null;
+    const encReason = !encoderOk ? ((encObj && encObj.error) || (encEncObj && encEncObj.error) || '') : '';
     setCard('cr-card-encoder', encoderOk ? 'ok' : 'error',
       encoderOk ? t('status.connected') : t('status.disconnected'),
-      encoderOk && status.fps ? `${status.fps} FPS` : '');
+      encoderOk && status.fps ? `${status.fps} FPS` : encReason);
   }
 
   // Stream
@@ -2737,7 +2742,17 @@ function updateStatusUI(status) {
   else setStatusValue('val-id-encoder', '—', false);
 
   // ── Encoder firmware version ────────────────────────────────────────────
-  const fwVersion = encoderData.firmwareVersion || '';
+  // OBS reports its version via obs-websocket GetVersion (status.obs.version).
+  const fwVersion = encoderData.firmwareVersion
+    || (obsData.connected && obsData.version ? `OBS ${obsData.version}` : '');
+  // Why the encoder/OBS is not connected (e.g. wrong OBS WebSocket password).
+  // Shown only while disconnected; the agent clears it on successful connect.
+  const encErrEl = document.getElementById('encoder-error');
+  if (encErrEl) {
+    const encErr = !encoderConnected ? (obsData.error || encoderData.error || '') : '';
+    encErrEl.textContent = encErr ? `⚠ ${encErr}` : '';
+    encErrEl.style.display = encErr ? 'block' : 'none';
+  }
   if (fwVersion) setStatusValue('val-encoder-firmware', fwVersion, true);
   else if (encoderConnected) setStatusValue('val-encoder-firmware', '—', null);
   else setStatusValue('val-encoder-firmware', '—', false);

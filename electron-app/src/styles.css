@@ -2998,3 +2998,13 @@ body.light-theme .net-protocol-badge { background: rgba(22,163,74,0.1); color: #
 .rejoin-banner-close:hover { opacity: 1; }
 body.light-theme .rejoin-banner { background: #DCFCE7; border-color: #22C55E; color: #166534; }
 body.light-theme .rejoin-banner.local { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+
+/* Device connection failure reason (e.g. OBS auth failed) */
+.device-error-line {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 12px;
+}
