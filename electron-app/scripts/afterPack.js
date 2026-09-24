@@ -37,8 +37,10 @@ module.exports = async function afterPack(context) {
   const appDir = context.appOutDir;
 
   // macOS:  Foo.app/Contents/Resources/<resource>
-  // Windows: resources/<resource>
-  const isMac = process.platform === 'darwin';
+  // Windows/Linux: resources/<resource>
+  // Use the *target* platform, not the host, so cross-builds resolve correctly.
+  const targetPlatformName = context.electronPlatformName || process.platform;
+  const isMac = targetPlatformName === 'darwin';
   const resourceBase = isMac
     ? path.join(appDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
     : path.join(appDir, 'resources');

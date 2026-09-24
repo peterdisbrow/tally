@@ -903,16 +903,34 @@ describe('LifecycleEmails', () => {
 
     it('signs the unsubscribe token with { churchId, email, category }', () => {
       const jwt = require('jsonwebtoken');
+      // Deterministic: host env may set JWT_SECRET (e.g. local relay harness).
+      // getUnsubscribeSecret() prefers JWT_SECRET over the NODE_ENV=test default,
+      // so clear both secrets for this assertion. This is env isolation, not a
+      // product bug — signing/verify share getUnsubscribeSecret().
+      const prevJwt = process.env.JWT_SECRET;
+      const prevUnsub = process.env.UNSUBSCRIBE_SECRET;
+      const prevNodeEnv = process.env.NODE_ENV;
+      delete process.env.JWT_SECRET;
+      delete process.env.UNSUBSCRIBE_SECRET;
       process.env.NODE_ENV = 'test';
-      const html = '<div>Hello world</div>';
-      const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
-      const match = out.match(/\/unsubscribe\?token=([^"&]+)/);
-      expect(match).toBeTruthy();
-      const decoded = jwt.verify(decodeURIComponent(match[1]), 'test-jwt-secret');
-      expect(decoded.churchId).toBe('church-1');
-      expect(decoded.email).toBe('a@b.com');
-      // feature-tips category is the resolved value
-      expect(decoded.category).toBe('feature-tips');
+      try {
+        const html = '<div>Hello world</div>';
+        const out = emails.injectUnsubscribeFooter(html, 'church-1', 'a@b.com', 'viewer-analytics-nudge');
+        const match = out.match(/\/unsubscribe\?token=([^"&]+)/);
+        expect(match).toBeTruthy();
+        const decoded = jwt.verify(decodeURIComponent(match[1]), 'test-jwt-secret');
+        expect(decoded.churchId).toBe('church-1');
+        expect(decoded.email).toBe('a@b.com');
+        // feature-tips category is the resolved value
+        expect(decoded.category).toBe('feature-tips');
+      } finally {
+        if (prevJwt === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = prevJwt;
+        if (prevUnsub === undefined) delete process.env.UNSUBSCRIBE_SECRET;
+        else process.env.UNSUBSCRIBE_SECRET = prevUnsub;
+        if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = prevNodeEnv;
+      }
     });
 
     it('signs unsubscribe tokens with UNSUBSCRIBE_SECRET when set (P1-7)', () => {

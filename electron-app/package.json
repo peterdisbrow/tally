@@ -19,7 +19,11 @@
     "test": "node --test test/*.test.js && npx playwright test",
     "test:unit": "node --test test/*.test.js",
     "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test test/*.test.js",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npx playwright test",
+    "build:linux": "electron-builder --linux",
+    "build:linux:dir": "electron-builder --linux --dir",
+    "build:linux:appimage": "electron-builder --linux AppImage",
+    "build:linux:deb": "electron-builder --linux deb"
   },
   "build": {
     "appId": "com.tallyconnect.tally",
@@ -146,7 +150,43 @@
           "!.DS_Store"
         ]
       }
-    ]
+    ],
+    "linux": {
+      "category": "Utility",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "synopsis": "Remote monitoring for church production teams",
+      "description": "Tally Connect booth app — ATEM tally and production monitoring.",
+      "desktop": {
+        "entry": {
+          "Name": "Tally",
+          "Comment": "Church production booth monitoring",
+          "Categories": "Utility;AudioVideo;",
+          "StartupWMClass": "Tally"
+        }
+      },
+      "maintainer": "Tally Connect <support@tallyconnect.app>",
+      "vendor": "Tally Connect"
+    }
   },
   "dependencies": {
     "@sentry/node": "^10.74.0",
@@ -165,7 +205,6 @@
     "playwright": "^1.58.2"
   },
   "overrides": {
-    "extract-zip": "file:vendor/extract-zip-safe",
     "form-data": "4.0.6",
     "tar": "7.5.22",
     "tmp": "0.2.7",
@@ -187,5 +226,10 @@
     "branches": 68,
     "functions": 40,
     "lines": 48
-  }
+  },
+  "author": {
+    "name": "Tally Connect",
+    "email": "support@tallyconnect.app"
+  },
+  "homepage": "https://tallyconnect.app"
 }

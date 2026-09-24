@@ -507,6 +507,7 @@ function createTray() {
 let _lastTrayState = '';
 function updateTray() {
   if (!tray) return;
+  const { t } = i18n; // must be before any t() use (TDZ bug broke startAgent on Linux)
   const state = computeTrayState();
   const agentRunning = !!agentProcess;
   // Build a fingerprint of all values that affect the tray menu
@@ -558,7 +559,6 @@ function updateTray() {
   else if (agentStatus.encoder !== null || agentStatus.obs !== undefined) deviceLines.push(`  ${encLabel}: ✗ Disconnected`);
   if (compOk) deviceLines.push(`  Companion: ✓ Connected`);
 
-  const { t } = i18n;
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
@@ -684,6 +684,10 @@ function resolveNodeBinary() {
   } else if (process.platform === 'win32') {
     addCandidate('C:/Program Files/nodejs/node.exe');
     addCandidate('C:/Program Files (x86)/nodejs/node.exe');
+  } else if (process.platform === 'linux') {
+    addCandidate('/usr/local/bin/node');
+    addCandidate('/usr/bin/node');
+    addCandidate('/bin/node');
   }
 
   if (process.resourcesPath) {
@@ -818,8 +822,11 @@ function startAgent() {
   };
   agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
 
-  // Mark unconfigured devices as null so the UI hides their status pills
+  // Mark unconfigured devices as null so the UI hides their status pills.
+  // When configured, reset to disconnected so a prior run's connected:true
+  // cannot linger across stop/start (e.g. pointing atemIp at a dead host).
   if (!config.atemIp) agentStatus.atem = null;
+  else agentStatus.atem = { connected: false, ip: config.atemIp };
   if (!config.companionUrl) agentStatus.companion = null;
   if (!config.encoder?.type) agentStatus.encoder = null;
   agentStatus.resolume = config.resolume?.host
@@ -885,6 +892,10 @@ function startAgent() {
         if (port) {
           _localStatusPort = port;
           appendAppLog('SYSTEM', `Agent local-status endpoint on port ${port}`);
+          // Always poll while the agent is up. Relay /health can stay ONLINE
+          // while the agent's WS is down — without this, PGM/PVW only updates
+          // from sparse stdout lines and the compact tally strip stays "--".
+          startLocalStatusFallback();
           break;
         }
       }
@@ -1217,6 +1228,16 @@ function stopAgent() {
   // Stale port becomes invalid the moment the agent process exits.
   _localStatusPort = null;
   stopLocalStatusFallback();
+  // Clear live device flags so the dashboard cannot keep showing a prior
+  // "ATEM connected" after stop / before the next agent reports in.
+  if (agentStatus.atem && typeof agentStatus.atem === 'object') {
+    agentStatus.atem = { ...agentStatus.atem, connected: false };
+  } else if (agentStatus.atem === true) {
+    agentStatus.atem = false;
+  }
+  agentStatus.relay = false;
+  mainWindow?.webContents?.send('status', agentStatus);
+  updateTray();
   if (agentProcess) {
     appendAppLog('SYSTEM', 'Stopping agent');
     const proc = agentProcess;
@@ -1300,7 +1321,9 @@ const _relayHealthMonitor = createRelayHealthMonitor({
     appendAppLog('SYSTEM', `Relay health flipped to ${state.online ? 'ONLINE' : 'OFFLINE'} (consecutiveFailures=${state.consecutiveFailures})`);
     sendRelayStatusToRenderer();
     if (state.online) {
-      stopLocalStatusFallback();
+      // Keep local-status polling if the agent already advertised a port —
+      // /health ONLINE does not imply the agent WS/SSE path is live.
+      if (_localStatusPort) startLocalStatusFallback();
     } else {
       startLocalStatusFallback();
       // Sunday path: OS notify when the /health probe actually flips OFFLINE,
@@ -1362,7 +1385,7 @@ function startLocalStatusFallback() {
   if (_localStatusFallbackTimer) return;
   // Kick off immediately so the dashboard refreshes the moment we go offline.
   pollLocalStatus();
-  _localStatusFallbackTimer = setInterval(pollLocalStatus, 5_000);
+  _localStatusFallbackTimer = setInterval(pollLocalStatus, 2_000);
   if (_localStatusFallbackTimer.unref) _localStatusFallbackTimer.unref();
   appendAppLog('SYSTEM', 'Local-status fallback polling started');
 }
@@ -1397,6 +1420,7 @@ const { loadConfig, saveConfig, resetConfig, loadConfigForUI, isMockValue, strip
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-config', () => loadConfigForUI());
+ipcMain.handle('get-default-relay-url', () => DEFAULT_RELAY_URL);
 ipcMain.handle('save-config', (_, config) => {
   // Whitelist allowed config keys to prevent injection of arbitrary values
   const ALLOWED_CONFIG_KEYS = new Set([

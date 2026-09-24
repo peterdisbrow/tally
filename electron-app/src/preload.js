@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // returns "" on Apple Silicon in Electron 35+
   getPlatform: () => process.platform,
   reportCrash: (payload) => ipcRenderer.invoke('report-crash', payload),
+  getDefaultRelayUrl: () => ipcRenderer.invoke('get-default-relay-url'),
   getConfig: () => ipcRenderer.invoke('get-config'),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   getStatus: () => ipcRenderer.invoke('get-status'),

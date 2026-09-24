@@ -331,15 +331,24 @@ function updateControlRoom(status) {
     if (detailEl) detailEl.textContent = detail || '';
   }
 
-  // ATEM
+  // ATEM — program/preview live on status.atem.{programInput,previewInput}
+  // (stdout parse + /local-status). Top-level status.program/preview are legacy.
+  const atemObj = (status.atem && typeof status.atem === 'object') ? status.atem : null;
+  const atemLabels = (atemObj && atemObj.inputLabels) || status.inputLabels || null;
+  const pgmLabel = status.program
+    || (atemObj && atemObj.programInput != null ? getInputName(atemObj.programInput, atemLabels) : null)
+    || null;
+  const pvwLabel = status.preview
+    || (atemObj && atemObj.previewInput != null ? getInputName(atemObj.previewInput, atemLabels) : null)
+    || null;
   const atemCard = document.getElementById('cr-card-atem');
   if (status.atem === null || status.atem === undefined) {
     if (atemCard) atemCard.style.display = 'none';
   } else {
     if (atemCard) atemCard.style.display = '';
     setCard('cr-card-atem', atemOk ? 'ok' : 'error',
-      atemOk ? (status.atemModel || t('status.connected')) : t('status.disconnected'),
-      atemOk ? `PGM: ${status.program || '--'}` : '');
+      atemOk ? (status.atemModel || (atemObj && atemObj.model) || t('status.connected')) : t('status.disconnected'),
+      atemOk ? `PGM: ${pgmLabel || '--'}` : '');
   }
 
   // Encoder
@@ -409,12 +418,12 @@ function updateControlRoom(status) {
   // ── Tally strip ────────────────────────────────────────────
   const tallyStrip = document.getElementById('cr-tally-strip');
   if (tallyStrip) {
-    if (atemOk && (status.program || status.preview)) {
+    if (atemOk && (pgmLabel || pvwLabel)) {
       tallyStrip.style.display = 'flex';
       const pgmEl = document.getElementById('cr-pgm-source');
       const pvwEl = document.getElementById('cr-pvw-source');
-      if (pgmEl) pgmEl.textContent = status.program || '--';
-      if (pvwEl) pvwEl.textContent = status.preview || '--';
+      if (pgmEl) pgmEl.textContent = pgmLabel || '--';
+      if (pvwEl) pvwEl.textContent = pvwLabel || '--';
     } else {
       tallyStrip.style.display = 'none';
     }
@@ -606,9 +615,11 @@ const ATEM_INPUT_NAMES = {
  */
 function getInputName(inputId, inputLabels) {
   if (inputId === null || inputId === undefined) return null;
-  // Check user-assigned labels from ATEM
+  // Check user-assigned labels from ATEM (string or {longName,shortName})
   if (inputLabels && inputLabels[String(inputId)]) {
-    return inputLabels[String(inputId)];
+    const lab = inputLabels[String(inputId)];
+    if (typeof lab === 'string') return lab;
+    if (lab && typeof lab === 'object') return lab.longName || lab.shortName || lab.name || null;
   }
   // Check well-known ATEM special input IDs
   if (ATEM_INPUT_NAMES[inputId]) return ATEM_INPUT_NAMES[inputId];
@@ -1241,7 +1252,18 @@ async function doSignIn() {
   const email = document.getElementById('si-email').value.trim();
   const password = document.getElementById('si-password').value;
   const savedConfig = await api.getConfig();
-  const preferredRelay = savedConfig.relay || DEFAULT_RELAY_URL;
+  // Prefer CLI/env default (TALLY_DEFAULT_RELAY_URL / --relay-url) when no
+  // relay is saved yet. Needed for local Linux/dev relays; previously the
+  // renderer ignored main's DEFAULT_RELAY_URL and always used production.
+  let preferredRelay = savedConfig.relay || DEFAULT_RELAY_URL;
+  if (api.getDefaultRelayUrl) {
+    try {
+      const override = await api.getDefaultRelayUrl();
+      if (override && (!savedConfig.relay || savedConfig.relay === DEFAULT_RELAY_URL)) {
+        preferredRelay = override;
+      }
+    } catch (_) { /* keep preferredRelay */ }
+  }
   const btn = document.getElementById('si-btn');
 
   if (!email || !password) {
