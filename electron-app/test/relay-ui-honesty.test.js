@@ -91,3 +91,18 @@ test('unconfigured OBS is null (hides Encoder card) on start and after agent exi
   assert.match(start, /if \(!config\.obsUrl\) agentStatus\.obs = null;/);
   assert.match(m, /obs: closedConfig\.obsUrl \? false : null,/);
 });
+
+test('unconfigured encoder hides BOTH the Encoder card and the Streaming Encoder detail section', () => {
+  const r = SRC('renderer.js');
+  const fn = extractFn(r, 'isEncoderUnconfigured');
+  const run = (s) => vm.runInNewContext(`${fn}\nisEncoderUnconfigured(s);`, { s });
+  assert.equal(run({ encoder: null, obs: null }), true, 'ATEM-only booth');
+  assert.equal(run({ encoder: null }), true, 'obs undefined');
+  assert.equal(run({ encoder: null, obs: false }), false, 'OBS configured but down');
+  assert.equal(run({ encoder: { connected: false }, obs: null }), false, 'encoder configured');
+  assert.equal(run({ encoder: null, obs: null, encoderType: 'vMix' }), false, 'typed encoder');
+  assert.match(extractFn(r, 'updateControlRoom'), /isEncoderUnconfigured\(status\)/);
+  const sui = extractFn(r, 'updateStatusUI');
+  assert.match(sui, /getElementById\('encoder-status-section'\)/);
+  assert.match(sui, /isEncoderUnconfigured\(status\)/);
+});

@@ -264,6 +264,12 @@ function dismissFirstLaunch() {
 //   no-internet — browser reports offline
 const RELAY_CONNECT_GRACE_MS = 20000;
 let _relayWsDownSince = null;
+// True when the booth has no streaming encoder and no OBS configured
+// (main.js sets encoder/obs to null in that case).
+function isEncoderUnconfigured(status) {
+  return status.encoder === null && (status.obs === undefined || status.obs === null) && !status.encoderType;
+}
+
 function getRelayUiState(status) {
   const wsOk = getStatusActive(status && status.relay);
   if (wsOk) _relayWsDownSince = null;
@@ -379,7 +385,7 @@ function updateControlRoom(status) {
 
   // Encoder
   const encCard = document.getElementById('cr-card-encoder');
-  if (status.encoder === null && (status.obs === undefined || status.obs === null) && !status.encoderType) {
+  if (isEncoderUnconfigured(status)) {
     if (encCard) encCard.style.display = 'none';
   } else {
     if (encCard) encCard.style.display = '';
@@ -2361,6 +2367,11 @@ function updateStatusUI(status) {
 
   const encoderTitleEl = document.getElementById('encoder-section-title');
   if (encoderTitleEl) encoderTitleEl.textContent = encoderLabel;
+
+  // Streaming Encoder detail section: hide on booths with no encoder/OBS
+  // (otherwise an ATEM-only booth shows empty Stream Health/FPS "—" tiles).
+  const encoderSection = document.getElementById('encoder-status-section');
+  if (encoderSection) encoderSection.style.display = isEncoderUnconfigured(status) ? 'none' : '';
 
   // Encoder dot: use encoder status if managed, fallback to OBS — hide if not configured
   const encoderChip = document.getElementById('dot-encoder')?.closest('.status-chip');
