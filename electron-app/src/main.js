@@ -146,6 +146,13 @@ function startRelayStatusSSE(relayUrl, token, instanceName) {
             if (!line.startsWith('data: ')) continue;
             try {
               const msg = JSON.parse(line.slice(6));
+              // Relay snapshots of a church with NO live agent connection carry
+              // the last-known mirror (e.g. ATEM connected, PGM 5) — stale.
+              // Merging it made the booth claim ATEM/PGM/PVW while its own
+              // agent was not running. Only trust relay status while our
+              // agent process is up and the relay says the church is connected.
+              if (!agentProcess) continue;
+              if (msg.type === 'status_snapshot' && msg.connected === false) continue;
               // Only merge status from our own instance. Other instances
               // (different rooms) have different equipment — merging their
               // status overwrites ours and causes false disconnect flapping.
@@ -664,6 +671,18 @@ function checkAndNotify() {
   lastNotifiedState = { ...agentStatus };
 }
 
+function isExecutableFile(p) {
+  if (!p) return false;
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) return false;
+    if (process.platform !== 'win32') fs.accessSync(p, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveNodeBinary() {
   // ── 1. Try system-installed Node.js first (preferred — lighter than Electron) ──
   const candidates = new Set();
@@ -673,8 +692,12 @@ function resolveNodeBinary() {
     candidates.add(value);
   };
 
+  // NOTE: NODE_PATH is a module *search path* (usually a directory such as
+  // /usr/lib/node_modules), never a binary. Treating it as one made spawn()
+  // fail with EACCES on Linux boxes that export NODE_PATH, so the agent never
+  // started. Only $NODE is a binary hint; every candidate must be an
+  // executable regular file (see isExecutableFile below).
   addCandidate(process.env.NODE);
-  addCandidate(process.env.NODE_PATH);
 
   if (process.platform === 'darwin') {
     addCandidate('/opt/homebrew/bin/node');
@@ -697,7 +720,7 @@ function resolveNodeBinary() {
   }
 
   for (const p of candidates) {
-    if (p && fs.existsSync(p)) return { binary: p, useElectronAsNode: false };
+    if (isExecutableFile(p)) return { binary: p, useElectronAsNode: false };
   }
 
   // Check PATH with `which`/`where`
@@ -705,7 +728,7 @@ function resolveNodeBinary() {
   const result = spawnSync(cmd, ['node'], { encoding: 'utf8' });
   if (result.status === 0) {
     const located = result.stdout.split('\n')[0]?.trim();
-    if (located && fs.existsSync(located)) return { binary: located, useElectronAsNode: false };
+    if (isExecutableFile(located)) return { binary: located, useElectronAsNode: false };
   }
 
   // ── 2. Fallback: use Electron's own Node.js via ELECTRON_RUN_AS_NODE ──
@@ -786,6 +809,10 @@ function startAgent() {
   const agentRelay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
   const args = [clientPaths.script,
     '--relay', agentRelay,
+    // Agent must read the SAME config file as the app. With --config-path /
+    // TALLY_CONFIG_PATH (MDM pre-seed) the agent otherwise fell back to
+    // ~/.church-av/config.json and could run a different room/equipment.
+    '--config', configManager.CONFIG_PATH,
   ];
 
   if (config.atemIp) args.push('--atem', config.atemIp);
