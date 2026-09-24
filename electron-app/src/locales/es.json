@@ -27,6 +27,7 @@
     "online": "En línea",
     "relayConnected": "Relay conectado",
     "relayOfflineShort": "Relay desconectado",
+    "relayConnecting": "Conectando al relay…",
     "localConnectionsActive": "Conexiones locales activas",
     "monitoring": "Monitoreando",
     "stopped": "Detenido"

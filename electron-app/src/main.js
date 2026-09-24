@@ -1404,6 +1404,10 @@ function _mergeLocalStatus(status) {
   for (const key of Object.keys(status)) {
     if (key === 'relay') continue;
     if (key.startsWith('_')) continue;
+    // null = unconfigured in THIS app's config (set by startAgent). The agent's
+    // /local-status reports every device family (e.g. resolume:{connected:false});
+    // overwriting null made unconfigured gear show red pills + "1 Issue Detected".
+    if (agentStatus[key] === null) continue;
     agentStatus[key] = status[key];
   }
 }

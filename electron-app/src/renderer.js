@@ -253,6 +253,28 @@ function dismissFirstLaunch() {
   if (modal) modal.style.display = 'none';
 }
 
+// ─── RELAY UI STATE (single source of truth) ───────────────────────────────
+// Combines the agent WS flag (status.relay) with the main-process /health probe
+// so every surface (banner, pill, hero, network card, footer) agrees:
+//   online      — agent WS up AND /health reachable
+//   connecting  — /health reachable, agent WS not up yet (agent (re)start), for
+//                 a short grace window; avoids a false "Relay unreachable"
+//   offline     — /health unreachable (even if a half-open WS still says up),
+//                 or WS still down after the grace window
+//   no-internet — browser reports offline
+const RELAY_CONNECT_GRACE_MS = 20000;
+let _relayWsDownSince = null;
+function getRelayUiState(status) {
+  const wsOk = getStatusActive(status && status.relay);
+  if (wsOk) _relayWsDownSince = null;
+  else if (!_relayWsDownSince) _relayWsDownSince = Date.now();
+  if (wsOk && _relayHealthOnline) return 'online';
+  if (!navigator.onLine) return 'no-internet';
+  if (!wsOk && _relayHealthOnline && !_monitoringStoppedByUser
+      && (Date.now() - _relayWsDownSince) < RELAY_CONNECT_GRACE_MS) return 'connecting';
+  return 'offline';
+}
+
 // ─── CONTROL ROOM DASHBOARD ─────────────────────────────────────────────────
 
 function updateControlRoom(status) {
@@ -263,14 +285,15 @@ function updateControlRoom(status) {
 
   let issues = 0;
   let warnings = 0;
-  const relayOk = getStatusActive(status.relay);
+  const relayState = getRelayUiState(status);
+  const relayOk = relayState === 'online';
   const atemOk = getStatusActive(status.atem);
   const encoderOk = getStatusActive(status.encoder) || getStatusActive(status.obs);
   const companionOk = getStatusActive(status.companion);
 
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
-  if (!relayOk && !_monitoringStoppedByUser) warnings++;
+  if (!relayOk && relayState !== 'connecting' && !_monitoringStoppedByUser) warnings++;
 
   // Roll the Problem Finder auto-run issue count into the hero headline so we
   // never show "All Systems Nominal" while the System Check badge is reporting
@@ -298,6 +321,7 @@ function updateControlRoom(status) {
   if (heroSub) {
     const parts = [];
     if (relayOk) parts.push(t('status.relayConnected'));
+    else if (relayState === 'connecting') parts.push(t('status.relayConnecting'));
     else if (!_monitoringStoppedByUser) parts.push(t('status.relayOfflineShort'));
     if (status.streaming || (status.encoder && typeof status.encoder === 'object' && status.encoder.live)) parts.push('LIVE');
     if (!parts.length) parts.push('No issues detected');
@@ -311,6 +335,8 @@ function updateControlRoom(status) {
     connIndicator.classList.remove('offline', 'disconnected');
     if (relayOk) {
       connLabel.textContent = t('status.connected');
+    } else if (relayState === 'connecting') {
+      connLabel.textContent = t('status.relayConnecting');
     } else if (!navigator.onLine) {
       connIndicator.classList.add('disconnected');
       connLabel.textContent = t('status.noInternet');
@@ -401,7 +427,9 @@ function updateControlRoom(status) {
 
   // Network
   setCard('cr-card-network', relayOk ? 'ok' : (navigator.onLine ? 'warning' : 'error'),
-    relayOk ? t('status.online') : (navigator.onLine ? t('status.relayOffline') : t('status.noInternet')),
+    relayOk ? t('status.online')
+      : relayState === 'connecting' ? t('status.relayConnecting')
+      : (navigator.onLine ? t('status.relayOffline') : t('status.noInternet')),
     t('status.localConnectionsActive'));
 
   // Audio
@@ -2321,7 +2349,10 @@ function updateStatusUI(status) {
   // Banner state is driven by the main-process /health probe (debounced)
   // when available; fall back to the WS-derived flag while we wait for the
   // first probe result (initial render before the IPC event arrives).
-  updateOfflineBannerText(_relayHealthOnline && relayOk);
+  {
+    const st = getRelayUiState(status);
+    updateOfflineBannerText(st === 'online' || st === 'connecting');
+  }
 
   // ── Dynamic encoder dot + label ─────────────────────────────────────────
   const encoderLabel = status.encoderType || 'Encoder';
@@ -3872,8 +3903,8 @@ function _applyRelayHealth(payload) {
     if (_relayHealthBannerTimer) clearInterval(_relayHealthBannerTimer);
     _relayHealthBannerTimer = setInterval(() => {
       // Re-render banner so the "X seconds ago" copy ticks up.
-      const relayOk = _cachedStatus ? getStatusActive(_cachedStatus.relay) : false;
-      updateOfflineBannerText(_relayHealthOnline && relayOk);
+      const st = getRelayUiState(_lastStatus || {});
+      updateOfflineBannerText(st === 'online' || st === 'connecting');
     }, 5000);
   }
 
@@ -3888,8 +3919,10 @@ function _applyRelayHealth(payload) {
 
   // Always re-render the banner so an in-flight offline state picks up the
   // freshest "last seen" timestamp.
-  const relayOk = _cachedStatus ? getStatusActive(_cachedStatus.relay) : false;
-  updateOfflineBannerText(_relayHealthOnline && relayOk);
+  const st = getRelayUiState(_lastStatus || {});
+  updateOfflineBannerText(st === 'online' || st === 'connecting');
+  // Re-render dashboard surfaces so pill/hero/network card track /health too
+  if (_lastStatus) { try { updateControlRoom(_lastStatus); } catch (_) {} }
 }
 
 if (api.onRelayStatus) api.onRelayStatus(_applyRelayHealth);

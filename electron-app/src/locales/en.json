@@ -27,6 +27,7 @@
     "online": "Online",
     "relayConnected": "Relay connected",
     "relayOfflineShort": "Relay offline",
+    "relayConnecting": "Connecting to relay…",
     "localConnectionsActive": "Local connections active",
     "monitoring": "Monitoring",
     "stopped": "Stopped"
