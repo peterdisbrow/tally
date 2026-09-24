@@ -487,3 +487,16 @@ test('timestamp defaults to Date.now when not provided', () => {
   assert.ok(tl[0].timestamp >= before && tl[0].timestamp <= after,
     'timestamp should be approximately Date.now()');
 });
+
+test('percentOfTotal is share of on-air time even when shot timestamps fall outside the session window', () => {
+  const a = new AtemAnalytics();
+  a.startTracking();                       // sessionStart = Date.now()
+  a.recordInputChange(1, 'Camera 1', 0);   // synthetic / switcher timestamps
+  a.recordInputChange(2, 'Camera 2', 5000);
+  a.recordInputChange(1, 'Camera 1', 10000);
+  a.stopTracking();                        // last shot runs 10000 → Date.now()
+  const stats = a.getSessionStats();
+  const total = stats.inputs.reduce((s, i) => s + i.percentOfTotal, 0);
+  assert.ok(total >= 99.9 && total <= 100.1, `shares must sum to ~100, got ${total}`);
+  for (const i of stats.inputs) assert.ok(i.percentOfTotal >= 0 && i.percentOfTotal <= 100);
+});

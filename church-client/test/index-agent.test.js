@@ -417,7 +417,9 @@ test('agent reconnects after relay server restarts on same port', { timeout: 150
     );
 
     // Agent's reconnectDelay starts at 3000ms — allow 10s total
-    await waitFor(() => received2.some((m) => m.type === 'status_update'), 10000);
+    // First relay retry is designed at 5s ±20% jitter (up to 6s) after the drop.
+    // 10s left ~2-4s headroom and flaked under parallel test load; allow 18s.
+    await waitFor(() => received2.some((m) => m.type === 'status_update'), 18000);
     assert.ok(received2.some((m) => m.type === 'status_update'), 'agent did not reconnect');
 
     await closeServer(server2);
@@ -427,7 +429,7 @@ test('agent reconnects after relay server restarts on same port', { timeout: 150
   }
 });
 
-test('health.relay.reconnects increments after a relay disconnect', { timeout: 15000 }, async () => {
+test('health.relay.reconnects increments after a relay disconnect', { timeout: 25000 }, async () => {
   const { server: server1, port } = await createRelayServer();
   const received1 = [];
   server1.on('connection', (ws) =>

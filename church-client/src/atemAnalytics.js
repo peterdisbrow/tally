@@ -117,6 +117,13 @@ class AtemAnalytics {
 
     const totalSwitches = timeline.length;
 
+    // Share of PROGRAM time: denominator is total on-air time across inputs, not
+    // the wall-clock session window. Shot timestamps may come from the switcher
+    // (or callers) and need not sit inside [sessionStart, sessionEnd]; dividing by
+    // the window produced shares far above 100% (flaky unit test, bogus reports).
+    let totalOnAir = 0;
+    for (const rec of inputMap.values()) totalOnAir += Math.max(0, rec.timeOnAir);
+
     // Build inputs array
     const inputs = [];
     for (const rec of inputMap.values()) {
@@ -124,7 +131,7 @@ class AtemAnalytics {
         id: rec.id,
         name: rec.name,
         timeOnAir: rec.timeOnAir,
-        percentOfTotal: totalDuration > 0 ? Math.round((rec.timeOnAir / totalDuration) * 10000) / 100 : 0,
+        percentOfTotal: totalOnAir > 0 ? Math.round((Math.max(0, rec.timeOnAir) / totalOnAir) * 10000) / 100 : 0,
         switchCount: rec.switchCount,
       });
     }
