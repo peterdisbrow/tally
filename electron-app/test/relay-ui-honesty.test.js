@@ -84,3 +84,10 @@ test('relayConnecting string exists in every locale', () => {
     assert.ok(j.status.relayConnecting, `${f} status.relayConnecting`);
   }
 });
+
+test('unconfigured OBS is null (hides Encoder card) on start and after agent exit', () => {
+  const m = SRC('main.js');
+  const start = extractFn(m, 'startAgent');
+  assert.match(start, /if \(!config\.obsUrl\) agentStatus\.obs = null;/);
+  assert.match(m, /obs: closedConfig\.obsUrl \? false : null,/);
+});

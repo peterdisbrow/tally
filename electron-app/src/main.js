@@ -856,6 +856,10 @@ function startAgent() {
   else agentStatus.atem = { connected: false, ip: config.atemIp };
   if (!config.companionUrl) agentStatus.companion = null;
   if (!config.encoder?.type) agentStatus.encoder = null;
+  // OBS is its own device family: when neither OBS nor an encoder is configured,
+  // null hides the Encoder card (obs:false alone showed a red "Disconnected"
+  // Encoder card on an ATEM-only booth).
+  if (!config.obsUrl) agentStatus.obs = null;
   agentStatus.resolume = config.resolume?.host
     ? { connected: false, host: config.resolume.host, port: config.resolume.port || 8080, version: null }
     : null;
@@ -1202,7 +1206,7 @@ function startAgent() {
     agentStatus = {
       relay: false,
       atem: closedConfig.atemIp ? false : null,
-      obs: false,
+      obs: closedConfig.obsUrl ? false : null,
       companion: closedConfig.companionUrl ? false : null,
       encoder: closedConfig.encoder?.type ? false : null,
       encoderType: savedEncoderType,
