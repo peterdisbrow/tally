@@ -106,3 +106,22 @@ test('unconfigured encoder hides BOTH the Encoder card and the Streaming Encoder
   assert.match(sui, /getElementById\('encoder-status-section'\)/);
   assert.match(sui, /isEncoderUnconfigured\(status\)/);
 });
+
+test('Stream Protection: enabled+idle badge is not "OFF" (was contradicting "Protection ON")', () => {
+  const r = SRC('renderer.js');
+  const fn = extractFn(r, 'updateStreamProtectionUI');
+  const els = {};
+  const mk = (id) => (els[id] ||= { id, textContent: '', style: {}, className: '', classList: { add() {}, remove() {} } });
+  const ctx = { document: { getElementById: (id) => mk(id) } };
+  vm.runInNewContext(`${fn}\nupdateStreamProtectionUI({ enabled: true, state: 'idle' });`, ctx);
+  assert.equal(els['val-sp-enabled'].textContent, 'ON');
+  assert.notEqual(els['sp-badge'].textContent, 'OFF');
+  vm.runInNewContext(`${fn}\nupdateStreamProtectionUI({ enabled: false, state: 'idle' });`, ctx);
+  assert.equal(els['sp-badge'].textContent, 'OFF');
+  assert.equal(els['val-sp-enabled'].textContent, 'OFF');
+});
+
+test('Stream Protection section hidden on booths with no encoder/OBS', () => {
+  const r = SRC('renderer.js');
+  assert.match(r, /isEncoderUnconfigured\(status\)\) \{\s*const spSec = document\.getElementById\('stream-protection-section'\);/);
+});

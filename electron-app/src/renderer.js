@@ -2760,8 +2760,11 @@ function updateStatusUI(status) {
   // Signal Failover status
   if (status.failover) updateFailoverUI(status.failover);
 
-  // Stream Protection status
-  if (status.streamProtection) updateStreamProtectionUI(status.streamProtection);
+  // Stream Protection status — nothing to protect on a booth with no encoder/OBS
+  if (isEncoderUnconfigured(status)) {
+    const spSec = document.getElementById('stream-protection-section');
+    if (spSec) spSec.style.display = 'none';
+  } else if (status.streamProtection) updateStreamProtectionUI(status.streamProtection);
 }
 
 // ─── STREAM PROTECTION UI ────────────────────────────────────────────────────
@@ -2785,7 +2788,7 @@ function updateStreamProtectionUI(sp) {
     restarting: 'Restarting', alert_sent: 'Alert', cdn_mismatch: 'CDN Issue',
   };
   const stateBadge = {
-    idle: 'OFF', protecting: 'PROTECTED', encoder_disconnected: 'ENCODER DOWN',
+    idle: 'ARMED', protecting: 'PROTECTED', // idle = enabled, not streaming yet encoder_disconnected: 'ENCODER DOWN',
     restarting: 'RESTARTING', alert_sent: 'ALERT', cdn_mismatch: 'CDN ISSUE',
   };
 
