@@ -138,9 +138,9 @@ async function checkTokenWithRelay(token, relayUrl, ms = 5000) {
     if (resp.status === 401 || resp.status === 403) {
       return { success: false, error: 'Invalid token for this relay' };
     }
-    return { success: false, error: `Relay returned ${resp.status}` };
+    return { success: false, status: resp.status, network: resp.status >= 500, error: `Relay returned ${resp.status}` };
   } catch (e) {
-    return { success: false, error: e.message || 'Token validation failed' };
+    return { success: false, network: true, error: e.message || 'Token validation failed' };
   }
 }
 
@@ -496,11 +496,11 @@ async function fetchRooms() {
       headers: { 'Authorization': `Bearer ${config.token}` },
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) return { success: false, error: `Server returned ${resp.status}` };
+    if (!resp.ok) return { success: false, status: resp.status, error: `Server returned ${resp.status}` };
     const data = await resp.json();
     return { success: true, rooms: data.rooms || [], currentRoomId: data.currentRoomId || null };
   } catch (e) {
-    return { success: false, error: e.message || 'Failed to fetch rooms' };
+    return { success: false, network: true, error: e.message || 'Failed to fetch rooms' };
   }
 }
 
@@ -534,11 +534,11 @@ async function assignRoom(roomId) {
       body: JSON.stringify({ roomId }),
       signal: AbortSignal.timeout(10000),
     });
-    const data = await resp.json();
-    if (!resp.ok) return { success: false, error: data.error || `Server returned ${resp.status}` };
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) return { success: false, status: resp.status, error: data.error || `Server returned ${resp.status}` };
     return { success: true, roomId: data.roomId, roomName: data.roomName };
   } catch (e) {
-    return { success: false, error: e.message || 'Failed to assign room' };
+    return { success: false, network: true, error: e.message || 'Failed to assign room' };
   }
 }
 

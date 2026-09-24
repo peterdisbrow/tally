@@ -43,6 +43,7 @@ i18n.detectAndApplyLocale();
 // Extracted modules (pure refactoring — see config-manager.js, relay-client.js, equipment-tester.js)
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
+const roomRejoin = require('./room-rejoin');
 const equipmentTester = require('./equipment-tester');
 const problemFinderBridge = require('./problem-finder-bridge');
 const autostart = require('./autostart');
@@ -1163,18 +1164,7 @@ function startAgent() {
       try {
         const { roomId, roomName } = JSON.parse(roomDeletedMatch[1]);
         appendAppLog('SYSTEM', `Room "${roomName || roomId}" was deleted from portal — stopping agent and returning to room selector`);
-        // Stop the agent (sets agentProcess = null to prevent auto-restart)
-        stopAgent();
-        // Clear room assignment from config
-        const cfg = loadConfig();
-        cfg.roomId = null;
-        cfg.roomName = null;
-        saveConfig(cfg);
-        // Reset device status
-        agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
-        mainWindow?.webContents.send('status', agentStatus);
-        // Notify renderer to show room selector
-        mainWindow?.webContents.send('room-deleted', { roomId, roomName });
+        leaveRoomAndNotify('room-deleted', { roomId, roomName });
       } catch (e) { console.warn('Room deleted parse error:', e?.message); }
     }
 
@@ -1592,13 +1582,161 @@ ipcMain.handle('validate-token', async () => {
 
       return { valid: true, churchName: config.name || '' };
     }
-    return { valid: false, reason: result.error || 'invalid', churchName: config.name || '' };
+    return { valid: false, reason: result.error || 'invalid', network: !!result.network, churchName: config.name || '' };
   } catch (e) {
     return { valid: false, reason: e.message || 'validation-error' };
   }
 });
 
+// ─── Auto-rejoin last room (crash / kill -9 / clean quit) ────────────────────
+// Policy + validation live in room-rejoin.js. The record is main-process only
+// (not in the renderer save-config whitelist), bound to the church in the
+// token, and wiped by sign-out / factory reset (resetConfig) and Leave Room.
+let _rejoinValidateTimer = null;
+
+function stopRejoinValidation() {
+  if (_rejoinValidateTimer) { clearTimeout(_rejoinValidateTimer); _rejoinValidateTimer = null; }
+}
+
+function rememberRoomForRejoin(roomId, roomName) {
+  try {
+    const cfg = loadConfig();
+    const record = roomRejoin.buildRejoinRecord({ roomId, roomName, churchId: decodeChurchIdFromToken(cfg.token) });
+    if (record) saveConfig({ rejoinRoom: record });
+  } catch (e) { console.warn('[Rejoin] remember failed:', e?.message); }
+}
+
+function clearRejoinRecord() {
+  stopRejoinValidation();
+  try { if (loadConfig().rejoinRoom) saveConfig({ rejoinRoom: undefined }); } catch { /* best effort */ }
+}
+
+// Stop monitoring, drop the room assignment (and rejoin record), reset status,
+// and tell the renderer. Used for portal deletion, failed rejoin validation, leave.
+function leaveRoomAndNotify(channel, payload) {
+  stopRejoinValidation();
+  stopAgent();
+  const cfg = loadConfig();
+  cfg.roomId = null;
+  cfg.roomName = null;
+  cfg.rejoinRoom = undefined;
+  saveConfig(cfg);
+  agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+  mainWindow?.webContents.send('status', agentStatus);
+  if (channel) mainWindow?.webContents.send(channel, payload || {});
+}
+
+function applyRemoteEquipment(roomName, remoteEquip) {
+  const fresh = loadConfig();
+  for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+    fresh[key] = remoteEquip && remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
+  }
+  if (remoteEquip) {
+    if (!fresh.roomConfigs) fresh.roomConfigs = {};
+    fresh.roomConfigs[roomName || '_default'] = remoteEquip;
+  }
+  saveConfig(fresh);
+}
+
+// Relay was unreachable at launch: we rejoined locally. Confirm the room with
+// the relay as soon as it answers; if the room is gone / access revoked, stop
+// honestly and send the operator to the picker (or sign-in).
+function scheduleRejoinValidation(record, delayMs = 5000) {
+  stopRejoinValidation();
+  _rejoinValidateTimer = setTimeout(async () => {
+    _rejoinValidateTimer = null;
+    const cfg = loadConfig();
+    if (!cfg.token || !cfg.rejoinRoom || cfg.rejoinRoom.roomId !== record.roomId) return; // left / signed out meanwhile
+    const roomsResult = await fetchRooms();
+    const d = roomRejoin.decideRejoin({
+      record, tokenChurchId: decodeChurchIdFromToken(cfg.token),
+      tokenExpired: roomRejoin.tokenExpired(cfg.token), roomsResult,
+    });
+    if (d.action === 'rejoin-local') { scheduleRejoinValidation(record, 10000); return; }
+    if (d.action === 'rejoin') {
+      const a = roomRejoin.decideAssignOutcome(await assignRoom(record.roomId), d.roomName);
+      if (a.ok) {
+        const c2 = loadConfig();
+        c2.roomId = record.roomId; c2.roomName = d.roomName || record.roomName; saveConfig(c2);
+        rememberRoomForRejoin(record.roomId, d.roomName || record.roomName);
+        appendAppLog('SYSTEM', `Rejoin confirmed with relay: "${d.roomName || record.roomName}"`);
+        mainWindow?.webContents.send('rejoin-confirmed', { roomId: record.roomId, roomName: d.roomName || record.roomName });
+        return;
+      }
+      appendAppLog('SYSTEM', `Rejoin validation failed after relay returned: ${a.reason}`);
+      leaveRoomAndNotify('rejoin-failed', { action: a.action, reason: a.reason, message: a.message, roomName: record.roomName });
+      return;
+    }
+    appendAppLog('SYSTEM', `Rejoin validation failed after relay returned: ${d.reason}`);
+    leaveRoomAndNotify('rejoin-failed', { action: d.action, reason: d.reason, message: d.message, roomName: record.roomName });
+  }, delayMs);
+}
+
+ipcMain.handle('auto-rejoin-room', async () => {
+  const t0 = Date.now();
+  try {
+    const cfg = loadConfig();
+    const record = cfg.rejoinRoom;
+    if (!cfg.token) return { action: 'none', reason: 'no-token' };
+    const tokenChurchId = decodeChurchIdFromToken(cfg.token);
+    const expired = roomRejoin.tokenExpired(cfg.token);
+    // Only ask the relay when there is something to rejoin.
+    const roomsResult = roomRejoin.isValidRecord(record) && !expired ? await fetchRooms() : null;
+    const d = roomRejoin.decideRejoin({ record, tokenChurchId, tokenExpired: expired, roomsResult });
+    if (d.clearRecord) clearRejoinRecord();
+    appendAppLog('SYSTEM', `Auto-rejoin decision: ${d.action} (${d.reason})${d.roomName ? ` room="${d.roomName}"` : ''}`);
+    if (d.action === 'rejoin') {
+      const wasClean = !!record.cleanExit;
+      stopAgent();
+      // Assign first: validates access before we touch equipment or claim anything.
+      const a = roomRejoin.decideAssignOutcome(await assignRoom(record.roomId), d.roomName);
+      if (!a.ok) {
+        leaveRoomAndNotify(null);
+        return { action: a.action, reason: a.reason, message: a.message, roomName: d.roomName };
+      }
+      // Server-authoritative equipment for exactly this room when the relay has
+      // it. fetchEquipmentFromRelay returns null on error too, so on null keep
+      // the on-disk equipment — it already belongs to this same room.
+      const current = loadConfig().roomName || '';
+      if (current !== d.roomName) switchRoomConfig(current, d.roomName);
+      const remoteEquip = await fetchEquipmentFromRelay(record.roomId);
+      if (remoteEquip) applyRemoteEquipment(d.roomName, remoteEquip);
+      const c2 = loadConfig();
+      c2.roomId = record.roomId; c2.roomName = d.roomName; saveConfig(c2);
+      rememberRoomForRejoin(record.roomId, d.roomName);
+      agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+      mainWindow?.webContents.send('status', agentStatus);
+      agentCrashCount = 0;
+      startAgent();
+      return { action: 'rejoined', reason: 'ok', roomId: record.roomId, roomName: d.roomName, cleanExit: wasClean, ms: Date.now() - t0 };
+    }
+    if (d.action === 'rejoin-local') {
+      // Relay unreachable: keep the booth monitoring with the equipment already
+      // on disk for this room; confirm the room when the relay answers.
+      const wasClean = !!record.cleanExit;
+      const c2 = loadConfig();
+      c2.roomId = record.roomId; c2.roomName = record.roomName || c2.roomName; saveConfig(c2);
+      saveConfig({ rejoinRoom: { ...record, cleanExit: false } });
+      agentCrashCount = 0;
+      startAgent();
+      scheduleRejoinValidation(record);
+      return { action: 'rejoined-local', reason: d.reason, roomId: record.roomId, roomName: record.roomName, cleanExit: wasClean, ms: Date.now() - t0 };
+    }
+    return { action: d.action, reason: d.reason, message: d.message || '', roomName: d.roomName || '' };
+  } catch (e) {
+    clearRejoinRecord();
+    return { action: 'picker', reason: 'rejoin-error', message: `Couldn't rejoin your last room (${e.message || 'error'}). Choose or create a room to continue.` };
+  }
+});
+
+// Deliberate "Leave room" (Change Room): next launch shows the picker.
+ipcMain.handle('leave-room', async () => {
+  clearRejoinRecord();
+  return { ok: true };
+});
+
 function performSignOut() {
+  stopRejoinValidation();
   stopAgent();
   clearAllLogs();
   resetConfig(); // atomic wipe — no credential bleed via saveConfig merge
@@ -2244,6 +2382,7 @@ ipcMain.handle('assign-room', async (_, { roomId }) => {
     config.roomId = result.roomId;
     config.roomName = result.roomName;
     saveConfig(config);
+    rememberRoomForRejoin(result.roomId, result.roomName);
   }
   return result;
 });
@@ -2288,12 +2427,14 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
   }
 
   // 5. Assign room on relay
+  stopRejoinValidation();
   const assignResult = await assignRoom(toRoomId);
   if (assignResult.success) {
     const cfg = loadConfig();
     cfg.roomId = assignResult.roomId;
     cfg.roomName = assignResult.roomName;
     saveConfig(cfg);
+    rememberRoomForRejoin(assignResult.roomId, assignResult.roomName);
   }
 
   // 6. Clear all device status
@@ -2899,13 +3040,17 @@ app.on('activate', () => {
 app.on('before-quit', () => {
   app.isQuitting = true;
   stopAgent();
-  // Clear roomId so next launch always shows the room selector.
+  stopRejoinValidation();
+  // Clear the live roomId (next launch re-validates the room with the relay
+  // before using it — see room-rejoin.js) but keep the rejoin record, marked
+  // as a clean exit, so the booth rejoins its room automatically.
   // Keep roomName + roomConfigs so equipment is preserved per-room.
-  // Setting to undefined causes saveConfig's filter to strip the key from disk.
   try {
-    if (loadConfig().roomId) {
-      saveConfig({ roomId: undefined });
-    }
+    const cfg = loadConfig();
+    const patch = {};
+    if (cfg.roomId) patch.roomId = undefined;
+    if (cfg.rejoinRoom) patch.rejoinRoom = { ...cfg.rejoinRoom, cleanExit: true };
+    if (Object.keys(patch).length) saveConfig(patch);
   } catch { /* best effort */ }
   // Clear all logs — next session starts fresh
   clearAllLogs();

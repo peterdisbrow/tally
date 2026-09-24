@@ -862,6 +862,7 @@ async function init() {
 
     // Listen for sign-out triggered from the system tray or factory reset
     api.onSignedOut(() => {
+      hideRejoinBanner();
       isRunning = false;
       updateToggleBtn();
 
@@ -896,6 +897,33 @@ async function init() {
       showSignInMessage('Signed out.', 'var(--muted)');
     });
 
+    // Local-mode rejoin confirmed once the relay came back
+    api.onRejoinConfirmed(({ roomName }) => {
+      const el = document.getElementById('rejoin-banner');
+      if (el && el.style.display !== 'none') {
+        showRejoinBanner({ roomName, local: false, cleanExit: true });
+        document.getElementById('rejoin-banner-detail').textContent = t('rejoin.confirmed');
+      }
+      addAlert(`Room "${roomName || ''}" confirmed with the server`);
+    });
+
+    // Local-mode rejoin could not be confirmed (room deleted / access revoked)
+    api.onRejoinFailed(async ({ action, message }) => {
+      isRunning = false;
+      updateToggleBtn();
+      if (typeof resetDeviceState === 'function') resetDeviceState();
+      _cachedStatus = null;
+      hideRejoinBanner();
+      if (message) addAlert(message);
+      if (action === 'signin') {
+        showSignIn();
+        showSignInMessage(message || 'Please sign in again.', 'var(--warn)');
+      } else {
+        const cfg = await api.getConfig();
+        await showRoomSelector(cfg.name, message);
+      }
+    });
+
     // Listen for room deletion — portal deleted the room this app was assigned to
     api.onRoomDeleted(({ roomName }) => {
       isRunning = false;
@@ -922,10 +950,22 @@ async function init() {
       // Re-read config after validation — validateToken may sync profile flags from relay
       const freshConfig = await api.getConfig();
       try { _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
-      if (result.valid) {
-        // Always show room selector on fresh launch — never auto-jump into a room.
-        // This ensures the user explicitly picks which room to monitor each session.
-        await showRoomSelector(freshConfig.name || config.name);
+      // Auto-rejoin the last room (crash / kill -9 / clean quit) unless the
+      // operator left it or signed out. Main validates the room with the relay
+      // (room-rejoin.js); if the relay is unreachable it rejoins locally.
+      let rejoin = null;
+      if (result.valid || result.network) {
+        try { rejoin = await api.autoRejoinRoom(); } catch (e) { rejoin = null; }
+      }
+      if (rejoin && (rejoin.action === 'rejoined' || rejoin.action === 'rejoined-local')) {
+        await enterRejoinedRoom(rejoin);
+      } else if (rejoin && rejoin.action === 'signin') {
+        showSignIn();
+        showSignInMessage(rejoin.message || 'Session expired. Please sign in again.', 'var(--warn)');
+      } else if (result.valid) {
+        // No room to rejoin (or it can't be rejoined) → picker, with a plain
+        // explanation when a saved room had to be dropped.
+        await showRoomSelector(freshConfig.name || config.name, rejoin && rejoin.message);
       } else {
         // Token invalid or expired
         const reason = result.reason || 'unknown';
@@ -1053,8 +1093,9 @@ async function showDashboard() {
 
 // Show the room selector screen and fetch rooms from relay.
 // After user selects (or creates) a room, calls proceedAfterRoomSelection().
-async function showRoomSelector(churchName) {
+async function showRoomSelector(churchName, notice) {
   hideAllViews();
+  hideRejoinBanner();
   document.getElementById('room-selector').classList.add('active');
   document.body.classList.add('ready');
 
@@ -1074,10 +1115,14 @@ async function showRoomSelector(churchName) {
   createForm.style.display = 'none';
   addLink.style.display = 'none';
   if (msg) msg.textContent = '';
+  const showNotice = () => {
+    if (notice && msg) { msg.textContent = notice; msg.style.color = 'var(--warn)'; }
+  };
 
   try {
     const result = await api.getRooms();
     loading.style.display = 'none';
+    showNotice();
 
     if (!result.success) {
       if (msg) { msg.textContent = result.error || 'Failed to load rooms.'; msg.style.color = 'var(--warn)'; }
@@ -1227,6 +1272,41 @@ async function proceedAfterRoomSelection(roomName) {
   } else {
     showEquipmentWizard();
   }
+}
+
+// ─── AUTO-REJOIN ───────────────────────────────────────────────────────────
+let _rejoinBannerTimer = null;
+
+function showRejoinBanner({ roomName, local, cleanExit }) {
+  const el = document.getElementById('rejoin-banner');
+  if (!el) return;
+  const room = roomName || 'your room';
+  document.getElementById('rejoin-banner-text').textContent =
+    local ? t('rejoin.titleLocal', { room }) : t('rejoin.title', { room });
+  document.getElementById('rejoin-banner-detail').textContent =
+    local ? t('rejoin.local') : (cleanExit ? t('rejoin.afterQuit') : t('rejoin.afterCrash'));
+  el.classList.toggle('local', !!local);
+  el.style.display = 'flex';
+  if (_rejoinBannerTimer) clearTimeout(_rejoinBannerTimer);
+  // Local-mode banner stays until the relay confirms the room.
+  _rejoinBannerTimer = local ? null : setTimeout(hideRejoinBanner, 120000);
+}
+
+function hideRejoinBanner() {
+  if (_rejoinBannerTimer) { clearTimeout(_rejoinBannerTimer); _rejoinBannerTimer = null; }
+  const el = document.getElementById('rejoin-banner');
+  if (el) el.style.display = 'none';
+}
+
+async function enterRejoinedRoom(rejoin) {
+  if (typeof resetDeviceState === 'function') resetDeviceState();
+  _monitoringStoppedByUser = false;
+  isRunning = true; // main already started the agent for the rejoined room
+  updateToggleBtn();
+  setAllDotsConnecting();
+  await proceedAfterRoomSelection(rejoin.roomName);
+  showRejoinBanner({ roomName: rejoin.roomName, local: rejoin.action === 'rejoined-local', cleanExit: !!rejoin.cleanExit });
+  addAlert(`Rejoined room "${rejoin.roomName || ''}" automatically${rejoin.action === 'rejoined-local' ? ' (relay offline — local monitoring)' : ''}`);
 }
 
 function shouldRetryLoginOnDefaultRelay(result) {
@@ -4219,7 +4299,11 @@ function showChangeRoomButton() {
 }
 
 // Navigate back to the room selector, clearing all monitoring state.
+// This is the deliberate "Leave room": the next launch shows the picker
+// instead of auto-rejoining.
 async function changeRoom() {
+  try { await api.leaveRoom(); } catch (e) { console.warn('[Room] leaveRoom failed:', e.message); }
+  hideRejoinBanner();
   // Stop the monitoring agent and disconnect WebSocket
   try {
     if (isRunning) {
