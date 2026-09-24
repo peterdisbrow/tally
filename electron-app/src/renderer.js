@@ -281,6 +281,28 @@ function getRelayUiState(status) {
   return 'offline';
 }
 
+const HERO_ICONS = {
+  error: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  nominal: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  // Calm "info" glyph for local-only / connecting / stopped: not a green check, not an alarm.
+  local: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+};
+
+/**
+ * Hero headline decision (pure). "All Systems Nominal" is only claimed when
+ * the relay is actually online and there are no device issues. Relay down =
+ * calm local-mode headline (booth devices are still monitored locally).
+ */
+function getHeroState({ issues, relayState, stoppedByUser }) {
+  if (issues > 0) {
+    return { kind: 'error', iconClass: 'cr-hero-icon error', headline: `${issues} Issue${issues > 1 ? 's' : ''} Detected` };
+  }
+  if (stoppedByUser) return { kind: 'stopped', iconClass: 'cr-hero-icon local', headline: t('hero.monitoringStopped') };
+  if (relayState === 'online') return { kind: 'nominal', iconClass: 'cr-hero-icon', headline: t('hero.nominal') };
+  if (relayState === 'connecting') return { kind: 'connecting', iconClass: 'cr-hero-icon local', headline: t('hero.connectingRelay') };
+  return { kind: 'local', iconClass: 'cr-hero-icon local', headline: t('hero.monitoringLocally') };
+}
+
 // ─── CONTROL ROOM DASHBOARD ─────────────────────────────────────────────────
 
 function updateControlRoom(status) {
@@ -290,7 +312,6 @@ function updateControlRoom(status) {
   const heroSub = document.getElementById('cr-hero-sub');
 
   let issues = 0;
-  let warnings = 0;
   const relayState = getRelayUiState(status);
   const relayOk = relayState === 'online';
   const atemOk = getStatusActive(status.atem);
@@ -299,7 +320,6 @@ function updateControlRoom(status) {
 
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
-  if (!relayOk && relayState !== 'connecting' && !_monitoringStoppedByUser) warnings++;
 
   // Roll the Problem Finder auto-run issue count into the hero headline so we
   // never show "All Systems Nominal" while the System Check badge is reporting
@@ -310,19 +330,10 @@ function updateControlRoom(status) {
   issues += pfIssues;
 
   if (heroHeadline) {
-    if (issues > 0) {
-      heroHeadline.textContent = `${issues} Issue${issues > 1 ? 's' : ''} Detected`;
-      if (heroIcon) heroIcon.className = 'cr-hero-icon error';
-      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
-    } else if (warnings > 0) {
-      heroHeadline.textContent = 'Attention Needed';
-      if (heroIcon) heroIcon.className = 'cr-hero-icon warning';
-      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-    } else {
-      heroHeadline.textContent = 'All Systems Nominal';
-      if (heroIcon) heroIcon.className = 'cr-hero-icon';
-      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
-    }
+    const hs = getHeroState({ issues, relayState, stoppedByUser: _monitoringStoppedByUser });
+    heroHeadline.textContent = hs.headline;
+    if (heroIcon) heroIcon.className = hs.iconClass;
+    if (heroIcon) heroIcon.innerHTML = HERO_ICONS[hs.kind] || HERO_ICONS.local;
   }
   if (heroSub) {
     const parts = [];
@@ -1235,8 +1246,9 @@ async function selectRoom(roomId, roomName) {
         updateToggleBtn();
         setAllDotsConnecting();
         await proceedAfterRoomSelection(result.roomName || roomName);
+        if (result.equipmentWarning) addAlert(result.equipmentWarning);
       } else {
-        if (msg) { msg.textContent = 'Failed to switch room.'; msg.style.color = 'var(--warn)'; }
+        if (msg) { msg.textContent = result.error ? `Failed to switch room: ${result.error}` : 'Failed to switch room.'; msg.style.color = 'var(--warn)'; }
         document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
       }
     } else {

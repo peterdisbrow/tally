@@ -108,5 +108,11 @@
     "afterQuit": "Rejoined your last room automatically. Use Change Room to switch rooms.",
     "local": "Monitoring locally. Tally will confirm the room with the server when the relay is back.",
     "confirmed": "Room confirmed with the server."
+  },
+  "hero": {
+    "nominal": "All Systems Nominal",
+    "monitoringLocally": "Monitoring Locally",
+    "connectingRelay": "Connecting to Relay…",
+    "monitoringStopped": "Monitoring Stopped"
   }
 }

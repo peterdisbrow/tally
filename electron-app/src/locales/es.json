@@ -108,5 +108,11 @@
     "afterQuit": "Se volvió a unir a tu última sala automáticamente. Usa Cambiar sala para cambiar.",
     "local": "Monitoreo local. Tally confirmará la sala con el servidor cuando el relay vuelva.",
     "confirmed": "Sala confirmada con el servidor."
+  },
+  "hero": {
+    "nominal": "Todos los sistemas en orden",
+    "monitoringLocally": "Monitoreo local",
+    "connectingRelay": "Conectando al relay…",
+    "monitoringStopped": "Monitoreo detenido"
   }
 }

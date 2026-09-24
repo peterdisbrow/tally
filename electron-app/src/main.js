@@ -44,6 +44,7 @@ i18n.detectAndApplyLocale();
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
 const roomRejoin = require('./room-rejoin');
+const roomEquipment = require('./room-equipment');
 const { buildTrayDeviceSummary } = require('./tray-status');
 const { isRelayAuthFailure } = require('./agent-auth-detect');
 const equipmentTester = require('./equipment-tester');
@@ -1423,7 +1424,7 @@ const { normalizeRelayUrl, isLocalRelayUrl, enforceRelayPolicy, relayHttpUrl,
 
 const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
         testConnection, sendPreviewCommand,
-        syncEquipmentToRelay, fetchEquipmentFromRelay,
+        syncEquipmentToRelay, fetchEquipmentFromRelay, fetchRoomEquipment,
         fetchRooms, createRoom, assignRoom } = relayClient;
 
 
@@ -2379,6 +2380,34 @@ ipcMain.handle('assign-room', async (_, { roomId }) => {
   return result;
 });
 
+// Apply the relay's answer for the room we just switched to. A failed or
+// malformed fetch never wipes the room's on-disk equipment (same guard as
+// auto-rejoin). Returns { source, fetchFailed, warning }.
+async function applyRoomEquipmentAfterSwitch(toRoom, toRoomId, localLoaded) {
+  const fetchResult = await fetchRoomEquipment(toRoomId);
+  const d = roomEquipment.decideRoomEquipment({ fetchResult, localLoaded });
+  const fresh = loadConfig();
+  if (d.action === 'apply-remote') {
+    for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+      fresh[key] = fetchResult.equipment[key] !== undefined ? fetchResult.equipment[key] : undefined;
+    }
+    if (!fresh.roomConfigs) fresh.roomConfigs = {};
+    fresh.roomConfigs[toRoom || '_default'] = fetchResult.equipment;
+    saveConfig(fresh);
+  } else if (d.action === 'clear') {
+    // No setup for this room anywhere: clear ACTIVE fields only so the previous
+    // room's devices don't leak in. roomConfigs (incl. previous room) untouched.
+    for (const key of configManager.ROOM_EQUIPMENT_KEYS) fresh[key] = undefined;
+    saveConfig(fresh);
+  } // keep-local: switchRoomConfig already loaded this room's saved setup.
+  let warning = '';
+  if (d.fetchFailed) {
+    warning = d.action === 'keep-local' ? roomEquipment.FETCH_FAILED_WARNING : roomEquipment.FETCH_FAILED_NONE_WARNING;
+    try { appendAppLog('WARN', `[room-switch] equipment fetch failed for ${toRoomId}: ${fetchResult && fetchResult.error} -> ${d.action}`); } catch { /* */ }
+  }
+  return { source: d.source, fetchFailed: d.fetchFailed, warning };
+}
+
 // ─── Full room switch (stop agent → switch config → clear status → restart) ─
 ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => {
   // 1. Stop agent and SSE
@@ -2392,30 +2421,15 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
     syncEquipmentToRelay(fromRoomId, extractEquipment(beforeConfig)).catch(() => {});
   }
 
-  // 3. Save old room equipment locally, clear equipment for new room
-  switchRoomConfig(fromRoom || '', toRoom || '');
+  // 3. Save old room equipment locally, load this computer's saved setup for the new room
+  const sw = switchRoomConfig(fromRoom || '', toRoom || '') || {};
 
-  // 4. Fetch new room equipment from relay (server-authoritative)
-  let source = 'none';
+  // 4. Fetch new room equipment from relay (server-authoritative when it answers)
+  let source = sw.loaded ? 'local' : 'none';
+  let equipmentWarning = '';
   if (toRoomId && beforeConfig.token) {
-    const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
-    const fresh = loadConfig();
-    if (remoteEquip) {
-      // Apply server equipment
-      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
-        fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
-      }
-      if (!fresh.roomConfigs) fresh.roomConfigs = {};
-      fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
-      source = 'relay';
-    } else {
-      // Server has no config for this room — clear equipment so we don't use stale data
-      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
-        fresh[key] = undefined;
-      }
-      source = 'none';
-    }
-    saveConfig(fresh);
+    const r = await applyRoomEquipmentAfterSwitch(toRoom, toRoomId, !!sw.loaded);
+    source = r.source; equipmentWarning = r.warning;
   }
 
   // 5. Assign room on relay
@@ -2427,6 +2441,18 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
     cfg.roomName = assignResult.roomName;
     saveConfig(cfg);
     rememberRoomForRejoin(assignResult.roomId, assignResult.roomName);
+  } else if (assignResult.network) {
+    // Relay unreachable: monitor locally in the chosen room; keep roomId and
+    // roomName consistent (never old roomId + new roomName).
+    const cfg = loadConfig();
+    cfg.roomId = toRoomId;
+    cfg.roomName = toRoom;
+    saveConfig(cfg);
+    rememberRoomForRejoin(toRoomId, toRoom);
+  } else {
+    // Relay refused (no access / room gone / signed out): don't start the booth
+    // in a room the relay rejected.
+    return { ok: false, error: assignResult.error || 'Failed to assign room', status: assignResult.status, source, equipmentWarning };
   }
 
   // 6. Clear all device status
@@ -2437,7 +2463,7 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
   agentCrashCount = 0;
   startAgent();
 
-  return { ok: true, roomName: assignResult.roomName || toRoom, source };
+  return { ok: true, roomName: assignResult.roomName || toRoom, source, equipmentWarning, local: !assignResult.success };
 });
 
 // ─── Per-room equipment switching ────────────────────────────────────────────
@@ -2452,32 +2478,16 @@ ipcMain.handle('switch-room', async (_, { fromRoom, toRoom, toRoomId }) => {
     syncEquipmentToRelay(fromRoomId, extractEquipment(beforeConfig)).catch(() => {});
   }
 
-  // 2. Save old room equipment locally, clear equipment for new room
-  switchRoomConfig(fromRoom || '', toRoom || '');
+  // 2. Save old room equipment locally, load saved setup for new room
+  const sw = switchRoomConfig(fromRoom || '', toRoom || '') || {};
 
-  // 3. Fetch equipment from relay (server-authoritative)
+  // 3. Fetch equipment from relay (server-authoritative when it answers)
   if (toRoomId && beforeConfig.token) {
-    const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
-    const fresh = loadConfig();
-    if (remoteEquip) {
-      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
-        fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
-      }
-      if (!fresh.roomConfigs) fresh.roomConfigs = {};
-      fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
-      saveConfig(fresh);
-      return { loaded: true, source: 'relay' };
-    } else {
-      // Server has no config — clear equipment so we don't use stale data
-      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
-        fresh[key] = undefined;
-      }
-      saveConfig(fresh);
-      return { loaded: false, source: 'none' };
-    }
+    const r = await applyRoomEquipmentAfterSwitch(toRoom, toRoomId, !!sw.loaded);
+    return { loaded: r.source !== 'none', source: r.source, equipmentWarning: r.warning };
   }
 
-  return { loaded: false, source: 'none' };
+  return { loaded: !!sw.loaded, source: sw.loaded ? 'local' : 'none' };
 });
 
 // ─── Fetch room equipment from relay (server-authoritative) ─────────────────

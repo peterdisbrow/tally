@@ -76,7 +76,7 @@ jobs:
     name: Church Client Tests
     runs-on: ubuntu-latest
     # Fail the job instead of blocking the queue if a test leaves an open handle.
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,6 +96,11 @@ jobs:
         # Thresholds enforced via c8 --check-coverage in package.json — build fails if coverage drops.
         working-directory: church-client
         run: npm run test:coverage
+
+      - name: Run church-client device sim tests (stateful mocks + real agent)
+        timeout-minutes: 10
+        working-directory: church-client
+        run: npm run test:sim
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

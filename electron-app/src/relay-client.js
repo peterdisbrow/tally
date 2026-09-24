@@ -561,21 +561,38 @@ async function syncEquipmentToRelay(roomId, equipment) {
   }
 }
 
-async function fetchEquipmentFromRelay(roomId) {
+/**
+ * Discriminated fetch: { ok:true, equipment: object|null } only for a real 2xx
+ * JSON answer from the relay; { ok:false, status?, error } for everything else
+ * (network, timeout, non-2xx, malformed body). Callers must never treat a
+ * failed fetch as "server has no equipment".
+ */
+async function fetchRoomEquipment(roomId) {
   const config = _loadConfig();
-  if (!config.token || !roomId) return null;
+  if (!config.token || !roomId) return { ok: false, error: 'No token or roomId' };
   const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
   try {
     const resp = await fetch(`${base}/api/church/app/rooms/${encodeURIComponent(roomId)}/equipment`, {
       headers: { 'Authorization': `Bearer ${config.token}` },
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    return data.equipment && Object.keys(data.equipment).length > 0 ? data.equipment : null;
-  } catch {
-    return null;
+    if (!resp.ok) return { ok: false, status: resp.status, error: `HTTP ${resp.status}` };
+    let data;
+    try { data = await resp.json(); } catch { return { ok: false, status: resp.status, error: 'malformed JSON' }; }
+    if (!data || typeof data !== 'object') return { ok: false, error: 'malformed body' };
+    const eq = data.equipment;
+    if (eq === undefined || eq === null) return { ok: true, equipment: null };
+    if (typeof eq !== 'object' || Array.isArray(eq)) return { ok: false, error: 'malformed equipment' };
+    return { ok: true, equipment: Object.keys(eq).length > 0 ? eq : null };
+  } catch (e) {
+    return { ok: false, error: e.message || 'fetch failed' };
   }
+}
+
+// Legacy shape (null on error OR empty). Prefer fetchRoomEquipment.
+async function fetchEquipmentFromRelay(roomId) {
+  const r = await fetchRoomEquipment(roomId);
+  return r.ok && r.equipment ? r.equipment : null;
 }
 
 module.exports = {
@@ -595,6 +612,7 @@ module.exports = {
   sendProblemFinderReport,
   syncEquipmentToRelay,
   fetchEquipmentFromRelay,
+  fetchRoomEquipment,
   fetchRooms,
   createRoom,
   assignRoom,

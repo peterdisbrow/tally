@@ -5,6 +5,7 @@
   "description": "TallyConnect monorepo — relay-server, church-client, electron-app, mobile, and shared scripts.",
   "scripts": {
     "test:e2e": "node scripts/e2e/run.js",
+    "test:sim": "npm --prefix church-client run test:sim",
     "test:e2e:create-account": "node scripts/e2e-create-test-account.js",
     "test:e2e:cleanup": "node scripts/e2e-create-test-account.js --cleanup",
     "test:portal": "playwright test --config=playwright.config.js",

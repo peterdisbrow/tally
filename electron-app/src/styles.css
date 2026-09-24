@@ -318,6 +318,7 @@ body.is-mac .header .header-title {
 }
 .cr-hero-icon.warning { color: var(--warn); }
 .cr-hero-icon.error { color: var(--danger); }
+.cr-hero-icon.local { color: var(--muted); }
 .cr-hero-headline {
   font-size: 16px;
   font-weight: 700;
