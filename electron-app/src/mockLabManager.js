@@ -286,12 +286,21 @@ class MockLabManager {
 
   async _startMockDevices() {
     await this.fakeAtem.connect();
+    // Panel cuts (HTTP control API) must reach clients that are already
+    // connected. A real ATEM pushes the new program/preview bus; the handshake
+    // packet is not sent again.
+    this._onAtemBus = (state, path) => this._broadcastAtemBus(state, path);
+    this.fakeAtem.on('stateChanged', this._onAtemBus);
     await this.fakeObs.connect('mock://obs');
     await this.fakeMixer.connect();
     await this.fakeProPresenter.connect();
   }
 
   async _stopMockDevices() {
+    if (this.fakeAtem && this._onAtemBus) {
+      try { this.fakeAtem.off('stateChanged', this._onAtemBus); } catch {}
+    }
+    this._onAtemBus = null;
     try { await this.fakeObs?.disconnect?.(); } catch {}
     try { this.fakeProPresenter?.disconnect?.(); } catch {}
     try { await this.fakeMixer?.disconnect?.(); } catch {}
@@ -489,6 +498,19 @@ class MockLabManager {
     session.nextPacketId = (session.nextPacketId + 1) % 0x8000;
     const packet = this._atemBuildPacket(ATEM_PACKET_FLAGS.AckRequest, session.sessionId, packetId, payload);
     this._atemSendRaw(session, packet);
+  }
+
+  _broadcastAtemBus(state, path) {
+    if (typeof path !== 'string' || !this._atemSessions || this._atemSessions.size === 0) return;
+    const match = path.match(/^video\.mixEffects\.(\d+)\.(program|preview|cut|auto\.end)$/);
+    if (!match) return;
+    const meIndex = Number(match[1]);
+    const me = state?.video?.mixEffects?.[meIndex];
+    if (!me) return;
+    const payload = this._atemMakeProgramPreviewPayload(me.programInput || 1, me.previewInput || 2, meIndex);
+    for (const session of this._atemSessions.values()) {
+      try { this._atemSendAckRequest(session, payload); } catch { /* session already gone */ }
+    }
   }
 
   _atemMakeProgramPreviewPayload(programInput, previewInput, mixEffect = 0) {
