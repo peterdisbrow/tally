@@ -102,6 +102,25 @@ async function configureObsViaUI({ host, port, password, clear = false }) {
   await toDashboard(page);
 }
 
+function labAdmin() {
+  const key = (fs.readFileSync(path.join(L.ROOT, 'data/relay.env'), 'utf8').match(/^ADMIN_API_KEY=(.*)$/m) || [])[1];
+  const cfg = JSON.parse(fs.readFileSync(L.CONFIG_PATH, 'utf8'));
+  let churchId = cfg.churchId || cfg.rejoinRoom?.churchId;
+  if (!churchId && cfg.token) { try { churchId = JSON.parse(Buffer.from(cfg.token.split('.')[1], 'base64url').toString()).churchId; } catch (_) {} }
+  return {
+    churchId,
+    cmd: async (command, params = {}) => {
+      const r = await fetch(`${L.creds.relayHttp}/api/command`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key },
+        body: JSON.stringify({ churchId, command, params, wait: true }),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+  };
+}
+const txt = (r) => JSON.stringify(r.body?.result ?? r.body?.error ?? r.body).slice(0, 160);
+
 async function main() {
   const port = await freePort();
   mock = await obsMock.start({ port, password: 'booth-pw' });
@@ -154,6 +173,41 @@ async function main() {
   const bad = await page.evaluate(async () => window.electronAPI.sendCommand('obs.setScene', { scene: 'No Such Scene' }));
   L.record('obs_control_action', !r?.error && mock.state.programScene === 'Scene 3' && !!bad?.error ? 'PASS' : 'FAIL',
     `setScene→${JSON.stringify(r).slice(0, 120)} mockScene=${mock.state.programScene}; badScene→error=${JSON.stringify(bad?.error || null).slice(0, 120)}`);
+
+  // 4b) Remote engineer through the LOCAL lab relay (/api/command wait:true).
+  // The booth screen must follow what OBS and the ATEM actually did.
+  const adm = labAdmin();
+  const pace = () => L.waitMs(400);
+  await pace();
+  const stop = await adm.cmd('obs.stopStream', {});
+  const liveOff = await until((x) => x.live === false, 8000);
+  await pace();
+  const start = await adm.cmd('obs.startStream', {});
+  const streamingAfterStart = mock.state.streaming.outputActive === true;
+  const liveOn = await until((x) => x.live === true, 8000);
+  await fetch(`${mock.control.url}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setStreamFailure', args: { reason: 'bad key' } }) });
+  await pace();
+  const stop2 = await adm.cmd('obs.stopStream', {});
+  await until((x) => x.live === false, 8000);
+  await pace();
+  const failed = await adm.cmd('obs.startStream', {});
+  const stillDown = await until((x) => x.live === false, 3000);
+  await fetch(`${mock.control.url}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setStreamFailure', args: { reason: '' } }) });
+  const pgm = await adm.cmd('atem.setProgram', { input: 4 });
+  let pgmText = '';
+  const pgmDeadline = Date.now() + 8000;
+  while (Date.now() < pgmDeadline) {
+    pgmText = ((await page.locator('#cr-pgm-source').textContent().catch(() => '')) || '').trim();
+    if (/\b4\b|Camera\s*4|Cam\s*4/i.test(pgmText)) break;
+    await L.waitMs(300);
+  }
+  const remoteOk = stop.status === 200 && /confirmed by OBS/.test(txt(stop)) && liveOff.ok
+    && start.status === 200 && /OBS is live/.test(txt(start)) && streamingAfterStart && liveOn.ok
+    && failed.status === 422 && mock.state.streaming.outputActive === false && stillDown.ok && !/OBS is live/.test(txt(failed))
+    && stop2.status === 200
+    && pgm.status === 200 && /Program set to/.test(txt(pgm)) && /\b4\b|Camera\s*4|Cam\s*4/i.test(pgmText);
+  L.record('remote_obs_and_atem_commands', remoteOk ? 'PASS' : 'FAIL',
+    `church=${adm.churchId} stop=${stop.status}:${txt(stop)} liveOff=${liveOff.ok} start=${start.status}:${txt(start)} liveOn=${liveOn.ok} failed=${failed.status}:${txt(failed)} pgm=${pgm.status}:${txt(pgm)} ui="${pgmText}"`);
 
   // 5) Kill OBS (process death: sockets drop, port closed) → honest disconnect within window
   const tKill = Date.now();

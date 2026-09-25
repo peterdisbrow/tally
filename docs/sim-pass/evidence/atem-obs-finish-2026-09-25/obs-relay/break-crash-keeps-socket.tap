@@ -1,0 +1,49 @@
+TAP version 13
+# Subtest: remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+ok 1 - remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+  ---
+  duration_ms: 5994.490637
+  ...
+# Subtest: remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+ok 2 - remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+  ---
+  duration_ms: 4747.527906
+  ...
+# Subtest: remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+not ok 3 - remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+  ---
+  duration_ms: 150027.86244
+  location: '/workspace/church-client/test/sim/obs-relay.test.js:101:1'
+  failureType: 'testTimeoutFailure'
+  error: 'test timed out after 150000ms'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+ok 4 - remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+  ---
+  duration_ms: 11972.852387
+  ...
+# Subtest: remote: Equipment-UI OBS encoder — encoder.startStream/stopStream really drive OBS and report the truth
+ok 5 - remote: Equipment-UI OBS encoder — encoder.startStream/stopStream really drive OBS and report the truth
+  ---
+  duration_ms: 3335.692901
+  ...
+# Subtest: remote: OBS freezes while nobody is sending commands → shown offline ≤ 15 s (no stale "connected"/LIVE)
+ok 6 - remote: OBS freezes while nobody is sending commands → shown offline ≤ 15 s (no stale "connected"/LIVE)
+  ---
+  duration_ms: 13236.254552
+  ...
+# Subtest: remote: wrong OBS password never shows connected, and the relay says why
+ok 7 - remote: wrong OBS password never shows connected, and the relay says why
+  ---
+  duration_ms: 1422.474443
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 6
+# fail 0
+# cancelled 1
+# skipped 0
+# todo 0
+# duration_ms 190824.206741

@@ -1,0 +1,6 @@
+atem-20260925-143929/green	X=1	pass=7	fail=0	red_tests=
+atem-20260925-143929/break-ack-no-apply	ATEM_MOCK_BREAK=ack-no-apply	pass=2	fail=5	red_tests=1,3,4,5,7,
+atem-20260925-143929/break-accept-any-source	ATEM_MOCK_BREAK=accept-any-source	pass=6	fail=1	red_tests=2,
+atem-20260925-143929/break-no-state-push	ATEM_MOCK_BREAK=no-state-push	pass=1	fail=6	red_tests=1,3,4,5,6,7,
+atem-20260925-143929/break-no-init-complete	ATEM_MOCK_BREAK=no-init-complete	pass=0	fail=7	red_tests=1,2,3,4,5,6,7,
+atem-20260925-143929/old-bca42d7	TALLY_AGENT_INDEX=/tmp/tally-old-bca42d7/church-client/src/index.js TALLY_PTZ_MODULE=/tmp/tally-old-bca42d7/church-client/src/ptz.js	pass=2	fail=5	red_tests=1,2,3,4,7,

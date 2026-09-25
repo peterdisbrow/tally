@@ -1,0 +1,148 @@
+TAP version 13
+# Subtest: obs.startStream calls StartStream and returns confirmation
+not ok 1 - obs.startStream calls StartStream and returns confirmation
+  ---
+  duration_ms: 2.076967
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:110:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'Stream started'
+    - 'Stream started (OBS is live)'
+                     ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'Stream started (OBS is live)'
+  actual: 'Stream started'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:113:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: obs.stopStream calls StopStream and returns confirmation
+not ok 2 - obs.stopStream calls StopStream and returns confirmation
+  ---
+  duration_ms: 0.347544
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:118:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'Stream stopped'
+    - 'Stream stopped (confirmed by OBS)'
+                     ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'Stream stopped (confirmed by OBS)'
+  actual: 'Stream stopped'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:121:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: obs.startStream is refused when OBS goes STARTING then STOPPED
+not ok 3 - obs.startStream is refused when OBS goes STARTING then STOPPED
+  ---
+  duration_ms: 0.330959
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:126:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'rejects'
+  stack: |-
+    async TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:128:3)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: obs.startStream is refused when the stream is already running
+ok 4 - obs.startStream is refused when the stream is already running
+  ---
+  duration_ms: 0.314696
+  ...
+# Subtest: obs.stopStream is refused when the stream is not running
+ok 5 - obs.stopStream is refused when the stream is not running
+  ---
+  duration_ms: 0.235761
+  ...
+# Subtest: obs.startRecording calls StartRecord
+not ok 6 - obs.startRecording calls StartRecord
+  ---
+  duration_ms: 0.281659
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:156:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'OBS recording started'
+    - 'OBS recording started (confirmed by OBS)'
+                            ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'OBS recording started (confirmed by OBS)'
+  actual: 'OBS recording started'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:159:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: obs.stopRecording calls StopRecord
+not ok 7 - obs.stopRecording calls StopRecord
+  ---
+  duration_ms: 0.294601
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:164:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'OBS recording stopped'
+    - 'OBS recording stopped (confirmed by OBS)'
+                            ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'OBS recording stopped (confirmed by OBS)'
+  actual: 'OBS recording stopped'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:167:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: obs.startRecording is refused when OBS goes STARTING then STOPPED
+not ok 8 - obs.startRecording is refused when OBS goes STARTING then STOPPED
+  ---
+  duration_ms: 0.192311
+  location: '/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:172:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'rejects'
+  stack: |-
+    async TestContext.<anonymous> (/tmp/tally-old-bca42d7/church-client/test/obs-commands.test.js:174:3)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 2
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 81.441177
