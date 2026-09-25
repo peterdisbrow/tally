@@ -1,0 +1,7 @@
+obs-relay-20260925-142402/green	X=1	pass=7	fail=0	red_tests=
+obs-relay-20260925-142402/break-accept-any-password	OBS_MOCK_BREAK=accept-any-password	pass=6	fail=1	red_tests=7,
+obs-relay-20260925-142402/break-no-hello	OBS_MOCK_BREAK=no-hello	pass=0	fail=7	red_tests=1,2,3,4,5,6,7,
+obs-relay-20260925-142402/break-no-events	OBS_MOCK_BREAK=no-events	pass=5	fail=2	red_tests=1,6,
+obs-relay-20260925-142402/break-crash-keeps-socket	OBS_MOCK_BREAK=crash-keeps-socket	pass=6	fail=1	red_tests=3,
+obs-relay-20260925-142402/break-always-ok	OBS_MOCK_BREAK=always-ok	pass=1	fail=6	red_tests=1,2,3,4,5,6,
+obs-relay-20260925-142402/old-bca42d7	TALLY_AGENT_INDEX=/tmp/tally-old-bca42d7/church-client/src/index.js TALLY_PTZ_MODULE=/tmp/tally-old-bca42d7/church-client/src/ptz.js	pass=2	fail=5	red_tests=1,2,4,5,6,

@@ -1,0 +1,50 @@
+TAP version 13
+# Subtest: obs.startStream calls StartStream and returns confirmation
+ok 1 - obs.startStream calls StartStream and returns confirmation
+  ---
+  duration_ms: 1.524143
+  ...
+# Subtest: obs.stopStream calls StopStream and returns confirmation
+ok 2 - obs.stopStream calls StopStream and returns confirmation
+  ---
+  duration_ms: 0.184991
+  ...
+# Subtest: obs.startStream is refused when OBS goes STARTING then STOPPED
+ok 3 - obs.startStream is refused when OBS goes STARTING then STOPPED
+  ---
+  duration_ms: 0.474697
+  ...
+# Subtest: obs.startStream is refused when the stream is already running
+ok 4 - obs.startStream is refused when the stream is already running
+  ---
+  duration_ms: 0.27785
+  ...
+# Subtest: obs.stopStream is refused when the stream is not running
+ok 5 - obs.stopStream is refused when the stream is not running
+  ---
+  duration_ms: 0.182091
+  ...
+# Subtest: obs.startRecording calls StartRecord
+ok 6 - obs.startRecording calls StartRecord
+  ---
+  duration_ms: 0.199869
+  ...
+# Subtest: obs.stopRecording calls StopRecord
+ok 7 - obs.stopRecording calls StopRecord
+  ---
+  duration_ms: 0.22893
+  ...
+# Subtest: obs.startRecording is refused when OBS goes STARTING then STOPPED
+ok 8 - obs.startRecording is refused when OBS goes STARTING then STOPPED
+  ---
+  duration_ms: 0.152824
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 84.416303

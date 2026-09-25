@@ -1,0 +1,88 @@
+TAP version 13
+# Subtest: obs.startStream calls StartStream and returns confirmation
+not ok 1 - obs.startStream calls StartStream and returns confirmation
+  ---
+  duration_ms: 2.103182
+  location: '/workspace/church-client/test/obs-commands.test.js:57:1'
+  failureType: 'testCodeFailure'
+  error: 'obs.on is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    driveOutput (/workspace/church-client/src/commands/obs.js:33:7)
+    Object.obsStartStream [as obs.startStream] (/workspace/church-client/src/commands/obs.js:55:9)
+    TestContext.<anonymous> (/workspace/church-client/test/obs-commands.test.js:59:58)
+    Test.runInAsyncScope (node:async_hooks:211:14)
+    Test.run (node:internal/test_runner/test:979:25)
+    Test.start (node:internal/test_runner/test:877:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: obs.stopStream calls StopStream and returns confirmation
+not ok 2 - obs.stopStream calls StopStream and returns confirmation
+  ---
+  duration_ms: 0.359729
+  location: '/workspace/church-client/test/obs-commands.test.js:64:1'
+  failureType: 'testCodeFailure'
+  error: 'obs.on is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    driveOutput (/workspace/church-client/src/commands/obs.js:33:7)
+    Object.obsStopStream [as obs.stopStream] (/workspace/church-client/src/commands/obs.js:60:9)
+    TestContext.<anonymous> (/workspace/church-client/test/obs-commands.test.js:66:57)
+    Test.runInAsyncScope (node:async_hooks:211:14)
+    Test.run (node:internal/test_runner/test:979:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:677:18)
+    Test.postRun (node:internal/test_runner/test:1090:19)
+    Test.run (node:internal/test_runner/test:1018:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: obs.startRecording calls StartRecord
+not ok 3 - obs.startRecording calls StartRecord
+  ---
+  duration_ms: 0.308178
+  location: '/workspace/church-client/test/obs-commands.test.js:73:1'
+  failureType: 'testCodeFailure'
+  error: 'obs.on is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    driveOutput (/workspace/church-client/src/commands/obs.js:33:7)
+    Object.obsStartRecording [as obs.startRecording] (/workspace/church-client/src/commands/obs.js:65:9)
+    TestContext.<anonymous> (/workspace/church-client/test/obs-commands.test.js:75:61)
+    Test.runInAsyncScope (node:async_hooks:211:14)
+    Test.run (node:internal/test_runner/test:979:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:677:18)
+    Test.postRun (node:internal/test_runner/test:1090:19)
+    Test.run (node:internal/test_runner/test:1018:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: obs.stopRecording calls StopRecord
+not ok 4 - obs.stopRecording calls StopRecord
+  ---
+  duration_ms: 0.418189
+  location: '/workspace/church-client/test/obs-commands.test.js:80:1'
+  failureType: 'testCodeFailure'
+  error: 'obs.on is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    driveOutput (/workspace/church-client/src/commands/obs.js:33:7)
+    Object.obsStopRecording [as obs.stopRecording] (/workspace/church-client/src/commands/obs.js:70:9)
+    TestContext.<anonymous> (/workspace/church-client/test/obs-commands.test.js:82:60)
+    Test.runInAsyncScope (node:async_hooks:211:14)
+    Test.run (node:internal/test_runner/test:979:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:677:18)
+    Test.postRun (node:internal/test_runner/test:1090:19)
+    Test.run (node:internal/test_runner/test:1018:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 0
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 100.252224

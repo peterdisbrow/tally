@@ -1,0 +1,108 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+not ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+  ---
+  duration_ms: 5877.759163
+  location: '/workspace/church-client/test/sim/atem.test.js:43:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    auto reported done while the transition was still running
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:64:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+not ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+  ---
+  duration_ms: 5109.558513
+  location: '/workspace/church-client/test/sim/atem.test.js:74:1'
+  failureType: 'testCodeFailure'
+  error: 'ATEM ignored MP2 but Tally said: {"result":"Program set to MP2","error":null,"ms":41}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: ~
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:85:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+not ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+  ---
+  duration_ms: 4861.076491
+  location: '/workspace/church-client/test/sim/atem.test.js:98:1'
+  failureType: 'testCodeFailure'
+  error: 'record with no disk must be refused: {"result":"Recording started","error":null,"ms":40}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: ~
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:103:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+not ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+  ---
+  duration_ms: 5518.779519
+  location: '/workspace/church-client/test/sim/atem.test.js:124:1'
+  failureType: 'testCodeFailure'
+  error: 'a switch to an unplugged ATEM was reported done: {"result":"Program set to Cam 3","error":null,"ms":805}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:132:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 9748.962201
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+  ---
+  duration_ms: 7821.335304
+  ...
+# Subtest: remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+not ok 7 - remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+  ---
+  duration_ms: 4735.038486
+  location: '/workspace/church-client/test/sim/atem.test.js:189:1'
+  failureType: 'testCodeFailure'
+  error: 'stream the ATEM could not start was reported as: {"result":"ATEM streaming started","error":null,"ms":41}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: ~
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:193:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 2
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 43951.748119

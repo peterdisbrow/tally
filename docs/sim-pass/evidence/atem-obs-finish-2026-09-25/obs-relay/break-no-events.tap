@@ -1,0 +1,67 @@
+TAP version 13
+# Subtest: remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+not ok 1 - remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+  ---
+  duration_ms: 6602.280465
+  location: '/workspace/church-client/test/sim/obs-relay.test.js:34:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (5000ms) waiting for relay shows Scene 3; relay status={"name":"Sim Church 1790346533416","connected":true,"status":{"atem":{"connected":false,"ip":null,"model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":false},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":true,"error":null,"scenes":["Scene 1","Scene 2","Scene 3"],"currentScene":"Scene 1","app":"OBS Studio","version":"30.0.0","websocketVersion":"5.4.0","streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":true},"encoder":{"connected":true,"live":false,"bitrateKbps":null,"cong
+    [logs: /tmp/tally-relayloop-timeout-1790346539275.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/obs-relay.test.js:41:3)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+ok 2 - remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+  ---
+  duration_ms: 32584.888386
+  ...
+# Subtest: remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+ok 3 - remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+  ---
+  duration_ms: 6850.072611
+  ...
+# Subtest: remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+ok 4 - remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+  ---
+  duration_ms: 12188.080055
+  ...
+# Subtest: remote: Equipment-UI OBS encoder — encoder.startStream/stopStream really drive OBS and report the truth
+ok 5 - remote: Equipment-UI OBS encoder — encoder.startStream/stopStream really drive OBS and report the truth
+  ---
+  duration_ms: 57884.067384
+  ...
+# Subtest: remote: OBS freezes while nobody is sending commands → shown offline ≤ 15 s (no stale "connected"/LIVE)
+not ok 6 - remote: OBS freezes while nobody is sending commands → shown offline ≤ 15 s (no stale "connected"/LIVE)
+  ---
+  duration_ms: 7489.459827
+  location: '/workspace/church-client/test/sim/obs-relay.test.js:166:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (6000ms) waiting for relay shows OBS live; relay status={"name":"Sim Church 1790346649693","connected":true,"status":{"atem":{"connected":false,"ip":null,"model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":false},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":true,"error":null,"scenes":["Scene 1","Scene 2","Scene 3"],"currentScene":"Scene 1","app":"OBS Studio","version":"30.0.0","websocketVersion":"5.4.0","streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":true},"encoder":{"connected":true,"live":false,"bitrateKbps":null,"cong
+    [logs: /tmp/tally-relayloop-timeout-1790346656272.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/obs-relay.test.js:170:3)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: wrong OBS password never shows connected, and the relay says why
+ok 7 - remote: wrong OBS password never shows connected, and the relay says why
+  ---
+  duration_ms: 1488.009132
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 5
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 125157.046899

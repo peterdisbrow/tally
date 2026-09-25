@@ -1,0 +1,129 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+not ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+  ---
+  duration_ms: 25896.058989
+  location: '/workspace/church-client/test/sim/atem.test.js:43:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347444902","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.112.236","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":
+    [logs: /tmp/tally-relayloop-timeout-1790347470106.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:45:31)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+not ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+  ---
+  duration_ms: 25729.041207
+  location: '/workspace/church-client/test/sim/atem.test.js:74:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347470635","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.113.48","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":n
+    [logs: /tmp/tally-relayloop-timeout-1790347495828.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:76:25)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+not ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+  ---
+  duration_ms: 25686.987713
+  location: '/workspace/church-client/test/sim/atem.test.js:98:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347496342","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.114.207","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":
+    [logs: /tmp/tally-relayloop-timeout-1790347521526.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:100:25)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+not ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+  ---
+  duration_ms: 25682.026976
+  location: '/workspace/church-client/test/sim/atem.test.js:124:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347522027","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.115.37","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":n
+    [logs: /tmp/tally-relayloop-timeout-1790347547178.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:126:31)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+not ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 25946.023269
+  location: '/workspace/church-client/test/sim/atem.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347547996","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.116.164","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":
+    [logs: /tmp/tally-relayloop-timeout-1790347573150.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:156:25)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+not ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+  ---
+  duration_ms: 25830.869904
+  location: '/workspace/church-client/test/sim/atem.test.js:175:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347573806","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.117.144","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":
+    [logs: /tmp/tally-relayloop-timeout-1790347598963.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:177:26)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+# Subtest: remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+not ok 7 - remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+  ---
+  duration_ms: 25875.688136
+  location: '/workspace/church-client/test/sim/atem.test.js:189:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (25000ms) waiting for relay sees ATEM with PGM 1 / PVW 2; relay status={"name":"Sim Church 1790347599628","connected":true,"status":{"atem":{"connected":false,"ip":"127.0.118.12","model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":true,"inputLabels":{}},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":false,"error":null,"scenes":[],"currentScene":null,"app":null,"version":null,"websocketVersion":null,"streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":false},"encoder":{"connected":false,"live":false,"bitrateKbps":null,"congestion":null,"fps":n
+    [logs: /tmp/tally-relayloop-timeout-1790347624851.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/church-client/test/helpers/relayLoop.js:129:11)
+    async upLoop (/workspace/church-client/test/sim/atem.test.js:37:3)
+    async TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:191:19)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:677:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 0
+# fail 7
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 180719.923344

@@ -1,0 +1,33 @@
+TAP version 13
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+not ok 1 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 9286.231337
+  location: '/workspace/church-client/test/sim/atem.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"Socket process is not open","ms":41}
+    + actual - expected
+    
+    + 'Socket process is not open'
+    - null
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'Socket process is not open'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/church-client/test/sim/atem.test.js:168:10)
+    async Test.run (node:internal/test_runner/test:980:9)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9362.005318

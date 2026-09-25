@@ -101,10 +101,10 @@ offline. All of it was shown red first.
 | Allen & Heath dLive | **CORE** | gate g5A+g5B. Every set confirmed by Get read-back |
 | Yamaha CL/QL/TF | **CORE** | gate g5A+g5B. Real RCP on TCP 49280 |
 | ProPresenter 7 | **CORE** | gate g5A+g5B. Official PP7 API, conformance test |
-| Bitfocus Companion 5.x | **CORE candidate**: needs the milestone double gate | g6A and g6B on bca42d7 were both fully green (logs in `docs/sim-pass/evidence/`), but the code has changed since (ATEM/OBS commit), and Andrew has not promoted it. Confirm in the next double gate |
-| Planning Center | **CORE candidate**: needs the milestone double gate | same as Companion. OAuth and real org note categories can only be proven on a real PCO org |
-| Blackmagic ATEM | **pending relay-command e2e** | booth monitoring proven (PACES). Relay-command sims written, green, red on old code, but **WIP** (see next steps) |
-| OBS Studio | **pending relay-command e2e** | booth 13/13 on AppImage + deb. Relay-command sims green, but **WIP** (see next steps) |
+| Bitfocus Companion 5.x | **CORE candidate** (not promoted) | Source booth 13/13, twice back to back, on this branch against the local lab. The full g6/g7 gate (every booth, AppImage, deb, two complete passes) was **not run**, so this is not a promotion |
+| Planning Center | **CORE candidate** (not promoted) | Source booth 11/11, twice back to back, local PCO mock only (`PCO_API_ORIGIN` on 127.0.0.1). Same limit as Companion: full package gate not run. OAuth and real org note categories still need a real PCO org |
+| Blackmagic ATEM | **relay commands proven in sim; booth screen checked for one program change** | Sims 7/7 green. On bca42d7, tests 1–4 and 7 red; test 5 red when the switcher object is left stale; test 6 red when the mock applies changes but never tells the client. Source booth: remote `atem.setProgram` to input 4 showed "Camera 4" on screen (inside the OBS booth run, twice). AppImage/deb not rebuilt |
+| OBS Studio | **relay commands proven in sim; source booth 14/14 twice** | Unit fake is stateful. Sims: test 1 and test 6 red on bca42d7 then green here; test 3 (clean crash) still passes on bca42d7 (that path was already honest). Source booth includes remote start/stop/failed stream and the screen's LIVE badge. Previous 13/13 AppImage+deb result was on older code and was **not re-run** |
 | Allen & Heath Avantis | **BETA** | its protocol has no mute/level read-back, so remote mutes/faders can only be "sent, not confirmed" |
 | VISCA PTZ | **BETA / deferred** | parked on branch `visca-wip` (3abe23f, based on 576823f): sim 14/14, red on old code; booth e2e never run, relay-loop test 2/3 |
 | BirdDog, Teradek, Resolume, Videohub, TriCaster | not started | BirdDog read-ahead: `docs/sim-pass/research/birddog-readahead.md` |
@@ -114,29 +114,26 @@ offline. All of it was shown red first.
 Run the full suite after each item. At milestones and before any push, you need two consecutive fully
 green passes.
 
-1. **Finish the ATEM/OBS relay-command checks** (commit `WIP (not proven): ATEM/OBS relay-command checks`).
-   - Current state: `church-client/test/sim/atem.test.js` 7/7 and `test/sim/obs-relay.test.js` 6/6 are
-     green. On old code (bca42d7), ATEM tests 1–4 and OBS tests 2, 4, 5 were red. ATEM 5, 6, 7 were red
-     under mutations or before their fix. Evidence is in `docs/sim-pass/evidence/atem-obs-relay-2026-09-25/`.
-   - **Blocking: `npm run test:unit` is red (4 failures)** in `church-client/test/obs-commands.test.js`
-     (startStream/stopStream/startRecording/stopRecording). The OBS commands now wait for OBS's
-     STARTED/STOPPED output events, and that test's fake OBS always answers OK and has no `.on/.off`.
-     Make the fake stateful (emit `StreamStateChanged`/`RecordStateChanged`, able to fail: STARTING →
-     STOPPED). Don't loosen the product code.
-   - Still to do: show OBS sim tests 1, 3 and 6 red on old code (the redproof matrix was interrupted;
-     run `redproof.sh obs-relay test/sim/obs-relay.test.js OBS_MOCK_BREAK bca42d7 accept-any-password
-     no-hello no-events crash-keeps-socket always-ok`) and the ATEM equivalent with its mock break modes.
-   - Then: booth e2e for ATEM + OBS remote commands through the relay, and the full suite.
-2. **Milestone double gate for Companion + Planning Center** (g7 = g6 + ATEM/OBS relay checks), two
-   consecutive fully green passes, then promote both to CORE.
-3. **Full-church run**: every CORE device at once in one booth, plus **crash-all / unplug-all recovery**
+Done on `cursor/atem-obs-relay-checks-d497` (evidence: `docs/sim-pass/evidence/atem-obs-finish-2026-09-25/`):
+
+- OBS unit fake is stateful (emits OBS confirmation events, and can refuse). Church unit suite 2204/2204, twice.
+- OBS sim test 1 (old code said "Stream started" in 41ms, before OBS was live) and test 6 (idle freeze stayed connected and LIVE) are red on bca42d7 and green here. Test 3 (clean crash) still passes on bca42d7 — that path was already honest. Not counted as proof of the new freeze work.
+- OBS and ATEM redproof matrices are finished. Every mock break mode turns that file red. Old-code taps are in the evidence folder.
+- Full local suite, two green passes: church unit 2204, church sim 97 (relay loop required, 0 skipped), electron unit 465, Playwright 71 with the relay forced to `ws://127.0.0.1:3499`, relay vitest 5372.
+- Source booth on the local lab only: Companion 13/13 twice, Planning Center 11/11 twice, OBS 14/14 twice (remote start/stop/failed stream, LIVE badge, and ATEM program "Camera 4").
+
+Still to do:
+
+1. **Full milestone double gate** (g7 = g6 plus these ATEM/OBS relay checks): every booth on source + AppImage + deb, then the unit/sim/relay suites, two consecutive fully green passes. Only then promote Companion and Planning Center to CORE. The source-only reconfirm above is not that gate.
+2. **Full-church run**: every CORE device at once in one booth, plus **crash-all / unplug-all recovery**
    (every mock killed and unplugged together, relay down, app kill -9). The booth has to stay honest and
-   everything has to recover without anyone touching it.
-4. **Milestone double gate + rebuild** of the AppImage and deb from the gated commit (record sha256s).
-5. **Mac 1.1.67 rebuild + smoke** carrying the Linux fixes. They're in cross-platform main.js/renderer.js/
+   everything has to recover without anyone touching it. **Not run.**
+3. **Rebuild** the AppImage and deb from the gated commit (record sha256s). **Not built** on this branch.
+4. **Mac 1.1.67 rebuild + smoke** carrying the Linux fixes. They're in cross-platform main.js/renderer.js/
    agent code. The shipped Mac build (1.1.66 in the lab carry folder) very likely still has the
    stale-snapshot fake status, phantom device pills/cards, inconsistent relay-offline surfaces, the wrong
    OBS password signing the booth out, and the fake-OK device commands. This needs a macOS host. No release.
+   **Not run** (this environment is Linux).
 
 ## 6. Open decisions for Andrew
 
@@ -176,7 +173,8 @@ green passes.
 
 ## 9. Commit trail on linux-build (newest first)
 
-- `WIP (not proven): ATEM/OBS relay-command checks …`: this handoff's first commit (see step 1)
+- `cursor/atem-obs-relay-checks-d497`: OBS unit fake made stateful; OBS/ATEM redproof finished; source booth remote-command check. Not merged. Full package gate not run.
+- `WIP (not proven): ATEM/OBS relay-command checks …`: this handoff's first commit (see the evidence folder from that pass)
 - `bca42d7` test runner stdout guard (fixes the "Unable to deserialize cloned data" flake)
 - `10653db` Planning Center real API · `daf7e82` Companion 5.x real HTTP API
 - `1d78676` ProPresenter · `cfc2744` Yamaha RCP · `d785dce` A&H dLive/Avantis · `6fa6c97` A&H SQ ·
