@@ -4950,8 +4950,14 @@ async function updatePcoUI() {
     const pcoBtn = document.getElementById('btn-oauth-pco');
     if (status?.connected) {
       const name = status.orgName || 'Connected';
-      pcoStatus.textContent = name;
-      pcoStatus.style.color = 'var(--green)';
+      if (status.lastSyncError) {
+        // Connected on paper, but Planning Center is refusing us — say so and why.
+        pcoStatus.textContent = `${name} — sync failing: ${status.lastSyncError}`;
+        pcoStatus.style.color = 'var(--amber, #f59e0b)';
+      } else {
+        pcoStatus.textContent = status.lastSynced ? `${name} · synced ${new Date(status.lastSynced).toLocaleString()}` : `${name} · not synced yet`;
+        pcoStatus.style.color = 'var(--green)';
+      }
       pcoBtn.textContent = 'Disconnect';
       pcoBtn.className = 'btn-oauth connected';
       pcoBtn.onclick = disconnectPlanningCenter;

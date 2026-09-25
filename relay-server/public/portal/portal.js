@@ -4966,12 +4966,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (msg) msg.textContent = '';
 
       if (d && d.connected) {
-        badge.className = 'conn-badge conn-badge-on';
-        badge.textContent = 'Connected';
+        // A connection whose last sync failed (token revoked, PCO down, no permission) is not "Connected".
+        badge.className = d.lastSyncError ? 'conn-badge conn-badge-warn' : 'conn-badge conn-badge-on';
+        badge.textContent = d.lastSyncError ? 'Sync failing' : 'Connected';
+        if (msg && d.lastSyncError) msg.textContent = 'Last sync failed: ' + d.lastSyncError;
         details.style.display = 'block';
         org.textContent = d.orgName || '';
         orgName.textContent = d.orgName || '\u2014';
-        lastSynced.textContent = d.lastSynced ? new Date(d.lastSynced).toLocaleDateString() : 'Never';
+        lastSynced.textContent = d.lastSynced ? new Date(d.lastSynced).toLocaleString() : 'Never';
         btn.textContent = 'Disconnect';
         btn.className = 'btn-secondary';
         btn.setAttribute('data-action', 'connPcoDisconnect');

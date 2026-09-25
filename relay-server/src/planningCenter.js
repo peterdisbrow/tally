@@ -22,12 +22,64 @@ const intervals = [];
 process.on('SIGTERM', () => intervals.forEach(clearInterval));
 process.on('SIGINT', () => intervals.forEach(clearInterval));
 
-const PC_API_BASE = 'https://api.planningcenteronline.com/services/v2';
-const PC_OAUTH_AUTHORIZE = 'https://api.planningcenteronline.com/oauth/authorize';
-const PC_OAUTH_TOKEN = 'https://api.planningcenteronline.com/oauth/token';
-const PC_OAUTH_REVOKE = 'https://api.planningcenteronline.com/oauth/revoke';
+// PCO_API_ORIGIN lets a lab/test relay point at a mock PCO. Unset in production → the real API.
+const pcoOrigin = () => String(process.env.PCO_API_ORIGIN || 'https://api.planningcenteronline.com').replace(/\/+$/, '');
+const PC = {
+  get API_BASE() { return `${pcoOrigin()}/services/v2`; },
+  get OAUTH_AUTHORIZE() { return `${pcoOrigin()}/oauth/authorize`; },
+  get OAUTH_TOKEN() { return `${pcoOrigin()}/oauth/token`; },
+  get OAUTH_REVOKE() { return `${pcoOrigin()}/oauth/revoke`; },
+  get PEOPLE_ME() { return `${pcoOrigin()}/people/v2/me`; },
+};
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * PCO's Plan.sort_date is the organisation's LOCAL wall-clock time, wrongly suffixed with "Z"
+ * (confirmed by Planning Center in planningcenter/developers#1198). Read the wall clock straight
+ * from the string so the result does not depend on the relay server's timezone.
+ */
+function pcoWallTime(sortDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(sortDate || ''));
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m.map(Number);
+  const day = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  return { day, hour: h, min: mi, dateStr: `${m[1]}-${m[2]}-${m[3]}` };
+}
+
+/** Day-of-week + minutes-since-midnight "now" in an IANA timezone (server local if unknown). */
+function localNow(tz) {
+  const now = new Date();
+  if (tz) {
+    try {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(now).map((p) => [p.type, p.value]));
+      const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
+      if (day >= 0) return { day, minutesNow: Number(parts.hour) * 60 + Number(parts.minute) };
+    } catch { /* bad tz → server local */ }
+  }
+  return { day: now.getDay(), minutesNow: now.getHours() * 60 + now.getMinutes() };
+}
+
+/** "YYYY-MM-DDTHH:MM:00Z" wall clock in an IANA timezone (server local if unknown), shifted by offsetMs. */
+function wallClockZ(tz, offsetMs = 0) {
+  const t = new Date(Date.now() + offsetMs);
+  const p = (n) => String(n).padStart(2, '0');
+  if (tz) {
+    try {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(t).map((x) => [x.type, x.value]));
+      return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:00Z`;
+    } catch { /* bad tz → server local */ }
+  }
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}:00Z`;
+}
+
+// The note category Tally writes production notes into (must exist in the PCO service type).
+const PCO_NOTE_CATEGORY = 'Production';
+const RETRY_AFTER_MAX_S = 20;
 
 // Refresh tokens 5 minutes before expiry
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -55,7 +107,8 @@ const CHURCH_CACHE_SELECT = `
     pc_oauth_token_expires,
     pc_oauth_connected_at,
     pc_oauth_org_name,
-    pc_service_type_ids
+    pc_service_type_ids,
+    timezone
   FROM churches
 `;
 
@@ -80,6 +133,7 @@ class PlanningCenter {
     this._churchCache = new Map(); // churchId -> row
     this._planCache = new Map(); // planId -> row
     this._pendingWrites = new Set();
+    this._syncErrors = new Map(); // churchId -> { message, at } from the last sync attempt
 
     if (this.db) {
       this._ensureColumnsSync();
@@ -456,7 +510,7 @@ class PlanningCenter {
     });
 
     return {
-      authUrl: `${PC_OAUTH_AUTHORIZE}?${params.toString()}`,
+      authUrl: `${PC.OAUTH_AUTHORIZE}?${params.toString()}`,
       state,
     };
   }
@@ -487,7 +541,7 @@ class PlanningCenter {
 
     try {
       // Exchange code for tokens
-      const tokenResp = await fetch(PC_OAUTH_TOKEN, {
+      const tokenResp = await fetch(PC.OAUTH_TOKEN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -537,7 +591,7 @@ class PlanningCenter {
       // Fetch org name from PCO
       let orgName = null;
       try {
-        const meResp = await fetch('https://api.planningcenteronline.com/people/v2/me', {
+        const meResp = await fetch(PC.PEOPLE_ME, {
           headers: {
             Authorization: `Bearer ${tokenData.access_token}`,
             'User-Agent': 'TallyConnect (https://tallyconnect.com)',
@@ -584,7 +638,7 @@ class PlanningCenter {
         const clientId = process.env.PCO_CLIENT_ID;
         const clientSecret = process.env.PCO_CLIENT_SECRET;
         if (clientId && clientSecret) {
-          await fetch(PC_OAUTH_REVOKE, {
+          await fetch(PC.OAUTH_REVOKE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -598,7 +652,8 @@ class PlanningCenter {
       } catch { /* best effort revoke */ }
     }
 
-    // Clear all OAuth columns
+    // Clear OAuth AND Personal-Access-Token credentials — "Disconnect" must leave nothing that
+    // keeps the church connected (a PAT used to survive, so the UI still said "Connected").
     await this._persistChurchUpdate(`
       UPDATE churches SET
         pc_oauth_access_token = NULL,
@@ -606,7 +661,10 @@ class PlanningCenter {
         pc_oauth_token_expires = NULL,
         pc_oauth_connected_at = NULL,
         pc_oauth_org_name = NULL,
-        pc_service_type_ids = NULL
+        pc_service_type_ids = NULL,
+        pc_app_id = NULL,
+        pc_secret = NULL,
+        pc_sync_enabled = 0
       WHERE churchId = ?
     `, [churchId], churchId, {
       pc_oauth_access_token: null,
@@ -615,7 +673,11 @@ class PlanningCenter {
       pc_oauth_connected_at: null,
       pc_oauth_org_name: null,
       pc_service_type_ids: null,
+      pc_app_id: null,
+      pc_secret: null,
+      pc_sync_enabled: 0,
     });
+    this._setSyncError(churchId, null);
 
     // Clear cached plans
     await this._deletePlansForChurch(churchId);
@@ -700,7 +762,7 @@ class PlanningCenter {
     if (!clientId || !clientSecret) return null;
 
     try {
-      const resp = await fetch(PC_OAUTH_TOKEN, {
+      const resp = await fetch(PC.OAUTH_TOKEN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -765,28 +827,75 @@ class PlanningCenter {
    * @param {object} [options] - Additional fetch options (method, body, etc.)
    * @returns {Promise<Response>}
    */
-  async _pcFetch(url, headers, options = {}) {
-    const resp = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(10000),
-      ...options,
-    });
+  async _pcFetch(url, headers, options = {}, _retried = false) {
+    let resp;
+    try {
+      resp = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(10000),
+        ...options,
+      });
+    } catch (e) {
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+        throw new Error('Planning Center did not answer within 10s (timed out)');
+      }
+      throw new Error(`Planning Center unreachable: ${e.message}`);
+    }
 
     if (!resp.ok) {
       const body = await resp.text();
+      let detail = body.slice(0, 160);
+      try {
+        const j = JSON.parse(body);
+        const e0 = j?.errors?.[0];
+        if (e0) detail = [e0.title, e0.detail].filter(Boolean).join(': ');
+      } catch { /* not JSON */ }
       if (resp.status === 429) {
-        throw new Error(`Planning Center rate limit exceeded (429): ${body.slice(0, 100)}`);
+        const wait = Number(resp.headers?.get?.('retry-after'));
+        if (!_retried && Number.isFinite(wait) && wait >= 0 && wait <= RETRY_AFTER_MAX_S) {
+          await new Promise((r) => setTimeout(r, Math.max(0, wait) * 1000));
+          return this._pcFetch(url, headers, options, true);
+        }
+        throw new Error(`Planning Center rate limit exceeded (429): ${detail}`);
       }
-      if (resp.status === 401 || resp.status === 403) {
-        throw new Error(`Planning Center auth failure (${resp.status}): ${body.slice(0, 100)}`);
+      if (resp.status === 401) {
+        throw new Error(`Planning Center rejected the credentials (401) — reconnect Planning Center: ${detail}`);
+      }
+      if (resp.status === 403) {
+        throw new Error(`Planning Center says this account has no permission for that (403): ${detail}`);
       }
       if (resp.status === 404) {
-        throw new Error(`Planning Center resource not found (404): ${body.slice(0, 100)}`);
+        throw new Error(`Planning Center resource not found (404): ${detail}`);
       }
-      throw new Error(`Planning Center API error (${resp.status}): ${body.slice(0, 100)}`);
+      throw new Error(`Planning Center API error (${resp.status}): ${detail}`);
     }
 
     return resp;
+  }
+
+  /**
+   * POST a PlanNote. PCO requires an existing PlanNoteCategory relationship (category_name is
+   * read-only); without it the API answers 422 "must exist". Refuses honestly if the service
+   * type has no "Production" category.
+   */
+  async _postPlanNote(serviceTypeId, planId, content, headers) {
+    const cats = await this._pcFetchAll(`${PC.API_BASE}/service_types/${serviceTypeId}/plan_note_categories?per_page=100`, headers, 3);
+    const cat = cats.find((c) => String(c.attributes?.name || '').trim().toLowerCase() === PCO_NOTE_CATEGORY.toLowerCase());
+    if (!cat) {
+      const err = new Error(`Planning Center has no "${PCO_NOTE_CATEGORY}" plan note category for this service type — add one in Services → service type → Settings → Plan Note Categories (nothing was written)`);
+      err.code = 'NO_NOTE_CATEGORY';
+      throw err;
+    }
+    await this._pcFetch(`${PC.API_BASE}/service_types/${serviceTypeId}/plans/${planId}/notes`, headers, {
+      method: 'POST',
+      body: JSON.stringify({
+        data: {
+          type: 'PlanNote',
+          attributes: { content },
+          relationships: { plan_note_category: { data: { type: 'PlanNoteCategory', id: String(cat.id) } } },
+        },
+      }),
+    });
   }
 
   /**
@@ -826,7 +935,7 @@ class PlanningCenter {
     const auth = await this._getAuthHeaders(churchId);
     if (!auth) throw new Error('No Planning Center auth configured');
 
-    const url = `${PC_API_BASE}/service_types`;
+    const url = `${PC.API_BASE}/service_types`;
     const resp = await this._pcFetch(url, auth.headers);
     const data = await resp.json();
 
@@ -851,7 +960,7 @@ class PlanningCenter {
    */
   async getUpcomingServices(appId, secret, serviceTypeId) {
     const credentials = Buffer.from(`${appId}:${secret}`).toString('base64');
-    const url = `${PC_API_BASE}/service_types/${serviceTypeId}/plans?filter=future&per_page=10&order=sort_date`;
+    const url = `${PC.API_BASE}/service_types/${serviceTypeId}/plans?filter=future&per_page=10&order=sort_date`;
 
     const resp = await fetch(url, {
       headers: {
@@ -872,16 +981,17 @@ class PlanningCenter {
     return plans.map(plan => {
       const sortDate = plan.attributes?.sort_date;
       if (!sortDate) return null;
-      const date = new Date(sortDate);
+      const wall = pcoWallTime(sortDate);
+      if (!wall) return null;
       return {
         planId:    plan.id,
-        date:      date.toISOString(),
-        dayOfWeek: date.getDay(),
-        dayName:   DAYS[date.getDay()],
-        startHour: date.getHours(),
-        startMin:  date.getMinutes(),
-        startTime: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
-        title:     plan.attributes?.title || `Service (${date.toLocaleDateString()})`,
+        date:      sortDate,
+        dayOfWeek: wall.day,
+        dayName:   DAYS[wall.day],
+        startHour: wall.hour,
+        startMin:  wall.min,
+        startTime: `${String(wall.hour).padStart(2, '0')}:${String(wall.min).padStart(2, '0')}`,
+        title:     plan.attributes?.title || `Service (${wall.dateStr})`,
       };
     }).filter(Boolean);
   }
@@ -893,10 +1003,28 @@ class PlanningCenter {
   async getUpcomingServicesForChurch(churchId) {
     const church = this._getChurch(churchId);
     if (!church) throw new Error('Church not found');
-    if (!church.pc_app_id || !church.pc_secret || !church.pc_service_type_id) {
-      throw new Error('Planning Center credentials not configured for this church');
-    }
-    return this.getUpcomingServices(church.pc_app_id, church.pc_secret, church.pc_service_type_id);
+    // Works for OAuth-connected churches too (it used to require a Personal Access Token).
+    const auth = await this._getAuthHeaders(churchId);
+    if (!auth) throw new Error('Planning Center is not connected for this church');
+    const stId = this._resolveServiceTypeId(church);
+    if (!stId) throw new Error('No Planning Center service type selected for this church');
+    const url = `${PC.API_BASE}/service_types/${stId}/plans?filter=future&per_page=10&order=sort_date`;
+    const resp = await this._pcFetch(url, auth.headers);
+    const data = await resp.json();
+    return (data.data || []).map((plan) => {
+      const wall = pcoWallTime(plan.attributes?.sort_date);
+      if (!wall) return null;
+      return {
+        planId:    plan.id,
+        date:      plan.attributes.sort_date,
+        dayOfWeek: wall.day,
+        dayName:   DAYS[wall.day],
+        startHour: wall.hour,
+        startMin:  wall.min,
+        startTime: `${String(wall.hour).padStart(2, '0')}:${String(wall.min).padStart(2, '0')}`,
+        title:     plan.attributes?.title || `Service (${wall.dateStr})`,
+      };
+    }).filter(Boolean);
   }
 
   /**
@@ -912,7 +1040,7 @@ class PlanningCenter {
     const auth = await this._getAuthHeaders(churchId);
     if (!auth) throw new Error('No Planning Center auth configured');
 
-    const baseUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}`;
+    const baseUrl = `${PC.API_BASE}/service_types/${serviceTypeId}/plans/${planId}`;
 
     // Fetch plan details
     const planResp = await this._pcFetch(baseUrl, auth.headers);
@@ -1083,11 +1211,12 @@ class PlanningCenter {
     if (!auth) throw new Error('No Planning Center auth configured');
 
     const syncedPlans = [];
+    const failures = [];
 
     for (const stId of serviceTypeIds) {
       try {
         // Fetch future plans for this service type
-        const plansUrl = `${PC_API_BASE}/service_types/${stId}/plans?filter=future&per_page=10&order=sort_date`;
+        const plansUrl = `${PC.API_BASE}/service_types/${stId}/plans?filter=future&per_page=10&order=sort_date`;
         const plansResp = await this._pcFetch(plansUrl, auth.headers);
         const plansData = await plansResp.json();
         const plans = plansData.data || [];
@@ -1127,8 +1256,13 @@ class PlanningCenter {
           }
         }
       } catch (e) {
+        failures.push(e);
         console.warn(`[PlanningCenter] Failed to sync service type ${stId}: ${e.message}`);
       }
+    }
+    if (failures.length && failures.length === serviceTypeIds.length) {
+      this._setSyncError(churchId, failures[0].message);
+      throw failures[0];
     }
 
     // Update last synced
@@ -1182,33 +1316,43 @@ class PlanningCenter {
     }
 
     const allServices = [];
+    const failures = [];
 
     for (const stId of serviceTypeIds) {
       try {
-        const url = `${PC_API_BASE}/service_types/${stId}/plans?filter=future&per_page=10&order=sort_date`;
+        const url = `${PC.API_BASE}/service_types/${stId}/plans?filter=future&per_page=10&order=sort_date`;
         const resp = await this._pcFetch(url, auth.headers);
         const data = await resp.json();
         const plans = data.data || [];
 
         for (const plan of plans) {
           const sortDate = plan.attributes?.sort_date;
-          if (!sortDate) continue;
-          const date = new Date(sortDate);
+          const wall = pcoWallTime(sortDate);
+          if (!wall) continue;
+          const hhmm = `${String(wall.hour).padStart(2, '0')}:${String(wall.min).padStart(2, '0')}`;
           allServices.push({
             planId:    plan.id,
-            date:      date.toISOString(),
-            dayOfWeek: date.getDay(),
-            dayName:   DAYS[date.getDay()],
-            startHour: date.getHours(),
-            startMin:  date.getMinutes(),
-            startTime: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
-            title:     plan.attributes?.title || `Service (${date.toLocaleDateString()})`,
+            date:      sortDate,
+            dayOfWeek: wall.day,
+            dayName:   DAYS[wall.day],
+            startHour: wall.hour,
+            startMin:  wall.min,
+            startTime: hhmm,
+            title:     plan.attributes?.title || `Service (${wall.dateStr})`,
           });
         }
       } catch (e) {
+        failures.push(e);
         console.warn(`[PlanningCenter] Failed to fetch service type ${stId}: ${e.message}`);
       }
     }
+
+    // Every service type failed (revoked token, PCO down, …) — that is an error, not "no services".
+    if (failures.length && failures.length === serviceTypeIds.length) {
+      this._setSyncError(churchId, failures[0].message);
+      throw failures[0];
+    }
+    this._setSyncError(churchId, failures.length ? failures[0].message : null);
 
     if (!allServices.length) {
       console.log(`[PlanningCenter] No upcoming services found for ${church.name}`);
@@ -1337,23 +1481,15 @@ class PlanningCenter {
    * @returns {{id, title, sortDate, items: Array, team: Array, times: Array}|null}
    */
   getNextPlanCached(churchId) {
-    if (this.db) {
-      const row = this.db.prepare(`
-        SELECT * FROM pc_plans
-        WHERE church_id = ? AND sort_date >= datetime('now', '-2 hours')
-        ORDER BY sort_date ASC
-        LIMIT 1
-      `).get(churchId);
-      return this._toCachedPlan(row);
-    }
-
-    const threshold = Date.now() - (2 * 60 * 60 * 1000);
-    const row = [...this._planCache.values()]
-      .filter((plan) => plan.church_id === churchId)
-      .filter((plan) => {
-        const sortTime = Date.parse(plan.sort_date || '');
-        return Number.isFinite(sortTime) && sortTime >= threshold;
-      })
+    // sort_date is the church's wall-clock time with a fake "Z" — compare it with the church's
+    // wall clock (minus 2 h so the plan stays "next" while the service runs), not with UTC now.
+    const church = this._getChurch(churchId);
+    const threshold = wallClockZ(church?.timezone, -2 * 60 * 60 * 1000);
+    const rows = this.db
+      ? this.db.prepare('SELECT * FROM pc_plans WHERE church_id = ?').all(churchId)
+      : [...this._planCache.values()].filter((plan) => plan.church_id === churchId);
+    const row = rows
+      .filter((plan) => pcoWallTime(plan.sort_date) && String(plan.sort_date).slice(0, 16) >= threshold.slice(0, 16))
       .sort((a, b) => String(a.sort_date || '').localeCompare(String(b.sort_date || '')))[0] || null;
     return this._toCachedPlan(row);
   }
@@ -1456,10 +1592,10 @@ class PlanningCenter {
     const lines = ['PLANNING CENTER — NEXT SERVICE'];
 
     // Service info
-    const sortDate = nextPlan.sortDate ? new Date(nextPlan.sortDate) : null;
-    if (sortDate) {
-      const dayName = DAYS[sortDate.getDay()];
-      const timeStr = sortDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const wall = nextPlan.sortDate ? pcoWallTime(nextPlan.sortDate) : null;
+    if (wall) {
+      const dayName = DAYS[wall.day];
+      const timeStr = `${((wall.hour + 11) % 12) + 1}:${String(wall.min).padStart(2, '0')} ${wall.hour < 12 ? 'AM' : 'PM'}`;
       lines.push(`Service: ${nextPlan.title || 'Untitled'} (${dayName} ${timeStr})`);
     } else {
       lines.push(`Service: ${nextPlan.title || 'Untitled'}`);
@@ -1563,6 +1699,11 @@ class PlanningCenter {
    * @param {string} churchId
    * @returns {object|null}
    */
+  _setSyncError(churchId, message) {
+    if (message) this._syncErrors.set(churchId, { message, at: new Date().toISOString() });
+    else this._syncErrors.delete(churchId);
+  }
+
   getStatus(churchId) {
     const church = this._getChurch(churchId);
     if (!church) return null;
@@ -1595,9 +1736,8 @@ class PlanningCenter {
       const times = parseJson(church.service_times, []);
       const pcTimes = times.filter(t => t.source === 'planning_center');
       if (pcTimes.length) {
-        const now = new Date();
-        const day = now.getDay();
-        const minutesNow = now.getHours() * 60 + now.getMinutes();
+        // Service times are church-local wall clock — compare with "now" in the church's timezone.
+        const { day, minutesNow } = localNow(church.timezone);
         let bestMinutes = Infinity;
 
         for (const t of pcTimes) {
@@ -1640,6 +1780,8 @@ class PlanningCenter {
       writebackEnabled: !!church.pc_writeback_enabled,
       serviceTypeIds,
       lastSynced:     church.pc_last_synced || null,
+      lastSyncError:  this._syncErrors.get(churchId)?.message || null,
+      lastSyncErrorAt: this._syncErrors.get(churchId)?.at || null,
       nextService,
       cachedPlanCount: planCount,
     };
@@ -1696,7 +1838,7 @@ class PlanningCenter {
 
     try {
       // Verify the plan exists
-      const planUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}`;
+      const planUrl = `${PC.API_BASE}/service_types/${serviceTypeId}/plans/${planId}`;
       await this._pcFetch(planUrl, headers);
 
       // Build comprehensive note text
@@ -1745,19 +1887,7 @@ class PlanningCenter {
       const noteText = lines.join('\n');
 
       // POST the note to the plan
-      const noteUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}/notes`;
-      await this._pcFetch(noteUrl, headers, {
-        method: 'POST',
-        body: JSON.stringify({
-          data: {
-            type: 'PlanNote',
-            attributes: {
-              content: noteText,
-              category_name: 'Production',
-            },
-          },
-        }),
-      });
+      await this._postPlanNote(serviceTypeId, planId, noteText, headers);
 
       console.log(`[PlanningCenter] Session recap pushed to plan ${planId} for ${church.name || churchId}`);
       return { written: true, planId };
@@ -1793,22 +1923,11 @@ class PlanningCenter {
 
       const startTime = new Date(actualStart);
       const endTime = new Date(actualEnd);
-      const startStr = startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      const endStr = endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const tzOpt = church.timezone ? { timeZone: church.timezone } : {};
+      const startStr = startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...tzOpt });
+      const endStr = endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, ...tzOpt });
 
-      const noteUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}/notes`;
-      await this._pcFetch(noteUrl, headers, {
-        method: 'POST',
-        body: JSON.stringify({
-          data: {
-            type: 'PlanNote',
-            attributes: {
-              content: `--- Actual Service Times ---\nStart: ${startStr} (${actualStart})\nEnd: ${endStr} (${actualEnd})\n---`,
-              category_name: 'Production',
-            },
-          },
-        }),
-      });
+      await this._postPlanNote(serviceTypeId, planId, `--- Actual Service Times ---\nStart: ${startStr} (${actualStart})\nEnd: ${endStr} (${actualEnd})\n---`, headers);
 
       console.log(`[PlanningCenter] Service times updated on plan ${planId} for ${church.name || churchId}`);
       return { updated: true, planId };
@@ -1835,49 +1954,47 @@ class PlanningCenter {
     if (!serviceTypeId) return { synced: false, matched: 0, total: 0, reason: 'No service type configured' };
 
     try {
-      const teamUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}/team_members`;
-      const teamResp = await this._pcFetch(teamUrl, headers);
-      const teamData = await teamResp.json();
-      const teamMembers = teamData.data || [];
+      const teamUrl = `${PC.API_BASE}/service_types/${serviceTypeId}/plans/${planId}/team_members?per_page=100`;
+      const teamMembers = await this._pcFetchAll(teamUrl, headers, 5);
 
       if (!teamMembers.length) {
         return { synced: true, matched: 0, total: 0 };
       }
 
+      // Exact (case/space-insensitive) full-name matches only — a partial match would mark the
+      // wrong volunteer Confirmed in Planning Center.
+      const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
       const activeNames = new Set(
         activeTokens
           .filter(t => t.churchId === churchId)
-          .map(t => (t.name || '').toLowerCase().trim())
+          .map(t => norm(t.name))
           .filter(Boolean)
       );
 
       let matched = 0;
+      const failed = [];
 
       for (const member of teamMembers) {
-        const memberName = (member.attributes?.name || '').toLowerCase().trim();
-        if (!memberName) continue;
-
-        const isActive = activeNames.has(memberName) ||
-          [...activeNames].some(n => memberName.includes(n) || n.includes(memberName));
-
-        if (isActive) {
-          try {
-            const memberUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${planId}/team_members/${member.id}`;
-            await this._pcFetch(memberUrl, headers, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                data: {
-                  type: 'TeamMember',
-                  id: member.id,
-                  attributes: { status: 'C' },
-                },
-              }),
-            });
-            matched++;
-          } catch (e) {
-            console.warn(`[PlanningCenter] Could not confirm attendance for ${member.attributes?.name}: ${e.message}`);
-          }
+        const memberName = norm(member.attributes?.name);
+        if (!memberName || !activeNames.has(memberName)) continue;
+        if (member.attributes?.status === 'C') { matched++; continue; }
+        const personId = member.relationships?.person?.data?.id;
+        if (!personId) { failed.push(`${member.attributes?.name}: no person id`); continue; }
+        try {
+          // PlanPerson is updated at /people/:person_id/plan_people/:id (PCO Services 2018-11-01).
+          const memberUrl = `${PC.API_BASE}/people/${personId}/plan_people/${member.id}`;
+          await this._pcFetch(memberUrl, headers, {
+            method: 'PATCH',
+            body: JSON.stringify({ data: { type: 'PlanPerson', id: member.id, attributes: { status: 'C' } } }),
+          });
+          matched++;
+        } catch (e) {
+          failed.push(`${member.attributes?.name}: ${e.message}`);
+          console.warn(`[PlanningCenter] Could not confirm attendance for ${member.attributes?.name}: ${e.message}`);
         }
+      }
+      if (failed.length) {
+        return { synced: false, matched, total: teamMembers.length, reason: failed.join('; ') };
       }
 
       console.log(`[PlanningCenter] Volunteer attendance synced: ${matched}/${teamMembers.length} matched for plan ${planId}`);
@@ -1919,30 +2036,31 @@ class PlanningCenter {
       // Fetch service type name
       let serviceTypeName = 'Unknown';
       try {
-        const stUrl = `${PC_API_BASE}/service_types/${stId}`;
+        const stUrl = `${PC.API_BASE}/service_types/${stId}`;
         const stResp = await this._pcFetch(stUrl, auth.headers);
         const stData = await stResp.json();
         serviceTypeName = stData.data?.attributes?.name || 'Unknown';
       } catch { /* non-fatal */ }
 
       // Fetch future plans
-      const url = `${PC_API_BASE}/service_types/${stId}/plans?filter=future&per_page=25&order=sort_date`;
+      const url = `${PC.API_BASE}/service_types/${stId}/plans?filter=future&per_page=25&order=sort_date`;
       const resp = await this._pcFetch(url, auth.headers);
       const data = await resp.json();
 
       for (const plan of (data.data || [])) {
         const sortDate = plan.attributes?.sort_date;
         if (!sortDate) continue;
-        const date = new Date(sortDate);
-        if (date > cutoff) continue;
+        const wall = pcoWallTime(sortDate);
+        if (!wall) continue;
+        if (new Date(sortDate) > cutoff) continue;
         allPlans.push({
           planId: plan.id,
-          date: date.toISOString(),
-          title: plan.attributes?.title || `Service (${date.toLocaleDateString()})`,
+          date: sortDate,
+          title: plan.attributes?.title || `Service (${wall.dateStr})`,
           serviceTypeName,
           serviceTypeId: stId,
-          dayName: DAYS[date.getDay()],
-          startTime: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
+          dayName: DAYS[wall.day],
+          startTime: `${String(wall.hour).padStart(2, '0')}:${String(wall.min).padStart(2, '0')}`,
         });
       }
     }
@@ -1974,7 +2092,7 @@ class PlanningCenter {
 
     try {
       // Find the most recent plan (past, today's)
-      const url = `${PC_API_BASE}/service_types/${serviceTypeId}/plans?filter=past&per_page=1&order=-sort_date`;
+      const url = `${PC.API_BASE}/service_types/${serviceTypeId}/plans?filter=past&per_page=1&order=-sort_date`;
       const resp = await this._pcFetch(url, auth.headers);
       const data = await resp.json();
       const plan = data.data?.[0];
@@ -2001,19 +2119,7 @@ class PlanningCenter {
       ].join('\n');
 
       // POST a note to the plan
-      const noteUrl = `${PC_API_BASE}/service_types/${serviceTypeId}/plans/${plan.id}/notes`;
-      await this._pcFetch(noteUrl, auth.headers, {
-        method: 'POST',
-        body: JSON.stringify({
-          data: {
-            type: 'PlanNote',
-            attributes: {
-              content: noteText,
-              category_name: 'Production',
-            },
-          },
-        }),
-      });
+      await this._postPlanNote(serviceTypeId, plan.id, noteText, auth.headers);
 
       console.log(`[PlanningCenter] ✅ Production notes written to plan ${plan.id} for ${church.name || churchId}`);
       return { written: true, planId: plan.id };

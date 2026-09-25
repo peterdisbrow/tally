@@ -111,7 +111,8 @@ describe('PlanningCenter query client mode', () => {
         id: 'plan-1',
         type: 'Plan',
         attributes: {
-          sort_date: tomorrow.toISOString(),
+          // PCO sort_date: org-local wall time with a fake Z
+          sort_date: `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}T10:00:00Z`,
           title: 'Sunday Service',
         },
       },

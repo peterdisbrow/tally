@@ -53,6 +53,17 @@ function errorResp(status, body = '') {
   return { ok: false, status, text: async () => body, json: async () => ({}) };
 }
 
+// PCO sort_date = org-local wall time with a fake "Z" (planningcenter/developers#1198).
+function pcoWall(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00Z`;
+}
+
+// GET plan_note_categories — PCO requires a category relationship on every PlanNote.
+function noteCategories() {
+  return okJson({ data: [{ type: 'PlanNoteCategory', id: '501', attributes: { name: 'Production' } }], links: {} });
+}
+
 function makePlan(id, sortDate, title = 'Sunday Service') {
   return {
     id,
@@ -64,8 +75,9 @@ function makePlan(id, sortDate, title = 'Sunday Service') {
 function makeTeamMember(id, name) {
   return {
     id,
-    type: 'TeamMember',
+    type: 'PlanPerson',
     attributes: { name, status: 'U' },
+    relationships: { person: { data: { type: 'Person', id: `p_${id}` } } },
   };
 }
 
@@ -91,7 +103,8 @@ describe('PlanningCenter.pushSessionRecap', () => {
   it('pushes a full session recap as a plan note', async () => {
     // Mock: verify plan exists
     fetchSpy.mockResolvedValueOnce(okJson({ data: makePlan('plan_42', new Date().toISOString()) }));
-    // Mock: POST note
+    // Mock: note categories, then POST note
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const recapData = {
@@ -114,8 +127,9 @@ describe('PlanningCenter.pushSessionRecap', () => {
     expect(result.planId).toBe('plan_42');
 
     // Verify note content
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [noteUrl, noteOpts] = fetchSpy.mock.calls[1];
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls[1][0]).toContain('/plan_note_categories');
+    const [noteUrl, noteOpts] = fetchSpy.mock.calls[2];
     expect(noteUrl).toContain('/plans/plan_42/notes');
     expect(noteOpts.method).toBe('POST');
 
@@ -131,11 +145,13 @@ describe('PlanningCenter.pushSessionRecap', () => {
     expect(content).toContain('Audio silences: 1');
     expect(content).toContain('video_freeze: 2');
     expect(content).toContain('audio_drop: 1');
-    expect(body.data.attributes.category_name).toBe('Production');
+    expect(body.data.relationships.plan_note_category.data).toEqual({ type: 'PlanNoteCategory', id: '501' });
+    expect(body.data.attributes).not.toHaveProperty('category_name');
   });
 
   it('handles snake_case recap data fields', async () => {
     fetchSpy.mockResolvedValueOnce(okJson({ data: makePlan('plan_sc', new Date().toISOString()) }));
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const recapData = {
@@ -154,7 +170,7 @@ describe('PlanningCenter.pushSessionRecap', () => {
     const result = await pc.pushSessionRecap(churchId, 'plan_sc', recapData);
     expect(result.written).toBe(true);
 
-    const body = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    const body = JSON.parse(fetchSpy.mock.calls[2][1].body);
     const content = body.data.attributes.content;
     expect(content).toContain('Grade: B');
     expect(content).toContain('TD: Mike');
@@ -182,7 +198,7 @@ describe('PlanningCenter.pushSessionRecap', () => {
 
     const result = await pc.pushSessionRecap(churchId, 'plan_1', { grade: 'A' });
     expect(result.written).toBe(false);
-    expect(result.reason).toContain('auth failure');
+    expect(result.reason).toContain('rejected the credentials');
   });
 
   it('skips when write-back is disabled', async () => {
@@ -202,6 +218,7 @@ describe('PlanningCenter.pushSessionRecap', () => {
 
   it('handles recap with no stream and zero alerts', async () => {
     fetchSpy.mockResolvedValueOnce(okJson({ data: makePlan('plan_clean', new Date().toISOString()) }));
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const result = await pc.pushSessionRecap(churchId, 'plan_clean', {
@@ -214,7 +231,7 @@ describe('PlanningCenter.pushSessionRecap', () => {
     });
     expect(result.written).toBe(true);
 
-    const content = JSON.parse(fetchSpy.mock.calls[1][1].body).data.attributes.content;
+    const content = JSON.parse(fetchSpy.mock.calls[2][1].body).data.attributes.content;
     expect(content).toContain('Stream: No');
     expect(content).toContain('Alerts: 0');
   });
@@ -240,6 +257,7 @@ describe('PlanningCenter.updateServiceTimes', () => {
   });
 
   it('posts actual start/end times as a plan note', async () => {
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const actualTimes = {
@@ -251,8 +269,8 @@ describe('PlanningCenter.updateServiceTimes', () => {
     expect(result.updated).toBe(true);
     expect(result.planId).toBe('plan_t1');
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [url, opts] = fetchSpy.mock.calls[1];
     expect(url).toContain('/plans/plan_t1/notes');
     expect(opts.method).toBe('POST');
 
@@ -260,10 +278,12 @@ describe('PlanningCenter.updateServiceTimes', () => {
     expect(body.data.attributes.content).toContain('Actual Service Times');
     expect(body.data.attributes.content).toContain('2026-03-15T09:58:00.000Z');
     expect(body.data.attributes.content).toContain('2026-03-15T11:32:00.000Z');
-    expect(body.data.attributes.category_name).toBe('Production');
+    expect(body.data.relationships.plan_note_category.data).toEqual({ type: 'PlanNoteCategory', id: '501' });
+    expect(body.data.attributes).not.toHaveProperty('category_name');
   });
 
   it('accepts Date objects for times', async () => {
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const result = await pc.updateServiceTimes(churchId, 'plan_t2', {
@@ -350,9 +370,10 @@ describe('PlanningCenter.syncVolunteerAttendance', () => {
     // Verify PATCH calls for matched members
     expect(fetchSpy).toHaveBeenCalledTimes(3); // 1 GET + 2 PATCH
     const [patchUrl, patchOpts] = fetchSpy.mock.calls[1];
-    expect(patchUrl).toContain('/team_members/tm_1');
+    expect(patchUrl).toContain('/people/p_tm_1/plan_people/tm_1');
     expect(patchOpts.method).toBe('PATCH');
     const patchBody = JSON.parse(patchOpts.body);
+    expect(patchBody.data.type).toBe('PlanPerson');
     expect(patchBody.data.attributes.status).toBe('C');
   });
 
@@ -383,18 +404,25 @@ describe('PlanningCenter.syncVolunteerAttendance', () => {
     expect(result.total).toBe(0);
   });
 
-  it('handles partial name matching', async () => {
+  it('does NOT confirm on a partial name (would mark the wrong volunteer)', async () => {
     fetchSpy.mockResolvedValueOnce(okJson({
       data: [makeTeamMember('tm_1', 'Alice Johnson')],
     }));
-    fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
 
     const activeTokens = [
-      { token: 'GUEST-A', name: 'alice', churchId }, // lowercase partial
+      { token: 'GUEST-A', name: 'alice', churchId }, // partial — not the same person for sure
     ];
 
     const result = await pc.syncVolunteerAttendance(churchId, 'plan_v4', activeTokens);
     expect(result.synced).toBe(true);
+    expect(result.matched).toBe(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches full names case-insensitively', async () => {
+    fetchSpy.mockResolvedValueOnce(okJson({ data: [makeTeamMember('tm_1', 'Alice Johnson')] }));
+    fetchSpy.mockResolvedValueOnce(okJson({ data: {} }));
+    const result = await pc.syncVolunteerAttendance(churchId, 'plan_v4', [{ token: 'G', name: 'alice  johnson', churchId }]);
     expect(result.matched).toBe(1);
   });
 
@@ -424,9 +452,10 @@ describe('PlanningCenter.syncVolunteerAttendance', () => {
     ];
 
     const result = await pc.syncVolunteerAttendance(churchId, 'plan_v6', activeTokens);
-    expect(result.synced).toBe(true);
-    // Only Bob succeeded
+    // Only Bob succeeded — and the Alice failure is reported, not hidden
+    expect(result.synced).toBe(false);
     expect(result.matched).toBe(1);
+    expect(result.reason).toMatch(/Alice.*403/);
   });
 
   it('skips when write-back is disabled', async () => {
@@ -474,8 +503,8 @@ describe('PlanningCenter.getUpcomingPlans', () => {
     // Mock: plans fetch
     fetchSpy.mockResolvedValueOnce(okJson({
       data: [
-        makePlan('plan_a', tomorrow.toISOString(), 'Tomorrow Service'),
-        makePlan('plan_b', nextWeek.toISOString(), 'Next Week Service'),
+        makePlan('plan_a', pcoWall(tomorrow), 'Tomorrow Service'),
+        makePlan('plan_b', pcoWall(nextWeek), 'Next Week Service'),
       ],
     }));
 
@@ -500,8 +529,8 @@ describe('PlanningCenter.getUpcomingPlans', () => {
     }));
     fetchSpy.mockResolvedValueOnce(okJson({
       data: [
-        makePlan('p1', day2.toISOString(), 'Service A'),
-        makePlan('p2', day5.toISOString(), 'Service B'),
+        makePlan('p1', pcoWall(day2), 'Service A'),
+        makePlan('p2', pcoWall(day5), 'Service B'),
       ],
     }));
 
@@ -517,7 +546,7 @@ describe('PlanningCenter.getUpcomingPlans', () => {
     fetchSpy.mockResolvedValueOnce(errorResp(500, 'Error'));
     // Plans fetch succeeds
     fetchSpy.mockResolvedValueOnce(okJson({
-      data: [makePlan('plan_1', tomorrow.toISOString(), 'Service')],
+      data: [makePlan('plan_1', pcoWall(tomorrow), 'Service')],
     }));
 
     const plans = await pc.getUpcomingPlans(churchId, 7);
@@ -558,7 +587,7 @@ describe('PlanningCenter.getUpcomingPlans', () => {
     fetchSpy.mockResolvedValueOnce(errorResp(401, 'Unauthorized'));
 
     await expect(pc.getUpcomingPlans(churchId))
-      .rejects.toThrow(/auth failure/i);
+      .rejects.toThrow(/rejected the credentials/i);
   });
 
   it('filters out plans with missing sort_date', async () => {

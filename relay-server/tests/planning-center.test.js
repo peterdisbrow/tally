@@ -49,6 +49,16 @@ function makePCResponse(plans) {
   };
 }
 
+// PCO sort_date = org-local wall time with a fake "Z" (planningcenter/developers#1198).
+function pcoWall(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00Z`;
+}
+
+function noteCategories() {
+  return { ok: true, status: 200, json: async () => ({ data: [{ type: 'PlanNoteCategory', id: '501', attributes: { name: 'Production' } }], links: {} }), text: async () => '' };
+}
+
 function makePlan(id, sortDate, title = 'Sunday Service') {
   return {
     id,
@@ -93,7 +103,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
     nextSunday.setHours(10, 0, 0, 0);
 
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', nextSunday.toISOString(), 'Morning Service'),
+      makePlan('plan_1', pcoWall(nextSunday), 'Morning Service'),
     ]));
 
     const services = await pc.getUpcomingServicesForChurch(churchId);
@@ -118,7 +128,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
       .run(noCredChurch, 'No Creds', 'nc@test.local', 'tok', now);
 
     await expect(pc.getUpcomingServicesForChurch(noCredChurch))
-      .rejects.toThrow(/credentials not configured/i);
+      .rejects.toThrow(/not connected/i);
   });
 
   it('throws when church does not exist', async () => {
@@ -133,8 +143,8 @@ describe('PlanningCenter — API sync and data transformation', () => {
     const wednesday = new Date('2026-03-18T19:00:00');
 
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', sunday.toISOString(), 'Sunday AM'),
-      makePlan('plan_2', wednesday.toISOString(), 'Wednesday PM'),
+      makePlan('plan_1', pcoWall(sunday), 'Sunday AM'),
+      makePlan('plan_2', pcoWall(wednesday), 'Wednesday PM'),
     ]));
 
     const result = await pc.syncChurch(churchId);
@@ -159,8 +169,8 @@ describe('PlanningCenter — API sync and data transformation', () => {
     const sunday2 = new Date('2026-03-22T10:00:00');
 
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', sunday1.toISOString(), 'Sunday 1'),
-      makePlan('plan_2', sunday2.toISOString(), 'Sunday 2'),
+      makePlan('plan_1', pcoWall(sunday1), 'Sunday 1'),
+      makePlan('plan_2', pcoWall(sunday2), 'Sunday 2'),
     ]));
 
     const result = await pc.syncChurch(churchId);
@@ -173,7 +183,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
   it('handles plans with missing sort_date', async () => {
     fetchSpy.mockResolvedValueOnce(makePCResponse([
       { id: 'plan_null', type: 'Plan', attributes: { sort_date: null, title: 'Bad Plan' } },
-      makePlan('plan_good', new Date('2026-03-15T10:00:00').toISOString()),
+      makePlan('plan_good', pcoWall(new Date('2026-03-15T10:00:00'))),
     ]));
 
     const services = await pc.getUpcomingServices('app_123', 'secret_456', 'stype_1');
@@ -195,7 +205,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
     const before = new Date().toISOString();
 
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', new Date('2026-03-15T10:00:00').toISOString()),
+      makePlan('plan_1', pcoWall(new Date('2026-03-15T10:00:00'))),
     ]));
 
     await pc.syncChurch(churchId);
@@ -205,18 +215,14 @@ describe('PlanningCenter — API sync and data transformation', () => {
     expect(new Date(church.pc_last_synced).getTime()).toBeGreaterThanOrEqual(new Date(before).getTime());
   });
 
-  it('does not update pc_last_synced on sync failure', async () => {
+  it('fails loudly and does not update pc_last_synced when every service type fails', async () => {
     fetchSpy.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Internal Server Error' });
 
-    // With multi-service-type support, per-type errors are caught and logged.
-    // When all service types fail, no services are found, so sync completes with 0 services
-    // but pc_last_synced is still NOT updated because no services were synced.
-    const result = await pc.syncChurch(churchId);
-    expect(result.synced).toBe(0);
+    await expect(pc.syncChurch(churchId)).rejects.toThrow(/500/);
 
     const church = db.prepare('SELECT pc_last_synced FROM churches WHERE churchId = ?').get(churchId);
-    // pc_last_synced may be set even with 0 services (the sync ran successfully, just no data)
-    // This is acceptable behavior — the sync completed without error.
+    expect(church.pc_last_synced).toBeFalsy();
+    expect(pc.getStatus(churchId).lastSyncError).toMatch(/500/);
   });
 
   // ── 4. Error handling ──────────────────────────────────────────────────────
@@ -254,7 +260,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
   it('parses startTime as formatted HH:MM string', async () => {
     const date = new Date('2026-03-15T08:05:00');
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', date.toISOString(), 'Early Service'),
+      makePlan('plan_1', pcoWall(date), 'Early Service'),
     ]));
 
     const services = await pc.getUpcomingServices('app_123', 'secret_456', 'stype_1');
@@ -267,7 +273,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
     // 2026-03-15 is a Sunday
     const date = new Date('2026-03-15T10:00:00');
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', date.toISOString(), 'Sunday'),
+      makePlan('plan_1', pcoWall(date), 'Sunday'),
     ]));
 
     const services = await pc.getUpcomingServices('app_123', 'secret_456', 'stype_1');
@@ -278,7 +284,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
   it('generates a default title when plan has no title', async () => {
     const date = new Date('2026-03-15T10:00:00');
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      { id: 'plan_no_title', type: 'Plan', attributes: { sort_date: date.toISOString() } },
+      { id: 'plan_no_title', type: 'Plan', attributes: { sort_date: pcoWall(date) } },
     ]));
 
     const services = await pc.getUpcomingServices('app_123', 'secret_456', 'stype_1');
@@ -295,7 +301,7 @@ describe('PlanningCenter — API sync and data transformation', () => {
     fetchSpy.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Error' });
     // Second church succeeds
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_ok', new Date('2026-03-15T10:00:00').toISOString()),
+      makePlan('plan_ok', pcoWall(new Date('2026-03-15T10:00:00'))),
     ]));
 
     // Should not throw — errors are caught per-church
@@ -396,9 +402,10 @@ describe('PlanningCenter — write-back service notes', () => {
   it('writes production notes to the most recent plan', async () => {
     // Mock: fetch recent plan
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_recent', new Date().toISOString(), 'Recent Service'),
+      makePlan('plan_recent', pcoWall(new Date()), 'Recent Service'),
     ]));
-    // Mock: POST note
+    // Mock: note categories, then POST note
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
 
     const sessionData = {
@@ -417,13 +424,13 @@ describe('PlanningCenter — write-back service notes', () => {
     expect(result.planId).toBe('plan_recent');
 
     // Verify the note POST was called
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [noteUrl, noteOpts] = fetchSpy.mock.calls[1];
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    const [noteUrl, noteOpts] = fetchSpy.mock.calls[2];
     expect(noteUrl).toContain('/notes');
     expect(noteOpts.method).toBe('POST');
     const body = JSON.parse(noteOpts.body);
     expect(body.data.attributes.content).toContain('Grade: A');
-    expect(body.data.attributes.category_name).toBe('Production');
+    expect(body.data.relationships.plan_note_category.data.id).toBe('501');
   });
 
   it('skips write-back when disabled', async () => {
@@ -437,8 +444,9 @@ describe('PlanningCenter — write-back service notes', () => {
 
   it('handles API error during note POST gracefully', async () => {
     fetchSpy.mockResolvedValueOnce(makePCResponse([
-      makePlan('plan_1', new Date().toISOString()),
+      makePlan('plan_1', pcoWall(new Date())),
     ]));
+    fetchSpy.mockResolvedValueOnce(noteCategories());
     fetchSpy.mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'Forbidden' });
 
     const result = await pc.writeServiceNotes(churchId, { grade: 'B' });

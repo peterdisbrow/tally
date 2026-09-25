@@ -270,34 +270,37 @@ test('integration-mocks: SQ mock is MIDI-only — SET is silent, GET answers, wr
 
 const pcoMock = require('./mocks/planningCenterServer');
 
-test('integration-mocks: PCO mock serves OAuth token + JSON:API service types', async (t) => {
+test('integration-mocks: PCO mock mirrors real auth + JSON:API shapes', async (t) => {
   const mock = await pcoMock.start({ port: 0, controlPort: 0 });
   t.after(() => mock.stop());
 
-  // OAuth token exchange — accepts any code
   const tokRes = await fetch(`${mock.url}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ grant_type: 'authorization_code', code: 'anything' }),
   });
   const tok = await tokRes.json();
-  assert.ok(tok.access_token);
   assert.equal(tok.token_type, 'Bearer');
   assert.ok(tok.expires_in > 0);
 
-  // Service types
-  const stRes = await fetch(`${mock.url}/services/v2/service_types`);
-  const stJson = await stRes.json();
-  assert.ok(Array.isArray(stJson.data));
-  assert.ok(stJson.data.length >= 2);
-  assert.equal(stJson.data[0].type, 'ServiceType');
+  // No credentials → 401 JSON:API error (real PCO never serves anonymous reads)
+  const anon = await fetch(`${mock.url}/services/v2/service_types`);
+  assert.equal(anon.status, 401);
+  assert.equal((await anon.json()).errors[0].status, '401');
 
-  // Plans for the seeded service type
+  const H = { Authorization: `Bearer ${tok.access_token}` };
+  const stJson = await (await fetch(`${mock.url}/services/v2/service_types`, { headers: H })).json();
+  assert.equal(stJson.data[0].type, 'ServiceType');
   const stId = stJson.data[0].id;
-  const plansRes = await fetch(`${mock.url}/services/v2/service_types/${stId}/plans`);
-  const plansJson = await plansRes.json();
-  assert.ok(Array.isArray(plansJson.data));
+  const plansJson = await (await fetch(`${mock.url}/services/v2/service_types/${stId}/plans?filter=future`, { headers: H })).json();
   assert.ok(plansJson.data.length >= 1);
+  // sort_date is org-local wall time with a fake Z (PCO quirk) — 9:00 stays 09:00
+  assert.match(plansJson.data[0].attributes.sort_date, /T09:00:00Z$/);
+  // Nested routes only
+  const items = await fetch(`${mock.url}/services/v2/service_types/${stId}/plans/${plansJson.data[0].id}/items`, { headers: H });
+  assert.equal(items.status, 200);
+  const flat = await fetch(`${mock.url}/services/v2/plans/${plansJson.data[0].id}/items`, { headers: H });
+  assert.equal(flat.status, 404);
 });
 
 // ─── Launcher sanity ────────────────────────────────────────────────────────
