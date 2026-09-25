@@ -1,0 +1,19 @@
+kill -9 booth proof (local relay 127.0.0.1:3400, MockLab ATEM 127.0.0.1:9910). Never production.
+
+RED old code (worktree /tmp/tally-prerejoin @ 2aa9e65, parent of auto-rejoin, still the 30f33d5 "ask for the room" behavior):
+  FAIL kill9_auto_rejoin_same_room — screen=room-selector sameRoom=false sawRejoining=false loading=["Checking your account..."]
+  Script exit 1. Results: red-2aa9e65.json  Screenshot: red-after-kill9.png
+
+RED current auto-rejoin before the reconnecting line (banner only after success):
+  FAIL — screen=dashboard sameRoom=true sawRejoining=false loading=["Checking your account..."]
+  banner="Reconnected to Sanctuary Linux" / "Tally closed unexpectedly..."
+  Results: red-missing-rejoining-copy.json
+
+GREEN after showSignInLoading("Rejoining {{room}}…") during the relay round-trip:
+  PASS kill9_auto_rejoin_same_room — screen=dashboard sameRoom=true sawRejoining=true
+  loading=["Checking your account...","Rejoining Sanctuary Linux…"]
+  banner="Reconnected to Sanctuary Linux" / "Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch rooms."
+  PASS change_room_then_kill9_shows_picker — recordCleared=true screen=room-selector banner=false
+  Script exit 0. Results: green.json  Screenshots: green-after-kill9.png, green-change-room.png
+
+Harness: docs/sim-pass/harness/scripts/kill9-rejoin-proof.mjs

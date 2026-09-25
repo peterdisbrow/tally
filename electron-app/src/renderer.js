@@ -1074,6 +1074,13 @@ async function init() {
       // (room-rejoin.js); if the relay is unreachable it rejoins locally.
       let rejoin = null;
       if (result.valid || result.network) {
+        // Honest state while the relay round-trip is still in flight. The
+        // success banner (checkmark, "Reconnected") is shown only after.
+        const pending = freshConfig.rejoinRoom;
+        if (pending && pending.roomId) {
+          const room = pending.roomName || 'your last room';
+          showSignInLoading(t('rejoin.rejoining', { room }));
+        }
         try { rejoin = await api.autoRejoinRoom(); } catch (e) { rejoin = null; }
       }
       if (rejoin && (rejoin.action === 'rejoined' || rejoin.action === 'rejoined-local')) {

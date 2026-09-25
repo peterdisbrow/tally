@@ -159,8 +159,10 @@ test('renderer wiring: launch auto-rejoins, Change Room leaves, picker shows not
   assert.match(r, /async function showRoomSelector\(churchName, notice\)/);
   for (const f of fs.readdirSync(path.join(__dirname, '..', 'src', 'locales'))) {
     const j = JSON.parse(SRC(path.join('locales', f)));
-    for (const k of ['title', 'titleLocal', 'afterCrash', 'afterQuit', 'local', 'confirmed']) assert.ok(j.rejoin?.[k], `${f} rejoin.${k}`);
+    for (const k of ['rejoining', 'title', 'titleLocal', 'afterCrash', 'afterQuit', 'local', 'confirmed']) assert.ok(j.rejoin?.[k], `${f} rejoin.${k}`);
   }
+  const pending = r.slice(r.indexOf('let rejoin = null'), r.indexOf('rejoin = await api.autoRejoinRoom()'));
+  assert.match(pending, /showSignInLoading\(t\('rejoin\.rejoining'/);
 });
 
 test('main auto-rejoin: relay returns no equipment (or fetch blip) → keeps the on-disk ATEM IP for this room', async () => {
