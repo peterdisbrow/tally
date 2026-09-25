@@ -373,7 +373,9 @@ function getAudioSummary(status) {
     return { state: 'info', value: 'Not metered', detail: 'No level meter available — silence can\u2019t be detected', issue: false };
   }
   if (mixerConfigured && mixer.connected) {
-    return { state: 'ok', value: 'Console online', detail: `${name} · standby`, issue: false };
+    // mainMuted null = the console can't / didn't report it (e.g. Avantis) — say so, never imply "unmuted".
+    const muteNote = mixer.mainMuted == null ? ' · master mute not reported' : '';
+    return { state: 'ok', value: 'Console online', detail: `${name} · standby${muteNote}`, issue: false };
   }
   return { state: 'idle', value: 'Standby', detail: '', issue: false };
 }

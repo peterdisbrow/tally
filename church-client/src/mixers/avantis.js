@@ -1,194 +1,137 @@
 /**
- * Allen & Heath Avantis / dLive TCP MIDI Driver
+ * Allen & Heath dLive / Avantis driver — MIDI over TCP (MixRack port 51325).
  *
- * The Avantis uses MIDI-over-TCP on port 51325 (MixRack) — a completely
- * different protocol from the SQ/dLive OSC interface in allenheath.js.
+ * Protocol references (tables checked line by line):
+ *   dLive  MIDI Over TCP/IP Protocol, firmware V2.0
+ *   Avantis TCP/IP Protocol, firmware V1.10 (identical content in the V2.0 web edition)
  *
- * Capabilities:
- *   ✅ Fader level  (NRPN, 128-step, ~0.5 dB resolution)
- *   ✅ Mute / unmute (Note On velocity)
- *   ✅ Scene recall   (Bank Select + Program Change, up to 500 scenes)
- *   ✅ Channel name   (SysEx)
- *   ✅ Channel colour  (SysEx)
- *   ✅ HPF on/off + frequency (NRPN)
- *   ✅ Preamp gain    (NRPN)
- *   ✅ Pan            (NRPN)
- *   ✅ DCA mute       (MIDI channel N+4)
- *   ✅ Bidirectional — receives live fader / mute changes from console
+ * Channel selection — five MIDI channels from the console's base channel N
+ * (Utility / Control / MIDI, 1–12, factory default 12):
+ *   N    inputs                       note = channel − 1
+ *   N+1  groups     N+2 aux     N+3 matrix
+ *   N+4  FX sends 00+, FX returns 20+, Mains 30+, DCAs 36+,
+ *        Mute Groups 4E+ (dLive) / 46+ (Avantis)
  *
- * Protocol reference:
- *   Allen & Heath Avantis MIDI TCP Protocol V1.0
- *   https://www.allen-heath.com/content/uploads/2023/05/Avantis-MIDI-TCP-Protocol-V1.0.pdf
- *
- *   dLive MIDI Over TCP Protocol V2.0 (same message format, more detail)
- *   https://www.allen-heath.com/content/uploads/2024/06/dLive-MIDI-Over-TCP-Protocol-V2.0.pdf
+ * Honesty contract (same as the X32 and SQ drivers):
+ *   • dLive has Get Mute / Get Fader / Get HPF SysEx → every SET is followed by a
+ *     GET and only succeeds when the console reports the new value back.
+ *   • Avantis has NO mute/level get over TCP (A&H confirmed; only name/colour
+ *     can be read). Its mute/fader/DCA/mute-group commands are sent only after a
+ *     name-request round-trip proves the desk is answering, and are reported as
+ *     "sent, not confirmed" ({ confirmed:false }), never as done.
+ *   • Names and colours are read back on both consoles.
+ *   • Liveness is a round-trip (dLive: Get Mute on Main 1; Avantis: name request
+ *     for input 1), never "the TCP socket is open", and never a second socket.
+ *   • Unknown values are null, never "unmuted" / 0.
+ *   • Functions the protocol does not have (pan, EQ, dynamics, scene save,
+ *     solo clear, SoftKeys, HPF on Avantis) refuse with an error.
  */
 
 'use strict';
 
 const { TcpMidi } = require('../tcp-midi');
-
-// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const { _internals: sqLaw } = require('./allenheath');
 
 const DEFAULT_PORT = 51325;
+const SURFACE_PORTS = new Set([51328, 51329]);   // dLive Surface: no scene recall
+const DEFAULT_BASE_CHANNEL = 0x0B;                // MIDI channel 12
+const GET_TIMEOUT_MS = 1000;
+const PROBE_TIMEOUT_MS = 1500;
 
-// Default base MIDI channel 12 (0-indexed = 0x0B).
-// The console uses 5 consecutive channels: N+0 inputs, N+1 groups,
-// N+2 mixes, N+3 FX returns, N+4 DCAs / mute groups.
-const DEFAULT_BASE_CHANNEL = 0x0B; // MIDI channel 12
-
-// NRPN parameter IDs (CC 98 = NRPN LSB)
-const NRPN = {
-  FADER:    0x17, // Fader level
-  PAN:      0x18, // Pan position
-  HPF_FREQ: 0x30, // HPF frequency
-  HPF_ON:   0x31, // HPF enable/disable
-};
-
-// Fader value constants
-const FADER_NEG_INF = 0x00;
-const FADER_0DB     = 0x6B; // 107 = 0 dB
-const FADER_10DB    = 0x7F; // 127 = +10 dB
-
-// SysEx header for Avantis V1.0
 const SYSEX_HEADER = [0xF0, 0x00, 0x00, 0x1A, 0x50, 0x10, 0x01, 0x00];
+const NRPN = { FADER: 0x17, MAIN_ASSIGN: 0x18, HPF_FREQ: 0x30, HPF_ON: 0x31 };
+const COLORS = { off: 0, red: 1, green: 2, yellow: 3, blue: 4, purple: 5, cyan: 6, 'lt blue': 6, 'light blue': 6, white: 7 };
+const NAME_MAX = 8;
 
-// SysEx commands
-const SYSEX_NAME_REQ    = 0x01;
-const SYSEX_NAME_REPLY  = 0x02;
-const SYSEX_NAME_SET    = 0x03;
-const SYSEX_COLOR_REQ   = 0x04;
-const SYSEX_COLOR_REPLY = 0x05;
-const SYSEX_COLOR_SET   = 0x06;
-
-// Channel type offsets (added to base MIDI channel)
-const CH_TYPE = {
-  INPUT:    0, // N+0
-  GROUP:    1, // N+1
-  MIX:      2, // N+2
-  FX_RET:   3, // N+3
-  DCA:      4, // N+4
+const MODELS = {
+  dlive: {
+    name: 'dLive', inputs: 128, mains: 6, dcas: 24, muteGroups: 8, fxReturns: 16,
+    fxRetBase: 0x20, mainBase: 0x30, dcaBase: 0x36, mgBase: 0x4E, hasGet: true, hasHpf: true,
+  },
+  avantis: {
+    name: 'Avantis', inputs: 64, mains: 3, dcas: 16, muteGroups: 8, fxReturns: 12,
+    fxRetBase: 0x20, mainBase: 0x30, dcaBase: 0x36, mgBase: 0x46, hasGet: false, hasHpf: false,
+  },
 };
 
-// Colour values
-const COLORS = {
-  off:    0x00,
-  red:    0x01,
-  green:  0x02,
-  yellow: 0x03,
-  blue:   0x04,
-  purple: 0x05,
-  cyan:   0x06,
-  white:  0x07,
+// ─── LEVEL LAW ────────────────────────────────────────────────────────────────
+// Tally's fader position uses the X32 law (0.75 = 0 dB, 1.0 = +10 dB) on every console.
+// A&H LV: [(dB + 54) / 64] × 127 → 0 dB = 0x6B, +10 = 0x7F, −40 = 0x1B, 00 = −inf.
+
+function normalToLv(norm) {
+  const dB = sqLaw.normalToDb(norm);
+  if (!Number.isFinite(dB) || dB <= -54) return 0;
+  return Math.max(0, Math.min(127, Math.round(((dB + 54) / 64) * 127)));
+}
+function lvToNormal(lv) {
+  if (lv == null) return null;
+  if (lv <= 0) return 0;
+  // One LV step ≈ 0.5 dB; snap to the nearest 0.5 dB so the table points (6B = 0 dB, 57 = −10 dB) read back exactly.
+  const dB = Math.round(((lv * 64) / 127 - 54) * 2) / 2;
+  return Math.round(sqLaw.dbToNormal(dB) * 1000) / 1000;
+}
+/** dLive HPF frequency formula (protocol V2.0). */
+function hzToHpf(hz) {
+  return Math.max(0, Math.min(127, Math.floor((127 * ((4608 * Math.log10(hz / 4)) / Math.log10(2) - 10699)) / 41314)));
+}
+
+// ─── WIRE BUILDERS ───────────────────────────────────────────────────────────
+
+const buildNrpn = (midiCh, note, param, value) => {
+  const cc = 0xB0 | (midiCh & 0x0F);
+  return [cc, 0x63, note & 0x7F, cc, 0x62, param & 0x7F, cc, 0x06, value & 0x7F];
 };
-
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-/**
- * Convert a normalised 0.0–1.0 fader value to Avantis 0–127 MIDI value.
- * 0.0 → -inf (0), ~0.84 → 0 dB (107), 1.0 → +10 dB (127)
- */
-function normalToMidiLevel(norm) {
-  const clamped = Math.max(0, Math.min(1, norm));
-  if (clamped === 0) return FADER_NEG_INF;
-  return Math.round(clamped * 127);
-}
-
-/**
- * Convert Avantis 0–127 MIDI value back to normalised 0.0–1.0.
- */
-function midiLevelToNormal(val) {
-  return Math.max(0, Math.min(1, val / 127));
-}
-
-/**
- * Convert Hz to Avantis HPF MIDI value (0–127).
- * Range: ~20 Hz (0) to ~400+ Hz (127).  Log-scaled.
- */
-function hzToHpfMidi(hz) {
-  const clamped = Math.max(20, Math.min(400, hz));
-  const norm = Math.log(clamped / 20) / Math.log(400 / 20);
-  return Math.round(norm * 127);
-}
-
-/**
- * Build an NRPN message (3 CC messages = 6 or 9 bytes without running status).
- * Uses running status to compress: 7 bytes instead of 9.
- */
-function buildNrpn(midiCh, channel, param, value) {
-  const cc = 0xB0 | (midiCh & 0x0F);
-  // With running status: status + CC99 + CH + CC98 + param + CC6 + value
-  return [cc, 0x63, channel & 0x7F, 0x62, param & 0x7F, 0x06, value & 0x7F];
-}
-
-/**
- * Build a Note On message.
- */
-function buildNoteOn(midiCh, note, velocity) {
-  return [0x90 | (midiCh & 0x0F), note & 0x7F, velocity & 0x7F];
-}
-
-/**
- * Build a scene recall message: Bank Select (CC 0) + Program Change.
- * Scenes 1–500 across 4 banks of 128.
- */
-function buildSceneRecall(midiCh, sceneNumber) {
-  const n = Math.max(1, Math.min(500, parseInt(sceneNumber)));
-  const zeroIdx = n - 1;
-  const bank = Math.floor(zeroIdx / 128);
-  const prog = zeroIdx % 128;
-  const cc = 0xB0 | (midiCh & 0x0F);
-  const pc = 0xC0 | (midiCh & 0x0F);
-  return [cc, 0x00, bank & 0x7F, pc, prog & 0x7F];
-}
-
-/**
- * Build a SysEx message for channel name.
- */
-function buildNameSet(chTypeOffset, channel, name) {
-  const ascii = Array.from(Buffer.from(String(name).slice(0, 16), 'ascii'));
-  return [...SYSEX_HEADER, chTypeOffset & 0x0F, SYSEX_NAME_SET, channel & 0x7F, ...ascii, 0xF7];
-}
-
-/**
- * Build a SysEx message for channel colour.
- */
-function buildColorSet(chTypeOffset, channel, colorValue) {
-  return [...SYSEX_HEADER, chTypeOffset & 0x0F, SYSEX_COLOR_SET, channel & 0x7F, colorValue & 0x7F, 0xF7];
-}
-
-// ─── AVANTIS MIXER CLASS ─────────────────────────────────────────────────────
+/** Mute ON = vel 7F, OFF = vel 3F, each followed by a Note On vel 00 ("note off"). */
+const buildMute = (midiCh, note, on) => {
+  const s = 0x90 | (midiCh & 0x0F);
+  return [s, note & 0x7F, on ? 0x7F : 0x3F, s, note & 0x7F, 0x00];
+};
+const buildSysEx = (midiCh, bytes) => [...SYSEX_HEADER, midiCh & 0x0F, ...bytes, 0xF7];
+const buildSceneRecall = (baseCh, scene) => {
+  const z = scene - 1;
+  return [0xB0 | baseCh, 0x00, Math.floor(z / 128), 0xC0 | baseCh, z % 128];
+};
 
 class AvantisMixer {
   /**
-   * @param {{ host: string, port?: number, model?: string, baseMidiChannel?: number }} opts
-   *   model: 'Avantis' | 'dLive' (affects channel count, not protocol)
-   *   baseMidiChannel: 0x00–0x0B (default 0x0B = channel 12)
+   * @param {{ host: string, port?: number, model?: string, midiChannel?: number, baseMidiChannel?: number }} opts
+   *   model:       'Avantis' | 'dLive'
+   *   midiChannel: console base MIDI channel, 0-based (0–11 = MIDI ch 1–12). Default 11 (ch 12).
+   *                (baseMidiChannel is the legacy name for the same thing.)
    */
-  constructor({ host, port = DEFAULT_PORT, model = 'Avantis', baseMidiChannel } = {}) {
-    this.host  = host;
-    this.port  = port;
-    this.model = model || 'Avantis';
-    this.base  = (baseMidiChannel != null) ? (baseMidiChannel & 0x0F) : DEFAULT_BASE_CHANNEL;
+  constructor({ host, port, model = 'Avantis', midiChannel, baseMidiChannel } = {}) {
+    this.host = host;
+    this.port = Number(port) || DEFAULT_PORT;
+    this.kind = /dlive/i.test(String(model || '')) ? 'dlive' : 'avantis';
+    this.M = MODELS[this.kind];
+    this.model = model && String(model).trim() ? String(model).trim() : this.M.name;
+    const raw = midiChannel ?? baseMidiChannel;
+    const b = raw == null || raw === '' ? DEFAULT_BASE_CHANNEL : Number(raw);
+    this._configError = null;
+    if (!Number.isInteger(b) || b < 0 || b > 0x0B) {
+      this._configError = `${this.M.name} base MIDI channel must be 1–12 (got ${Number.isInteger(b) ? b + 1 : raw}) — the console uses five channels from the base`;
+      this.base = DEFAULT_BASE_CHANNEL;
+    } else {
+      this.base = b;
+    }
 
-    this._tcp    = new TcpMidi({ host, port, autoReconnect: true });
+    this._tcp = new TcpMidi({ host, port: this.port, autoReconnect: true });
     this._online = false;
+    this._state = { mutes: {}, faders: {}, names: {}, scene: null };
+    this._nrpnState = {};
+    this._bank = 0;
+    this._waiters = new Map();   // key → [fn(value)]
 
-    // Live state tracking from bidirectional feedback
-    this._state = {
-      faders: {},  // { 'input:0': 107, 'input:1': 85, ... }
-      mutes:  {},  // { 'input:0': true, 'dca:3': false, ... }
-      scene:  null,
-    };
-
-    // Wire up events
     this._tcp.on('connected', () => {
       this._online = true;
-      console.log(`🎛️  ${this.model}: TCP MIDI connected to ${host}:${port}`);
+      console.log(`🎛️  ${this.model}: TCP MIDI connected to ${host}:${this.port}`);
     });
     this._tcp.on('disconnected', () => {
       this._online = false;
       console.log(`🎛️  ${this.model}: TCP MIDI disconnected`);
+    });
+    this._tcp.on('error', (err) => {
+      console.warn(`🎛️  ${this.model}: TCP MIDI error — ${err.message}`);
     });
     this._tcp.on('midi', (msg) => this._handleIncoming(msg));
   }
@@ -196,382 +139,382 @@ class AvantisMixer {
   // ─── LIFECYCLE ──────────────────────────────────────────────────────────────
 
   async connect() {
-    try {
-      await this._tcp.connect();
-      this._online = true;
-    } catch (e) {
-      this._online = false;
-      console.warn(`🎛️  ${this.model}: connect failed — ${e.message}`);
-    }
+    try { await this._tcp.connect(); this._online = true; }
+    catch (e) { this._online = false; console.warn(`🎛️  ${this.model}: connect failed — ${e.message}`); }
   }
 
   async disconnect() {
     this._tcp.disconnect();
     this._online = false;
+    for (const list of this._waiters.values()) for (const w of list) w(undefined);
+    this._waiters.clear();
+  }
+
+  // ─── CHANNEL HELPERS ────────────────────────────────────────────────────────
+
+  _ch(off) { return (this.base + off) & 0x0F; }
+  get _chInput() { return this._ch(0); }
+  get _chN4() { return this._ch(4); }
+  get _chLabel() { return `MIDI base channel ${this.base + 1}`; }
+
+  static _idx(val, max, what = 'channel') {
+    const s = String(val ?? '').trim();
+    const n = /^\d+$/.test(s) ? Number(s) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > max) throw new Error(`Invalid ${what} "${val}" (valid: 1–${max})`);
+    return n - 1;
+  }
+
+  _requireOnline() {
+    if (this._configError) throw new Error(this._configError);
+    if (!this._online || !this._tcp.online) throw new Error(`${this.model} not connected`);
+  }
+  _send(bytes) {
+    if (!this._tcp.send(bytes)) throw new Error(`${this.model} not connected`);
+  }
+
+  // ─── ROUND-TRIPS ────────────────────────────────────────────────────────────
+
+  _wait(key, sendBytes, timeoutMs = GET_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const waiter = (v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (v === undefined) reject(new Error('disconnected')); else resolve(v);
+      };
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        const list = this._waiters.get(key);
+        if (list) { const i = list.indexOf(waiter); if (i >= 0) list.splice(i, 1); if (!list.length) this._waiters.delete(key); }
+        reject(new Error('timeout'));
+      }, timeoutMs);
+      if (!this._waiters.has(key)) this._waiters.set(key, []);
+      this._waiters.get(key).push(waiter);
+      if (!this._tcp.send(sendBytes)) waiter(undefined);
+    });
+  }
+  _resolve(key, v) {
+    const list = this._waiters.get(key);
+    if (!list) return;
+    this._waiters.delete(key);
+    for (const w of list) w(v);
+  }
+
+  /** dLive: Get Mute → true/false. */
+  _getMute(midiCh, note, t) { return this._wait(`mute:${midiCh}:${note}`, buildSysEx(midiCh, [0x05, 0x09, note]), t); }
+  /** dLive: Get NRPN parameter (fader 17, HPF 30/31) → 0–127. */
+  _getParam(midiCh, note, param, t) { return this._wait(`nrpn:${midiCh}:${note}:${param}`, buildSysEx(midiCh, [0x05, 0x0B, param, note]), t); }
+  /** Both: name request → string. */
+  _getName(midiCh, note, t) { return this._wait(`name:${midiCh}:${note}`, buildSysEx(midiCh, [0x01, note]), t); }
+  _getColor(midiCh, note, t) { return this._wait(`color:${midiCh}:${note}`, buildSysEx(midiCh, [0x04, note]), t); }
+
+  _noReply(label) {
+    return new Error(`${this.model} did not confirm ${label} — no reply from the console (check it is powered, on the network, and set to ${this._chLabel})`);
+  }
+
+  /** Liveness round-trip. Never opens a second socket. */
+  async _probe(t = PROBE_TIMEOUT_MS) {
+    if (this._configError || !this._tcp.online) return false;
+    try {
+      if (this.M.hasGet) await this._getMute(this._chN4, this.M.mainBase, t);
+      else await this._getName(this._chInput, 0, t);
+      return true;
+    } catch { return false; }
   }
 
   async isOnline() {
-    const reachable = await this._tcp.isOnline();
-    this._online = reachable;
-    return reachable;
+    this._online = await this._probe();
+    return this._online;
   }
 
   async getStatus() {
     const online = await this.isOnline();
+    if (online && this.M.hasGet) {
+      await this._getParam(this._chN4, this.M.mainBase, NRPN.FADER, PROBE_TIMEOUT_MS).catch(() => undefined);
+    }
+    const f = this._state.faders['main:0'];
+    const m = this._state.mutes['main:0'];
     return {
       online,
       model: this.model,
       firmware: '',
-      mainFader: this._state.faders['mix:0'] != null
-        ? midiLevelToNormal(this._state.faders['mix:0'])
-        : 0,
-      mainMuted: this._state.mutes['mix:0'] || false,
+      mainFader: online && f != null ? lvToNormal(f) : null,
+      mainMuted: online && m != null ? m : null,
       scene: this._state.scene,
+      ...(this._configError ? { error: this._configError } : {}),
     };
   }
 
-  // ─── MIDI CHANNEL HELPERS ───────────────────────────────────────────────────
+  // ─── VERIFIED / UNCONFIRMED SETS ────────────────────────────────────────────
 
-  /** Get the MIDI channel for a given channel type offset (0–4). */
-  _ch(typeOffset) { return (this.base + typeOffset) & 0x0F; }
-
-  /** MIDI channel for input channels. */
-  get _chInput()  { return this._ch(CH_TYPE.INPUT); }
-  /** MIDI channel for group channels. */
-  get _chGroup()  { return this._ch(CH_TYPE.GROUP); }
-  /** MIDI channel for mix buses. */
-  get _chMix()    { return this._ch(CH_TYPE.MIX); }
-  /** MIDI channel for FX returns. */
-  get _chFxRet()  { return this._ch(CH_TYPE.FX_RET); }
-  /** MIDI channel for DCAs and mute groups. */
-  get _chDca()    { return this._ch(CH_TYPE.DCA); }
-
-  // ─── FADER CONTROL ──────────────────────────────────────────────────────────
-
-  /**
-   * Set channel fader level (normalised 0.0–1.0).
-   * @param {number|string} ch  Channel number (1-based)
-   * @param {number} level      Normalised level 0.0–1.0
-   */
-  async setFader(ch, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    const val = normalToMidiLevel(parseFloat(level));
-    this._tcp.send(buildNrpn(this._chInput, n, NRPN.FADER, val));
+  async _setMute(midiCh, note, on, key, label) {
+    this._requireOnline();
+    if (!this.M.hasGet) return this._sendUnconfirmed(buildMute(midiCh, note, on), label);
+    this._send(buildMute(midiCh, note, on));
+    let got;
+    try { got = await this._getMute(midiCh, note); } catch { throw this._noReply(label); }
+    if (got !== on) throw new Error(`${this.model} did not apply ${label} — console reports ${got ? 'muted' : 'unmuted'}`);
+    this._state.mutes[key] = on;
+    return { confirmed: true };
   }
 
-  /**
-   * Get channel status from live-tracked state.
-   */
-  async getChannelStatus(ch) {
-    const n = Math.max(0, parseInt(ch) - 1);
-    const key = `input:${n}`;
-    return {
-      fader: this._state.faders[key] != null ? midiLevelToNormal(this._state.faders[key]) : 0,
-      muted: this._state.mutes[key] || false,
-    };
+  async _setLevel(midiCh, note, lv, key, label) {
+    this._requireOnline();
+    const bytes = buildNrpn(midiCh, note, NRPN.FADER, lv);
+    if (!this.M.hasGet) return this._sendUnconfirmed(bytes, label);
+    this._send(bytes);
+    let got;
+    try { got = await this._getParam(midiCh, note, NRPN.FADER); } catch { throw this._noReply(label); }
+    if (Math.abs(got - lv) > 1) throw new Error(`${this.model} did not apply ${label} — console reports level ${got}, expected ${lv}`);
+    this._state.faders[key] = got;
+    return { confirmed: true };
   }
 
-  // ─── MUTE CONTROL ──────────────────────────────────────────────────────────
-
-  /**
-   * Mute an input channel.
-   * @param {number|string} ch  Channel number (1-based)
-   */
-  async muteChannel(ch) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    this._tcp.send(buildNoteOn(this._chInput, n, 0x7F)); // velocity ≥ 64 = mute
-  }
-
-  /**
-   * Unmute an input channel.
-   */
-  async unmuteChannel(ch) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    this._tcp.send(buildNoteOn(this._chInput, n, 0x00)); // velocity ≤ 63 = unmute
-  }
-
-  // ─── MASTER CONTROL ────────────────────────────────────────────────────────
-
-  /**
-   * Mute master LR output.
-   * Master LR on the Avantis is typically Mix 1 (channel 0 on the MIX MIDI channel).
-   */
-  async muteMaster() {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildNoteOn(this._chMix, 0, 0x7F));
-  }
-
-  async unmuteMaster() {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildNoteOn(this._chMix, 0, 0x00));
-  }
-
-  // ─── DCA CONTROL ───────────────────────────────────────────────────────────
-
-  /**
-   * Mute a DCA group.
-   * @param {number|string} dca  DCA number (1-based, max 24)
-   */
-  async muteDca(dca) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
-    this._tcp.send(buildNoteOn(this._chDca, n, 0x7F));
-  }
-
-  async unmuteDca(dca) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
-    this._tcp.send(buildNoteOn(this._chDca, n, 0x00));
-  }
-
-  /**
-   * Set DCA fader level.
-   */
-  async setDcaFader(dca, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
-    const val = normalToMidiLevel(parseFloat(level));
-    this._tcp.send(buildNrpn(this._chDca, n, NRPN.FADER, val));
-  }
-
-  // ─── SCENE RECALL ──────────────────────────────────────────────────────────
-
-  /**
-   * Recall a scene (1–500).
-   */
-  async recallScene(n) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    this._tcp.send(buildSceneRecall(this.base, parseInt(n)));
-  }
-
-  /** Scene save is not available via TCP MIDI. */
-  async saveScene() {
-    console.warn(`🎛️  ${this.model}: scene save not available via TCP MIDI — save at console`);
-  }
-
-  /** Solo clear is not available via TCP MIDI. */
-  async clearSolos() {
-    // Not in the protocol
-  }
-
-  // ─── CHANNEL PROCESSING ────────────────────────────────────────────────────
-
-  /**
-   * Set channel name via SysEx.
-   * @param {number|string} ch   Channel number (1-based)
-   * @param {string} name        Up to 16 ASCII characters
-   */
-  async setChannelName(ch, name) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    this._tcp.send(buildNameSet(CH_TYPE.INPUT, n, name));
-  }
-
-  /**
-   * Set channel colour via SysEx.
-   * @param {number|string} ch     Channel number (1-based)
-   * @param {string} color         Color name: off, red, green, yellow, blue, purple, cyan, white
-   */
-  async setChannelColor(ch, color) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    const val = COLORS[String(color).toLowerCase()] ?? COLORS.off;
-    this._tcp.send(buildColorSet(CH_TYPE.INPUT, n, val));
-  }
-
-  /**
-   * Set HPF (high-pass filter).
-   * @param {number|string} ch
-   * @param {{ enabled?: boolean, frequency?: number }} params
-   */
-  async setHpf(ch, { enabled = true, frequency = 80 } = {}) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    // HPF on/off
-    this._tcp.send(buildNrpn(this._chInput, n, NRPN.HPF_ON, enabled ? 0x7F : 0x00));
-    // HPF frequency
-    if (frequency != null) {
-      this._tcp.send(buildNrpn(this._chInput, n, NRPN.HPF_FREQ, hzToHpfMidi(frequency)));
+  async _sendUnconfirmed(bytes, label) {
+    if (!(await this._probe())) {
+      this._online = false;
+      throw new Error(`${this.model} is not answering — ${label} NOT sent (check it is powered, on the network, and set to ${this._chLabel})`);
     }
+    this._send(bytes);
+    return { confirmed: false, reason: `the ${this.M.name} has no mute/level read-back over TCP MIDI` };
   }
 
-  /**
-   * Set pan position.
-   * @param {number|string} ch
-   * @param {number} pan  -1.0 (hard left) – +1.0 (hard right), 0 = center
-   */
-  async setPan(ch, pan) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
-    const p = Number(pan);
-    if (!Number.isFinite(p)) throw new Error('pan must be a number');
-    if (p < -1 || p > 1) throw new Error(`Pan out of range: ${pan} (valid: -1.0 to +1.0)`);
-    const normalized = (p + 1) / 2;
-    const val = Math.round(Math.max(0, Math.min(1, normalized)) * 127);
-    this._tcp.send(buildNrpn(this._chInput, n, NRPN.PAN, val));
+  // ─── INPUTS ─────────────────────────────────────────────────────────────────
+
+  async muteChannel(ch)   { return this._inputMute(ch, true); }
+  async unmuteChannel(ch) { return this._inputMute(ch, false); }
+  async _inputMute(ch, on) {
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    return this._setMute(this._chInput, n, on, `input:${n}`, `channel ${n + 1} ${on ? 'mute' : 'unmute'}`);
   }
 
-  // Stubs for unsupported processing
-  async setEq()         { console.warn(`🎛️  ${this.model}: per-band EQ not available via TCP MIDI — use console`); }
-  async setCompressor() { console.warn(`🎛️  ${this.model}: compressor not available via TCP MIDI — use console`); }
-  async setGate()       { console.warn(`🎛️  ${this.model}: gate not available via TCP MIDI — use console`); }
+  async setFader(ch, level) {
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    const lv = normalToLv(AvantisMixer._level(level));
+    return this._setLevel(this._chInput, n, lv, `input:${n}`, `channel ${n + 1} fader`);
+  }
 
-  /**
-   * Apply a full channel strip (best-effort).
-   */
-  async setFullChannelStrip(ch, strip) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
+  static _level(level) {
+    const v = Number(level);
+    if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error(`Invalid level "${level}" (valid: 0.0–1.0)`);
+    return v;
+  }
+
+  async getChannelStatus(ch) {
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    const key = `input:${n}`;
+    if (this.M.hasGet && this._online && this._tcp.online) {
+      await this._getMute(this._chInput, n).catch(() => undefined);
+      await this._getParam(this._chInput, n, NRPN.FADER).catch(() => undefined);
+    }
+    const f = this._state.faders[key];
+    const m = this._state.mutes[key];
+    return {
+      fader: f != null ? lvToNormal(f) : null,
+      muted: m != null ? m : null,
+      name: this._state.names[key] || undefined,
+    };
+  }
+
+  // ─── MAINS ──────────────────────────────────────────────────────────────────
+
+  async muteMaster()   { return this._setMute(this._chN4, this.M.mainBase, true, 'main:0', 'main 1 mute'); }
+  async unmuteMaster() { return this._setMute(this._chN4, this.M.mainBase, false, 'main:0', 'main 1 unmute'); }
+
+  // ─── DCA / MUTE GROUPS ──────────────────────────────────────────────────────
+
+  async muteDca(dca)   { return this._dcaMute(dca, true); }
+  async unmuteDca(dca) { return this._dcaMute(dca, false); }
+  async _dcaMute(dca, on) {
+    const n = AvantisMixer._idx(dca, this.M.dcas, 'DCA');
+    return this._setMute(this._chN4, this.M.dcaBase + n, on, `dca:${n}`, `DCA ${n + 1} ${on ? 'mute' : 'unmute'}`);
+  }
+  async setDcaFader(dca, level) {
+    const n = AvantisMixer._idx(dca, this.M.dcas, 'DCA');
+    const lv = normalToLv(AvantisMixer._level(level));
+    return this._setLevel(this._chN4, this.M.dcaBase + n, lv, `dca:${n}`, `DCA ${n + 1} fader`);
+  }
+
+  async activateMuteGroup(mg)   { return this._muteGroup(mg, true); }
+  async deactivateMuteGroup(mg) { return this._muteGroup(mg, false); }
+  async _muteGroup(mg, on) {
+    const n = AvantisMixer._idx(mg, this.M.muteGroups, 'mute group');
+    return this._setMute(this._chN4, this.M.mgBase + n, on, `muteGroup:${n}`, `mute group ${n + 1} ${on ? 'on' : 'off'}`);
+  }
+
+  // ─── SCENES ─────────────────────────────────────────────────────────────────
+
+  /** Bank + Program Change on the base channel. No acknowledgement exists → { confirmed:false }. */
+  async recallScene(n) {
+    this._requireOnline();
+    const scene = Number(n);
+    if (!Number.isInteger(scene) || scene < 1 || scene > 500) throw new Error(`Invalid scene "${n}" (valid: 1–500)`);
+    if (this.kind === 'dlive' && SURFACE_PORTS.has(this.port)) {
+      throw new Error(`Scene recall only works when Tally is connected to the dLive MixRack (port 51325), not the Surface (port ${this.port})`);
+    }
+    this._send(buildSceneRecall(this.base, scene));
+    if (!(await this._probe())) throw new Error(`${this.model} stopped responding after scene ${scene} recall`);
+    return { confirmed: false, reason: `the ${this.M.name} does not acknowledge remote scene recalls, and ignores blank scenes` };
+  }
+
+  async saveScene()   { this._notAvailable('Scene save'); }
+  async clearSolos()  { this._notAvailable('Solo clear'); }
+  async pressSoftKey() { this._notAvailable('SoftKey control'); }
+
+  // ─── NAME / COLOUR (read back on both consoles) ─────────────────────────────
+
+  async setChannelName(ch, name) {
+    this._requireOnline();
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    const s = String(name ?? '');
+    if (!s.length || s.length > NAME_MAX || !/^[\x20-\x7E]+$/.test(s)) {
+      throw new Error(`Invalid name "${s}" — ${this.M.name} names are 1–${NAME_MAX} plain ASCII characters`);
+    }
+    this._send(buildSysEx(this._chInput, [0x03, n, ...Buffer.from(s, 'ascii')]));
+    let got;
+    try { got = await this._getName(this._chInput, n); } catch { throw this._noReply(`channel ${n + 1} rename`); }
+    if (got !== s) throw new Error(`${this.model} did not apply channel ${n + 1} rename — console reports "${got}"`);
+    return { confirmed: true };
+  }
+
+  async setChannelColor(ch, color) {
+    this._requireOnline();
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    const col = COLORS[String(color ?? '').toLowerCase()];
+    if (col == null) throw new Error(`Invalid colour "${color}" (valid: off, red, green, yellow, blue, purple, cyan, white)`);
+    this._send(buildSysEx(this._chInput, [0x06, n, col]));
+    let got;
+    try { got = await this._getColor(this._chInput, n); } catch { throw this._noReply(`channel ${n + 1} colour`); }
+    if (got !== col) throw new Error(`${this.model} did not apply channel ${n + 1} colour — console reports ${got}`);
+    return { confirmed: true };
+  }
+
+  // ─── HPF (dLive only) ───────────────────────────────────────────────────────
+
+  async setHpf(ch, { enabled = true, frequency } = {}) {
+    if (!this.M.hasHpf) this._notAvailable('HPF');
+    this._requireOnline();
+    const n = AvantisMixer._idx(ch, this.M.inputs);
+    let vv = null;
+    if (frequency != null && enabled !== false) {
+      const hz = Number(frequency);
+      if (!Number.isFinite(hz) || hz < 20 || hz > 2000) throw new Error(`Invalid HPF frequency "${frequency}" (valid: 20–2000 Hz)`);
+      vv = hzToHpf(hz);
+    }
+    const on = enabled !== false;
+    this._send(buildNrpn(this._chInput, n, NRPN.HPF_ON, on ? 0x7F : 0x00));
+    let got;
+    try { got = await this._getParam(this._chInput, n, NRPN.HPF_ON); } catch { throw this._noReply(`channel ${n + 1} HPF`); }
+    if ((got >= 0x40) !== on) throw new Error(`${this.model} did not apply channel ${n + 1} HPF ${on ? 'on' : 'off'}`);
+    if (vv != null) {
+      this._send(buildNrpn(this._chInput, n, NRPN.HPF_FREQ, vv));
+      try { got = await this._getParam(this._chInput, n, NRPN.HPF_FREQ); } catch { throw this._noReply(`channel ${n + 1} HPF frequency`); }
+      if (Math.abs(got - vv) > 1) throw new Error(`${this.model} did not apply channel ${n + 1} HPF frequency — console reports ${got}, expected ${vv}`);
+    }
+    return { confirmed: true };
+  }
+
+  // ─── NOT IN THE PROTOCOL ────────────────────────────────────────────────────
+
+  _notAvailable(what) {
+    throw new Error(`${what} is not available on ${this.model} over MIDI — set it at the console`);
+  }
+  /** NRPN 0x18 is "Channel → Main Mix assign" on both consoles, not pan. */
+  async setPan()        { this._notAvailable('Pan'); }
+  async setEq()         { this._notAvailable('EQ'); }
+  async setCompressor() { this._notAvailable('Compressor'); }
+  async setGate()       { this._notAvailable('Gate'); }
+
+  async setFullChannelStrip(ch, strip = {}) {
     const applied = [];
     const skipped = [];
-
-    if (strip.name != null) { await this.setChannelName(ch, strip.name); applied.push('name'); }
-    if (strip.color != null) { await this.setChannelColor(ch, strip.color); applied.push('color'); }
-    if (strip.hpf) { await this.setHpf(ch, strip.hpf); applied.push('hpf'); }
-    if (strip.pan != null) { await this.setPan(ch, strip.pan); applied.push('pan'); }
-    if (strip.fader != null) { await this.setFader(ch, strip.fader); applied.push('fader'); }
-    if (strip.mute === true) { await this.muteChannel(ch); applied.push('mute'); }
-    else if (strip.mute === false) { await this.unmuteChannel(ch); applied.push('unmute'); }
-
-    if (strip.eq) skipped.push('eq');
-    if (strip.compressor) skipped.push('compressor');
-    if (strip.gate) skipped.push('gate');
-
-    if (skipped.length > 0) {
-      console.warn(`🎛️  ${this.model} Ch${ch}: skipped [${skipped.join(', ')}] — not available via TCP MIDI`);
-    }
-
-    return { applied, skipped };
+    const unconfirmed = [];
+    const note = (k, r) => { applied.push(k); if (r && r.confirmed === false) unconfirmed.push(k); };
+    for (const k of ['eq', 'compressor', 'gate', 'pan']) if (strip[k] != null && strip[k] !== false) skipped.push(k);
+    if (strip.hpf && !this.M.hasHpf) skipped.push('hpf');
+    if (strip.name != null) note('name', await this.setChannelName(ch, strip.name));
+    if (strip.color != null) note('color', await this.setChannelColor(ch, strip.color));
+    if (strip.hpf && this.M.hasHpf) note('hpf', await this.setHpf(ch, strip.hpf));
+    if (strip.fader != null) note('fader', await this.setFader(ch, strip.fader));
+    if (strip.mute === true) note('mute', await this.muteChannel(ch));
+    else if (strip.mute === false) note('unmute', await this.unmuteChannel(ch));
+    if (skipped.length) console.warn(`🎛️  ${this.model} Ch${ch}: skipped [${skipped.join(', ')}] — not available over MIDI`);
+    return { applied, skipped, unconfirmed };
   }
 
-  // ─── BIDIRECTIONAL FEEDBACK ────────────────────────────────────────────────
+  // ─── INCOMING ───────────────────────────────────────────────────────────────
 
-  /**
-   * Handle incoming MIDI messages from the console.
-   * Updates live state so getChannelStatus() reflects real console positions.
-   * @param {Uint8Array} msg
-   */
+  _keyFor(midiCh, note) {
+    const off = ((midiCh - this.base) + 16) % 16;
+    const M = this.M;
+    if (off === 0) return note < M.inputs ? `input:${note}` : null;
+    if (off === 1) return `group:${note}`;
+    if (off === 2) return `aux:${note}`;
+    if (off === 3) return `matrix:${note}`;
+    if (off === 4) {
+      if (note >= M.mainBase && note < M.mainBase + M.mains) return `main:${note - M.mainBase}`;
+      if (note >= M.dcaBase && note < M.dcaBase + M.dcas) return `dca:${note - M.dcaBase}`;
+      if (note >= M.mgBase && note < M.mgBase + M.muteGroups) return `muteGroup:${note - M.mgBase}`;
+      if (note >= M.fxRetBase && note < M.fxRetBase + M.fxReturns) return `fxReturn:${note - M.fxRetBase}`;
+      return `fxSend:${note}`;
+    }
+    return null;
+  }
+
   _handleIncoming(msg) {
-    if (msg.length === 0) return;
-
-    const status = msg[0];
-    const hi = status & 0xF0;
-    const ch = status & 0x0F;
-
-    // ── Note On: mute state change ──
+    if (!msg || !msg.length) return;
+    if (msg[0] === 0xF0) { this._handleSysEx(msg); return; }
+    const hi = msg[0] & 0xF0;
+    const ch = msg[0] & 0x0F;
     if (hi === 0x90 && msg.length >= 3) {
-      const note = msg[1];
-      const vel  = msg[2];
-      const muted = vel >= 0x40;
-      const typeKey = this._channelTypeFromMidi(ch);
-      if (typeKey) {
-        const key = `${typeKey}:${note}`;
-        this._state.mutes[key] = muted;
+      const vel = msg[2];
+      if (vel === 0) return;                         // "note off" — ignored, like the console does
+      const on = vel >= 0x40;
+      const key = this._keyFor(ch, msg[1]);
+      if (key) this._state.mutes[key] = on;
+      this._resolve(`mute:${ch}:${msg[1]}`, on);
+      return;
+    }
+    if (hi === 0xB0 && msg.length >= 3) {
+      const s = this._nrpnState[ch] || (this._nrpnState[ch] = {});
+      const [, cc, val] = msg;
+      if (cc === 0x00) { if (ch === this.base) this._bank = val; return; }
+      if (cc === 0x63) { s.note = val; s.param = null; return; }
+      if (cc === 0x62) { s.param = val; return; }
+      if (cc === 0x06 && s.note != null && s.param != null) {
+        if (s.param === NRPN.FADER) { const key = this._keyFor(ch, s.note); if (key) this._state.faders[key] = val; }
+        this._resolve(`nrpn:${ch}:${s.note}:${s.param}`, val);
       }
       return;
     }
-
-    // ── Control Change: NRPN fader data ──
-    if (hi === 0xB0 && msg.length >= 3) {
-      // We need to track NRPN state per MIDI channel to reassemble
-      // CC 99 (0x63) = param MSB (channel number)
-      // CC 98 (0x62) = param LSB (parameter ID)
-      // CC 6  (0x06) = data MSB  (value)
-      this._handleCC(ch, msg[1], msg[2]);
-      return;
-    }
-
-    // ── Program Change: scene change ──
-    if (hi === 0xC0 && msg.length >= 2) {
-      const bank = this._nrpnState?.[ch]?.bank ?? 0;
-      this._state.scene = (bank * 128) + msg[1] + 1;
-      return;
-    }
-
-    // ── SysEx: channel name reply, colour reply ──
-    if (msg[0] === 0xF0 && msg.length > 10) {
-      this._handleSysEx(msg);
+    if (hi === 0xC0 && msg.length >= 2 && ch === this.base) {
+      this._state.scene = (this._bank || 0) * 128 + msg[1] + 1;
     }
   }
 
-  /**
-   * Track CC messages to reassemble NRPN sequences.
-   */
-  _handleCC(midiCh, cc, val) {
-    if (!this._nrpnState) this._nrpnState = {};
-    if (!this._nrpnState[midiCh]) this._nrpnState[midiCh] = {};
-    const s = this._nrpnState[midiCh];
-
-    switch (cc) {
-      case 0x00: // Bank Select (for scene recall)
-        s.bank = val;
-        break;
-      case 0x63: // NRPN MSB = channel number
-        s.paramCh = val;
-        break;
-      case 0x62: // NRPN LSB = parameter ID
-        s.paramId = val;
-        break;
-      case 0x06: // Data Entry MSB = value
-        if (s.paramId === NRPN.FADER && s.paramCh != null) {
-          const typeKey = this._channelTypeFromMidi(midiCh);
-          if (typeKey) {
-            this._state.faders[`${typeKey}:${s.paramCh}`] = val;
-          }
-        }
-        break;
-    }
-  }
-
-  /**
-   * Handle SysEx messages (name reply, colour reply).
-   */
   _handleSysEx(msg) {
-    // Verify A&H header
-    if (msg[1] !== 0x00 || msg[2] !== 0x00 || msg[3] !== 0x1A || msg[4] !== 0x50) return;
-    // msg[8] = channel type offset, msg[9] = command, msg[10] = channel number
+    for (let i = 0; i < SYSEX_HEADER.length; i++) if (msg[i] !== SYSEX_HEADER[i]) return;
     if (msg.length < 12) return;
+    const ch = msg[8];
     const cmd = msg[9];
-    if (cmd === SYSEX_NAME_REPLY) {
-      const nameBytes = msg.slice(11, msg.length - 1); // strip F7
-      const name = Buffer.from(nameBytes).toString('ascii').trim();
-      // Could emit event here for UI updates
+    const note = msg[10];
+    if (cmd === 0x02) {
+      const name = Buffer.from(msg.slice(11, msg.length - 1)).toString('ascii');
+      const key = this._keyFor(ch, note);
+      if (key) this._state.names[key] = name;
+      this._resolve(`name:${ch}:${note}`, name);
+    } else if (cmd === 0x05 && msg.length >= 13) {
+      this._resolve(`color:${ch}:${note}`, msg[11]);
     }
   }
 
-  /**
-   * Map a MIDI channel number back to a channel type string.
-   */
-  _channelTypeFromMidi(midiCh) {
-    const offset = ((midiCh - this.base) + 16) % 16; // handle wrap
-    switch (offset) {
-      case CH_TYPE.INPUT:  return 'input';
-      case CH_TYPE.GROUP:  return 'group';
-      case CH_TYPE.MIX:    return 'mix';
-      case CH_TYPE.FX_RET: return 'fxret';
-      case CH_TYPE.DCA:    return 'dca';
-      default: return null;
-    }
-  }
-
-  // ─── STATIC HELPERS ────────────────────────────────────────────────────────
-
-  // ─── MUTE GROUP / SOFTKEY STUBS ────────────────────────────────────────────
-  // Avantis/dLive TCP MIDI protocol does not expose mute groups or softkeys.
-
-  async activateMuteGroup()    { console.warn(`🎛️  ${this.model}: mute groups not available via TCP MIDI`); }
-  async deactivateMuteGroup()  { console.warn(`🎛️  ${this.model}: mute groups not available via TCP MIDI`); }
-  async pressSoftKey()         { console.warn(`🎛️  ${this.model}: softkeys not available via TCP MIDI`); }
-
-  /** Available channel colours for this console. */
-  static get COLORS() { return Object.keys(COLORS); }
-
-  /** Max input channel count by model. */
-  static maxInputs(model) {
-    return (model || '').toLowerCase() === 'dlive' ? 128 : 64;
-  }
+  static get COLORS() { return ['off', 'red', 'green', 'yellow', 'blue', 'purple', 'cyan', 'white']; }
+  static maxInputs(model) { return /dlive/i.test(String(model || '')) ? 128 : 64; }
 }
 
-module.exports = { AvantisMixer };
+module.exports = {
+  AvantisMixer,
+  _internals: { normalToLv, lvToNormal, hzToHpf, MODELS, DEFAULT_BASE_CHANNEL, DEFAULT_PORT },
+};

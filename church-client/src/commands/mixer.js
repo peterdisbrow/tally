@@ -9,8 +9,10 @@ const MIXER_CAPABILITIES = {
   SQ5:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
   SQ6:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
   SQ7:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
-  DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
-  AVANTIS: { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
+  // dLive: Get Mute / Get Fader / Get HPF exist → verified. No pan over MIDI (NRPN 18 is main-mix assign).
+  DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', channelColor: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: 'full', pan: false, softKey: false },
+  // Avantis: no mute/level Get in its protocol → mutes/faders are 'sent, not confirmed' (partial). No HPF, no pan.
+  AVANTIS: { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: 'full', channelColor: 'full', muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'partial', muteGroup: 'partial', pan: false, softKey: false },
   CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   QL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
@@ -55,6 +57,15 @@ function mixerBrandName(type, model) {
   }
 }
 
+/**
+ * Consoles without a read-back (Avantis) return { confirmed:false, reason } from a
+ * set: the command went out but the desk cannot tell us it applied. Never say "done".
+ */
+function reported(r, doneMsg, what) {
+  if (r && r.confirmed === false) return `${what} sent — not confirmed by the console (${r.reason || 'no read-back available'})`;
+  return doneMsg;
+}
+
 /** Simple ASCII fader bar. */
 function faderBar(pct) {
   const filled = Math.round(pct / 10);
@@ -89,22 +100,18 @@ async function mixerMute(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const ch = params.channel;
   if (ch === 'master' || ch === undefined) {
-    await agent.mixer.muteMaster();
-    return 'Master output muted';
+    return reported(await agent.mixer.muteMaster(), 'Master output muted', 'Master mute');
   }
-  await agent.mixer.muteChannel(ch);
-  return `Channel ${ch} muted`;
+  return reported(await agent.mixer.muteChannel(ch), `Channel ${ch} muted`, `Channel ${ch} mute`);
 }
 
 async function mixerUnmute(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const ch = params.channel;
   if (ch === 'master' || ch === undefined) {
-    await agent.mixer.unmuteMaster();
-    return 'Master output unmuted';
+    return reported(await agent.mixer.unmuteMaster(), 'Master output unmuted', 'Master unmute');
   }
-  await agent.mixer.unmuteChannel(ch);
-  return `Channel ${ch} unmuted`;
+  return reported(await agent.mixer.unmuteChannel(ch), `Channel ${ch} unmuted`, `Channel ${ch} unmute`);
 }
 
 async function mixerChannelStatus(agent, params) {
@@ -167,8 +174,8 @@ async function mixerSetFader(agent, params) {
   const { channel, level } = params;
   if (channel == null) throw new Error('channel parameter required');
   if (level == null) throw new Error('level parameter required (0.0–1.0)');
-  await agent.mixer.setFader(channel, level);
-  return `Channel ${channel} fader set to ${Math.round(parseFloat(level) * 100)}%`;
+  const r = await agent.mixer.setFader(channel, level);
+  return reported(r, `Channel ${channel} fader set to ${Math.round(parseFloat(level) * 100)}%`, `Channel ${channel} fader ${Math.round(parseFloat(level) * 100)}%`);
 }
 
 async function mixerSetChannelName(agent, params) {
@@ -222,8 +229,10 @@ async function mixerSetFullChannelStrip(agent, params) {
   requireMixerCapability(agent, 'channelStrip', 'Channel strip');
   const { channel, ...strip } = params;
   if (channel == null) throw new Error('channel parameter required');
-  await agent.mixer.setFullChannelStrip(channel, strip);
-  return `Channel ${channel} (${strip.name || 'unnamed'}) — full strip applied`;
+  const r = await agent.mixer.setFullChannelStrip(channel, strip);
+  const skipped = r && Array.isArray(r.skipped) && r.skipped.length ? ` — skipped (not available on this console): ${r.skipped.join(', ')}` : '';
+  const unconf = r && Array.isArray(r.unconfirmed) && r.unconfirmed.length ? ` — sent but not confirmed by the console: ${r.unconfirmed.join(', ')}` : '';
+  return `Channel ${channel} (${strip.name || 'unnamed'}) — strip ${skipped || unconf ? 'partly applied' : 'applied'}${skipped}${unconf}`;
 }
 
 async function mixerSaveScene(agent, params) {
@@ -371,8 +380,7 @@ async function mixerMuteDca(agent, params) {
   requireMixerCapability(agent, 'dcaControl', 'DCA control');
   const { dca } = params;
   if (dca == null) throw new Error('dca number required');
-  await agent.mixer.muteDca(parseInt(dca));
-  return `DCA ${dca} muted`;
+  return reported(await agent.mixer.muteDca(parseInt(dca)), `DCA ${dca} muted`, `DCA ${dca} mute`);
 }
 
 async function mixerUnmuteDca(agent, params) {
@@ -380,8 +388,7 @@ async function mixerUnmuteDca(agent, params) {
   requireMixerCapability(agent, 'dcaControl', 'DCA control');
   const { dca } = params;
   if (dca == null) throw new Error('dca number required');
-  await agent.mixer.unmuteDca(parseInt(dca));
-  return `DCA ${dca} unmuted`;
+  return reported(await agent.mixer.unmuteDca(parseInt(dca)), `DCA ${dca} unmuted`, `DCA ${dca} unmute`);
 }
 
 async function mixerSetDcaFader(agent, params) {
@@ -391,8 +398,8 @@ async function mixerSetDcaFader(agent, params) {
   if (dca == null) throw new Error('dca number required');
   if (level == null) throw new Error('level required (0.0–1.0)');
   const lvl = Math.max(0, Math.min(1, parseFloat(level)));
-  await agent.mixer.setDcaFader(parseInt(dca), lvl);
-  return `DCA ${dca} fader set to ${Math.round(lvl * 100)}%`;
+  const r = await agent.mixer.setDcaFader(parseInt(dca), lvl);
+  return reported(r, `DCA ${dca} fader set to ${Math.round(lvl * 100)}%`, `DCA ${dca} fader ${Math.round(lvl * 100)}%`);
 }
 
 async function mixerActivateMuteGroup(agent, params) {
@@ -400,8 +407,7 @@ async function mixerActivateMuteGroup(agent, params) {
   requireMixerCapability(agent, 'muteGroup', 'Mute groups');
   const { group } = params;
   if (group == null) throw new Error('group number required');
-  await agent.mixer.activateMuteGroup(parseInt(group));
-  return `Mute group ${group} activated`;
+  return reported(await agent.mixer.activateMuteGroup(parseInt(group)), `Mute group ${group} activated`, `Mute group ${group} on`);
 }
 
 async function mixerDeactivateMuteGroup(agent, params) {
@@ -409,8 +415,7 @@ async function mixerDeactivateMuteGroup(agent, params) {
   requireMixerCapability(agent, 'muteGroup', 'Mute groups');
   const { group } = params;
   if (group == null) throw new Error('group number required');
-  await agent.mixer.deactivateMuteGroup(parseInt(group));
-  return `Mute group ${group} deactivated`;
+  return reported(await agent.mixer.deactivateMuteGroup(parseInt(group)), `Mute group ${group} deactivated`, `Mute group ${group} off`);
 }
 
 async function mixerPressSoftKey(agent, params) {

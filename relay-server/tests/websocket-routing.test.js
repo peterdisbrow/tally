@@ -858,6 +858,24 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await closeWs(ctrl);
     });
 
+    it('command_result keeps the command name the agent echoes (portal can say WHICH command failed)', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl);
+      send(churchWs, { type: 'command_result', id: 'cmd-xyz', command: 'mixer.mute', result: null, error: 'SQ not connected' });
+      const result = await nextMessage(ctrl);
+      expect(result.command).toBe('mixer.mute');
+      expect(result.error).toBe('SQ not connected');
+      send(churchWs, { type: 'command_result', id: 'cmd-2', command: { evil: true }, result: 'ok', error: null });
+      const r2 = await nextMessage(ctrl);
+      expect(r2.command).toBeUndefined();
+      await closeWs(churchWs);
+      await closeWs(ctrl);
+    });
+
     it('responds to ping with pong (same ts)', async () => {
       const token = signToken('church-1');
       const churchWs = await connect(`${server.url}/church?token=${token}`);

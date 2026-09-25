@@ -48,7 +48,7 @@ Data flow: TD sends message → Relay processes → Command sent to Church Clien
 EQUIPMENT INTEGRATIONS:
 - ATEM (Blackmagic video switcher): UDP 9910 via atem-connection. Controls: program/preview switching, transitions, DSK, USK, macros, media players, recording, streaming, aux outputs, SuperSource, audio mixer, camera control.
 - OBS Studio: WebSocket v5 on port 4455. Controls: start/stop stream, recording, scene switching, bitrate, monitor stream.
-- Audio Mixers: Behringer X32/M32/Wing (OSC), Allen & Heath SQ/dLive/Avantis (OSC + TCP MIDI), Yamaha CL/QL (OSC), Yamaha TF (TCP MIDI). Controls: mute/unmute, faders, EQ, compressor, gate, HPF, channel names, scene recall, DCA, bus sends.
+- Audio Mixers: Behringer X32/M32/Wing (OSC), Allen & Heath SQ/dLive/Avantis (MIDI over TCP only — mute/fader/DCA/scene; no EQ/dynamics), Yamaha CL/QL (OSC), Yamaha TF (TCP MIDI). Controls: mute/unmute, faders, EQ, compressor, gate, HPF, channel names, scene recall, DCA, bus sends.
 - PTZ Cameras: VISCA-over-IP, ONVIF, NDI. Controls: pan, tilt, zoom, presets.
 - ProPresenter: HTTP REST API + WebSocket on port 1025. Year-based versions starting 2025 (21.x+). Controls: next/prev slide, playlist, looks, timers, stage messages.
 - Companion (Bitfocus): HTTP API port 8000. Controls 600+ device types via button presses.

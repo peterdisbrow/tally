@@ -1,227 +1,135 @@
 /**
- * Allen & Heath Avantis Wire-Level Tests
- *
- * Verifies that TCP MIDI messages sent to the Avantis/dLive produce the
- * correct wire bytes and that incoming MIDI updates live state correctly.
- *
- * Avantis NRPN wire format (7 bytes with running status):
- *   [0xB0|ch] 0x63 <channel>   ← CC99 = NRPN MSB (channel number)
- *              0x62 <param>    ← CC98 = NRPN LSB (parameter ID)
- *              0x06 <value>    ← CC6  = Data Entry MSB (7-bit value)
- *
- * Mute wire format (3 bytes, Note On):
- *   [0x90|ch] <note> <velocity>
- *   velocity ≥ 0x40 = muted, velocity < 0x40 = unmuted
+ * Allen & Heath dLive / Avantis wire-level tests (protocol tables: dLive MIDI over
+ * TCP V2.0, Avantis TCP/IP Protocol V1.10). A fake transport records every byte;
+ * it answers the Avantis name-request liveness probe and dLive Get requests from
+ * a tiny state so the driver's verify paths run.
  */
-
 'use strict';
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { AvantisMixer, _internals } = require('../src/mixers/avantis');
 
-const { AvantisMixer } = require('../src/mixers/avantis');
+for (const k of ['log', 'info', 'warn']) console[k] = (...a) => process.stderr.write(a.join(' ') + '\n');
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const HDR = [0xF0, 0x00, 0x00, 0x1A, 0x50, 0x10, 0x01, 0x00];
 
-/** Create a mock TCP MIDI transport that records all send() calls. */
-function makeMockTcp() {
+function makeMixer(model = 'Avantis', opts = {}) {
+  const mixer = new AvantisMixer({ host: '192.168.1.10', model, ...opts });
   const sent = [];
-  return {
-    sent,
-    send(bytes) { sent.push(Array.from(bytes)); return true; },
-    on() {},
-    disconnect() {},
-    isOnline: async () => true,
+  const st = { mutes: {}, lv: {} };
+  const tcp = {
+    online: true,
+    send(bytes) {
+      const b = Array.from(bytes);
+      sent.push(b);
+      // Track sets (full status bytes are always sent by the driver).
+      for (let i = 0; i + 2 < b.length; i++) {
+        if ((b[i] & 0xF0) === 0x90 && b[i + 2] !== 0) st.mutes[`${b[i] & 0x0F}:${b[i + 1]}`] = b[i + 2] >= 0x40;
+      }
+      if ((b[0] & 0xF0) === 0xB0 && b[1] === 0x63 && b[4] === 0x62 && b[7] === 0x06) st.lv[`${b[0] & 0x0F}:${b[2]}:${b[5]}`] = b[8];
+      if (b[0] === 0xF0) {
+        const ch = b[8], cmd = b[9];
+        const reply = (m) => setImmediate(() => mixer._handleIncoming(Uint8Array.from(m)));
+        if (cmd === 0x01) reply([...HDR, ch, 0x02, b[10], 0x46, 0x4F, 0xF7]);
+        if (cmd === 0x05 && b[10] === 0x09) reply([0x90 | ch, b[11], st.mutes[`${ch}:${b[11]}`] ? 0x7F : 0x3F]);
+        if (cmd === 0x05 && b[10] === 0x0B) reply([0xB0 | ch, 0x63, b[12], 0xB0 | ch, 0x62, b[11], 0xB0 | ch, 0x06, st.lv[`${ch}:${b[12]}:${b[11]}`] ?? 0x6B]);
+      }
+      return true;
+    },
+    on() {}, disconnect() {},
   };
-}
-
-/** Create an AvantisMixer with TCP mocked and online, using default base channel 0x0B (ch 12). */
-function makeMixer(opts = {}) {
-  const mixer = new AvantisMixer({ host: '192.168.1.10', baseMidiChannel: 0x0B, ...opts });
-  const mockTcp = makeMockTcp();
-  mixer._tcp    = mockTcp;
+  mixer._tcp = tcp;
   mixer._online = true;
-  return { mixer, sent: mockTcp.sent };
+  const sets = () => sent.filter((b) => b[0] !== 0xF0);
+  return { mixer, sent, sets };
 }
+const last = (a) => a[a.length - 1];
 
-const last = (arr) => arr[arr.length - 1];
-
-// Base MIDI channel 0x0B = 11
-// Input channel offset  0 → MIDI ch 0x0B = 11 → status 0xBB (CC) / 0x9B (Note On)
-// MIX channel offset    2 → MIDI ch 0x0D = 13 → status 0xBD (CC) / 0x9D (Note On)
-// DCA channel offset    4 → MIDI ch 0x0F = 15 → status 0xBF (CC) / 0x9F (Note On)
-
-// ─── SECTION 1: buildNrpn wire bytes ─────────────────────────────────────────
-
-describe('Avantis buildNrpn — wire bytes', () => {
-  it('setFader(ch=1) sends 7-byte NRPN with CC99/CC98/CC6', async () => {
-    const { mixer, sent } = makeMixer();
-    await mixer.setFader(1, 1.0); // channel 0 (0-indexed), max level
-    const msg = last(sent);
-    // 7 bytes: status, CC99, ch, CC98, param, CC6, value
-    assert.equal(msg.length, 7, 'NRPN is 7 bytes with running status');
-    assert.equal(msg[0], 0xBB, 'CC status byte for MIDI ch 11 (input)');
-    assert.equal(msg[1], 0x63, 'CC99 = NRPN MSB');
-    assert.equal(msg[2], 0x00, 'channel index 0');
-    assert.equal(msg[3], 0x62, 'CC98 = NRPN LSB');
-    assert.equal(msg[4], 0x17, 'NRPN.FADER = 0x17');
-    assert.equal(msg[5], 0x06, 'CC6 = Data Entry MSB');
-    assert.equal(msg[6], 0x7F, 'max level = 127');
+describe('A&H level law (X32 position law ↔ LV table)', () => {
+  it('matches the protocol table: 0 dB = 6B, +10 = 7F, −10 = 57, −40 = 1B, −inf = 00', () => {
+    assert.equal(_internals.normalToLv(0.75), 0x6B);
+    assert.equal(_internals.normalToLv(1), 0x7F);
+    assert.equal(_internals.normalToLv(0.5), 0x57);
+    assert.equal(_internals.normalToLv(0), 0);
+    assert.equal(_internals.lvToNormal(0x6B), 0.75);
+    assert.equal(_internals.lvToNormal(0), 0);
   });
-
-  it('setFader(ch=1, 0.0) sends value 0', async () => {
-    const { mixer, sent } = makeMixer();
-    await mixer.setFader(1, 0.0);
-    const msg = last(sent);
-    assert.equal(msg[6], 0x00, '-inf fader = 0');
-  });
-
-  it('setFader uses the input MIDI channel (base + 0)', async () => {
-    const { mixer, sent } = makeMixer({ baseMidiChannel: 0x00 });
-    await mixer.setFader(1, 0.5);
-    const msg = last(sent);
-    assert.equal(msg[0], 0xB0, 'CC status for MIDI ch 0 (base=0, input offset=0)');
-  });
-
-  it('setDcaFader uses DCA MIDI channel (base + 4)', async () => {
-    const { mixer, sent } = makeMixer({ baseMidiChannel: 0x00 });
-    await mixer.setDcaFader(1, 0.5);
-    const msg = last(sent);
-    assert.equal(msg[0], 0xB4, 'CC status for MIDI ch 4 (base=0, DCA offset=4)');
-  });
-
-  it('channel index is 0-based in wire message (ch=3 → index=2)', async () => {
-    const { mixer, sent } = makeMixer();
-    await mixer.setFader(3, 0.5);
-    const msg = last(sent);
-    assert.equal(msg[2], 0x02, 'channel 3 (1-based) → index 2 (0-based)');
+  it('dLive HPF formula: 20 Hz = 00, 100 Hz = 20', () => {
+    assert.equal(_internals.hzToHpf(20), 0);
+    assert.equal(_internals.hzToHpf(100), 0x20);
   });
 });
 
-// ─── SECTION 2: mute control — Note On wire bytes ────────────────────────────
-
-describe('Avantis mute — Note On wire bytes', () => {
-  it('muteChannel(1) sends Note On with velocity 0x7F on input channel', async () => {
-    const { mixer, sent } = makeMixer();
+describe('wire bytes (default base MIDI channel 12 → 0x0B)', () => {
+  it('input fader = 9-byte NRPN on N (BB 63 CH BB 62 17 BB 06 LV)', async () => {
+    const { mixer, sets } = makeMixer();
+    await mixer.setFader(3, 0.75);
+    assert.deepEqual(last(sets()), [0xBB, 0x63, 0x02, 0xBB, 0x62, 0x17, 0xBB, 0x06, 0x6B]);
+  });
+  it('mute ON = vel 7F then vel 00; mute OFF = vel 3F then vel 00 (never a bare 00)', async () => {
+    const { mixer, sets } = makeMixer();
     await mixer.muteChannel(1);
-    const msg = last(sent);
-    assert.equal(msg.length, 3);
-    assert.equal(msg[0], 0x9B, 'Note On status for MIDI ch 11 (input)');
-    assert.equal(msg[1], 0x00, 'note = channel index 0');
-    assert.equal(msg[2], 0x7F, 'velocity ≥ 64 = mute');
-  });
-
-  it('unmuteChannel(1) sends Note On with velocity 0x00', async () => {
-    const { mixer, sent } = makeMixer();
+    assert.deepEqual(last(sets()), [0x9B, 0x00, 0x7F, 0x9B, 0x00, 0x00]);
     await mixer.unmuteChannel(1);
-    const msg = last(sent);
-    assert.equal(msg[2], 0x00, 'velocity 0 = unmute');
+    assert.deepEqual(last(sets()), [0x9B, 0x00, 0x3F, 0x9B, 0x00, 0x00]);
   });
-
-  it('muteMaster() sends Note On on MIX channel (base + 2), note 0', async () => {
-    const { mixer, sent } = makeMixer();
+  it('master = Main 1 = N+4 note 30 (not Mix/Aux 1 on N+2)', async () => {
+    const { mixer, sets } = makeMixer();
     await mixer.muteMaster();
-    const msg = last(sent);
-    assert.equal(msg.length, 3);
-    assert.equal(msg[0], 0x9D, 'Note On for MIDI ch 13 (base=11, MIX offset=2)');
-    assert.equal(msg[1], 0x00, 'note 0 = master LR');
-    assert.equal(msg[2], 0x7F, 'muted');
+    assert.deepEqual(last(sets()), [0x9F, 0x30, 0x7F, 0x9F, 0x30, 0x00]);
   });
-
-  it('unmuteMaster() sends velocity 0x00 on MIX channel', async () => {
-    const { mixer, sent } = makeMixer();
-    await mixer.unmuteMaster();
-    const msg = last(sent);
-    assert.equal(msg[0], 0x9D, 'MIX channel');
-    assert.equal(msg[2], 0x00, 'unmuted');
-  });
-
-  it('muteDca(1) sends Note On on DCA channel (base + 4)', async () => {
-    const { mixer, sent } = makeMixer();
+  it('DCA n = N+4 note 35+n; Avantis mute group n = 45+n; dLive mute group n = 4D+n', async () => {
+    const { mixer, sets } = makeMixer();
     await mixer.muteDca(1);
-    const msg = last(sent);
-    assert.equal(msg[0], 0x9F, 'Note On for MIDI ch 15 (base=11, DCA offset=4)');
-    assert.equal(msg[1], 0x00, 'DCA index 0');
-    assert.equal(msg[2], 0x7F, 'muted');
+    assert.deepEqual(last(sets()).slice(0, 3), [0x9F, 0x36, 0x7F]);
+    await mixer.activateMuteGroup(1);
+    assert.deepEqual(last(sets()).slice(0, 3), [0x9F, 0x46, 0x7F]);
+    const d = makeMixer('dLive');
+    await d.mixer.activateMuteGroup(1);
+    assert.deepEqual(last(d.sets()).slice(0, 3), [0x9F, 0x4E, 0x7F]);
+  });
+  it('base MIDI channel from the booth setting (midiChannel, 0-based) is used', async () => {
+    const { mixer, sets } = makeMixer('Avantis', { midiChannel: 0 });
+    await mixer.muteChannel(1);
+    assert.equal(last(sets())[0], 0x90);
+    await mixer.setDcaFader(1, 0.75);
+    assert.deepEqual(last(sets()), [0xB4, 0x63, 0x36, 0xB4, 0x62, 0x17, 0xB4, 0x06, 0x6B]);
+  });
+  it('name SysEx carries the real MIDI channel (0N = N), not the type offset', async () => {
+    const { mixer, sent } = makeMixer();
+    await mixer.setChannelName(2, 'FO');
+    const set = sent.find((b) => b[0] === 0xF0 && b[9] === 0x03);
+    assert.deepEqual(set, [...HDR, 0x0B, 0x03, 0x01, 0x46, 0x4F, 0xF7]);
+  });
+  it('scene 130 = BN 00 01, CN 01 on the base channel', async () => {
+    const { mixer, sets } = makeMixer();
+    await mixer.recallScene(130);
+    assert.deepEqual(sets().find((b) => (b[0] & 0xF0) === 0xB0 && b[1] === 0x00), [0xBB, 0x00, 0x01, 0xCB, 0x01]);
   });
 });
 
-// ─── SECTION 3: bidirectional state update (_handleIncoming) ─────────────────
-
-describe('Avantis _handleIncoming — state tracking', () => {
-  it('Note On on MIX channel sets mutes["mix:0"] = true when vel >= 0x40', () => {
+describe('incoming state', () => {
+  it('velocity 00 ("note off") never flips a mute to unmuted', () => {
     const { mixer } = makeMixer();
-    // MIDI ch 13 (base=11, MIX offset=2) = 0x9D, note 0, velocity 0x7F
-    mixer._handleIncoming(Buffer.from([0x9D, 0x00, 0x7F]));
-    assert.equal(mixer._state.mutes['mix:0'], true);
+    mixer._handleIncoming(Uint8Array.from([0x9F, 0x30, 0x7F]));
+    mixer._handleIncoming(Uint8Array.from([0x9F, 0x30, 0x00]));
+    assert.equal(mixer._state.mutes['main:0'], true);
+    mixer._handleIncoming(Uint8Array.from([0x9F, 0x30, 0x3F]));
+    assert.equal(mixer._state.mutes['main:0'], false);
   });
-
-  it('Note On on MIX channel sets mutes["mix:0"] = false when vel < 0x40', () => {
-    const { mixer } = makeMixer();
-    mixer._state.mutes['mix:0'] = true; // preset muted
-    mixer._handleIncoming(Buffer.from([0x9D, 0x00, 0x00]));
-    assert.equal(mixer._state.mutes['mix:0'], false);
+  it('N+4 notes map to main / dca / mute group keys', () => {
+    const { mixer } = makeMixer('dLive');
+    mixer._handleIncoming(Uint8Array.from([0x9F, 0x37, 0x7F]));
+    mixer._handleIncoming(Uint8Array.from([0x9F, 0x4F, 0x7F]));
+    assert.equal(mixer._state.mutes['dca:1'], true);
+    assert.equal(mixer._state.mutes['muteGroup:1'], true);
   });
-
-  it('Note On on input channel sets mutes["input:N"]', () => {
+  it('getStatus: unknown master mute/fader are null, not false/0', async () => {
     const { mixer } = makeMixer();
-    // MIDI ch 11 (base=11, input offset=0) = 0x9B, note 5 (ch 6), vel 0x7F
-    mixer._handleIncoming(Buffer.from([0x9B, 0x05, 0x7F]));
-    assert.equal(mixer._state.mutes['input:5'], true);
-  });
-
-  it('CC NRPN sequence on MIX channel updates faders["mix:N"]', () => {
-    const { mixer } = makeMixer();
-    // Send CC99 (param MSB = channel 0), CC98 (param LSB = FADER=0x17), CC6 (value = 107)
-    // MIDI ch 13 = 0xBD
-    mixer._handleIncoming(Buffer.from([0xBD, 0x63, 0x00])); // CC99: channel 0
-    mixer._handleIncoming(Buffer.from([0xBD, 0x62, 0x17])); // CC98: FADER
-    mixer._handleIncoming(Buffer.from([0xBD, 0x06, 0x6B])); // CC6: 107 (0dB)
-    assert.equal(mixer._state.faders['mix:0'], 107);
-  });
-});
-
-// ─── SECTION 4: getStatus() — regression for 'mix:0' key lookup bug ──────────
-// Bug: getStatus() used to read '_state.mutes["input:main"]' which is never
-// populated. muteMaster() triggers Note On on the MIX MIDI channel, which
-// _handleIncoming stores under 'mix:0'. getStatus() must read that key.
-
-describe('Avantis getStatus() — mix:0 key regression', () => {
-  it('returns mainMuted=false when no mute state has been received', async () => {
-    const { mixer } = makeMixer();
-    const status = await mixer.getStatus();
-    assert.equal(status.mainMuted, false);
-  });
-
-  it('returns mainMuted=true after muteMaster echo is processed via _handleIncoming', async () => {
-    const { mixer } = makeMixer();
-    // Simulate the echo-back from the console after muteMaster()
-    // MIX channel = base(11) + 2 = 13 → 0x9D, note 0, velocity 0x7F
-    mixer._handleIncoming(Buffer.from([0x9D, 0x00, 0x7F]));
-    const status = await mixer.getStatus();
-    assert.equal(status.mainMuted, true, 'getStatus() must read _state.mutes["mix:0"]');
-  });
-
-  it('returns mainMuted=false after unmuteMaster echo is processed', async () => {
-    const { mixer } = makeMixer();
-    mixer._state.mutes['mix:0'] = true;
-    mixer._handleIncoming(Buffer.from([0x9D, 0x00, 0x00]));
-    const status = await mixer.getStatus();
-    assert.equal(status.mainMuted, false);
-  });
-
-  it('returns mainFader from _state.faders["mix:0"]', async () => {
-    const { mixer } = makeMixer();
-    mixer._state.faders['mix:0'] = 107; // 0 dB
-    const status = await mixer.getStatus();
-    // normalToMidiLevel roundtrip: 107/127 ≈ 0.843
-    assert.ok(status.mainFader > 0.8 && status.mainFader <= 1.0,
-      `mainFader ${status.mainFader} should reflect faders["mix:0"]=107`);
-  });
-
-  it('returns online=true from mocked tcp.isOnline()', async () => {
-    const { mixer } = makeMixer();
-    const status = await mixer.getStatus();
-    assert.equal(status.online, true);
+    const s = await mixer.getStatus();
+    assert.equal(s.online, true);
+    assert.equal(s.mainMuted, null);
+    assert.equal(s.mainFader, null);
   });
 });

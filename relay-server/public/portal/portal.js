@@ -3037,6 +3037,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return m || mixer.name || mixer.type || 'Audio Mixer';
     }
 
+    // Master-mute tile. mainMuted is tri-state: true / false / null (unknown — console
+    // offline, or a desk like the Avantis that cannot report it). Unknown is never "OK".
+    function _muteTileState(mainMuted, okLabel) {
+      if (mainMuted === true) return { html: 'MUTED', color: '#FF5252' };
+      if (mainMuted === false) return { html: AUDIO_CHECK_SVG + ' ' + okLabel, color: '#00E676' };
+      return { html: 'Unknown', color: '#8B9DAF' };
+    }
+
+    // Silence tile: only claim "Signal" when something is actually metering.
+    function _silenceTileState(audio) {
+      if (!audio || !audio.monitoring) return { html: '— Not metered', color: '#8B9DAF' };
+      if (audio.silenceDetected) return { html: 'Silence', color: '#eab308' };
+      return { html: AUDIO_CHECK_SVG + ' Signal', color: '#00E676' };
+    }
+
     // Mixers that communicate via MIDI-over-TCP (no silence-detection, no firmware)
     function _isMidiTcpMixer(type) {
       var t = String(type || '').toLowerCase();
@@ -3067,10 +3082,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       if (audioViaAtem) {
         // ATEM embedded audio: no mixer, just silence + monitoring from ATEM meters
-        var muteHtml = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' OK');
-        tiles.push(_audioTile('Master', muteHtml, mixer.mainMuted ? '#FF5252' : '#00E676'));
-        var silHtml = audio.silenceDetected ? 'Silence' : (AUDIO_CHECK_SVG + ' Signal');
-        tiles.push(_audioTile('Silence', silHtml, audio.silenceDetected ? '#eab308' : '#00E676'));
+        var aMute = _muteTileState(mixer.mainMuted, 'OK');
+        tiles.push(_audioTile('Master', aMute.html, aMute.color));
+        var aSil = _silenceTileState(audio);
+        tiles.push(_audioTile('Silence', aSil.html, aSil.color));
         var monHtml = audio.monitoring ? (AUDIO_CHECK_SVG + ' Active') : '— Off';
         tiles.push(_audioTile('Monitoring', monHtml, audio.monitoring ? '#00E676' : '#8B9DAF'));
 
@@ -3084,8 +3099,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var statusHtml = mixer.connected ? (AUDIO_CHECK_SVG + ' Connected') : 'Offline';
         tiles.push(_audioTile('Console', statusHtml, mixer.connected ? '#00E676' : '#FF5252'));
 
-        var mMuteHtml = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' Unmuted');
-        tiles.push(_audioTile('Main LR', mMuteHtml, mixer.mainMuted ? '#FF5252' : '#00E676'));
+        var mMute = _muteTileState(mixer.connected ? mixer.mainMuted : null, 'Unmuted');
+        tiles.push(_audioTile('Main LR', mMute.html, mMute.color));
+        if (mixer.connected && mixer.mainMuted == null) details.push('Master mute not reported by this console');
 
         if (mixer.mainFader != null) {
           var pct = Math.round(mixer.mainFader * 100);
@@ -3101,11 +3117,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (audio.monitoring) details.push('Monitoring: ATEM meters (console has no meter feed)');
       } else {
         // X32 / Behringer / Midas / Yamaha — OSC-based mixers expose richer data
-        var xMute = mixer.mainMuted ? 'MUTED' : (AUDIO_CHECK_SVG + ' OK');
-        tiles.push(_audioTile('Master Mute', xMute, mixer.mainMuted ? '#FF5252' : '#00E676'));
+        var xMute = _muteTileState(mixer.connected ? mixer.mainMuted : null, 'OK');
+        tiles.push(_audioTile('Master Mute', xMute.html, xMute.color));
 
-        var xSil = audio.silenceDetected ? 'Silence' : (AUDIO_CHECK_SVG + ' Signal');
-        tiles.push(_audioTile('Silence', xSil, audio.silenceDetected ? '#eab308' : '#00E676'));
+        var xSil = _silenceTileState(audio);
+        tiles.push(_audioTile('Silence', xSil.html, xSil.color));
 
         var xMon = audio.monitoring ? (AUDIO_CHECK_SVG + ' Active') : '— Off';
         tiles.push(_audioTile('Monitoring', xMon, audio.monitoring ? '#00E676' : '#8B9DAF'));

@@ -583,20 +583,32 @@ test('mixer.deactivateMuteGroup on SQ calls deactivateMuteGroup', async () => {
   assert.equal(result, 'Mute group 1 deactivated');
 });
 
-test('mixer.activateMuteGroup throws on dLive (muteGroup: false)', async () => {
-  const agent = mockMixer('DLIVE');
-  await assert.rejects(
-    () => commandHandlers['mixer.activateMuteGroup'](agent, { group: 1 }),
-    /not supported on DLIVE/
-  );
+// dLive/Avantis DO have mute groups over MIDI (N+4 notes 4E+/46+) — the old caps said no.
+test('mixer.activateMuteGroup works on dLive (confirmed)', async () => {
+  let g = null;
+  const agent = mockMixer('DLIVE', { activateMuteGroup: async (n) => { g = n; return { confirmed: true }; } });
+  assert.equal(await commandHandlers['mixer.activateMuteGroup'](agent, { group: 1 }), 'Mute group 1 activated');
+  assert.equal(g, 1);
 });
 
-test('mixer.deactivateMuteGroup throws on dLive (muteGroup: false)', async () => {
-  const agent = mockMixer('DLIVE');
-  await assert.rejects(
-    () => commandHandlers['mixer.deactivateMuteGroup'](agent, { group: 1 }),
-    /not supported on DLIVE/
-  );
+test('mixer.deactivateMuteGroup on Avantis says sent — not confirmed (no read-back)', async () => {
+  const agent = mockMixer('AVANTIS', { deactivateMuteGroup: async () => ({ confirmed: false, reason: 'the Avantis has no mute/level read-back over TCP MIDI' }) });
+  const r = await commandHandlers['mixer.deactivateMuteGroup'](agent, { group: 2 });
+  assert.match(r, /^Mute group 2 off sent — not confirmed by the console \(the Avantis has no/);
+});
+
+test('mixer.mute / setFader on Avantis never claim "muted"/"set" when unconfirmed', async () => {
+  const unconf = async () => ({ confirmed: false, reason: 'no read-back' });
+  const agent = mockMixer('AVANTIS', { muteChannel: unconf, muteMaster: unconf, setFader: unconf });
+  assert.match(await commandHandlers['mixer.mute'](agent, { channel: 3 }), /Channel 3 mute sent — not confirmed/);
+  assert.match(await commandHandlers['mixer.mute'](agent, {}), /Master mute sent — not confirmed/);
+  assert.match(await commandHandlers['mixer.setFader'](agent, { channel: 3, level: 0.5 }), /fader 50% sent — not confirmed/);
+});
+
+test('dLive/Avantis refuse pan (NRPN 18 is main-mix assign, not pan); Avantis refuses HPF', async () => {
+  await assert.rejects(() => commandHandlers['mixer.setPan'](mockMixer('DLIVE'), { channel: 1, pan: 0.5 }), /not supported on DLIVE/);
+  await assert.rejects(() => commandHandlers['mixer.setPan'](mockMixer('AVANTIS'), { channel: 1, pan: 0.5 }), /not supported on AVANTIS/);
+  await assert.rejects(() => commandHandlers['mixer.setHpf'](mockMixer('AVANTIS'), { channel: 1, frequency: 100 }), /not supported on AVANTIS/);
 });
 
 // ─── SoftKey commands ─────────────────────────────────────────────────────────

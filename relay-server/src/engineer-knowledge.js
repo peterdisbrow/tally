@@ -69,7 +69,7 @@ OBS Studio:
 
 Audio Mixers:
 - Behringer X32/M32/Wing, Midas: OSC protocol
-- Allen & Heath SQ/dLive/Avantis: OSC + TCP MIDI
+- Allen & Heath SQ/dLive/Avantis: MIDI over TCP only (port 51325, no OSC). SQ and dLive read values back (confirmed); Avantis cannot read mutes/levels back, so its mutes/faders are "sent, not confirmed". No EQ/compressor/gate/pan/scene-save over MIDI on any A&H desk; HPF on dLive only; channel names SQ: no, dLive/Avantis: yes
 - Yamaha CL/QL: OSC; Yamaha TF: TCP MIDI
 - Config: mixer.type (x32, m32, sq, dlive, avantis, yamaha-cl, yamaha-tf, wing), mixer.host
 - Controls: mute/unmute, faders, EQ, compressor, gate, HPF, channel names, scene recall, DCA assignment, bus sends, pan, phantom power, preamp gain, meters

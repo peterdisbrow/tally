@@ -242,7 +242,8 @@ const DEVICE_REGISTRY = {
       { key: 'port', label: 'Port', type: 'text', placeholder: 'Auto', style: 'max-width:80px' },
       // A&H consoles ignore MIDI on any channel but their own (Utility › General › MIDI).
       { key: 'midiChannel', label: 'MIDI channel', type: 'select', style: 'max-width:150px', onlyForTypes: ['allenheath', 'dlive', 'avantis'],
-        options: [{ value: '', label: 'MIDI ch: console default' }].concat(Array.from({ length: 16 }, (_, i) => ({ value: String(i + 1), label: `MIDI ch ${i + 1}` }))) },
+        // dLive/Avantis: this is the BASE channel (1–12; the desk uses base…base+4, factory default 12).
+        options: [{ value: '', label: 'MIDI ch: console default (SQ 1 · dLive/Avantis 12)' }].concat(Array.from({ length: 16 }, (_, i) => ({ value: String(i + 1), label: i >= 12 ? `MIDI ch ${i + 1} (SQ only)` : `MIDI ch ${i + 1}` }))) },
     ],
     testType: 'mixer',
     detailHint: 'Default ports: X32/M32=10023, A&H SQ/dLive/Avantis=51325 (TCP MIDI), Yamaha CL/QL=8765, TF=49280',

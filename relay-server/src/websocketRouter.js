@@ -658,6 +658,9 @@ function createWebSocketHandlers({
           churchId:  church.churchId,
           name:      church.name,
           messageId: msg.id,
+          // The agent echoes the command name; keep it so portal/controllers can say
+          // WHICH command failed ("mixer.mute failed: …"), not just "a command failed".
+          command:   typeof msg.command === 'string' ? msg.command.slice(0, 100) : undefined,
           result:    msg.result,
           error:     msg.error,
         };
