@@ -102,6 +102,7 @@
     "clear": "Limpiar"
   },
   "rejoin": {
+    "rejoining": "Volviendo a unirse a {{room}}…",
     "title": "Reconectado a {{room}}",
     "titleLocal": "Reconectado a {{room}} — relay sin conexión",
     "afterCrash": "Tally se cerró inesperadamente y volvió a unirse a tu última sala automáticamente. Usa Cambiar sala para cambiar.",

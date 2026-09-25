@@ -2,10 +2,9 @@
 /**
  * Idempotent test-account provisioner for the E2E harness.
  *
- * Default behavior: ensures a single labeled test church exists in the
- * production Neon DB and prints its credentials (churchId, email, password,
- * tokens, roomId). Re-running picks up the existing church + room rather than
- * creating duplicates.
+ * Default behavior: ensures a single labeled test church exists on the local
+ * relay and prints its credentials (churchId, email, password, tokens, roomId).
+ * Re-running picks up the existing church + room rather than creating duplicates.
  *
  * Test data is labeled with E2E_TEST_PREFIX (default 'test-e2e-') so it's
  * obvious in any admin query. The harness cleans up at the end of a run, but
@@ -14,7 +13,8 @@
  *   node scripts/e2e-create-test-account.js --cleanup
  *
  * Required env: ADMIN_API_KEY (for /api/churches/* admin endpoints).
- * Optional env: RELAY_URL (defaults to https://api.tallyconnect.app).
+ * Optional env: RELAY_URL (defaults to http://127.0.0.1:3400; non-loopback is refused
+ * unless E2E_ALLOW_NONLOCAL_RELAY=1).
  */
 
 'use strict';

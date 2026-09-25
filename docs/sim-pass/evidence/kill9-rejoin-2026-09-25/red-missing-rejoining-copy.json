@@ -1,0 +1,24 @@
+{
+  "repo": "/workspace",
+  "runId": "kill9-before-rejoining-copy",
+  "results": [
+    {
+      "name": "joined_room_before_kill",
+      "status": "PASS",
+      "detail": "roomId=52e57c03-9e13-4c2c-9d1c-cf987b2c363d roomName=Sanctuary Linux rejoin=true atem=true relay=true",
+      "at": "2026-09-25T15:49:50.774Z"
+    },
+    {
+      "name": "kill9_auto_rejoin_same_room",
+      "status": "FAIL",
+      "detail": "screen=dashboard sameRoom=true sawRejoining=false loading=[\"Checking your account...\"] banner=\"Reconnected to Sanctuary Linux\" / \"Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch rooms.\" visible=true ms=1600",
+      "at": "2026-09-25T15:49:53.883Z"
+    },
+    {
+      "name": "change_room_then_kill9_shows_picker",
+      "status": "FAIL",
+      "detail": "not run — auto-rejoin did not pass",
+      "at": "2026-09-25T15:49:53.883Z"
+    }
+  ]
+}

@@ -217,6 +217,10 @@ function renderDeviceCard(deviceId, instanceIndex) {
   } else if (deviceId === 'mixer' && state.type === 'atem-none') {
     detailHint = 'Audio via ATEM is forced OFF \u2014 auto-detection is overridden. Audio status will show \u201C\u2014\u201D unless an external mixer is connected.';
   }
+  // SQ faders follow the desk taper. One line on this setup card only — not the booth view.
+  const sqTaperNote = (deviceId === 'mixer' && state.type === 'allenheath')
+    ? `<p class="equip-sq-taper">${escapeHtml('Set the desk to Linear Taper (Utility > General > MIDI) so fader control is correct.')}</p>`
+    : '';
 
   return `<div class="equip-card" id="${cardId}">
     <div class="equip-card-header">
@@ -228,6 +232,7 @@ function renderDeviceCard(deviceId, instanceIndex) {
     <div class="equip-card-body">
       ${fieldsHtml}
       <div class="equip-detail" id="${detailId}">${detailHint}</div>
+      ${sqTaperNote}
     </div>
   </div>`;
 }

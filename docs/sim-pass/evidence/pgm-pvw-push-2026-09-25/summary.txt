@@ -1,0 +1,9 @@
+MockLab panel cut (HTTP /api/program and /api/preview) did not reach an ATEM client that was already connected. The handshake sends the bus once, about 120ms after hello, and never again. The booth then stays on whatever camera it connected with. That is the tally_program_preview_sim miss (Camera 4/3 or Camera 1/2 instead of Camera 5/3) on source and deb in gate log /tmp/g7-clean.log.
+
+Red (old code, after the handshake wait): red.tap — atem-connection client stayed on program 1 preview 2. Exit 1.
+Green (push PrgI/PrvI to every open session): green.tap — that client saw program 5 preview 3. Exit 0.
+
+The committed test speaks ATEM UDP itself so Electron CI does not need church-client/node_modules.
+red-udp.tap — same miss, program 1 preview 2, with the push listener detached. Exit 1.
+green-udp.tap — program 5 preview 3 with the listener attached. Exit 0.
+Test: electron-app/test/mocklab-atem-tally-push.test.js

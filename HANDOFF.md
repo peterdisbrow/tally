@@ -47,7 +47,7 @@ Product rules that must not be broken:
 | `tally-connect-mobile/` | mobile app |
 | `companion-module-tallyconnect/` | Bitfocus Companion module for Tally |
 | `tally-encoder/`, `problem-finder-lab/` | side projects (not touched in this pass) |
-| `scripts/e2e/` | older e2e runner. **Warning: it defaults to PRODUCTION** (`RELAY_URL` defaults to `https://api.tallyconnect.app`). See the open decisions |
+| `scripts/e2e/` | older e2e runner. Defaults to `http://127.0.0.1:3400` and refuses any non-loopback `RELAY_URL` unless `E2E_ALLOW_NONLOCAL_RELAY=1` |
 | `docs/sim-pass/` | **this pass**: `SIM-PASS-REPORT.md` (per device), `PACES-REPORT.md` (booth hard pass), `LINUX-BUILD-REPORT.md`, `evidence/`, `research/`, `harness/` (lab scripts and how to run them) |
 | `.github/workflows/ci.yml` | CI (runs church-client `test:sim` too) |
 
@@ -101,9 +101,9 @@ offline. All of it was shown red first.
 | Allen & Heath dLive | **CORE** | gate g5A+g5B. Every set confirmed by Get read-back |
 | Yamaha CL/QL/TF | **CORE** | gate g5A+g5B. Real RCP on TCP 49280 |
 | ProPresenter 7 | **CORE** | gate g5A+g5B. Official PP7 API, conformance test |
-| Bitfocus Companion 5.x | **CORE candidate** (not promoted) | Source booth 13/13, twice back to back, on this branch against the local lab. The full g6/g7 gate (every booth, AppImage, deb, two complete passes) was **not run**, so this is not a promotion |
-| Planning Center | **CORE candidate** (not promoted) | Source booth 11/11, twice back to back, local PCO mock only (`PCO_API_ORIGIN` on 127.0.0.1). Same limit as Companion: full package gate not run. OAuth and real org note categories still need a real PCO org |
-| Blackmagic ATEM | **relay commands proven in sim; booth screen checked for one program change** | Sims 7/7 green. On bca42d7, tests 1–4 and 7 red; test 5 red when the switcher object is left stale; test 6 red when the mock applies changes but never tells the client. Source booth: remote `atem.setProgram` to input 4 showed "Camera 4" on screen (inside the OBS booth run, twice). AppImage/deb not rebuilt |
+| Bitfocus Companion 5.x | **CORE candidate** (not promoted) | Booth scenario passed on source, AppImage, and deb in both passes of the 25 Sep gate. The gate was not two fully green passes (pass B source missed the relay-down banner once), so this is not a promotion |
+| Planning Center | **CORE candidate** (not promoted) | Same gate: booth scenario passed on source, AppImage, and deb in both passes, local PCO mock only. Not promoted, for the same reason as Companion. OAuth and real org note categories still need a real PCO org |
+| Blackmagic ATEM | **relay commands proven in sim; booth program/preview checked on source, AppImage, and deb** | Sims 7/7 green. MockLab now pushes a panel cut to clients that are already connected (red then green: `docs/sim-pass/evidence/pgm-pvw-push-2026-09-25/`). After that fix, `tally_program_preview_sim` showed Cam 5 / Cam 3 on source, AppImage, and deb in both passes |
 | OBS Studio | **relay commands proven in sim; source booth 14/14 twice** | Unit fake is stateful. Sims: test 1 and test 6 red on bca42d7 then green here; test 3 (clean crash) still passes on bca42d7 (that path was already honest). Source booth includes remote start/stop/failed stream and the screen's LIVE badge. Previous 13/13 AppImage+deb result was on older code and was **not re-run** |
 | Allen & Heath Avantis | **BETA** | its protocol has no mute/level read-back, so remote mutes/faders can only be "sent, not confirmed" |
 | VISCA PTZ | **BETA / deferred** | parked on branch `visca-wip` (3abe23f, based on 576823f): sim 14/14, red on old code; booth e2e never run, relay-loop test 2/3 |
@@ -124,30 +124,22 @@ Done on `cursor/atem-obs-relay-checks-d497` (evidence: `docs/sim-pass/evidence/a
 
 Still to do:
 
-1. **Full milestone double gate** (g7 = g6 plus these ATEM/OBS relay checks): every booth on source + AppImage + deb, then the unit/sim/relay suites, two consecutive fully green passes. Only then promote Companion and Planning Center to CORE. The source-only reconfirm above is not that gate.
-2. **Full-church run**: every CORE device at once in one booth, plus **crash-all / unplug-all recovery**
-   (every mock killed and unplugged together, relay down, app kill -9). The booth has to stay honest and
-   everything has to recover without anyone touching it. **Not run.**
-3. **Rebuild** the AppImage and deb from the gated commit (record sha256s). **Not built** on this branch.
-4. **Mac 1.1.67 rebuild + smoke** carrying the Linux fixes. They're in cross-platform main.js/renderer.js/
-   agent code. The shipped Mac build (1.1.66 in the lab carry folder) very likely still has the
-   stale-snapshot fake status, phantom device pills/cards, inconsistent relay-offline surfaces, the wrong
-   OBS password signing the booth out, and the fake-OK device commands. This needs a macOS host. No release.
-   **Not run** (this environment is Linux).
+1. **A fully green second pass of the milestone gate.** Pass A on 25 Sep (`/tmp/g7-after-push.log`, `SUITE_DONE_A fails=0`) was green: every booth on source, AppImage, and deb, unit suites, source OBS, and full-church. Pass B missed one check (`g6B-src-hard`: relay SIGSTOP did not raise the offline banner; the page call sat for 616s and the UI still said Connected / All Systems Nominal). Everything else in pass B exited 0, including full-church. Companion and Planning Center stay candidates until two consecutive passes are fully green.
+2. **Mac 1.1.67 rebuild + smoke** carrying the Linux fixes. This needs a macOS host. No release. **Not run** (this environment is Linux).
+
+Done in the 25 Sep gate (evidence: `docs/sim-pass/evidence/full-church-2026-09-25/`, `docs/sim-pass/evidence/pgm-pvw-push-2026-09-25/`):
+
+- AppImage and deb rebuilt at 1.1.67. sha256 AppImage `6e7a140adaf6503fef38a938b0983b3fa0058186c906e3b07fca9ecdebc5352b`, deb `73a695e20cd15ff0ef84996c080e84898c19cec787a2414cff1f32515630e798`. Those binaries were built before the MockLab push fix. The gate's MockLab is the external lab process from this tree, not the copy inside the package.
+- Full-church (ATEM + OBS + X32 + ProPresenter together) on source, AppImage, and deb, both passes: all online, crash/unplug honest, recover, kill -9 rejoins. The booth has one mixer slot, so SQ, dLive, and Yamaha ran as their own booth scenarios, not inside that same room.
 
 ## 6. Open decisions for Andrew
 
-- **Avantis**: accept "sent, not confirmed" as CORE, or keep it BETA until A&H adds a Get?
-- **A&H Linear Taper**: the SQ's NRPN fader law must be set to Linear Taper on the desk (Utility ›
-  General › MIDI). With Audio Taper, levels are wrong and verification fails loudly. Should that be a
-  documented setup requirement (and a booth hint)?
+- **Avantis**: accept "sent, not confirmed" as CORE, or keep it BETA until A&H adds a Get? Still open. The booth says "sent — not confirmed" and stays BETA.
 - **SQ scene recall and SoftKeys can't be confirmed** (the SQ has no read-back for them). Is "sent, not
   confirmed" acceptable?
-- **Scenario 07 (`scripts/e2e/scenarios/07-sq-master-mute.js`)**: the `scripts/e2e` harness targets
-  PRODUCTION by default. It must not. It needs a local-only default or a hard refusal to run against
-  prod. It was never run in this pass.
-- Also noted: after a crash or kill -9 the booth needs a room re-pick (intentional, commit 30f33d5). This
-  is a Sunday-recovery UX call.
+- Linear Taper is no longer a question: the SQ device-setup card tells the crew to set Utility › General › MIDI to Linear Taper. It does not appear for other consoles, and it is not on the main booth view.
+- `scripts/e2e` no longer defaults to production. It uses `http://127.0.0.1:3400` and refuses any other host unless `E2E_ALLOW_NONLOCAL_RELAY=1`.
+- After a crash or kill -9 the booth rejoins the last room on its own and shows "Rejoining {room}…" while that round-trip runs. Change Room clears the saved room so the next launch shows the picker.
 
 ## 7. Parked (don't work on these)
 

@@ -1,0 +1,9 @@
+SQ Linear Taper note — device setup card only.
+
+RED (equipment-ui.js before the line, test already written):
+  node --test electron-app/test/sq-linear-taper.test.js
+  fail: SQ card HTML did not match /Linear Taper/. See red.tap
+
+GREEN (line rendered only when mixer type is allenheath):
+  same command, exit 0. dLive, Avantis, X32, Behringer, Midas, Yamaha, ATEM-auto, and unset do not include it.
+  renderer.js (main booth view) does not contain the sentence. See green.tap

@@ -1,0 +1,2 @@
+red: Missing extract-zip@2.0.2 from lock file (npm ci exit 1)
+green: npm ci exit 0, extract-zip resolves to vendor/extract-zip-safe@2.0.2

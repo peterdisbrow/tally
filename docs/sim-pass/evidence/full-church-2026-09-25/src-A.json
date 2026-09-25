@@ -1,0 +1,29 @@
+{
+  "runId": "fullchurch-src-A",
+  "results": [
+    {
+      "name": "full_church_all_core_online",
+      "status": "PASS",
+      "detail": "{\"screen\":\"dashboard\",\"hero\":\"All Systems Nominal\",\"banner\":false,\"bannerText\":\"Offline Mode — Local monitoring active\",\"atem\":true,\"relay\":true,\"obs\":true,\"mixer\":true,\"pp\":true,\"atemDot\":\"dot green\",\"mixerDot\":\"device-dot ok\",\"ppDot\":\"device-dot ok\",\"enc\":\"Connected\",\"audio\":\"Console online\",\"ppCard\":\"Connected\"}",
+      "at": "2026-09-25T16:03:29.824Z"
+    },
+    {
+      "name": "crash_unplug_all_honest",
+      "status": "PASS",
+      "detail": "{\"screen\":\"dashboard\",\"hero\":\"3 Issues Detected\",\"banner\":true,\"bannerText\":\"Relay unreachable — running in local mode\",\"atem\":false,\"relay\":true,\"obs\":null,\"mixer\":false,\"pp\":false,\"atemDot\":\"dot red\",\"mixerDot\":\"device-dot error\",\"ppDot\":\"device-dot error\",\"enc\":\"Disconnected\",\"audio\":\"Console offline\",\"ppCard\":\"Disconnected\"}",
+      "at": "2026-09-25T16:03:52.985Z"
+    },
+    {
+      "name": "crash_unplug_all_recovers",
+      "status": "PASS",
+      "detail": "{\"screen\":\"dashboard\",\"hero\":\"All Systems Nominal\",\"banner\":false,\"bannerText\":\"Relay unreachable — running in local mode\",\"atem\":true,\"relay\":true,\"obs\":true,\"mixer\":true,\"pp\":true,\"atemDot\":\"dot green\",\"mixerDot\":\"device-dot ok\",\"ppDot\":\"device-dot ok\",\"enc\":\"Connected\",\"audio\":\"Console online\",\"ppCard\":\"Connected\"}",
+      "at": "2026-09-25T16:04:02.879Z"
+    },
+    {
+      "name": "kill9_rejoin_full_church",
+      "status": "PASS",
+      "detail": "{\"screen\":\"dashboard\",\"hero\":\"All Systems Nominal\",\"banner\":false,\"bannerText\":\"Offline Mode — Local monitoring active\",\"atem\":true,\"relay\":true,\"obs\":true,\"mixer\":true,\"pp\":true,\"atemDot\":\"dot green\",\"mixerDot\":\"device-dot ok\",\"ppDot\":\"device-dot ok\",\"enc\":\"Connected\",\"audio\":\"Console online\",\"ppCard\":\"Connected\"}",
+      "at": "2026-09-25T16:04:06.982Z"
+    }
+  ]
+}

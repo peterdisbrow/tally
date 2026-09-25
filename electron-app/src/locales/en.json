@@ -102,6 +102,7 @@
     "clear": "Clear"
   },
   "rejoin": {
+    "rejoining": "Rejoining {{room}}…",
     "title": "Reconnected to {{room}}",
     "titleLocal": "Reconnected to {{room}} — relay offline",
     "afterCrash": "Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch rooms.",

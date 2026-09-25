@@ -1,0 +1,15 @@
+TAP version 13
+# Subtest: device setup tells the crew to use Linear Taper only when the console is an SQ
+ok 1 - device setup tells the crew to use Linear Taper only when the console is an SQ
+  ---
+  duration_ms: 10.813539
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53.350669
