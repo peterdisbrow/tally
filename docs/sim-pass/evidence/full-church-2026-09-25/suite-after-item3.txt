@@ -1,0 +1,22 @@
+=== church coverage 2026-09-25T15:52:47+00:00 ===
+# pass 2239
+# fail 0
+# skipped 0
+All files                |   72.32 |    78.56 |   66.84 |   72.32 |                                 
+church coverage exit=0
+=== church sim 2026-09-25T15:53:34+00:00 ===
+# pass 97
+# fail 0
+# skipped 0
+church sim exit=0
+=== electron coverage 2026-09-25T15:57:23+00:00 ===
+# pass 466
+# fail 0
+# skipped 0
+All files                 |      52 |    79.02 |   52.35 |      52 |                                
+electron coverage exit=0
+=== relay vitest 2026-09-25T15:57:25+00:00 ===
+ Test Files  167 passed (167)
+      Tests  5372 passed (5372)
+relay exit=0
+=== SUITE DONE 2026-09-25T15:57:51+00:00 ===

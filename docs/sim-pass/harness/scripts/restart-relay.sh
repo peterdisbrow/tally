@@ -2,7 +2,10 @@
 # Restart LOCAL relay (:3400) only — clears in-memory login rate limiter (5/15min).
 # relay.env is sourced in a subshell so its secrets never leak into Electron launches.
 set -u
-PID=$(ss -tlnp 2>/dev/null | grep ':3400 ' | grep -oP 'pid=\K[0-9]+' | head -1)
+PID=$(ss -tlnp 2>/dev/null | grep ':3400 ' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+if [ -z "${PID:-}" ] && command -v lsof >/dev/null; then
+  PID=$(lsof -tiTCP:3400 -sTCP:LISTEN 2>/dev/null | head -1 || true)
+fi
 [ -n "${PID:-}" ] && kill "$PID" 2>/dev/null && sleep 2
 ( set -a; source /workspace/tally-linux/data/relay.env; set +a
   nice -n 5 node /workspace/tally/relay-server/server.js >>/workspace/tally-linux/logs/relay.log 2>&1 &
