@@ -3,14 +3,68 @@
  * on a switcher client that is already connected. A real ATEM pushes PrgI/PrvI
  * to every session. Updating only the in-memory fake leaves the booth on the
  * old camera.
+ *
+ * The client here is a small UDP speaker so this file does not need
+ * church-client's node_modules (the Electron CI job does not install them).
  */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('path');
+const dgram = require('dgram');
 
 const { MockLabManager } = require('../src/mockLabManager');
-const { Atem } = require(path.join(__dirname, '../../church-client/node_modules/atem-connection'));
+
+const ATEM_HELLO = Buffer.from([
+  0x10, 0x14, 0x53, 0xab, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a,
+  0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+]);
+
+function parseCommands(payload) {
+  const cmds = [];
+  let offset = 0;
+  while (offset + 8 <= payload.length) {
+    const len = payload.readUInt16BE(offset);
+    if (len < 8 || offset + len > payload.length) break;
+    cmds.push({
+      name: payload.toString('ascii', offset + 4, offset + 8),
+      body: payload.subarray(offset + 8, offset + len),
+    });
+    offset += len;
+  }
+  return cmds;
+}
+
+function openAtemClient(port) {
+  const sock = dgram.createSocket('udp4');
+  const bus = { program: null, preview: null };
+  sock.on('message', (msg) => {
+    if (msg.length < 12) return;
+    const flags = msg.readUInt8(0) >> 3;
+    const sessionId = msg.readUInt16BE(2);
+    const remoteId = msg.readUInt16BE(10) & 0x7fff;
+    if (flags & 1) {
+      const ack = Buffer.alloc(12);
+      ack.writeUInt16BE((16 << 11) | 12, 0);
+      ack.writeUInt16BE(sessionId, 2);
+      ack.writeUInt16BE(remoteId, 4);
+      sock.send(ack, port, '127.0.0.1');
+    }
+    if (msg.length <= 12) return;
+    for (const cmd of parseCommands(msg.subarray(12))) {
+      if (cmd.name === 'PrgI' && cmd.body.length >= 4) bus.program = cmd.body.readUInt16BE(2);
+      if (cmd.name === 'PrvI' && cmd.body.length >= 4) bus.preview = cmd.body.readUInt16BE(2);
+    }
+  });
+  return new Promise((resolve, reject) => {
+    sock.once('error', reject);
+    sock.bind(0, '127.0.0.1', () => {
+      sock.send(ATEM_HELLO, port, '127.0.0.1', (err) => {
+        if (err) reject(err);
+        else resolve({ sock, bus });
+      });
+    });
+  });
+}
 
 function waitFor(pred, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -28,7 +82,7 @@ function waitFor(pred, timeoutMs) {
 
 test('already-connected ATEM client sees a MockLab panel cut to program 5 / preview 3', async () => {
   const mgr = new MockLabManager(() => {});
-  const atem = new Atem();
+  let client = null;
   try {
     const addrs = await mgr.start({
       allowFallback: false,
@@ -42,14 +96,13 @@ test('already-connected ATEM client sees a MockLab panel cut to program 5 / prev
         controlApi: { ip: '127.0.0.1', port: 21020 },
       },
     });
-    await atem.connect(addrs.atem.ip, addrs.atem.port);
-    const ready = await waitFor(() => atem.state?.video?.mixEffects?.[0]?.programInput != null, 8000);
+    client = await openAtemClient(addrs.atem.port);
+    const ready = await waitFor(() => client.bus.program != null && client.bus.preview != null, 8000);
     assert.equal(ready, true, 'client never received the initial program bus');
     // The fake sends one more bus packet ~120ms after hello. Wait that out so
     // the cut below is not credited to the handshake.
     await new Promise((r) => setTimeout(r, 500));
-    const before = atem.state.video.mixEffects[0];
-    assert.notEqual(before.programInput, 5, 'fixture must not already be on camera 5');
+    assert.notEqual(client.bus.program, 5, 'fixture must not already be on camera 5');
 
     const api = `http://${addrs.controlApi.ip}:${addrs.controlApi.port}`;
     const program = await fetch(`${api}/api/program`, {
@@ -65,15 +118,11 @@ test('already-connected ATEM client sees a MockLab panel cut to program 5 / prev
     assert.equal(program.ok, true, 'panel program cut was refused');
     assert.equal(preview.ok, true, 'panel preview cut was refused');
 
-    const seen = await waitFor(() => {
-      const me = atem.state?.video?.mixEffects?.[0];
-      return me && me.programInput === 5 && me.previewInput === 3;
-    }, 4000);
-    const after = atem.state?.video?.mixEffects?.[0] || {};
+    const seen = await waitFor(() => client.bus.program === 5 && client.bus.preview === 3, 4000);
     assert.equal(seen, true,
-      `connected client stayed on program ${after.programInput} preview ${after.previewInput} after the panel cut to 5/3`);
+      `connected client stayed on program ${client.bus.program} preview ${client.bus.preview} after the panel cut to 5/3`);
   } finally {
-    try { await atem.destroy(); } catch { /* already closed */ }
+    try { client?.sock?.close(); } catch { /* already closed */ }
     try { await mgr.stop(); } catch { /* */ }
   }
 });

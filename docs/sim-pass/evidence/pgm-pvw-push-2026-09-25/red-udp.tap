@@ -1,0 +1,31 @@
+TAP version 13
+# Subtest: already-connected ATEM client sees a MockLab panel cut to program 5 / preview 3
+not ok 1 - already-connected ATEM client sees a MockLab panel cut to program 5 / preview 3
+  ---
+  duration_ms: 4607.273094
+  location: '/workspace/electron-app/test/mocklab-atem-tally-push.test.js:83:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    connected client stayed on program 1 preview 2 after the panel cut to 5/3
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/electron-app/test/mocklab-atem-tally-push.test.js:122:12)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4691.161407
