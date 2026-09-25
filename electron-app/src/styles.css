@@ -1816,8 +1816,11 @@ body.ready { opacity: 1; pointer-events: auto; }
 .simple-device-item .device-ip { font-size: 11px; color: var(--muted); font-family: var(--mono); }
 .simple-device-item .device-dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--green); flex-shrink: 0;
+  background: var(--muted); opacity: 0.5; flex-shrink: 0;
 }
+.simple-device-item .device-dot.ok { background: var(--green); opacity: 1; }
+.simple-device-item .device-dot.warning { background: var(--warn); opacity: 1; }
+.simple-device-item .device-dot.error { background: var(--danger); opacity: 1; }
 .portal-link {
   font-size: 12px;
   color: var(--green);

@@ -133,6 +133,9 @@ class AtemSwitcher extends Switcher {
     this._timecode = null; // HH:MM:SS:FF from ATEM time-of-day
   }
 
+  /** Latest Fairlight master meter { t, leftDb, rightDb } or null. */
+  getAudioLevels() { return this._audioLevels || null; }
+
   /** Expose the raw Atem instance for backward compatibility (agent.atem). */
   get raw() { return this._atem; }
 
@@ -260,6 +263,14 @@ class AtemSwitcher extends Switcher {
       this._reconnecting = false;
       this._updateIdentity(atem.state);
       this._detectAudioSources(atem.state);
+      // Real ATEMs never put meter levels in state: Fairlight models push
+      // them (FDLv) only after we ask. Without this, silence detection has
+      // no source on real hardware.
+      if (atem.state?.fairlight && typeof atem.startFairlightMixerSendLevels === 'function') {
+        Promise.resolve().then(() => atem.startFairlightMixerSendLevels())
+          .then(() => console.log(`🔊 [${this.id}] ATEM Fairlight audio levels subscribed`))
+          .catch((e) => console.warn(`⚠️  [${this.id}] ATEM audio levels unavailable: ${e.message}`));
+      }
 
       // Stability timer — only reset backoff after 30s stable
       this._connectedAt = Date.now();
@@ -290,7 +301,17 @@ class AtemSwitcher extends Switcher {
       this.emit('stateChanged');
     });
 
+    atem.on('levelChanged', (lv) => {
+      if (!lv || lv.type !== 'master' || !lv.levels) return;
+      const L = lv.levels.leftLevel ?? lv.levels.outputLeftLevel;
+      const R = lv.levels.rightLevel ?? lv.levels.outputRightLevel ?? L;
+      if (typeof L !== 'number') return;
+      // Fairlight meters are int16 hundredths of a dB.
+      this._audioLevels = { t: Date.now(), leftDb: L / 100, rightDb: R / 100, source: 'fairlight' };
+    });
+
     atem.on('disconnected', () => {
+      this._audioLevels = null;
       if (this._stopping) return;
       if (this._stabilityTimer) { clearTimeout(this._stabilityTimer); this._stabilityTimer = null; }
       const uptime = this._connectedAt ? Math.round((Date.now() - this._connectedAt) / 1000) : 0;

@@ -30,6 +30,15 @@ function resolveCommandResult(msg) {
   return true;
 }
 
+/** Drop a waiter that will never be answered (command not delivered). */
+function cancelWaiter(commandId) {
+  const w = waiters.get(commandId);
+  if (!w) return false;
+  clearTimeout(w.timer);
+  waiters.delete(commandId);
+  return true;
+}
+
 function pendingCount() { return waiters.size; }
 
-module.exports = { waitForCommandResult, resolveCommandResult, pendingCount };
+module.exports = { waitForCommandResult, resolveCommandResult, cancelWaiter, pendingCount };

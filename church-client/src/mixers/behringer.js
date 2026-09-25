@@ -90,34 +90,74 @@ class BehringerMixer {
    * Returns { online, model, firmware, mainFader, mainMuted, scene }
    */
   async getStatus() {
-    if (!this._osc) return { online: false, model: this.model, firmware: '', mainFader: 0, mainMuted: false, scene: null };
+    if (!this._osc) return { online: false, model: this.model, firmware: '', mainFader: 0, mainMuted: null, scene: null };
 
     try {
       const [infoResp, faderResp, muteResp, sceneResp] = await Promise.all([
-        this._osc.query('/info', [], 2000).catch(() => null),
-        this._osc.query('/main/st/mix/fader', [], 2000).catch(() => null),
-        this._osc.query('/main/st/mix/on', [], 2000).catch(() => null),
-        this._osc.query('/-show/prepos/current', [], 2000).catch(() => null),
+        this._osc.query('/info', [], 1500).catch(() => null),
+        this._osc.query('/main/st/mix/fader', [], 1500).catch(() => null),
+        this._osc.query('/main/st/mix/on', [], 1500).catch(() => null),
+        this._osc.query('/-show/prepos/current', [], 1500).catch(() => null),
       ]);
 
       const online = !!infoResp;
       this._online = online;
 
-      // /info response: name, version, firmware, model (all strings)
-      const firmware = infoResp?.args?.[1]?.value || '';
-      const detectedModel = infoResp?.args?.[3]?.value || this.model;
+      // /info reply (Unofficial X32/M32 OSC protocol):
+      //   ,ssss  server_version  server_name  console_model  console_version
+      //   e.g.   V2.07           osc-server   M32            4.09
+      const detectedModel = infoResp?.args?.[2]?.value || this.model;
+      const firmware = infoResp?.args?.[3]?.value || '';
+      if (online && detectedModel) this.model = detectedModel;
 
-      // X32: mainMuted when /main/st/mix/on === 0
-      const mainFader = faderResp?.args?.[0]?.value ?? 0;
-      const onValue   = muteResp?.args?.[0]?.value ?? 1;
-      const mainMuted = onValue === 0;
+      // X32: mainMuted when /main/st/mix/on === 0. If the console didn't
+      // answer the mute query we DON'T know — report null, never "not muted".
+      const mainFader = faderResp?.args?.[0]?.value ?? null;
+      const onValue   = muteResp?.args?.[0]?.value;
+      const mainMuted = online && onValue != null ? onValue === 0 : null;
 
       const scene = sceneResp?.args?.[0]?.value ?? null;
 
       return { online, model: detectedModel, firmware, mainFader, mainMuted, scene };
     } catch {
-      return { online: false, model: this.model, firmware: '', mainFader: 0, mainMuted: false, scene: null };
+      return { online: false, model: this.model, firmware: '', mainFader: null, mainMuted: null, scene: null };
     }
+  }
+
+  /**
+   * The X32 never acknowledges a SET — the only proof it happened is reading
+   * the value back. Send, then query until the console echoes the expected
+   * value. No reply at all → console not responding (offline). A different
+   * value → the console did not accept it. Either way the caller gets an error
+   * instead of a silent "OK".
+   */
+  async _setVerified(address, args, what, match) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const want = args[0]?.value;
+    const ok = match || ((v) => (typeof want === 'number' && args[0].type === 'f'
+      ? Math.abs(v - want) <= 0.002 : v === want));
+    this._osc.send(address, args);
+    let lastVal; let answered = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 30 : 120));
+      try {
+        const resp = await this._osc.query(address, [], 800);
+        answered = true;
+        lastVal = resp?.args?.[0]?.value;
+        if (ok(lastVal)) { this._online = true; return; }
+      } catch { /* no reply this round */ }
+    }
+    if (!answered) {
+      this._online = false;
+      throw new Error(`${this.model} is not responding — ${what} not applied (check console power/network)`);
+    }
+    throw new Error(`${this.model} did not confirm ${what} (console reports ${JSON.stringify(lastVal)})`);
+  }
+
+  _chCheck(ch) {
+    const n = parseInt(ch, 10);
+    if (!Number.isInteger(n) || n < 1 || n > 32) throw new Error(`Channel ${ch} does not exist on ${this.model} (1–32)`);
+    return n;
   }
 
   /**
@@ -132,9 +172,9 @@ class BehringerMixer {
       this._osc.query(`/ch/${pad}/mix/on`, [], 2000),
     ]);
 
-    const fader = faderResp?.args?.[0]?.value ?? 0;
-    const onVal = muteResp?.args?.[0]?.value ?? 1;
-    const muted = onVal === 0; // X32: 0 = muted
+    const fader = faderResp?.args?.[0]?.value ?? null;
+    const onVal = muteResp?.args?.[0]?.value;
+    const muted = onVal == null ? null : onVal === 0; // X32: 0 = muted
 
     return { fader, muted };
   }
@@ -142,38 +182,60 @@ class BehringerMixer {
   // ─── CHANNEL CONTROL ─────────────────────────────────────────────────────────
 
   async muteChannel(ch) {
-    if (!this._osc) throw new Error(`${this.model} not connected`);
-    this._osc.send(`/ch/${this._ch(ch)}/mix/on`, [{ type: 'i', value: 0 }]); // 0 = muted
+    const n = this._chCheck(ch);
+    await this._setVerified(`/ch/${this._ch(n)}/mix/on`, [{ type: 'i', value: 0 }], `mute on channel ${n}`); // 0 = muted
   }
 
   async unmuteChannel(ch) {
-    if (!this._osc) throw new Error(`${this.model} not connected`);
-    this._osc.send(`/ch/${this._ch(ch)}/mix/on`, [{ type: 'i', value: 1 }]); // 1 = active
+    const n = this._chCheck(ch);
+    await this._setVerified(`/ch/${this._ch(n)}/mix/on`, [{ type: 'i', value: 1 }], `unmute on channel ${n}`); // 1 = active
   }
 
   async setFader(ch, level) {
-    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const n = this._chCheck(ch);
     const clamped = Math.max(0, Math.min(1, parseFloat(level)));
-    this._osc.send(`/ch/${this._ch(ch)}/mix/fader`, [{ type: 'f', value: clamped }]);
+    if (!Number.isFinite(clamped)) throw new Error(`Invalid fader level: ${level}`);
+    await this._setVerified(`/ch/${this._ch(n)}/mix/fader`, [{ type: 'f', value: clamped }], `fader on channel ${n}`);
   }
 
   // ─── MASTER CONTROL ──────────────────────────────────────────────────────────
 
   async muteMaster() {
-    if (!this._osc) throw new Error(`${this.model} not connected`);
-    this._osc.send('/main/st/mix/on', [{ type: 'i', value: 0 }]);
+    await this._setVerified('/main/st/mix/on', [{ type: 'i', value: 0 }], 'master mute');
   }
 
   async unmuteMaster() {
-    if (!this._osc) throw new Error(`${this.model} not connected`);
-    this._osc.send('/main/st/mix/on', [{ type: 'i', value: 1 }]);
+    await this._setVerified('/main/st/mix/on', [{ type: 'i', value: 1 }], 'master unmute');
   }
 
   // ─── SCENES & SOLOS ──────────────────────────────────────────────────────────
 
+  /**
+   * Recall scene n (0–99) with the console's real action, /-action/goscene.
+   * (There is no /scene/recall node on X32/M32 — that address is silently
+   * ignored by the console.) Refuses empty scenes and verifies the console's
+   * current scene afterwards.
+   */
   async recallScene(n) {
     if (!this._osc) throw new Error(`${this.model} not connected`);
-    this._osc.send('/scene/recall', [{ type: 'i', value: parseInt(n) }]);
+    const idx = parseInt(n, 10);
+    if (!Number.isInteger(idx) || idx < 0 || idx > 99) throw new Error(`Scene ${n} does not exist on ${this.model} (0–99)`);
+    const padded = String(idx).padStart(3, '0');
+    let has;
+    try {
+      has = await this._osc.query(`/-show/showfile/scene/${padded}/hasdata`, [], 1500);
+    } catch {
+      this._online = false;
+      throw new Error(`${this.model} is not responding — scene ${idx} not recalled`);
+    }
+    if (!has?.args?.[0]?.value) throw new Error(`Scene ${idx} is empty on the ${this.model} — nothing to recall`);
+    this._osc.send('/-action/goscene', [{ type: 'i', value: idx }]);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, 100 + attempt * 100));
+      const cur = await this._osc.query('/-show/prepos/current', [], 800).catch(() => null);
+      if (cur?.args?.[0]?.value === idx) return;
+    }
+    throw new Error(`${this.model} did not confirm recall of scene ${idx}`);
   }
 
   async clearSolos() {
@@ -510,14 +572,17 @@ class BehringerMixer {
    */
   async saveScene(sceneNumber, name) {
     if (!this._osc) throw new Error(`${this.model} not connected`);
-    const idx = parseInt(sceneNumber) || 0;
-    // Try to name the scene slot first
-    if (name) {
-      this._osc.send(`/-show/showfile/scene/${String(idx).padStart(3, '0')}/name`, [{ type: 's', value: String(name).slice(0, 14) }]);
+    const idx = parseInt(sceneNumber, 10);
+    if (!Number.isInteger(idx) || idx < 0 || idx > 99) throw new Error(`Scene ${sceneNumber} does not exist on ${this.model} (0–99)`);
+    const label = String(name || `Scene ${idx}`).slice(0, 32);
+    // /save ,siss "scene" <index> <name> <note>  (X32/M32 dataset save)
+    this._osc.send('/save', [{ type: 's', value: 'scene' }, { type: 'i', value: idx }, { type: 's', value: label }, { type: 's', value: '' }]);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, 100 + attempt * 100));
+      const v = await this.verifySceneSave(idx);
+      if (v.exists && v.name === label) return;
     }
-    // Attempt to store current state into that scene slot
-    // Note: This may not work on all firmware versions
-    this._osc.send(`/-show/showfile/scene/${String(idx).padStart(3, '0')}/save`, []);
+    throw new Error(`${this.model} did not confirm saving scene ${idx}`);
   }
 
   /**
@@ -538,16 +603,31 @@ class BehringerMixer {
     }
   }
 
-  // ─── DCA / MUTE GROUP / SOFTKEY STUBS ────────────────────────────────────
-  // X32 uses assignToDca (bitmask) for DCA assignment, not direct DCA mute/fader.
-  // These stubs exist so MixerBridge never throws on missing methods.
+  // ─── DCA / MUTE GROUPS / SOFT KEYS ─────────────────────────────────────────
+  // X32/M32 expose /dca/[1-8]/on|fader and /config/mute/[1-6] over OSC.
+  // User-assign soft keys are not remotely pressable — say so, don't fake it.
 
-  async muteDca()              { console.warn('🎛️  X32: use assignToDca for DCA control'); }
-  async unmuteDca()            { console.warn('🎛️  X32: use assignToDca for DCA control'); }
-  async setDcaFader()          { console.warn('🎛️  X32: DCA fader not controllable via OSC — use assignToDca'); }
-  async activateMuteGroup()    { console.warn('🎛️  X32: mute groups not available via OSC'); }
-  async deactivateMuteGroup()  { console.warn('🎛️  X32: mute groups not available via OSC'); }
-  async pressSoftKey()         { console.warn('🎛️  X32: softkeys not available via OSC'); }
+  _dcaCheck(d) {
+    const n = parseInt(d, 10);
+    if (!Number.isInteger(n) || n < 1 || n > 8) throw new Error(`DCA ${d} does not exist on ${this.model} (1–8)`);
+    return n;
+  }
+  async muteDca(dca)   { const n = this._dcaCheck(dca); await this._setVerified(`/dca/${n}/on`, [{ type: 'i', value: 0 }], `DCA ${n} mute`); }
+  async unmuteDca(dca) { const n = this._dcaCheck(dca); await this._setVerified(`/dca/${n}/on`, [{ type: 'i', value: 1 }], `DCA ${n} unmute`); }
+  async setDcaFader(dca, level) {
+    const n = this._dcaCheck(dca);
+    const v = Math.max(0, Math.min(1, parseFloat(level)));
+    if (!Number.isFinite(v)) throw new Error(`Invalid fader level: ${level}`);
+    await this._setVerified(`/dca/${n}/fader`, [{ type: 'f', value: v }], `DCA ${n} fader`);
+  }
+  _mgCheck(g) {
+    const n = parseInt(g, 10);
+    if (!Number.isInteger(n) || n < 1 || n > 6) throw new Error(`Mute group ${g} does not exist on ${this.model} (1–6)`);
+    return n;
+  }
+  async activateMuteGroup(mg)   { const n = this._mgCheck(mg); await this._setVerified(`/config/mute/${n}`, [{ type: 'i', value: 1 }], `mute group ${n} on`); }
+  async deactivateMuteGroup(mg) { const n = this._mgCheck(mg); await this._setVerified(`/config/mute/${n}`, [{ type: 'i', value: 0 }], `mute group ${n} off`); }
+  async pressSoftKey() { throw new Error(`Soft keys are not supported on ${this.model} via OSC — press it at the console`); }
 }
 
 module.exports = { BehringerMixer };

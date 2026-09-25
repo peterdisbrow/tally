@@ -4207,7 +4207,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (mx.type) {
         var mxNames = {
           'atem-auto': 'Auto-detect from ATEM', 'atem-direct': 'Forced: ATEM audio', 'atem-none': 'Forced: No ATEM audio',
-          x32: 'X32 (Behringer)', behringer: 'Behringer X32 / X-Air', midas: 'Midas M32 / M32R',
+          x32: 'X32 (Behringer)', behringer: 'Behringer X32 family (X32 / Compact / Rack / Producer)', midas: 'Midas M32 / M32R',
           allenheath: 'Allen & Heath SQ', dlive: 'Allen & Heath dLive', avantis: 'Allen & Heath Avantis',
           yamaha: 'Yamaha CL / QL / TF',
         };

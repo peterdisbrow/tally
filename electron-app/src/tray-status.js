@@ -29,6 +29,13 @@ function buildTrayDeviceSummary(s = {}) {
   if (isConfigured(s.companion)) lines.push(`  Companion: ${compOk ? '✓ Connected' : '✗ Disconnected'}`);
   if (isConfigured(s.proPresenter)) lines.push(`  ProPresenter: ${ppOk ? '✓ Connected' : '✗ Disconnected'}`);
   if (isConfigured(s.resolume)) lines.push(`  Resolume: ${resOk ? '✓ Connected' : '✗ Disconnected'}`);
+  // Audio is core: always list a configured console, and never call an
+  // unreachable one "online" or its unknown mute state "fine".
+  const mx = s.mixer && typeof s.mixer === 'object' ? s.mixer : null;
+  if (mx && (mx.configured === true || mx.type)) {
+    const label = mx.model ? `Audio console (${mx.model})` : 'Audio console';
+    lines.push(`  ${label}: ${!mx.connected ? '✗ Offline' : mx.mainMuted === true ? '⚠ Master MUTED' : '✓ Online'}`);
+  }
   const isLive = !!(s.streaming || (s.encoder && typeof s.encoder === 'object' && s.encoder.live)
     || (s.obs && typeof s.obs === 'object' && s.obs.connected === true && s.obs.streaming === true));
   const fingerprint = [atemOk, encoderOk, compOk, ppOk, resOk, isLive, lines.join('|')].join(',');

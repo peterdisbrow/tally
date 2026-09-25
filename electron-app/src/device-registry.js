@@ -231,7 +231,7 @@ const DEVICE_REGISTRY = {
         { value: 'atem-direct', label: 'Force: Audio via ATEM (override)' },
         { value: 'atem-none', label: 'Force: No ATEM audio (override)' },
         { value: 'x32', label: 'X32 (Behringer protocol)' },
-        { value: 'behringer', label: 'Behringer X32 / X-Air' },
+        { value: 'behringer', label: 'Behringer X32 family (X32 / Compact / Rack / Producer)' },
         { value: 'midas', label: 'Midas M32 / M32R' },
         { value: 'allenheath', label: 'Allen & Heath SQ' },
         { value: 'dlive', label: 'Allen & Heath dLive' },

@@ -23,6 +23,7 @@ const SILENCE_DURATION_MS   = 15_000;     // 15 seconds of sustained silence = a
 const SILENCE_FAILOVER_MS   = 30_000;     // 30 seconds of silence = send signal_event for failover
 const DEDUP_WINDOW_MS        = 5 * 60_000; // don't re-alert same issue within 5 min
 const TICK_INTERVAL_MS       = 2_000;     // check every 2 seconds
+const LEVEL_STALE_MS         = 5_000;     // a meter reading older than this is not live audio
 
 class AudioMonitor {
   constructor() {
@@ -33,6 +34,8 @@ class AudioMonitor {
     this._failoverSignalSent = false;  // prevent re-sending signal_event
     this._lastLevelDb = null;          // most recent audio level reading (dBFS)
     this._audioSource = null;          // which source is providing audio: 'atem', 'vmix', or null
+    this._coverage = null;             // 'level' | 'none' (streaming but no level source) | null (not streaming)
+    this._silenceAlerted = false;      // a silence alert went out for the current silence
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -66,16 +69,23 @@ class AudioMonitor {
     const isStreaming = status.obs?.streaming || status.vmix?.streaming || status.encoder?.live;
     if (!isStreaming) {
       this._silenceStartTime = null; // reset silence timer when not streaming
+      this._silenceAlerted = false;
+      this._failoverSignalSent = false;
       this._lastLevelDb = null;
       this._audioSource = null;
+      this._coverage = null;
       return;
     }
 
     // Check audio sources in priority order: ATEM → vMix → no source
     let levelRead = false;
 
-    // 1. ATEM master audio (most reliable — hardware meters)
-    if (this.agent.atem && status.atem?.connected) {
+    // 1a. Real ATEM: Fairlight master meter pushed via 'levelChanged' (AtemSwitcher).
+    if (status.atem?.connected) {
+      levelRead = this._checkATEMFairlight();
+    }
+    // 1b. Legacy/simulator path (fakeAtem fills state.audio.master).
+    if (!levelRead && this.agent.atem && status.atem?.connected) {
       levelRead = this._checkATEMAudio();
     }
 
@@ -86,7 +96,14 @@ class AudioMonitor {
 
     // 3. No audio source available
     if (!levelRead) {
+      // Streaming but nothing is metering the program audio: say so instead of
+      // looking like "monitoring, all fine". Silence can't be detected.
       this._audioSource = null;
+      this._lastLevelDb = null;
+      this._silenceStartTime = null;
+      this._coverage = 'none';
+    } else {
+      this._coverage = 'level';
     }
 
     // Check OBS congestion (secondary signal, independent of audio source)
@@ -96,6 +113,18 @@ class AudioMonitor {
   }
 
   // ─── ATEM Audio Check ──────────────────────────────────────────────────────
+
+  /** Fairlight master meter pushed by the ATEM (dB). Stale readings don't count. */
+  _checkATEMFairlight() {
+    const lv = this.agent?.atemAudioLevels;
+    if (!lv || typeof lv.t !== 'number' || Date.now() - lv.t > LEVEL_STALE_MS) return false;
+    const levelDb = Math.max(Number(lv.leftDb), Number(lv.rightDb ?? lv.leftDb));
+    if (!Number.isFinite(levelDb)) return false;
+    this._lastLevelDb = levelDb;
+    this._audioSource = 'atem';
+    this._processSilenceDetection(levelDb, 'ATEM master output');
+    return true;
+  }
 
   /** @returns {boolean} true if a level was successfully read */
   _checkATEMAudio() {
@@ -197,7 +226,19 @@ class AudioMonitor {
           });
         }
       }
+      if (this._silenceStartTime && this._silenceAlerted && this.agent) {
+        const secs = Math.round((Date.now() - this._silenceStartTime) / 1000);
+        this.agent.sendToRelay({
+          type: 'alert',
+          alertType: 'audio_restored',
+          message: `Audio restored on ${sourceName} after ${secs}s of silence (${levelDb.toFixed(1)} dBFS).`,
+          severity: 'info',
+        });
+        // A new dropout after recovery must alert again, not hide behind dedup.
+        this._lastAlertTimes.delete('audio_silence');
+      }
       this._silenceStartTime = null;
+      this._silenceAlerted = false;
       this._failoverSignalSent = false;
     }
   }
@@ -245,7 +286,9 @@ class AudioMonitor {
     if (now - lastSent < DEDUP_WINDOW_MS) return; // dedup
 
     this._lastAlertTimes.set(alertKey, now);
-    this._silenceStartTime = null; // reset so it doesn't immediately re-fire
+    // Don't reset the silence clock here — the 30 s failover signal and the
+    // reported silence duration must keep counting from when silence began.
+    if (alertKey === 'audio_silence') this._silenceAlerted = true;
 
     console.log(`[AudioMonitor] 🔇 ${message}`);
 
@@ -272,6 +315,7 @@ class AudioMonitor {
       silenceDurationSec: silenceDuration,
       lastLevelDb: this._lastLevelDb,       // current audio level in dBFS (null if no source)
       source: this._audioSource,             // 'atem', 'vmix', or null
+      coverage: this._coverage,              // 'level' | 'none' (streaming, nothing metering audio) | null
       lastAlerts: Object.fromEntries(
         [...this._lastAlertTimes.entries()].map(([k, v]) => [k, new Date(v).toISOString()])
       ),

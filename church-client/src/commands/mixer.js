@@ -3,8 +3,8 @@ const { toInt } = require('./helpers');
 // ─── MIXER CAPABILITIES ─────────────────────────────────────────────────────
 
 const MIXER_CAPABILITIES = {
-  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
-  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  X32:    { dcaControl: 'full', muteGroup: 'full', softKey: false, compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  M32:    { dcaControl: 'full', muteGroup: 'full', softKey: false, compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
   SQ:      { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
   SQ5:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
   SQ6:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
@@ -16,9 +16,17 @@ const MIXER_CAPABILITIES = {
   TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
 };
 
+/** Map console variants to their capability family (X32C/X32RACK/X32P/X32CORE → X32, M32C/M32R → M32). */
+function capsFor(model) {
+  const m = String(model || '').toUpperCase();
+  if (MIXER_CAPABILITIES[m]) return MIXER_CAPABILITIES[m];
+  if (/^X32/.test(m)) return MIXER_CAPABILITIES.X32;
+  if (/^M32/.test(m)) return MIXER_CAPABILITIES.M32;
+  return null;
+}
+
 function mixerCan(agent, feature) {
-  const model = (agent.mixer?.model || '').toUpperCase();
-  const caps = MIXER_CAPABILITIES[model];
+  const caps = capsFor(agent.mixer?.model);
   if (!caps) return 'full'; // unknown model — don't block
   return caps[feature] || false;
 }
@@ -139,7 +147,7 @@ async function mixerIsOnline(agent) {
 function mixerCapabilities(agent) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const model = (agent.mixer.model || 'unknown').toUpperCase();
-  const caps = MIXER_CAPABILITIES[model];
+  const caps = capsFor(model);
   if (!caps) return { model, note: 'Unknown mixer model — all features assumed available' };
   const lines = [`🎛️ ${model} — remote capabilities:`];
   for (const [feature, level] of Object.entries(caps)) {

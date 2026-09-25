@@ -26,13 +26,36 @@ const {
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
 
-/** Create a mock OSC client that records all send() calls. */
-function makeMockOsc() {
+/**
+ * Mock OSC client that records all send() calls AND behaves like the console
+ * for read-back: a SET stores the value, a GET (query) echoes it. The X32 never
+ * acks a SET, so the driver verifies by reading back — this fake supports that.
+ * /info replies in the real field order: server_version, server_name, model, firmware.
+ */
+function makeMockOsc(model = 'X32') {
   const sent = [];
+  const values = new Map();
+  const scenes = new Map([[5, 'Scene 5'], [1, 'Scene 1'], [0, 'Scene 0']]);
+  let current = 0;
   return {
-    sent,
-    send(address, args = []) { sent.push({ address, args: [...(args || [])] }); },
-    async query() { return null; },
+    sent, values, scenes,
+    send(address, args = []) {
+      sent.push({ address, args: [...(args || [])] });
+      if (address === '/-action/goscene') { if (scenes.has(args[0]?.value)) current = args[0].value; return; }
+      if (address === '/save' && args[0]?.value === 'scene') { scenes.set(args[1].value, args[2]?.value || ''); return; }
+      if (args && args.length) values.set(address, args[0].value);
+    },
+    async query(address) {
+      if (address === '/info') return { address, args: [{ value: 'V2.07' }, { value: 'osc-server' }, { value: model }, { value: '4.06' }] };
+      if (address === '/-show/prepos/current') return { address, args: [{ value: current }] };
+      let m;
+      if ((m = address.match(/^\/-show\/showfile\/scene\/(\d{3})\/(hasdata|name)$/))) {
+        const idx = Number(m[1]);
+        return { address, args: [{ value: m[2] === 'hasdata' ? (scenes.has(idx) ? 1 : 0) : (scenes.get(idx) || '') }] };
+      }
+      if (values.has(address)) return { address, args: [{ value: values.get(address) }] };
+      return null;
+    },
     close() {},
     subscribe() { return () => {}; },
   };
@@ -41,7 +64,7 @@ function makeMockOsc() {
 /** Create a BehringerMixer with the OSC layer pre-mocked (no real UDP). */
 function makeMixer(model = 'X32') {
   const mixer  = new BehringerMixer({ host: '192.168.1.1', model });
-  const mockOsc = makeMockOsc();
+  const mockOsc = makeMockOsc(model);
   mixer._osc   = mockOsc;
   return { mixer, sent: mockOsc.sent };
 }
@@ -269,10 +292,10 @@ test('setFader(1, 0.5) encodes to correct channel address', async () => {
 
 // ─── SECTION 4: Scene recall wire bytes ───────────────────────────────────────
 
-test('recallScene sends /scene/recall with integer', async () => {
+test('recallScene sends /-action/goscene with integer (real X32 action; /scene/recall does not exist)', async () => {
   const { mixer, sent } = makeMixer();
   await mixer.recallScene(5);
-  assert.equal(last(sent).address, '/scene/recall');
+  assert.equal(last(sent).address, '/-action/goscene');
   assert.equal(last(sent).args[0].type, 'i');
   assert.equal(last(sent).args[0].value, 5);
 });
@@ -672,39 +695,22 @@ test('setChannelIcon sends /ch/NN/config/icon with integer', async () => {
 
 // ─── SECTION 16: no-op stubs for unimplemented X32 features ──────────────────
 
-test('muteDca logs warning and does not throw', async () => {
-  const { mixer } = makeMixer();
-  // Stub console.warn to suppress noise
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
+test('muteDca sends /dca/N/on 0 and verifies it', async () => {
+  const { mixer, sent } = makeMixer();
   await mixer.muteDca(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')), 'should warn about X32 limitation');
+  assert.equal(last(sent).address, '/dca/1/on');
+  assert.equal(last(sent).args[0].value, 0);
 });
-
-test('activateMuteGroup logs warning and does not throw', async () => {
-  const { mixer } = makeMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
+test('activateMuteGroup sends /config/mute/N 1 and verifies it', async () => {
+  const { mixer, sent } = makeMixer();
   await mixer.activateMuteGroup(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')));
+  assert.equal(last(sent).address, '/config/mute/1');
+  assert.equal(last(sent).args[0].value, 1);
 });
-
-test('pressSoftKey logs warning and does not throw', async () => {
+test('pressSoftKey is refused honestly on X32 (not remotely pressable)', async () => {
   const { mixer } = makeMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.pressSoftKey(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')));
+  await assert.rejects(mixer.pressSoftKey(1), /not supported/i);
 });
-
-// ─── SECTION 17: Error guard — no OSC connection ─────────────────────────────
-
 test('muteChannel throws when _osc is null', async () => {
   const mixer = new BehringerMixer({ host: '192.168.1.1' });
   await assert.rejects(() => mixer.muteChannel(1), /not connected/);
@@ -781,8 +787,7 @@ test('getStatus returns offline status when _osc is null', async () => {
   assert.equal(status.online, false);
   assert.equal(status.model, 'M32');
   assert.equal(status.firmware, '');
-  assert.equal(status.mainFader, 0);
-  assert.equal(status.mainMuted, false);
+  assert.equal(status.mainMuted, null, 'unknown, not "not muted"');
   assert.equal(status.scene, null);
 });
 
@@ -792,15 +797,15 @@ test('getStatus with all null query responses', async () => {
   const status = await mixer.getStatus();
   assert.equal(status.online, false);
   assert.equal(status.firmware, '');
-  assert.equal(status.mainFader, 0);
-  assert.equal(status.mainMuted, false);
+  assert.equal(status.mainFader, null);
+  assert.equal(status.mainMuted, null, 'unknown, not "not muted"');
   assert.equal(status.scene, null);
 });
 
 test('getStatus with full query responses', async () => {
   const { mixer } = makeMixer();
   mixer._osc.query = async (addr) => {
-    if (addr === '/info') return { args: [{ value: 'X32' }, { value: '4.06' }, { value: '' }, { value: 'X32' }] };
+    if (addr === '/info') return { args: [{ value: 'V2.07' }, { value: 'osc-server' }, { value: 'X32' }, { value: '4.06' }] };
     if (addr === '/main/st/mix/fader') return { args: [{ value: 0.75 }] };
     if (addr === '/main/st/mix/on') return { args: [{ value: 0 }] };
     if (addr === '/-show/prepos/current') return { args: [{ value: 5 }] };
@@ -869,14 +874,13 @@ test('getChannelStatus throws when _osc is null', async () => {
   await assert.rejects(() => mixer.getChannelStatus(1), /not connected/);
 });
 
-test('getChannelStatus with null response args uses defaults', async () => {
+test('getChannelStatus with empty response args reports unknown (null), not defaults', async () => {
   const { mixer } = makeMixer();
   mixer._osc.query = async () => ({ args: [] });
   const status = await mixer.getChannelStatus(1);
-  assert.equal(status.fader, 0);
-  assert.equal(status.muted, false);
+  assert.equal(status.fader, null);
+  assert.equal(status.muted, null);
 });
-
 test('getChannelStatus with valid responses', async () => {
   const { mixer } = makeMixer();
   mixer._osc.query = async (addr) => {
@@ -898,8 +902,6 @@ test('setFullChannelStrip throws when _osc is null', async () => {
 
 test('setFullChannelStrip applies all properties', async () => {
   const { mixer, sent } = makeMixer();
-  // Mock query for assignToDca inside setFullChannelStrip if it were called
-  mixer._osc.query = async () => ({ args: [{ value: 0 }] });
   await mixer.setFullChannelStrip(1, {
     name: 'Kick',
     color: 'red',
@@ -1082,41 +1084,31 @@ test('saveScene throws when _osc is null', async () => {
   await assert.rejects(() => mixer.saveScene(0), /not connected/);
 });
 
-test('saveScene with name sends name then save', async () => {
+test('saveScene sends /save ,siss scene idx name and verifies the name', async () => {
   const { mixer, sent } = makeMixer();
   await mixer.saveScene(5, 'My Scene');
-  const nameMsg = sent.find(m => m.address.includes('/name'));
-  const saveMsg = sent.find(m => m.address.includes('/save'));
-  assert.ok(nameMsg, 'name message sent');
-  assert.equal(nameMsg.args[0].value, 'My Scene');
+  const saveMsg = sent.find(m => m.address === '/save');
   assert.ok(saveMsg, 'save message sent');
+  assert.equal(saveMsg.args[0].value, 'scene');
+  assert.equal(saveMsg.args[1].value, 5);
+  assert.equal(saveMsg.args[2].value, 'My Scene');
 });
-
-test('saveScene without name skips name message', async () => {
+test('saveScene without name uses a default label', async () => {
   const { mixer, sent } = makeMixer();
   await mixer.saveScene(3);
-  const nameMsg = sent.find(m => m.address.includes('/name'));
-  assert.equal(nameMsg, undefined, 'no name message when name is omitted');
-  const saveMsg = sent.find(m => m.address.includes('/save'));
-  assert.ok(saveMsg);
+  const saveMsg = sent.find(m => m.address === '/save');
+  assert.equal(saveMsg.args[2].value, 'Scene 3');
 });
-
-test('saveScene truncates name to 14 chars', async () => {
+test('saveScene truncates name to 32 chars', async () => {
   const { mixer, sent } = makeMixer();
-  await mixer.saveScene(0, 'This Is A Very Long Scene Name');
-  const nameMsg = sent.find(m => m.address.includes('/name'));
-  assert.equal(nameMsg.args[0].value.length, 14);
+  await mixer.saveScene(0, 'This Is A Very Long Scene Name That Keeps Going On');
+  const saveMsg = sent.find(m => m.address === '/save');
+  assert.equal(saveMsg.args[2].value.length, 32);
 });
-
-test('saveScene pads scene number to 3 digits', async () => {
-  const { mixer, sent } = makeMixer();
-  await mixer.saveScene(5, 'Test');
-  const nameMsg = sent.find(m => m.address.includes('/name'));
-  assert.ok(nameMsg.address.includes('/005/'));
+test('saveScene refuses a scene index outside 0–99', async () => {
+  const { mixer } = makeMixer();
+  await assert.rejects(mixer.saveScene(150, 'Test'), /does not exist/);
 });
-
-// ─── SECTION 29: verifySceneSave branch coverage ─────────────────────────────
-
 test('verifySceneSave throws when _osc is null', async () => {
   const mixer = new BehringerMixer({ host: '192.168.1.1' });
   await assert.rejects(() => mixer.verifySceneSave(0), /not connected/);
@@ -1222,38 +1214,24 @@ test('setEq band with only Q sends eq/N/q', async () => {
 
 // ─── SECTION 35: remaining stub coverage ─────────────────────────────────────
 
-test('unmuteDca logs warning and does not throw', async () => {
-  const { mixer } = makeMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.unmuteDca(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')));
+test('unmuteDca sends /dca/N/on 1 and verifies it', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.unmuteDca(2);
+  assert.equal(last(sent).address, '/dca/2/on');
+  assert.equal(last(sent).args[0].value, 1);
 });
-
-test('setDcaFader logs warning and does not throw', async () => {
-  const { mixer } = makeMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.setDcaFader(1, 0.5);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')));
+test('setDcaFader sends /dca/N/fader float and verifies it', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setDcaFader(3, 0.5);
+  assert.equal(last(sent).address, '/dca/3/fader');
+  assert.equal(last(sent).args[0].type, 'f');
 });
-
-test('deactivateMuteGroup logs warning and does not throw', async () => {
-  const { mixer } = makeMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.deactivateMuteGroup(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('X32')));
+test('deactivateMuteGroup sends /config/mute/N 0 and verifies it', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.deactivateMuteGroup(2);
+  assert.equal(last(sent).address, '/config/mute/2');
+  assert.equal(last(sent).args[0].value, 0);
 });
-
-// ─── SECTION 36: assignToBus out-of-range ────────────────────────────────────
-
 test('assignToBus out-of-range throws', async () => {
   const { mixer } = makeMixer();
   await assert.rejects(() => mixer.assignToBus(1, 0, true), /Bus out of range/);

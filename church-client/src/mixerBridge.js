@@ -6,7 +6,7 @@
  * choice is made from config.type.
  *
  * Supported types:
- *   'behringer' → Behringer X32 / X-Air (port 10023)
+ *   'behringer' → Behringer X32 family (port 10023). X-Air (XR12/16/18, port 10024, /lr/...) is NOT supported.
  *   'midas'     → Midas M32 / M32R (same protocol as Behringer, port 10023)
  *   'allenheath'→ Allen & Heath SQ (hybrid OSC 51326 + TCP MIDI 51325)
  *   'avantis'   → Allen & Heath Avantis (TCP MIDI port 51325)
@@ -70,6 +70,9 @@ class MixerBridge extends EventEmitter {
 
   // ─── LIFECYCLE ────────────────────────────────────────────────────────────────
 
+  /** Console model as the driver knows it (detected model once online). Used for capability gating. */
+  get model() { return this._mixer?.model || this.config.model || ''; }
+
   async connect()     { return this._mixer.connect(); }
   async disconnect()  { return this._mixer.disconnect(); }
 
@@ -88,7 +91,7 @@ class MixerBridge extends EventEmitter {
       const s = await this._mixer.getStatus();
       return { ...s, type: this.type };
     } catch {
-      return { online: false, type: this.type, model: this.config.model || '', mainFader: 0, mainMuted: false, scene: null };
+      return { online: false, type: this.type, model: this.config.model || '', mainFader: null, mainMuted: null, scene: null };
     }
   }
 

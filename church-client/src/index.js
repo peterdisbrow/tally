@@ -864,6 +864,7 @@ class ChurchAVAgent {
         silenceDurationSec: audioStatus.silenceDurationSec,
         lastLevelDb: audioStatus.lastLevelDb,
         source: audioStatus.source,
+        coverage: audioStatus.coverage ?? null,
       };
     }
 
@@ -1284,6 +1285,13 @@ class ChurchAVAgent {
     }
 
     this.atem = new Atem();
+    this._legacyAtemLevels = null;
+    this.atem.on('levelChanged', (lv) => {
+      if (!lv || lv.type !== 'master' || !lv.levels) return;
+      const L = lv.levels.leftLevel ?? lv.levels.outputLeftLevel;
+      const R = lv.levels.rightLevel ?? lv.levels.outputRightLevel ?? L;
+      if (typeof L === 'number') this._legacyAtemLevels = { t: Date.now(), leftDb: L / 100, rightDb: R / 100, source: 'fairlight' };
+    });
 
     this.atem.on('connected', () => {
       console.log(`✅ ATEM connected${atemIp ? ` (${atemIp})` : ''}`);
@@ -1292,6 +1300,10 @@ class ChurchAVAgent {
       this.updateAtemIdentity(this.atem?.state);
       try { this.status.atem.atemAudioSources = this.detectAtemAudioSources(this.atem?.state); } catch { /* non-critical */ }
       this._resolveAudioViaAtem();
+      // Real ATEM meters: Fairlight pushes levels only after we subscribe.
+      if (this.atem?.state?.fairlight && typeof this.atem.startFairlightMixerSendLevels === 'function') {
+        this.atem.startFairlightMixerSendLevels().catch((e) => console.warn(`⚠️  ATEM audio levels unavailable: ${e.message}`));
+      }
       this.atemReconnecting = false;
       // Stream Protection: ATEM reconnected
       if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(true);
@@ -2623,6 +2635,15 @@ class ChurchAVAgent {
     }, 30_000));
   }
 
+  /** Latest real ATEM master meter { t, leftDb, rightDb } (Fairlight), or null. */
+  get atemAudioLevels() {
+    try {
+      const p = this.switcherManager?.getPrimary?.();
+      if (p && typeof p.getAudioLevels === 'function') return p.getAudioLevels();
+    } catch { /* ignore */ }
+    return this.status?.atem?.connected ? (this._legacyAtemLevels || null) : null;
+  }
+
   // ─── MIXER CONNECTION ─────────────────────────────────────────────────────
 
   async connectMixer() {
@@ -2657,37 +2678,49 @@ class ChurchAVAgent {
       if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning', 'audio_muted');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
-      this.status.mixer = { connected: false, type: mixerConfig.type, model: status.model || null, mainMuted: false, mainFader: null, scene: null };
+      this.status.mixer = { connected: false, type: mixerConfig.type, model: status.model || null, mainMuted: null, mainFader: null, scene: null };
     }
     // Push initial connected state — connectRelay() fires sendStatus() before
     // connectMixer() runs (default: connected:false), so this corrects it.
     this.sendStatus();
 
-    // Poll every 30s — alert if master gets muted during service (guard against duplicate intervals)
+    // Poll every 5s (TALLY_MIXER_POLL_MS) — audio is core: a console that
+    // drops off the network or a master mute mid-service must show up in
+    // seconds, not half a minute. Guarded so a slow poll never overlaps.
     if (this._mixerPollTimer) clearInterval(this._mixerPollTimer);
+    const pollMs = Math.max(1000, Number(process.env.TALLY_MIXER_POLL_MS) || 5000);
+    let polling = false;
     this._mixerPollTimer = this._track(setInterval(async () => {
-      if (!this.mixer) return;
+      if (!this.mixer || polling) return;
+      polling = true;
       try {
         const status = await this.mixer.getStatus();
-        const wasConnected = this.status.mixer.connected;
-        const wasMuted = this.status.mixer.mainMuted;
+        const prev = this.status.mixer || {};
+        const wasConnected = !!prev.connected;
         if (status.online && !wasConnected) this.health.mixer.reconnects++;
         this.status.mixer = {
-          connected: status.online,
+          connected: !!status.online,
           type: mixerConfig.type,
-          model: status.model || this.status.mixer.model || null,
-          firmware: status.firmware || this.status.mixer.firmware || null,
-          mainMuted: status.mainMuted,
-          mainFader: (status.mainFader != null) ? status.mainFader : (this.status.mixer.mainFader ?? null),
-          scene: (status.scene != null) ? status.scene : (this.status.mixer.scene ?? null),
+          model: status.model || prev.model || null,
+          firmware: status.firmware || prev.firmware || null,
+          // Offline: we can't see the console, so mute state is unknown (null) —
+          // never report "not muted" for a console we can't reach.
+          mainMuted: status.online ? status.mainMuted : null,
+          mainFader: status.online && status.mainFader != null ? status.mainFader : (prev.mainFader ?? null),
+          scene: status.online && status.scene != null ? status.scene : (prev.scene ?? null),
         };
         const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${this.status.mixer.model ? ` ${this.status.mixer.model}` : ''}`;
         this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
-        if (!wasMuted && status.mainMuted) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical', 'audio_muted');
-        if (wasMuted && !status.mainMuted) this.sendAlert('✅ Audio master unmuted', 'info');
+        // Mute transitions only count when both readings came from a live console.
+        if (status.online && wasConnected) {
+          if (prev.mainMuted !== true && status.mainMuted === true) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical', 'audio_muted');
+          if (prev.mainMuted === true && status.mainMuted === false) this.sendAlert('✅ Audio master unmuted', 'info');
+        } else if (status.online && !wasConnected && status.mainMuted === true) {
+          this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning', 'audio_muted');
+        }
         this.sendStatus();
-      } catch { /* ignore poll errors */ }
-    }, 30_000));
+      } catch { /* ignore poll errors */ } finally { polling = false; }
+    }, pollMs));
   }
 
   // ─── PTZ CONNECTION ───────────────────────────────────────────────────────

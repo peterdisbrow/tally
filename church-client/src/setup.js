@@ -338,7 +338,7 @@ async function stepOptional(config) {
   const hasConsole = await askYesNo('Do you have a digital audio console? (Behringer, Midas, Allen & Heath, Yamaha)', false);
   if (hasConsole) {
     print('Console type:');
-    print('  1. Behringer X32 / X-Air');
+    print('  1. Behringer X32 family (X32 / Compact / Rack / Producer)');
     print('  2. Midas M32 / M32R');
     print('  3. Allen & Heath SQ');
     print('  4. Allen & Heath dLive');

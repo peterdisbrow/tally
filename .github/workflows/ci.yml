@@ -86,10 +86,16 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: church-client/package-lock.json
+          cache-dependency-path: |
+            church-client/package-lock.json
+            relay-server/package-lock.json
 
       - name: Install dependencies
         working-directory: church-client
+        run: npm ci
+
+      - name: Install relay-server dependencies (sims run the REAL relay locally for the remote-engineer path)
+        working-directory: relay-server
         run: npm ci
 
       - name: Run church-client tests with coverage
@@ -100,6 +106,8 @@ jobs:
       - name: Run church-client device sim tests (stateful mocks + real agent)
         timeout-minutes: 10
         working-directory: church-client
+        env:
+          TALLY_REQUIRE_RELAY_LOOP: '1'
         run: npm run test:sim
 
       - name: Upload coverage report

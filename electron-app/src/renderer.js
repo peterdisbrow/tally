@@ -305,6 +305,75 @@ function getHeroState({ issues, relayState, stoppedByUser }) {
 
 // ─── CONTROL ROOM DASHBOARD ─────────────────────────────────────────────────
 
+/**
+ * Honest audio summary for the booth (hero card, Details value, hero issues).
+ * Uses what the agent really sends: status.mixer { configured, connected,
+ * mainMuted, model } and status.audio { silenceDetected, silenceDurationSec,
+ * lastLevelDb, source, coverage }. Never green without evidence.
+ */
+/** Devices-list dot state from live status: 'ok' | 'warning' | 'error' | 'unknown'. */
+function deviceDotState(key, status) {
+  if (!status || typeof status !== 'object' || !key) return 'unknown';
+  if (key === 'encoder') {
+    const vals = [status.encoder, status.obs].filter((v) => v !== null && v !== undefined);
+    if (!vals.length) return 'unknown';
+    return vals.some((v) => getStatusActive(v)) ? 'ok' : 'error';
+  }
+  if (key === 'mixer') {
+    const m = status.mixer;
+    if (!m || typeof m !== 'object') return 'unknown';
+    if (m.connected !== true) return 'error';
+    return m.mainMuted === true ? 'warning' : 'ok';
+  }
+  const v = status[key];
+  if (v === null || v === undefined) return 'unknown';
+  return getStatusActive(v) ? 'ok' : 'error';
+}
+
+function updateSimpleDeviceDots(status) {
+  const container = document.getElementById('simple-device-list');
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+  container.querySelectorAll('.simple-device-item[data-status-key]').forEach((row) => {
+    const dot = row.querySelector('.device-dot');
+    if (!dot) return;
+    const st = deviceDotState(row.getAttribute('data-status-key'), status);
+    dot.className = `device-dot ${st}`;
+    dot.title = st === 'ok' ? 'Connected' : st === 'error' ? 'Not responding' : st === 'warning' ? 'Needs attention' : 'Unknown';
+  });
+}
+
+function getAudioSummary(status) {
+  const s = status || {};
+  const mixer = s.mixer && typeof s.mixer === 'object' ? s.mixer : null;
+  const audio = s.audio && typeof s.audio === 'object' ? s.audio : {};
+  const live = !!(s.streaming || (s.obs && s.obs.streaming) || (s.vmix && s.vmix.streaming) || (s.encoder && s.encoder.live));
+  const mixerConfigured = !!(mixer && (mixer.configured === true || mixer.type));
+  const typeU = mixer && mixer.type ? String(mixer.type).toUpperCase() : '';
+  const name = mixer && mixer.model
+    ? (String(mixer.model).toUpperCase().startsWith(typeU) ? String(mixer.model) : `${typeU} ${mixer.model}`.trim())
+    : (mixer && mixer.type ? String(mixer.type).toUpperCase() : 'Audio console');
+  const srcLabel = audio.source === 'atem' ? 'ATEM' : audio.source === 'vmix' ? 'vMix' : (audio.source ? String(audio.source) : '');
+  if (mixerConfigured && !mixer.connected) {
+    return { state: 'error', value: 'Console offline', detail: `${name} not responding`, issue: true };
+  }
+  if ((mixer && mixer.connected && mixer.mainMuted === true) || audio.masterMuted === true) {
+    return { state: 'error', value: 'MUTED', detail: 'Master output muted at the console', issue: true };
+  }
+  if (live && audio.silenceDetected) {
+    return { state: 'warning', value: 'Silence', detail: `${audio.silenceDurationSec || 0}s below -40 dBFS${srcLabel ? ` (${srcLabel})` : ''}`, issue: true };
+  }
+  if (live && audio.coverage === 'level' && typeof audio.lastLevelDb === 'number' && isFinite(audio.lastLevelDb)) {
+    return { state: 'ok', value: 'Active', detail: `${audio.lastLevelDb.toFixed(1)} dBFS${srcLabel ? ` · ${srcLabel}` : ''}`, issue: false };
+  }
+  if (live) {
+    return { state: 'info', value: 'Not metered', detail: 'No level meter available — silence can\u2019t be detected', issue: false };
+  }
+  if (mixerConfigured && mixer.connected) {
+    return { state: 'ok', value: 'Console online', detail: `${name} · standby`, issue: false };
+  }
+  return { state: 'idle', value: 'Standby', detail: '', issue: false };
+}
+
 function updateControlRoom(status) {
   // ── Hero status ────────────────────────────────────────────
   const heroIcon = document.getElementById('cr-hero-icon');
@@ -320,6 +389,9 @@ function updateControlRoom(status) {
 
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
+  // Audio is core: dead console, muted master, or live silence is an issue.
+  const audioSummary = getAudioSummary(status);
+  if (audioSummary.issue) issues++;
 
   // Roll the Problem Finder auto-run issue count into the hero headline so we
   // never show "All Systems Nominal" while the System Check badge is reporting
@@ -454,16 +526,9 @@ function updateControlRoom(status) {
       : (navigator.onLine ? t('status.relayOffline') : t('status.noInternet')),
     t('status.localConnectionsActive'));
 
-  // Audio
-  const audioOk = status.audio && !status.audio.muted && !status.audio.silence;
-  const audioMuted = status.audio && status.audio.muted;
-  const audioSilence = status.audio && status.audio.silence;
-  if (status.audio) {
-    setCard('cr-card-audio',
-      audioMuted ? 'error' : (audioSilence ? 'warning' : 'ok'),
-      audioMuted ? 'MUTED' : (audioSilence ? 'Silence' : 'Active'),
-      status.audio.level ? `${status.audio.level} dB` : '');
-  }
+  // Audio — from what the agent actually reports (see getAudioSummary)
+  setCard('cr-card-audio', audioSummary.state, audioSummary.value, audioSummary.detail);
+  updateSimpleDeviceDots(status);
 
   // ── Tally strip ────────────────────────────────────────────
   const tallyStrip = document.getElementById('cr-tally-strip');
@@ -2716,14 +2781,15 @@ function updateStatusUI(status) {
   const audio = status.audio || {};
   const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
   const mixerConnected = mixerData.connected || false;
-  if (audio.masterMuted || mixerData.mainMuted) {
-    setStatusValue('val-audio', 'MUTED', false);
-  } else if (audio.silenceDetected) {
-    setStatusValue('val-audio', 'Silence', false);
+  const audioSum2 = getAudioSummary(status);
+  if (audioSum2.state === 'error' || audioSum2.state === 'warning') {
+    setStatusValue('val-audio', audioSum2.value, false);
+  } else if (audioSum2.state === 'ok') {
+    setStatusValue('val-audio', `● ${audioSum2.value}${audioSum2.detail ? ` (${audioSum2.detail})` : ''}`, true);
+  } else if (audioSum2.state === 'info') {
+    setStatusValue('val-audio', audioSum2.value, null);
   } else if (mixerConnected || _audioViaAtem) {
-    const atemSources = atemData.atemAudioSources || [];
-    const portLabel = atemSources.length > 0 ? ` (${atemSources[0].portType})` : '';
-    setStatusValue('val-audio', streaming ? `● OK${portLabel}` : 'Standby', streaming ? true : null);
+    setStatusValue('val-audio', 'Standby', null);
   } else if (encoderConnected || atemConnected) {
     setStatusValue('val-audio', '—', false);
   } else {
@@ -4405,23 +4471,23 @@ function renderSimpleDeviceList(eq) {
   const items = [];
   if (Array.isArray(eq.atems) && eq.atems.length > 0) {
     eq.atems.forEach((a, i) => {
-      if (a.ip) items.push({ icon: '\uD83C\uDFAC', name: a.name || `ATEM Switcher${eq.atems.length > 1 ? ` ${i + 1}` : ''}`, detail: `${a.ip} (${a.role || 'primary'})` });
+      if (a.ip) items.push({ key: i === 0 ? 'atem' : '', icon: '\uD83C\uDFAC', name: a.name || `ATEM Switcher${eq.atems.length > 1 ? ` ${i + 1}` : ''}`, detail: `${a.ip} (${a.role || 'primary'})` });
     });
   } else if (eq.atemIp) {
-    items.push({ icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
+    items.push({ key: 'atem', icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
   }
   // Encoder — check both single encoder and multi-encoder formats
   const encType = eq.encoderType || '';
   const encHost = eq.encoderHost || '';
   if (encHost || encType) {
     const nameMap = { blackmagic: 'Streaming Encoder', obs: 'OBS Studio', vmix: 'vMix Encoder', ecamm: 'Ecamm Live', teradek: 'Teradek', aja: 'AJA HELO', epiphan: 'Epiphan', birddog: 'BirdDog', tricaster: 'TriCaster', 'tally-encoder': 'Tally Encoder', 'atem-streaming': 'ATEM Mini' };
-    items.push({ icon: '\uD83D\uDCE1', name: nameMap[encType] || 'Encoder', detail: encHost || encType });
+    items.push({ key: 'encoder', icon: '\uD83D\uDCE1', name: nameMap[encType] || 'Encoder', detail: encHost || encType });
   }
-  if (eq.companionUrl) items.push({ icon: '\uD83C\uDFAE', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
-  if (eq.proPresenterHost) items.push({ icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
-  if (eq.vmixHost) items.push({ icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
-  if (eq.resolumeHost) items.push({ icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
-  if (eq.mixerHost) items.push({ icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
+  if (eq.companionUrl) items.push({ key: 'companion', icon: '\uD83C\uDFAE', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
+  if (eq.proPresenterHost) items.push({ key: 'proPresenter', icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
+  if (eq.vmixHost) items.push({ key: 'vmix', icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
+  if (eq.resolumeHost) items.push({ key: 'resolume', icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
+  if (eq.mixerHost) items.push({ key: 'mixer', icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
   (eq.hyperdecks || []).forEach((h, i) => { const ip = typeof h === 'string' ? h : h.ip; if (ip) items.push({ icon: '\u23FA', name: `HyperDeck ${i + 1}`, detail: ip }); });
   (eq.ptz || []).forEach((c, i) => { if (c.ip) items.push({ icon: '\uD83C\uDFA5', name: c.name || `PTZ ${i + 1}`, detail: c.ip }); });
   if (items.length === 0) {
@@ -4429,10 +4495,10 @@ function renderSimpleDeviceList(eq) {
     return;
   }
   container.innerHTML = items.map(d => `
-    <div class="simple-device-item">
+    <div class="simple-device-item"${d.key ? ` data-status-key="${escapeHtml(d.key)}"` : ''}>
       <span class="device-icon">${escapeHtml(d.icon)}</span>
       <div class="device-info"><div class="device-name">${escapeHtml(d.name)}</div><div class="device-ip">${escapeHtml(d.detail)}</div></div>
-      <span class="device-dot"></span>
+      <span class="device-dot unknown" title="Unknown"></span>
     </div>`).join('');
 }
 
@@ -4529,6 +4595,7 @@ async function loadEquipment() {
   renderDeviceCatalog();
   renderActiveSummary();
   renderSimpleDeviceList(eq);
+  if (typeof _lastStatus !== 'undefined' && _lastStatus) updateSimpleDeviceDots(_lastStatus);
   loadFailoverConfig();
   _equipDirty = false; // fresh load from server — nothing unsaved
 
@@ -5077,8 +5144,10 @@ async function _doSaveEquipment() {
     _audioViaAtem = !!(config.audioViaAtem);
     window._savedEquipment = config;
     window._encoderConfig = { _type: encType, host: (enc.host || '').trim(), port: enc.port || '', password: enc.password || '', label: (enc.label || '').trim(), statusUrl: (enc.statusUrl || '').trim(), source: (enc.source || '').trim() };
-    // Refresh summary chips
+    // Refresh summary chips + the Devices list (new devices must appear right away)
     renderActiveSummary();
+    renderSimpleDeviceList(config);
+    if (typeof _lastStatus !== 'undefined' && _lastStatus) updateSimpleDeviceDots(_lastStatus);
     // Auto-restart agent so new equipment config takes effect immediately
     if (isRunning) {
       addAlert('Restarting agent with updated config…');
