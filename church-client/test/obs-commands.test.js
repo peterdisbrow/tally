@@ -3,22 +3,75 @@ const assert = require('node:assert/strict');
 
 const { commandHandlers } = require('../src/commands');
 
-// Creates a mock OBS websocket that records all calls
-function makeObs(responseMap = {}) {
+// Stateful OBS websocket fake. Real OBS answers StartStream/StartRecord with
+// "ok" immediately, then emits StreamStateChanged / RecordStateChanged:
+// STARTING → STARTED, or STARTING → STOPPED when the output fails. It also
+// refuses a start that is already running and a stop that is not.
+// opts.failStreamStart / opts.failRecordStart: accept the request, then fail.
+function makeObs(responseMap = {}, opts = {}) {
   const calls = [];
+  const listeners = new Map();
+  const state = {
+    streaming: !!opts.streaming,
+    recording: !!opts.recording,
+  };
+  const failStart = {
+    stream: !!opts.failStreamStart,
+    record: !!opts.failRecordStart,
+  };
+  const OUTPUT = {
+    StartStream: { key: 'streaming', event: 'StreamStateChanged', kind: 'stream', start: true },
+    StopStream: { key: 'streaming', event: 'StreamStateChanged', kind: 'stream', start: false },
+    StartRecord: { key: 'recording', event: 'RecordStateChanged', kind: 'record', start: true },
+    StopRecord: { key: 'recording', event: 'RecordStateChanged', kind: 'record', start: false },
+  };
+
+  function on(event, fn) {
+    if (!listeners.has(event)) listeners.set(event, new Set());
+    listeners.get(event).add(fn);
+  }
+  function off(event, fn) {
+    listeners.get(event)?.delete(fn);
+  }
+  function emit(event, data) {
+    for (const fn of listeners.get(event) || []) fn(data);
+  }
+
   return {
     calls,
+    state,
+    on,
+    off,
     async call(method, params) {
       calls.push({ method, params: params ?? {} });
       const response = responseMap[method];
       if (response instanceof Error) throw response;
+      const spec = OUTPUT[method];
+      if (spec) {
+        const active = state[spec.key];
+        if (spec.start && active) throw new Error(`The ${spec.kind} output is already running.`);
+        if (!spec.start && !active) throw new Error(`The ${spec.kind} output is not running.`);
+        if (spec.start) {
+          emit(spec.event, { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTING' });
+          if (failStart[spec.kind]) {
+            emit(spec.event, { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED' });
+          } else {
+            state[spec.key] = true;
+            emit(spec.event, { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' });
+          }
+        } else {
+          emit(spec.event, { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPING' });
+          state[spec.key] = false;
+          emit(spec.event, { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED' });
+        }
+      }
       return response !== undefined ? response : {};
     },
   };
 }
 
-function obsAgent(responseMap = {}) {
-  const obs = makeObs(responseMap);
+function obsAgent(responseMap = {}, opts = {}) {
+  const obs = makeObs(responseMap, opts);
   const agent = { obs, status: { obs: { connected: true } } };
   return { agent, obs };
 }
@@ -57,14 +110,44 @@ test('OBS commands throw when obs.connected is false', async () => {
 test('obs.startStream calls StartStream and returns confirmation', async () => {
   const { agent, obs } = obsAgent();
   const result = await commandHandlers['obs.startStream'](agent, {});
-  assert.equal(result, 'Stream started');
+  assert.equal(result, 'Stream started (OBS is live)');
   assert.equal(obs.calls[0].method, 'StartStream');
+  assert.equal(obs.state.streaming, true);
 });
 
 test('obs.stopStream calls StopStream and returns confirmation', async () => {
-  const { agent, obs } = obsAgent();
+  const { agent, obs } = obsAgent({}, { streaming: true });
   const result = await commandHandlers['obs.stopStream'](agent, {});
-  assert.equal(result, 'Stream stopped');
+  assert.equal(result, 'Stream stopped (confirmed by OBS)');
+  assert.equal(obs.calls[0].method, 'StopStream');
+  assert.equal(obs.state.streaming, false);
+});
+
+test('obs.startStream is refused when OBS goes STARTING then STOPPED', async () => {
+  const { agent, obs } = obsAgent({}, { failStreamStart: true });
+  await assert.rejects(
+    () => commandHandlers['obs.startStream'](agent, {}),
+    /could not start the stream/
+  );
+  assert.equal(obs.calls[0].method, 'StartStream');
+  assert.equal(obs.state.streaming, false);
+});
+
+test('obs.startStream is refused when the stream is already running', async () => {
+  const { agent, obs } = obsAgent({}, { streaming: true });
+  await assert.rejects(
+    () => commandHandlers['obs.startStream'](agent, {}),
+    /already running/
+  );
+  assert.equal(obs.state.streaming, true);
+});
+
+test('obs.stopStream is refused when the stream is not running', async () => {
+  const { agent, obs } = obsAgent();
+  await assert.rejects(
+    () => commandHandlers['obs.stopStream'](agent, {}),
+    /not running/
+  );
   assert.equal(obs.calls[0].method, 'StopStream');
 });
 
@@ -73,15 +156,27 @@ test('obs.stopStream calls StopStream and returns confirmation', async () => {
 test('obs.startRecording calls StartRecord', async () => {
   const { agent, obs } = obsAgent();
   const result = await commandHandlers['obs.startRecording'](agent, {});
-  assert.equal(result, 'OBS recording started');
+  assert.equal(result, 'OBS recording started (confirmed by OBS)');
   assert.equal(obs.calls[0].method, 'StartRecord');
+  assert.equal(obs.state.recording, true);
 });
 
 test('obs.stopRecording calls StopRecord', async () => {
-  const { agent, obs } = obsAgent();
+  const { agent, obs } = obsAgent({}, { recording: true });
   const result = await commandHandlers['obs.stopRecording'](agent, {});
-  assert.equal(result, 'OBS recording stopped');
+  assert.equal(result, 'OBS recording stopped (confirmed by OBS)');
   assert.equal(obs.calls[0].method, 'StopRecord');
+  assert.equal(obs.state.recording, false);
+});
+
+test('obs.startRecording is refused when OBS goes STARTING then STOPPED', async () => {
+  const { agent, obs } = obsAgent({}, { failRecordStart: true });
+  await assert.rejects(
+    () => commandHandlers['obs.startRecording'](agent, {}),
+    /could not start recording/
+  );
+  assert.equal(obs.calls[0].method, 'StartRecord');
+  assert.equal(obs.state.recording, false);
 });
 
 test('obs.pauseRecording calls PauseRecord', async () => {

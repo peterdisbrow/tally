@@ -45,21 +45,28 @@ test('remote: scene, stream and record commands are applied by OBS and confirmed
   assert.match(String(r2.error), /not found|No Such Scene|600/i);
   assert.equal(m.state.programScene, 'Scene 3');
 
+  // Real OBS answers StartStream with "ok" and only later emits STARTED.
+  // A delay here is what separates "confirmed live" from "the request was accepted".
+  await ctl(m, 'setOutputStartMs', { ms: 500 });
   const r3 = await cmd('obs.startStream', {});
   assert.equal(r3.error, null, JSON.stringify(r3));
-  assert.equal(m.state.streaming.outputActive, true);
+  assert.match(String(r3.result), /OBS is live/, `engineer was not told OBS is actually live: ${JSON.stringify(r3)}`);
+  assert.equal(m.state.streaming.outputActive, true, 'result arrived before OBS was actually live');
   await loop.waitForRelay((st) => st.obs.streaming === true, 5000, 'relay shows OBS live');
   const r4 = await cmd('obs.startStream', {});
   assert.ok(r4.error, `second start must carry OBS's "already running": ${JSON.stringify(r4)}`);
   const r5 = await cmd('obs.stopStream', {});
   assert.equal(r5.error, null, JSON.stringify(r5));
+  assert.match(String(r5.result), /confirmed by OBS/, JSON.stringify(r5));
   assert.equal(m.state.streaming.outputActive, false);
 
   const r6 = await cmd('obs.startRecording', {});
   assert.equal(r6.error, null, JSON.stringify(r6));
-  assert.equal(m.state.recording.outputActive, true);
+  assert.match(String(r6.result), /confirmed by OBS/, JSON.stringify(r6));
+  assert.equal(m.state.recording.outputActive, true, 'record result arrived before OBS was recording');
   const r7 = await cmd('obs.stopRecording', {});
   assert.equal(r7.error, null, JSON.stringify(r7));
+  assert.match(String(r7.result), /confirmed by OBS/, JSON.stringify(r7));
   assert.equal(m.state.recording.outputActive, false);
 
   const h = await http('obs.setScene', { scene: 'Nope' });
@@ -170,4 +177,18 @@ test('remote: OBS freezes while nobody is sending commands → shown offline ≤
   assert.match(String(st.obs.error || ''), /stopped responding|frozen/i, 'the booth/engineer should see why');
   m.thaw();
   await loop.waitForRelay((s) => s.obs?.connected === true && s.obs.streaming === true, 25000, 'back, live state re-read');
+});
+
+test('remote: wrong OBS password never shows connected, and the relay says why', { timeout: 90000, skip: skipRelay }, async (t) => {
+  const m = await mk({ password: 'right-pw' });
+  const loop = await startRelayLoop({ obsUrl: m.url, obsPassword: 'wrong-pw' });
+  t.after(() => loop.stop());
+  await loop.waitForRelay(
+    (st) => st.obs?.connected === false && /password|auth/i.test(String(st.obs?.error || '')),
+    20000,
+    'relay names the bad OBS password and stays disconnected',
+  );
+  assert.ok(m.state.authFailures >= 1, 'OBS must have refused the password');
+  const st = (await loop.relayStatus()).status;
+  assert.notEqual(st.obs.connected, true, 'a wrong password must not look connected');
 });
