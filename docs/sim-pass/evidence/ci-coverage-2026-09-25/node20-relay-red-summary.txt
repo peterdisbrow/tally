@@ -1,0 +1,20 @@
+  ---
+  duration_ms: 0.11006
+  ...
+1..1922
+# tests 2204
+# suites 117
+# pass 2204
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 46346.347971
+
+=============================== Coverage summary ===============================
+Statements   : 68.89% ( 19183/27844 )
+Branches     : 75.63% ( 4466/5905 )
+Functions    : 58.57% ( 1185/2023 )
+Lines        : 68.89% ( 19183/27844 )
+================================================================================
+ERROR: Coverage for branches (75.63%) does not meet global threshold (78%)

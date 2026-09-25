@@ -1,0 +1,4 @@
+Node 20.20.2, relay-server deps installed (same as CI: command-e2e not skipped).
+Before tests: branches 75.63% (4466/5905), threshold 78. GitHub Actions run 36152534271 reported 75.72%.
+After tests: branches 78.52% (5250/6686), statements 72.36%, tests 2239 pass / 0 fail / 0 skipped.
+npm run test:coverage exit 0.

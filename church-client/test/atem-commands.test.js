@@ -660,3 +660,105 @@ test('read-back: record/stream the switcher did not start → error with the rea
   await assert.rejects(handlers['atem.startRecording'](agent, {}), /No media/);
   await assert.rejects(handlers['atem.startStreaming'](agent, {}), /did not start streaming/);
 });
+
+test('special ATEM sources are named in the cut result, and an unknown id is shown as the number', async () => {
+  const names = [
+    [2001, 'Color 1'],
+    [2002, 'Color 2'],
+    [3010, 'MP1'],
+    [3011, 'MP1 Key'],
+    [3020, 'MP2'],
+    [3021, 'MP2 Key'],
+    [6000, 'Super Source'],
+    [7001, 'Clean Feed 1'],
+    [7002, 'Clean Feed 2'],
+    [10010, 'ME 1 PGM'],
+    [10011, 'ME 1 PVW'],
+    [9999, '9999'],
+  ];
+  for (const [input, name] of names) {
+    const agent = createAgent();
+    const result = await handlers['atem.cut'](agent, { input });
+    assert.equal(result, `Cut to ${name}`);
+  }
+});
+
+test('a named switcher is used for the cut, and a missing or wrong switcher is refused', async () => {
+  const agent = createAgent();
+  agent.switcherManager = {
+    get(id) {
+      if (id === 'wide') {
+        return {
+          type: 'atem',
+          connected: true,
+          raw: agent.atem,
+          getStatus: () => ({ inputLabels: { 1: 'Cam', 4: 'Wide' } }),
+        };
+      }
+      if (id === 'obs') return { type: 'obs', connected: true, raw: {}, getStatus: () => ({}) };
+      if (id === 'down') return { type: 'atem', connected: false, raw: agent.atem, getStatus: () => ({}) };
+      return null;
+    },
+    getPrimary: () => null,
+  };
+  await assert.rejects(() => handlers['atem.cut'](agent, { input: 1, switcherId: 'nope' }), /Switcher "nope" not found/);
+  await assert.rejects(() => handlers['atem.cut'](agent, { input: 1, switcherId: 'obs' }), /is obs, not ATEM/);
+  await assert.rejects(() => handlers['atem.cut'](agent, { input: 1, switcherId: 'down' }), /ATEM "down" not connected/);
+  await assert.rejects(() => handlers['atem.cut'](agent, { input: 2, switcherId: 'wide' }), /Camera 2 doesn't exist/);
+  const ok = await handlers['atem.cut'](agent, { input: 4, switcherId: 'wide' });
+  assert.equal(ok, 'Cut to Cam 4');
+});
+
+test('recording refusals name a full disk, a disk error, an unformatted disk, and an unknown reason', async () => {
+  const cases = [
+    [4, /recording disk is full/],
+    [8, /recording disk has an error/],
+    [16, /recording disk is not formatted/],
+    [99, /did not start recording/],
+  ];
+  for (const [error, pattern] of cases) {
+    const agent = createAgent();
+    agent.refuse = true;
+    agent.atem.state.recording.status.error = error;
+    await assert.rejects(handlers['atem.startRecording'](agent, {}), pattern);
+  }
+});
+
+test('streaming that connects and then drops back to idle is a refusal, not "live"', async () => {
+  const agent = createAgent();
+  agent.atem.startStreaming = async () => {
+    agent.atem.state.streaming.status.state = 2;
+    setTimeout(() => { agent.atem.state.streaming.status.state = 1; }, 40);
+  };
+  await assert.rejects(
+    () => handlers['atem.startStreaming'](agent, {}),
+    /went back to idle/
+  );
+});
+
+test('a state read that throws once is retried, and the cut still confirms', async () => {
+  const agent = createAgent();
+  const real = agent.atem.state;
+  let n = 0;
+  Object.defineProperty(agent.atem, 'state', {
+    configurable: true,
+    get() {
+      n += 1;
+      if (n === 2) throw new Error('state not ready');
+      return real;
+    },
+  });
+  const result = await handlers['atem.cut'](agent, { input: 3 });
+  assert.equal(result, 'Cut to Cam 3');
+  assert.ok(n >= 2);
+});
+
+test('FakeAtem downstream keyer uses the fake argument order', async () => {
+  const agent = createAgent({ fakeAtem: true });
+  agent.atem.setDownstreamKeyerOnAir = async (keyer, onAir) => {
+    agent.calls.push(['setDownstreamKeyerOnAir', keyer, onAir]);
+  };
+  const result = await handlers['atem.setDskOnAir'](agent, { keyer: 1, onAir: false });
+  assert.equal(result, 'DSK 2 off-air');
+  assert.deepStrictEqual(agent.calls[0], ['setDownstreamKeyerOnAir', 1, false]);
+});
