@@ -65,6 +65,17 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const msg = { type: 'command', churchId, command, params, id: uuidv4() };
     ctx.totalMessagesRelayed++;
 
+    // Opt-in { wait: true }: answer with the booth's real command_result
+    // (device result or device error) instead of a blind "sent". Remote
+    // engineers and automations need to know whether the camera/mixer/etc.
+    // actually did it. Waiter is registered BEFORE dispatch so a fast reply
+    // can't slip past it.
+    const wantWait = req.body?.wait === true || req.query.wait === '1';
+    const pending = wantWait
+      ? require('../commandResultWaiters').waitForCommandResult(
+        msg.id, Math.min(Math.max(Number(req.body?.timeoutMs) || 10000, 1000), 15000))
+      : null;
+
     // Delegate ALL delivery (local sockets + cross-runtime publish) to
     // dispatchCommandAcrossRuntime. Doing a second `for (sock of church.sockets)`
     // loop here would double-send to every locally connected agent — which
@@ -96,6 +107,12 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     }
 
     if (!delivered) {
+      if (pending) {
+        // A caller waiting for the real outcome must not get a command that
+        // silently replays minutes later (e.g. a PTZ move mid-service).
+        require('../commandResultWaiters').cancelWaiter?.(msg.id);
+        return res.status(503).json({ error: 'Church client not connected', sent: false, completed: false });
+      }
       if (church.disconnectedAt && (Date.now() - church.disconnectedAt) < QUEUE_TTL_MS) {
         queueMessage(churchId, msg);
         log(`CMD → ${church.name}: ${command} (queued — church offline)`);
@@ -105,7 +122,12 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     }
 
     log(`CMD → ${church.name}: ${command} ${JSON.stringify(params)} (local=${localRecipients} remote=${remotePublished})`);
-    res.json({ sent: true, messageId: msg.id, localRecipients, remotePublished });
+    if (!pending) return res.json({ sent: true, messageId: msg.id, localRecipients, remotePublished });
+    const r = await pending;
+    const base = { sent: true, messageId: msg.id, localRecipients, remotePublished };
+    if (r.timedOut) return res.status(504).json({ ...base, completed: false, error: 'No response from Tally on the booth computer (timed out)' });
+    if (r.error) return res.status(422).json({ ...base, completed: true, error: String(r.error) });
+    return res.json({ ...base, completed: true, result: r.result ?? null });
   });
 
   app.post('/api/broadcast', requireAdmin, (req, res) => {

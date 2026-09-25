@@ -29,6 +29,11 @@ function buildTrayDeviceSummary(s = {}) {
   if (isConfigured(s.companion)) lines.push(`  Companion: ${compOk ? '✓ Connected' : '✗ Disconnected'}`);
   if (isConfigured(s.proPresenter)) lines.push(`  ProPresenter: ${ppOk ? '✓ Connected' : '✗ Disconnected'}`);
   if (isConfigured(s.resolume)) lines.push(`  Resolume: ${resOk ? '✓ Connected' : '✗ Disconnected'}`);
+  const ptzCams = Array.isArray(s.ptz) ? s.ptz.filter((c) => c && typeof c === 'object') : [];
+  if (ptzCams.length) {
+    const off = ptzCams.filter((c) => c.connected !== true).length;
+    lines.push(off ? `  PTZ: ✗ ${off} of ${ptzCams.length} offline` : `  PTZ: ✓ ${ptzCams.length}/${ptzCams.length} online`);
+  }
   const isLive = !!(s.streaming || (s.encoder && typeof s.encoder === 'object' && s.encoder.live)
     || (s.obs && typeof s.obs === 'object' && s.obs.connected === true && s.obs.streaming === true));
   const fingerprint = [atemOk, encoderOk, compOk, ppOk, resOk, isLive, lines.join('|')].join(',');

@@ -1599,6 +1599,9 @@ class ChurchAVAgent {
     if (this._encoderPollTimer) { clearInterval(this._encoderPollTimer); this._encoderPollTimer = null; }
     if (this._previewTimer) { clearInterval(this._previewTimer); this._previewTimer = null; }
 
+    // 2b. Close persistent PTZ camera sockets
+    try { this.ptzManager?.close(); } catch { /* ignore */ }
+
     // 3. Close relay WebSocket
     if (this.relay) {
       try { this.relay.removeAllListeners(); this.relay.terminate(); } catch { /* ignore */ }
@@ -2693,31 +2696,43 @@ class ChurchAVAgent {
   // ─── PTZ CONNECTION ───────────────────────────────────────────────────────
 
   async connectPTZ() {
+    if (this._ptzPollTimer) { clearInterval(this._ptzPollTimer); this._ptzPollTimer = null; }
+    if (this.ptzManager) { try { this.ptzManager.close(); } catch { /* ignore */ } this.ptzManager = null; }
     const entries = Array.isArray(this.config.ptz) ? this.config.ptz.filter((c) => c?.ip) : [];
     if (entries.length === 0) {
       this.status.ptz = [];
       return;
     }
 
-    this.ptzManager = new PTZManager(entries, (msg) => console.log(msg));
-    await this.ptzManager.connectAll();
-    this.status.ptz = this.ptzManager.getStatus();
-    this.sendStatus();
+    const mgr = new PTZManager(entries, (msg) => console.log(msg));
+    this.ptzManager = mgr;
+    // Push camera state changes (e.g. camera closed the VISCA connection) to
+    // the relay/booth immediately instead of waiting for the next poll.
+    const publish = () => {
+      if (this.ptzManager !== mgr) return;
+      const prevPtz = this.status.ptz || [];
+      this.status.ptz = mgr.getStatus();
+      for (let i = 0; i < this.status.ptz.length; i++) {
+        if (this.status.ptz[i]?.connected && prevPtz[i] && !prevPtz[i].connected) this.health.ptz.reconnects++;
+      }
+      this.sendStatus();
+    };
+    mgr.onChange = publish;
+    await mgr.connectAll();
+    publish();
 
-    if (this._ptzPollTimer) clearInterval(this._ptzPollTimer);
+    // Cheap VISCA power inquiry / ONVIF GetStatus every few seconds — a dead
+    // camera must show offline within seconds, not 30 s.
+    const pollMs = Math.max(1000, Number(process.env.TALLY_PTZ_POLL_MS) || 5_000);
+    let polling = false;
     this._ptzPollTimer = this._track(setInterval(async () => {
-      if (!this.ptzManager) return;
+      if (this.ptzManager !== mgr || polling) return;
+      polling = true;
       try {
-        const prevPtz = this.status.ptz || [];
-        await this.ptzManager.refreshStatus();
-        this.status.ptz = this.ptzManager.getStatus();
-        // Count cameras that transitioned from disconnected to connected
-        for (let i = 0; i < this.status.ptz.length; i++) {
-          if (this.status.ptz[i]?.connected && !(prevPtz[i]?.connected)) this.health.ptz.reconnects++;
-        }
-        this.sendStatus();
-      } catch { /* ignore */ }
-    }, 30_000));
+        await mgr.refreshStatus();
+        publish();
+      } catch { /* ignore */ } finally { polling = false; }
+    }, pollMs));
   }
 
   // ─── SMART PLUGS (Shelly) ─────────────────────────────────────────────────

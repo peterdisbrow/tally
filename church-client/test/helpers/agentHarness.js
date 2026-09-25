@@ -75,7 +75,10 @@ async function startAgent(config = {}, { env = {} } = {}) {
       try { if (s && pred(s)) return { ms: Date.now() - t0, status: s }; } catch { /* keep waiting */ }
       await new Promise((r) => setTimeout(r, 100));
     }
-    const tail = logs.join('').split('\n').slice(-25).join('\n');
+    const full = logs.join('');
+    const dump = path.join(os.tmpdir(), `tally-sim-agentlog-${Date.now()}.log`);
+    try { fs.writeFileSync(dump, `pid=${proc.pid} exitCode=${proc.exitCode} signal=${proc.signalCode} frames=${frames.length}\n${full}`); } catch { /* */ }
+    const tail = full.split('\n').slice(-25).join('\n') + `\n[full agent log: ${dump}; frames=${frames.length}; exit=${proc.exitCode}]`;
     throw new Error(`timeout (${timeoutMs}ms) waiting for ${label}; last status=${JSON.stringify(latest())?.slice(0, 600)}\n--- agent log tail ---\n${tail}`);
   }
   let cmdSeq = 0;

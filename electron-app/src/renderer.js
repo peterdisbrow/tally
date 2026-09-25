@@ -281,6 +281,70 @@ function getRelayUiState(status) {
   return 'offline';
 }
 
+/**
+ * PTZ dashboard summary (pure). status.ptz = [{ name, connected, power, error }].
+ * connected = the camera ANSWERED a VISCA/ONVIF inquiry (agent-side).
+ */
+function getPtzSummary(ptz) {
+  const cams = Array.isArray(ptz) ? ptz.filter((c) => c && typeof c === 'object') : [];
+  if (!cams.length) return { show: false, state: 'idle', value: '', detail: '', offline: 0, standby: 0 };
+  const offline = cams.filter((c) => c.connected !== true);
+  const standby = cams.filter((c) => c.connected === true && c.power === 'standby');
+  const online = cams.length - offline.length;
+  const nameOf = (c, i) => c.name || `PTZ ${c.index || i + 1}`;
+  if (offline.length) {
+    return {
+      show: true, state: 'error', offline: offline.length, standby: standby.length,
+      value: `${offline.length} of ${cams.length} offline`,
+      detail: offline.map((c) => `${nameOf(c, cams.indexOf(c))}: ${c.error || 'not responding'}`).join(' \u00B7 '),
+    };
+  }
+  if (standby.length) {
+    return {
+      show: true, state: 'warning', offline: 0, standby: standby.length,
+      value: `${online}/${cams.length} online \u00B7 ${standby.length} in standby`,
+      detail: standby.map((c) => `${nameOf(c, cams.indexOf(c))} in standby`).join(' \u00B7 '),
+    };
+  }
+  return {
+    show: true, state: 'ok', offline: 0, standby: 0,
+    value: `${online}/${cams.length} online`,
+    detail: cams.map((c, i) => nameOf(c, i)).join(' \u00B7 '),
+  };
+}
+
+/** Devices-list dot state from live status: 'ok' | 'warning' | 'error' | 'unknown'. */
+function deviceDotState(key, status) {
+  if (!status || typeof status !== 'object' || !key) return 'unknown';
+  const m = /^ptz:(\d+)$/.exec(key);
+  if (m) {
+    const c = Array.isArray(status.ptz) ? status.ptz[Number(m[1])] : null;
+    if (!c || typeof c !== 'object') return 'unknown';
+    if (c.connected !== true) return 'error';
+    return c.power === 'standby' ? 'warning' : 'ok';
+  }
+  if (key === 'encoder') {
+    const vals = [status.encoder, status.obs].filter((v) => v !== null && v !== undefined);
+    if (!vals.length) return 'unknown';
+    return vals.some((v) => getStatusActive(v)) ? 'ok' : 'error';
+  }
+  const v = status[key];
+  if (v === null || v === undefined) return 'unknown';
+  return getStatusActive(v) ? 'ok' : 'error';
+}
+
+function updateSimpleDeviceDots(status) {
+  const container = document.getElementById('simple-device-list');
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+  container.querySelectorAll('.simple-device-item[data-status-key]').forEach((row) => {
+    const dot = row.querySelector('.device-dot');
+    if (!dot) return;
+    const st = deviceDotState(row.getAttribute('data-status-key'), status);
+    dot.className = `device-dot ${st}`;
+    dot.title = st === 'ok' ? 'Connected' : st === 'error' ? 'Not responding' : st === 'warning' ? 'Standby' : 'Unknown';
+  });
+}
+
 const HERO_ICONS = {
   error: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   nominal: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
@@ -328,6 +392,10 @@ function updateControlRoom(status) {
     ? _pfAutoRunIssueCount
     : 0;
   issues += pfIssues;
+
+  // PTZ cameras: an offline camera is a real problem for the service.
+  const ptzSummary = getPtzSummary(status.ptz);
+  if (ptzSummary.offline > 0) issues++;
 
   if (heroHeadline) {
     const hs = getHeroState({ issues, relayState, stoppedByUser: _monitoringStoppedByUser });
@@ -446,6 +514,16 @@ function updateControlRoom(status) {
       ppOk ? (status.ppPresentation || t('status.connected')) : t('status.disconnected'),
       status.ppSlide || '');
   }
+
+  // PTZ cameras
+  const ptzCard = document.getElementById('cr-card-ptz');
+  if (!ptzSummary.show) {
+    if (ptzCard) ptzCard.style.display = 'none';
+  } else {
+    if (ptzCard) ptzCard.style.display = '';
+    setCard('cr-card-ptz', ptzSummary.state, ptzSummary.value, ptzSummary.detail);
+  }
+  updateSimpleDeviceDots(status);
 
   // Network
   setCard('cr-card-network', relayOk ? 'ok' : (navigator.onLine ? 'warning' : 'error'),
@@ -4405,34 +4483,34 @@ function renderSimpleDeviceList(eq) {
   const items = [];
   if (Array.isArray(eq.atems) && eq.atems.length > 0) {
     eq.atems.forEach((a, i) => {
-      if (a.ip) items.push({ icon: '\uD83C\uDFAC', name: a.name || `ATEM Switcher${eq.atems.length > 1 ? ` ${i + 1}` : ''}`, detail: `${a.ip} (${a.role || 'primary'})` });
+      if (a.ip) items.push({ key: i === 0 ? 'atem' : '', icon: '\uD83C\uDFAC', name: a.name || `ATEM Switcher${eq.atems.length > 1 ? ` ${i + 1}` : ''}`, detail: `${a.ip} (${a.role || 'primary'})` });
     });
   } else if (eq.atemIp) {
-    items.push({ icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
+    items.push({ key: 'atem', icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
   }
   // Encoder — check both single encoder and multi-encoder formats
   const encType = eq.encoderType || '';
   const encHost = eq.encoderHost || '';
   if (encHost || encType) {
     const nameMap = { blackmagic: 'Streaming Encoder', obs: 'OBS Studio', vmix: 'vMix Encoder', ecamm: 'Ecamm Live', teradek: 'Teradek', aja: 'AJA HELO', epiphan: 'Epiphan', birddog: 'BirdDog', tricaster: 'TriCaster', 'tally-encoder': 'Tally Encoder', 'atem-streaming': 'ATEM Mini' };
-    items.push({ icon: '\uD83D\uDCE1', name: nameMap[encType] || 'Encoder', detail: encHost || encType });
+    items.push({ key: 'encoder', icon: '\uD83D\uDCE1', name: nameMap[encType] || 'Encoder', detail: encHost || encType });
   }
-  if (eq.companionUrl) items.push({ icon: '\uD83C\uDFAE', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
-  if (eq.proPresenterHost) items.push({ icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
-  if (eq.vmixHost) items.push({ icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
-  if (eq.resolumeHost) items.push({ icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
-  if (eq.mixerHost) items.push({ icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
+  if (eq.companionUrl) items.push({ key: 'companion', icon: '\uD83C\uDFAE', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
+  if (eq.proPresenterHost) items.push({ key: 'proPresenter', icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
+  if (eq.vmixHost) items.push({ key: 'vmix', icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
+  if (eq.resolumeHost) items.push({ key: 'resolume', icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
+  if (eq.mixerHost) items.push({ key: 'mixer', icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
   (eq.hyperdecks || []).forEach((h, i) => { const ip = typeof h === 'string' ? h : h.ip; if (ip) items.push({ icon: '\u23FA', name: `HyperDeck ${i + 1}`, detail: ip }); });
-  (eq.ptz || []).forEach((c, i) => { if (c.ip) items.push({ icon: '\uD83C\uDFA5', name: c.name || `PTZ ${i + 1}`, detail: c.ip }); });
+  (eq.ptz || []).filter((c) => c && c.ip).forEach((c, i) => { items.push({ key: `ptz:${i}`, icon: '\uD83C\uDFA5', name: c.name || `PTZ ${i + 1}`, detail: c.ip }); });
   if (items.length === 0) {
     container.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div>';
     return;
   }
   container.innerHTML = items.map(d => `
-    <div class="simple-device-item">
+    <div class="simple-device-item"${d.key ? ` data-status-key="${escapeHtml(d.key)}"` : ''}>
       <span class="device-icon">${escapeHtml(d.icon)}</span>
       <div class="device-info"><div class="device-name">${escapeHtml(d.name)}</div><div class="device-ip">${escapeHtml(d.detail)}</div></div>
-      <span class="device-dot"></span>
+      <span class="device-dot unknown" title="Unknown"></span>
     </div>`).join('');
 }
 
@@ -4529,6 +4607,7 @@ async function loadEquipment() {
   renderDeviceCatalog();
   renderActiveSummary();
   renderSimpleDeviceList(eq);
+  if (_lastStatus) updateSimpleDeviceDots(_lastStatus);
   loadFailoverConfig();
   _equipDirty = false; // fresh load from server — nothing unsaved
 

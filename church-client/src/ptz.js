@@ -93,41 +93,102 @@ class BasePtzCamera {
   }
 }
 
+const VISCA_ERRORS = {
+  0x01: 'VISCA message length error',
+  0x02: 'VISCA syntax error (camera rejected the command)',
+  0x03: 'VISCA command buffer full (camera busy)',
+  0x04: 'VISCA command cancelled',
+  0x05: 'VISCA no socket (command already finished)',
+  0x41: 'VISCA command not executable (camera in standby or busy)',
+};
+const SONY_TYPE = { COMMAND: 0x0100, INQUIRY: 0x0110, REPLY: 0x0111, CONTROL: 0x0200, CONTROL_REPLY: 0x0201 };
+
+class ViscaError extends Error {
+  constructor(code, message) { super(message); this.code = code; }
+}
+
+/**
+ * VISCA camera over TCP (PTZOptics 5678), raw UDP (1259) or Sony VISCA-over-IP
+ * (UDP 52381). "Connected" means the camera ANSWERED a VISCA inquiry — never
+ * just "the port is open" or "the datagram left this machine". Commands wait
+ * for the camera's ACK + Completion and surface VISCA errors (syntax, buffer
+ * full, not executable/standby). One transaction at a time per camera.
+ */
 class ViscaPtzCamera extends BasePtzCamera {
   constructor(config = {}) {
     super(config);
     this.protocol = normalizeProtocol(config.protocol || 'visca-tcp');
+    if (this.protocol === 'ptzoptics-visca') this.protocol = 'visca-tcp';
     this.port = Number(config.port) || defaultPortForProtocol(this.protocol);
+    this.power = null;             // 'on' | 'standby' | null (unknown)
+    this.inquiryTimeoutMs = Number(config.inquiryTimeoutMs) || 1500;
+    this.ackTimeoutMs = Number(config.ackTimeoutMs) || 1500;
+    this.completionTimeoutMs = Number(config.completionTimeoutMs) || 10000;
+    this.onChange = null;          // () => void — set by PTZManager
     this._sequence = 1;
+    this._sock = null;             // net.Socket (tcp) | dgram.Socket (udp)
+    this._sockReady = null;        // Promise while connecting
+    this._rx = Buffer.alloc(0);
+    this._pending = null;          // current transaction
+    this._queue = Promise.resolve();
+    this._sonySeqReset = false;
+  }
+
+  _setState(connected, error) {
+    const changed = this.connected !== !!connected || (this.error || null) !== (error || null);
+    this.connected = !!connected;
+    this.error = error || null;
+    if (changed && typeof this.onChange === 'function') {
+      try { this.onChange(this); } catch { /* ignore */ }
+    }
+  }
+
+  toStatus() {
+    return { ...super.toStatus(), power: this.connected ? this.power : null };
   }
 
   async connect() {
     if (!this.ip) throw new Error('PTZ camera IP is required');
-    if (this.protocol === 'visca-tcp') {
-      await this._probeTcp();
-    } else {
-      // UDP cameras usually do not reply to a transport probe.
-      await this._probeUdp();
+    try {
+      await this._inquirePower();
+      this._setState(true, null);
+    } catch (err) {
+      this._closeSocket();
+      this._setState(false, err.message);
+      throw err;
     }
-    this.connected = true;
-    this.error = null;
   }
 
   async isOnline() {
     try {
-      if (this.protocol === 'visca-tcp') {
-        await this._probeTcp(1500);
-      } else {
-        await this._probeUdp();
-      }
-      this.connected = true;
-      this.error = null;
+      await this._inquirePower();
+      this._setState(true, null);
       return true;
     } catch (err) {
-      this.connected = false;
-      this.error = err.message;
+      this._closeSocket();
+      this._setState(false, err.message);
       return false;
     }
+  }
+
+  async _inquirePower() {
+    const r = await this._transact([0x81, 0x09, 0x04, 0x00, 0xff], { inquiry: true });
+    const p = r[2];
+    if (p === 0x02) this.power = 'on';
+    else if (p === 0x03) this.power = 'standby';
+    else throw new Error(`Unexpected VISCA power reply ${Buffer.from(r).toString('hex')}`);
+    return this.power;
+  }
+
+  /** Pan/tilt/zoom position from the camera (raw VISCA units). */
+  async getPosition() {
+    const pt = await this._transact([0x81, 0x09, 0x06, 0x12, 0xff], { inquiry: true });
+    const z = await this._transact([0x81, 0x09, 0x04, 0x47, 0xff], { inquiry: true });
+    const n4 = (b, i) => {
+      const u = ((b[i] & 0xf) << 12) | ((b[i + 1] & 0xf) << 8) | ((b[i + 2] & 0xf) << 4) | (b[i + 3] & 0xf);
+      return u >= 0x8000 ? u - 0x10000 : u;
+    };
+    return { pan: n4(pt, 2), tilt: n4(pt, 6), zoom: n4(z, 2) & 0xffff };
   }
 
   async panTilt(pan = 0, tilt = 0, opts = {}) {
@@ -183,7 +244,8 @@ class ViscaPtzCamera extends BasePtzCamera {
     await this._sendVisca([0x81, 0x01, 0x04, 0x3f, 0x02, presetVal, 0xff]);
   }
 
-  async setPreset(preset, opts = {}) {
+  async setPreset(preset, nameOrOpts = {}, maybeOpts = {}) {
+    const opts = (nameOrOpts && typeof nameOrOpts === 'object') ? nameOrOpts : (maybeOpts || {});
     const presetVal = this._normalizePreset(preset, opts);
     await this._sendVisca([0x81, 0x01, 0x04, 0x3f, 0x01, presetVal, 0xff]);
     return String(presetVal);
@@ -193,6 +255,11 @@ class ViscaPtzCamera extends BasePtzCamera {
     await this._sendVisca([0x81, 0x01, 0x06, 0x04, 0xff]);
   }
 
+  async setPower(on) {
+    await this._sendVisca([0x81, 0x01, 0x04, 0x00, on ? 0x02 : 0x03, 0xff]);
+    this.power = on ? 'on' : 'standby';
+  }
+
   _normalizePreset(preset, opts = {}) {
     const n = Math.max(0, Number.parseInt(preset, 10) || 0);
     // Most VISCA command tables use zero-based preset in payload.
@@ -200,92 +267,247 @@ class ViscaPtzCamera extends BasePtzCamera {
     return clamp(zeroBased ? n : Math.max(0, n - 1), 0, 0x7f);
   }
 
-  async _probeTcp(timeoutMs = 2500) {
-    await new Promise((resolve, reject) => {
-      const sock = new net.Socket();
-      let done = false;
-      const finish = (err) => {
-        if (done) return;
-        done = true;
-        try { sock.destroy(); } catch { /* ignore */ }
-        if (err) reject(err); else resolve();
+  /** Send a VISCA command; resolves on Completion, rejects on VISCA error/timeout. */
+  async _sendVisca(bytes) {
+    if (!this.connected) throw new Error(`PTZ camera ${this.name} is offline${this.error ? ` (${this.error})` : ''}`);
+    try {
+      await this._transact(bytes, { inquiry: false });
+    } catch (err) {
+      if (err instanceof ViscaError) throw err;       // camera answered "no" — still connected
+      this._closeSocket();
+      this._setState(false, err.message);
+      throw err;
+    }
+  }
+
+  // ── transport ──────────────────────────────────────────────────────────────
+
+  _transact(bytes, { inquiry }) {
+    const run = () => this._transactNow(Buffer.from(bytes), inquiry);
+    const p = this._queue.then(run, run);
+    this._queue = p.catch(() => {});
+    return p;
+  }
+
+  async _transactNow(payload, inquiry, retried = false) {
+    await this._ensureSocket();
+    if (this.protocol === 'sony-visca-udp' && !this._sonySeqReset) await this._sonyResetSeq();
+    return new Promise((resolve, reject) => {
+      const tx = {
+        inquiry,
+        acked: false,
+        seq: null,
+        timer: null,
+        done: (err, val) => {
+          if (tx.finished) return;
+          tx.finished = true;
+          clearTimeout(tx.timer);
+          if (this._pending === tx) this._pending = null;
+          if (err) reject(err); else resolve(val);
+        },
+        arm: (ms, what) => {
+          clearTimeout(tx.timer);
+          tx.timer = setTimeout(() => tx.done(new Error(`No VISCA ${what} from ${this.ip}:${this.port} within ${ms}ms`)), ms);
+        },
+        onSonySeqError: null,
       };
-      sock.setTimeout(timeoutMs);
-      sock.once('error', finish);
-      sock.once('timeout', () => finish(new Error(`VISCA TCP timeout (${this.ip}:${this.port})`)));
-      sock.connect(this.port, this.ip, () => finish());
+      if (!retried && this.protocol === 'sony-visca-udp') {
+        tx.onSonySeqError = () => {
+          tx.finished = true; clearTimeout(tx.timer); this._pending = null;
+          this._sonySeqReset = false;
+          this._transactNow(payload, inquiry, true).then(resolve, reject);
+        };
+      }
+      this._pending = tx;
+      tx.arm(inquiry ? this.inquiryTimeoutMs : this.ackTimeoutMs, inquiry ? 'reply' : 'ACK');
+      let wire = payload;
+      if (this.protocol === 'sony-visca-udp') {
+        tx.seq = this._nextSeq();
+        wire = this._sonyFrame(inquiry ? SONY_TYPE.INQUIRY : SONY_TYPE.COMMAND, tx.seq, payload);
+      }
+      this._write(wire).catch((err) => tx.done(err));
     });
   }
 
-  async _probeUdp() {
-    // Best-effort UDP probe: successful local send indicates route/socket readiness.
-    const inquiry = Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]); // CAM_Power Inq
-    await this._sendUdp(inquiry);
-  }
-
-  async _sendVisca(bytes) {
-    const payload = Buffer.from(bytes);
-    if (this.protocol === 'visca-tcp') {
-      await this._sendTcp(payload);
-      return;
-    }
-
-    if (this.protocol === 'sony-visca-udp') {
-      const wrapped = this._wrapSonyVisca(payload);
-      await this._sendUdp(wrapped);
-      return;
-    }
-
-    await this._sendUdp(payload);
-  }
-
-  _wrapSonyVisca(payload) {
-    const header = Buffer.alloc(8);
-    header[0] = 0x01;
-    header[1] = 0x00;
-    header.writeUInt16BE(payload.length, 2);
-    header.writeUInt32BE(this._sequence >>> 0, 4);
+  _nextSeq() {
+    const s = this._sequence >>> 0;
     this._sequence = (this._sequence + 1) >>> 0;
+    return s;
+  }
+
+  _sonyFrame(type, seq, payload) {
+    const header = Buffer.alloc(8);
+    header.writeUInt16BE(type, 0);
+    header.writeUInt16BE(payload.length, 2);
+    header.writeUInt32BE(seq >>> 0, 4);
     return Buffer.concat([header, payload]);
   }
 
-  async _sendTcp(payload) {
+  // Back-compat helper (tests/tools): Sony command framing.
+  _wrapSonyVisca(payload) {
+    return this._sonyFrame(SONY_TYPE.COMMAND, this._nextSeq(), Buffer.from(payload));
+  }
+
+  async _sonyResetSeq() {
+    this._sequence = 1;
     await new Promise((resolve, reject) => {
+      const tx = {
+        control: true,
+        finished: false,
+        done: (err) => {
+          if (tx.finished) return;
+          tx.finished = true;
+          clearTimeout(tx.timer);
+          if (this._pending === tx) this._pending = null;
+          if (err) reject(err); else resolve();
+        },
+      };
+      tx.timer = setTimeout(() => tx.done(new Error(`No Sony VISCA control reply from ${this.ip}:${this.port} within ${this.inquiryTimeoutMs}ms`)), this.inquiryTimeoutMs);
+      this._pending = tx;
+      this._write(this._sonyFrame(SONY_TYPE.CONTROL, 0, Buffer.from([0x01]))).catch((e) => tx.done(e));
+    });
+    this._sonySeqReset = true;
+  }
+
+  async _write(buf) {
+    const sock = this._sock;
+    if (!sock) throw new Error(`VISCA socket to ${this.ip}:${this.port} is closed`);
+    await new Promise((resolve, reject) => {
+      if (this.protocol === 'visca-tcp') sock.write(buf, (err) => (err ? reject(err) : resolve()));
+      else sock.send(buf, (err) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  async _ensureSocket() {
+    if (this._sock) return;
+    if (this._sockReady) return this._sockReady;
+    this._sockReady = (this.protocol === 'visca-tcp' ? this._openTcp() : this._openUdp())
+      .finally(() => { this._sockReady = null; });
+    return this._sockReady;
+  }
+
+  _openTcp(timeoutMs = 2500) {
+    return new Promise((resolve, reject) => {
       const sock = new net.Socket();
       let settled = false;
-      const finish = (err) => {
+      const fail = (err) => {
         if (settled) return;
         settled = true;
         try { sock.destroy(); } catch { /* ignore */ }
-        if (err) reject(err); else resolve();
+        reject(err);
       };
-
-      sock.setTimeout(2500);
-      sock.once('error', finish);
-      sock.once('timeout', () => finish(new Error(`VISCA TCP timeout (${this.ip}:${this.port})`)));
+      sock.setTimeout(timeoutMs);
+      sock.once('error', fail);
+      sock.once('timeout', () => fail(new Error(`VISCA TCP connect timeout (${this.ip}:${this.port})`)));
       sock.connect(this.port, this.ip, () => {
-        sock.write(payload, (err) => {
-          if (err) return finish(err);
-          // Short delay for command flush/ACK window, then close.
-          setTimeout(() => finish(), 70);
+        settled = true;
+        sock.setTimeout(0);
+        sock.removeAllListeners('error');
+        sock.removeAllListeners('timeout');
+        sock.setNoDelay(true);
+        this._sock = sock;
+        this._rx = Buffer.alloc(0);
+        sock.on('data', (chunk) => this._onStream(chunk));
+        sock.on('error', () => { /* close follows */ });
+        sock.on('close', () => {
+          if (this._sock !== sock) return;
+          this._sock = null;
+          this._failPending(new Error(`VISCA TCP connection to ${this.ip}:${this.port} closed`));
+          if (this.connected) this._setState(false, 'Camera closed the VISCA connection');
         });
+        resolve();
       });
     });
   }
 
-  async _sendUdp(payload) {
-    await new Promise((resolve, reject) => {
+  _openUdp() {
+    return new Promise((resolve, reject) => {
       const sock = dgram.createSocket('udp4');
-      sock.once('error', (err) => {
-        try { sock.close(); } catch { /* ignore */ }
-        reject(err);
-      });
-      sock.send(payload, this.port, this.ip, (err) => {
-        try { sock.close(); } catch { /* ignore */ }
-        if (err) reject(err);
-        else resolve();
+      let settled = false;
+      sock.once('error', (err) => { if (!settled) { settled = true; try { sock.close(); } catch { /* */ } reject(err); } });
+      sock.connect(this.port, this.ip, (err) => {
+        if (err) { settled = true; try { sock.close(); } catch { /* */ } reject(err); return; }
+        settled = true;
+        sock.removeAllListeners('error');
+        // ICMP port-unreachable surfaces as ECONNREFUSED on a connected UDP socket.
+        sock.on('error', (e) => { this._failPending(new Error(`VISCA UDP ${this.ip}:${this.port}: ${e.code || e.message}`)); });
+        sock.on('message', (msg) => this._onDatagram(msg));
+        this._sock = sock;
+        resolve();
       });
     });
+  }
+
+  _closeSocket() {
+    const sock = this._sock;
+    this._sock = null;
+    this._sonySeqReset = false;
+    if (!sock) return;
+    try { if (this.protocol === 'visca-tcp') sock.destroy(); else sock.close(); } catch { /* ignore */ }
+  }
+
+  _failPending(err) {
+    const tx = this._pending;
+    if (tx) tx.done(err);
+  }
+
+  _onStream(chunk) {
+    this._rx = Buffer.concat([this._rx, chunk]);
+    let i;
+    while ((i = this._rx.indexOf(0xff)) !== -1) {
+      const msg = this._rx.subarray(0, i + 1);
+      this._rx = Buffer.from(this._rx.subarray(i + 1));
+      this._onReply(Buffer.from(msg));
+    }
+  }
+
+  _onDatagram(msg) {
+    if (this.protocol !== 'sony-visca-udp') {
+      let start = 0;
+      for (let i = 0; i < msg.length; i++) if (msg[i] === 0xff) { this._onReply(msg.subarray(start, i + 1)); start = i + 1; }
+      return;
+    }
+    if (msg.length < 8) return;
+    const type = msg.readUInt16BE(0);
+    const seq = msg.readUInt32BE(4);
+    const payload = msg.subarray(8);
+    const tx = this._pending;
+    if (!tx) return;
+    if (type === SONY_TYPE.CONTROL_REPLY) {
+      if (tx.control && payload[0] === 0x01) { tx.done(null); return; }
+      if (payload[0] === 0x0f && payload[1] === 0x01) {
+        if (tx.onSonySeqError) { tx.onSonySeqError(); return; }
+        tx.done(new Error('Sony VISCA sequence number error'));
+        return;
+      }
+      if (payload[0] === 0x0f && payload[1] === 0x02) { tx.done(new ViscaError('sony-message', 'Sony VISCA message error (camera rejected the packet)')); return; }
+      return;
+    }
+    if (type !== SONY_TYPE.REPLY) return;
+    if (tx.seq !== null && seq !== tx.seq) return;   // stale/foreign reply — ignore
+    let start = 0;
+    for (let i = 0; i < payload.length; i++) if (payload[i] === 0xff) { this._onReply(payload.subarray(start, i + 1)); start = i + 1; }
+  }
+
+  _onReply(msg) {
+    const tx = this._pending;
+    if (!tx || tx.control || msg.length < 3) return;
+    const b1 = msg[1];
+    if ((b1 & 0xf0) === 0x60) {
+      const code = msg[2];
+      tx.done(new ViscaError(code, VISCA_ERRORS[code] || `VISCA error 0x${code.toString(16)}`));
+      return;
+    }
+    if (tx.inquiry) {
+      if ((b1 & 0xf0) === 0x50) tx.done(null, [...msg]);
+      return;
+    }
+    if ((b1 & 0xf0) === 0x40) {
+      tx.acked = true;
+      tx.arm(this.completionTimeoutMs, 'Completion');
+      return;
+    }
+    if ((b1 & 0xf0) === 0x50) tx.done(null, [...msg]);
   }
 }
 
@@ -762,6 +984,15 @@ class PTZManager {
     this.logger = logger || (() => {});
     this.cameras = [];
     this.presetManager = new PresetManager();
+    this.onChange = null;
+  }
+
+  /** Close persistent camera sockets (agent stop / PTZ reconfigure). */
+  close() {
+    for (const cam of this.cameras) {
+      cam.onChange = null;
+      try { if (typeof cam._closeSocket === 'function') cam._closeSocket(); } catch { /* ignore */ }
+    }
   }
 
   hasCameras() {
@@ -775,27 +1006,54 @@ class PTZManager {
       if (!entry.ip || normalizeProtocol(entry.protocol) === 'atem') continue;
       try {
         const camera = await this._buildConnectedCamera(entry);
+        this._adopt(camera);
         this.cameras.push(camera);
         this.logger(`🎥 PTZ connected: ${camera.name} (${camera.protocol} ${camera.ip}:${camera.port})`);
       } catch (err) {
         this.logger(`⚠️  PTZ failed: ${entry.name || entry.ip} (${entry.protocol || 'auto'}) — ${err.message}`);
-        this.cameras.push({
-          ...new BasePtzCamera(entry),
-          protocol: normalizeProtocol(entry.protocol || 'auto'),
-          connected: false,
-          error: err.message,
-          async isOnline() { return false; },
-        });
+        // Keep a camera that keeps TRYING: an explicit-protocol camera object
+        // (its inquiry poll reconnects), or an auto-detect placeholder that
+        // re-runs detection on every refresh. Never a dead stub.
+        const protocol = normalizeProtocol(entry.protocol || 'auto');
+        let cam;
+        if (protocol !== 'auto') {
+          cam = this._makeCamera(entry, protocol);
+        } else {
+          cam = new BasePtzCamera(entry);
+          cam.protocol = 'auto';
+          cam._retryEntry = entry;
+        }
+        cam.connected = false;
+        cam.error = err.message;
+        this._adopt(cam);
+        this.cameras.push(cam);
       }
     }
   }
 
+  _adopt(cam) {
+    cam.onChange = () => { if (typeof this.onChange === 'function') this.onChange(); };
+  }
+
   async refreshStatus() {
-    for (const cam of this.cameras) {
-      if (typeof cam.isOnline === 'function') {
-        try { await cam.isOnline(); } catch { /* ignore */ }
+    await Promise.all(this.cameras.map(async (cam, i) => {
+      if (cam._retryEntry) {
+        try {
+          const built = await this._buildConnectedCamera(cam._retryEntry);
+          this._adopt(built);
+          this.cameras[i] = built;
+          this.logger(`🎥 PTZ connected: ${built.name} (${built.protocol} ${built.ip}:${built.port})`);
+        } catch (err) { cam.error = err.message; }
+        return;
       }
-    }
+      if (typeof cam.isOnline === 'function') {
+        const was = !!cam.connected;
+        try { await cam.isOnline(); } catch { /* ignore */ }
+        if (was !== !!cam.connected) {
+          this.logger(cam.connected ? `🎥 PTZ reconnected: ${cam.name}` : `⚠️  PTZ offline: ${cam.name} — ${cam.error}`);
+        }
+      }
+    }));
   }
 
   getStatus() {
@@ -968,13 +1226,7 @@ class PTZManager {
 
     for (const candidate of attemptOrder) {
       try {
-        const merged = { ...entry, protocol: candidate, port: entry.port || defaultPortForProtocol(candidate) };
-        const cam = (candidate === 'onvif' || candidate === 'ptzoptics-onvif')
-          ? new OnvifPtzCamera(merged)
-          : new ViscaPtzCamera({
-              ...merged,
-              protocol: candidate === 'ptzoptics-visca' ? 'visca-tcp' : candidate,
-            });
+        const cam = this._makeCamera(entry, candidate);
         await cam.connect();
         return cam;
       } catch (err) {
@@ -983,6 +1235,13 @@ class PTZManager {
     }
 
     throw lastErr || new Error('No supported PTZ protocol could connect');
+  }
+
+  _makeCamera(entry, candidate) {
+    const merged = { ...entry, protocol: candidate, port: entry.port || defaultPortForProtocol(candidate) };
+    return (candidate === 'onvif' || candidate === 'ptzoptics-onvif')
+      ? new OnvifPtzCamera(merged)
+      : new ViscaPtzCamera({ ...merged, protocol: candidate === 'ptzoptics-visca' ? 'visca-tcp' : candidate });
   }
 
   _resolveCamera(ref) {
@@ -1003,6 +1262,7 @@ class PTZManager {
 
 module.exports = {
   PTZManager,
+  ViscaPtzCamera,
   PresetManager,
   normalizeProtocol,
   defaultPortForProtocol,

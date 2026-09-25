@@ -6373,6 +6373,9 @@ function handleRuntimeCoordinationEvent(event) {
     const cmdResultMsg = payload.event;
     if (!cmdResultMsg?.churchId) return;
     runtimeMetrics.record('command_result.remote.receive');
+    // HTTP callers waiting on this runtime ({ wait: true }) for a result that
+    // came back through another runtime.
+    require('./src/commandResultWaiters').resolveCommandResult(cmdResultMsg);
     broadcastToControllers(cmdResultMsg);
     _mobileWsHandler.broadcastToMobile(cmdResultMsg.churchId, {
       type: 'command_result',

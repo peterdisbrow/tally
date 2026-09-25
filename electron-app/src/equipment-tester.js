@@ -11,6 +11,7 @@
 
 const { spawn } = require('child_process');
 const dgram = require('dgram');
+const net = require('net');
 
 // Injected dependencies — set via init()
 let _tryTcpConnect = async () => false;
@@ -143,6 +144,72 @@ function runLocalCommand(command, args, timeoutMs = 5000) {
  *
  * Forcing `127.0.0.1` bypasses DNS and eliminates the false "cannot reach".
  */
+/**
+ * Ask a VISCA camera CAM_PowerInq (81 09 04 00 FF) and wait for the answer
+ * (90 50 02 FF = on, 90 50 03 FF = standby). transport: 'tcp' | 'udp' | 'sony'.
+ * Resolves { ok, power?, error? } — ok only when the camera actually replied.
+ */
+function viscaInquiryProbe(host, port, transport, timeoutMs = 2000) {
+  const inquiry = Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]);
+  return new Promise((resolve) => {
+    let done = false;
+    let sock = null;
+    let rx = Buffer.alloc(0);
+    const finish = (res) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { if (transport === 'tcp') sock?.destroy(); else sock?.close(); } catch { /* ignore */ }
+      resolve(res);
+    };
+    const timer = setTimeout(() => finish({ ok: false, error: 'no VISCA reply' }), timeoutMs);
+    const onViscaMsg = (m) => {
+      if (m.length >= 4 && m[0] === 0x90 && (m[1] & 0xf0) === 0x50) {
+        finish({ ok: true, power: m[2] === 0x02 ? 'on' : m[2] === 0x03 ? 'standby' : 'unknown' });
+      } else if (m.length >= 4 && m[0] === 0x90 && (m[1] & 0xf0) === 0x60) {
+        finish({ ok: true, power: 'unknown', error: `VISCA error 0x${m[2].toString(16)}` });
+      }
+    };
+    const splitFeed = (buf) => {
+      let start = 0;
+      for (let i = 0; i < buf.length; i++) if (buf[i] === 0xff) { onViscaMsg(buf.subarray(start, i + 1)); start = i + 1; }
+      return buf.subarray(start);
+    };
+    if (transport === 'tcp') {
+      sock = new net.Socket();
+      sock.once('error', (e) => finish({ ok: false, error: e.code || e.message }));
+      sock.on('data', (c) => { rx = Buffer.from(splitFeed(Buffer.concat([rx, c]))); });
+      sock.connect(port, host, () => sock.write(inquiry));
+      return;
+    }
+    sock = dgram.createSocket('udp4');
+    sock.on('error', (e) => finish({ ok: false, error: e.code || e.message }));
+    sock.on('message', (msg) => {
+      if (transport !== 'sony') { splitFeed(msg); return; }
+      if (msg.length < 8) return;
+      const type = msg.readUInt16BE(0);
+      if (type === 0x0201) {
+        if (msg[8] === 0x01) {
+          // sequence reset acknowledged → send the inquiry (payload type 0x0110)
+          const h = Buffer.alloc(8); h.writeUInt16BE(0x0110, 0); h.writeUInt16BE(inquiry.length, 2); h.writeUInt32BE(1, 4);
+          sock.send(Buffer.concat([h, inquiry]));
+        } else finish({ ok: false, error: 'Sony VISCA control error' });
+        return;
+      }
+      if (type === 0x0111 && msg.readUInt32BE(4) === 1) splitFeed(msg.subarray(8));
+    });
+    sock.connect(port, host, (err) => {
+      if (err) { finish({ ok: false, error: err.message }); return; }
+      if (transport === 'sony') {
+        const h = Buffer.alloc(8); h.writeUInt16BE(0x0200, 0); h.writeUInt16BE(1, 2); h.writeUInt32BE(0, 4);
+        sock.send(Buffer.concat([h, Buffer.from([0x01])]));
+      } else {
+        sock.send(inquiry);
+      }
+    });
+  });
+}
+
 function normalizeHost(host) {
   if (!host) return host;
   const h = String(host).trim().toLowerCase();
@@ -200,17 +267,18 @@ async function testEquipmentConnection(params) {
           if (looksOnvif) return { success: true, details: `ONVIF endpoint reachable (HTTP ${statusCode})` };
           if (normalizedProtocol === 'onvif') return { success: false, details: 'Cannot reach ONVIF endpoint' };
         }
-        if (normalizedProtocol === 'visca-udp' || normalizedProtocol === 'sony-visca-udp') {
-          const probe = await tryUdpSendLocal(ip, ptzPort);
-          return {
-            success: probe.success,
-            details: probe.success
-              ? `${normalizedProtocol} datagram sent`
-              : `Cannot send ${normalizedProtocol} datagram`,
-          };
+        // VISCA: the camera must ANSWER a power inquiry. An open port or a
+        // sent datagram is not proof of a camera.
+        const transport = normalizedProtocol === 'visca-udp' ? 'udp'
+          : normalizedProtocol === 'sony-visca-udp' ? 'sony' : 'tcp';
+        const label = transport === 'sony' ? 'Sony VISCA-over-IP' : transport === 'udp' ? 'VISCA UDP' : 'VISCA TCP';
+        const probe = await viscaInquiryProbe(ip, ptzPort, transport, 2500);
+        if (!probe.ok) {
+          const why = probe.error && probe.error !== 'no VISCA reply' ? ` (${probe.error})` : '';
+          return { success: false, details: `No VISCA reply from ${ip}:${ptzPort}${why} — check IP, port and protocol (${label})` };
         }
-        const ok = await _tryTcpConnect(ip, ptzPort, 2500);
-        return { success: ok, details: ok ? 'VISCA TCP reachable' : 'Cannot reach VISCA TCP camera' };
+        if (probe.power === 'standby') return { success: true, details: `${label} camera answered — in standby (power it on to move)` };
+        return { success: true, details: `${label} camera answered${probe.power === 'on' ? ' (power on)' : ''}` };
       }
       case 'propresenter': {
         const resp = await _tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
@@ -411,5 +479,6 @@ module.exports = {
   tryTcpConnectLocal,
   tryUdpSendLocal,
   tryUdpProbeLocal,
+  viscaInquiryProbe,
   runLocalCommand,
 };
