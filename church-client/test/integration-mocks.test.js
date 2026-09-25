@@ -240,56 +240,29 @@ test('integration-mocks: Resolume mock connects clip and reports it as connected
 
 const sqMock = require('./mocks/sqMixerServer');
 
-test('integration-mocks: SQ mock accepts TCP MIDI connection and serves OSC name reads', async (t) => {
-  const mock = await sqMock.start({ port: 0, oscPort: 0, controlPort: 0 });
+test('integration-mocks: SQ mock is MIDI-only — SET is silent, GET answers, wrong MIDI channel is ignored', async (t) => {
+  const mock = await sqMock.start({ port: 0, controlPort: 0 });
   t.after(() => mock.stop());
-
-  // TCP MIDI connection is accepted (stub — bytes counted, no protocol response)
+  assert.equal(mock.oscPort, undefined, 'the SQ has no OSC port');
   const net = require('node:net');
-  await new Promise((resolve, reject) => {
-    const sock = net.createConnection(mock.midiPort, '127.0.0.1');
-    sock.on('connect', () => {
-      sock.write(Buffer.from([0xB0, 0x63, 0x00])); // dummy NRPN-ish bytes
-      setTimeout(() => { sock.end(); resolve(); }, 50);
-    });
-    sock.on('error', reject);
-  });
-  // Allow event loop to flush state updates.
-  await new Promise((r) => setTimeout(r, 50));
-  assert.ok(mock.state.midiBytesReceived >= 3, 'SQ MIDI stub should count received bytes');
-
-  // OSC round-trip — send /sq/ch/1/name request and expect the name back.
-  const dgram = require('node:dgram');
-  const client = dgram.createSocket('udp4');
-  // Hand-encode an OSC message: address + ',' typetag + no args.
-  const addr = Buffer.from('/sq/ch/1/name\0\0\0', 'utf8'); // 16 bytes (4-aligned)
-  const tags = Buffer.from(',\0\0\0', 'utf8');             // 4 bytes
-  const packet = Buffer.concat([addr, tags]);
-  const reply = await new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      client.close();
-      reject(new Error('no OSC reply'));
-    }, 1000);
-    client.on('message', (msg) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      client.close();
-      resolve(msg);
-    });
-    client.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    client.send(packet, mock.oscPort, '127.0.0.1');
-  });
-  // Reply contains the channel name string; we just assert the address is echoed.
-  assert.ok(reply.toString().includes('/sq/ch/1/name'));
+  const sock = net.createConnection(mock.midiPort, '127.0.0.1');
+  await new Promise((resolve, reject) => { sock.on('connect', resolve); sock.on('error', reject); });
+  t.after(() => sock.destroy());
+  const rx = [];
+  sock.on('data', (b) => rx.push(...b));
+  // SET LR mute on (00 44 = 1) on MIDI ch1 → silent
+  sock.write(Buffer.from([0xB0, 0x63, 0x00, 0xB0, 0x62, 0x44, 0xB0, 0x06, 0x00, 0xB0, 0x26, 0x01]));
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(rx.length, 0, 'SQ does not echo remote SETs');
+  assert.equal(mock.get('mute:lr:0'), 1);
+  // GET on the wrong MIDI channel (ch2) → ignored
+  sock.write(Buffer.from([0xB1, 0x63, 0x00, 0xB1, 0x62, 0x44, 0xB1, 0x60, 0x7F]));
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(rx.length, 0, 'wrong MIDI channel is ignored');
+  // GET on ch1 → full value message
+  sock.write(Buffer.from([0xB0, 0x63, 0x00, 0xB0, 0x62, 0x44, 0xB0, 0x60, 0x7F]));
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(rx, [0xB0, 0x63, 0x00, 0xB0, 0x62, 0x44, 0xB0, 0x06, 0x00, 0xB0, 0x26, 0x01]);
 });
 
 // ─── Planning Center ───────────────────────────────────────────────────────

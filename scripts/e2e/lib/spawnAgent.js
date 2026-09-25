@@ -52,7 +52,7 @@ function buildEquipmentConfig() {
     proPresenter: { host: '127.0.0.1', port: 1025 },
     resolume: { host: '127.0.0.1', port: 8080 },
     vmix: null,
-    mixer: { type: 'allenheath', host: '127.0.0.1', port: 51326, model: 'SQ' },
+    mixer: { type: 'allenheath', host: '127.0.0.1', port: 51325, model: 'SQ' },
     encoder: { type: 'tricaster', host: '127.0.0.1', port: 5951 },
     ptz: [],
     hyperdecks: [],

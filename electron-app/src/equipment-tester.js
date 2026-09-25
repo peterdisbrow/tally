@@ -243,7 +243,8 @@ async function testEquipmentConnection(params) {
         // connects via TcpMidi on port 51325, not OSC. A plain TCP connect to
         // 51325 matches what the driver will do and reliably confirms reachability.
         if (mixerType === 'allenheath' || mixerType === 'dlive' || mixerType === 'avantis') {
-          const targetPort = port || 51325;
+          // Configs saved by older builds hold the non-existent "OSC" port 51326.
+          const targetPort = (!port || Number(port) === 51326) ? 51325 : port;
           const ok = await _tryTcpConnect(ip, targetPort, 3000);
           return {
             success: !!ok,

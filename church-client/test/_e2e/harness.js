@@ -385,14 +385,11 @@ async function bootHarness({ churchName = `E2E-${Date.now()}` } = {}) {
     videoHubs: [{ ip: '127.0.0.1', name: 'VH-Main', port: mocks.videohub.port }],
     proPresenter: { host: '127.0.0.1', port: mocks.propresenter.port },
     resolume: { host: '127.0.0.1', port: mocks.resolume.port },
-    // SQ uses two ports — OSC for naming/HPF, TCP MIDI for everything else.
-    // Both must be threaded through to the bridge or the agent silently
-    // falls back to the hardcoded production defaults (51326/51325) and
-    // never reaches our ephemeral mock.
+    // SQ speaks only MIDI over TCP (no OSC) — point it at the mock's port.
     mixer: {
       type: 'allenheath',
       host: '127.0.0.1',
-      port: mocks.sq.oscPort,
+      port: mocks.sq.midiPort,
       midiPort: mocks.sq.midiPort,
       model: 'SQ',
     },

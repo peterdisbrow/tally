@@ -34,7 +34,7 @@ const REGISTRY = [
   { name: 'birddog',         file: 'birddogServer.js',         defaultPort: 8081 }, // real default 8080 — moved to avoid Resolume collision
   { name: 'teradek',         file: 'teradekServer.js',         defaultPort: 8082 }, // real default 80 — moved (privileged port)
   { name: 'resolume',        file: 'resolumeServer.js',        defaultPort: 8080 },
-  { name: 'sq',              file: 'sqMixerServer.js',         defaultPort: 51325 }, // also opens 51326 for OSC
+  { name: 'sq',              file: 'sqMixerServer.js',         defaultPort: 51325 }, // TCP MIDI only (the SQ has no OSC)
   { name: 'planning-center', file: 'planningCenterServer.js',  defaultPort: 8083 },
   { name: 'visca-ptz',       file: 'viscaPtzServer.js',        defaultPort: 5678 },
 ];

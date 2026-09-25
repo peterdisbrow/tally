@@ -78,8 +78,14 @@ describe('equipment-tester: SQ mixer → TCP/51325', () => {
 
   it('respects explicit port override', async () => {
     const calls = makeMocks({ tcpResult: true });
+    await testEquipmentConnection({ type: 'mixer', mixerType: 'allenheath', ip: '10.0.0.1', port: 51399 });
+    assert.equal(calls.tcp[0].port, 51399);
+  });
+
+  it('maps a legacy stored SQ "OSC" port 51326 to the real MIDI port 51325', async () => {
+    const calls = makeMocks({ tcpResult: true });
     await testEquipmentConnection({ type: 'mixer', mixerType: 'allenheath', ip: '10.0.0.1', port: 51326 });
-    assert.equal(calls.tcp[0].port, 51326);
+    assert.equal(calls.tcp[0].port, 51325);
   });
 });
 

@@ -5,10 +5,10 @@ const { toInt } = require('./helpers');
 const MIXER_CAPABILITIES = {
   X32:    { dcaControl: 'full', muteGroup: 'full', softKey: false, compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
   M32:    { dcaControl: 'full', muteGroup: 'full', softKey: false, compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
-  SQ:      { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
-  SQ5:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
-  SQ6:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
-  SQ7:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
+  SQ5:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
+  SQ6:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
+  SQ7:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: false, muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'partial' },
   DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
   AVANTIS: { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
   CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
@@ -126,7 +126,10 @@ async function mixerRecallScene(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const scene = params.scene;
   if (scene == null) throw new Error('scene parameter required');
-  await agent.mixer.recallScene(scene);
+  const r = await agent.mixer.recallScene(scene);
+  if (r && r.confirmed === false) {
+    return `Scene ${scene} recall sent — not confirmed by the console (${r.reason || 'no read-back available'})`;
+  }
   return `Scene ${scene} recalled`;
 }
 
@@ -415,7 +418,10 @@ async function mixerPressSoftKey(agent, params) {
   requireMixerCapability(agent, 'softKey', 'SoftKeys');
   const { key } = params;
   if (key == null) throw new Error('softkey number required');
-  await agent.mixer.pressSoftKey(parseInt(key));
+  const r = await agent.mixer.pressSoftKey(parseInt(key));
+  if (r && r.confirmed === false) {
+    return `SoftKey ${key} press sent — not confirmed by the console (${r.reason || 'no read-back available'})`;
+  }
   return `SoftKey ${key} pressed`;
 }
 

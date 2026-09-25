@@ -72,10 +72,20 @@ test('SQ mixer blocks clearSolos', async () => {
   );
 });
 
-test('SQ mixer allows HPF', async () => {
+test('SQ mixer refuses HPF — SQ MIDI has no HPF parameter and the SQ has no OSC', async () => {
   const agent = mockMixer('SQ');
-  // Should NOT throw
-  await commandHandlers['mixer.setHpf'](agent, { channel: 1 });
+  await assert.rejects(
+    () => commandHandlers['mixer.setHpf'](agent, { channel: 1 }),
+    /not supported on SQ/
+  );
+});
+
+test('SQ mixer refuses channel naming (no OSC on the SQ)', async () => {
+  const agent = mockMixer('SQ');
+  await assert.rejects(
+    () => commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'Pastor' }),
+    /not supported on SQ/
+  );
 });
 
 test('SQ mixer allows fader', async () => {

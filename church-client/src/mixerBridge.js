@@ -8,7 +8,7 @@
  * Supported types:
  *   'behringer' → Behringer X32 family (port 10023). X-Air (XR12/16/18, port 10024, /lr/...) is NOT supported.
  *   'midas'     → Midas M32 / M32R (same protocol as Behringer, port 10023)
- *   'allenheath'→ Allen & Heath SQ (hybrid OSC 51326 + TCP MIDI 51325)
+ *   'allenheath'→ Allen & Heath SQ-5/6/7 (TCP MIDI 51325 — the SQ has no OSC)
  *   'avantis'   → Allen & Heath Avantis (TCP MIDI port 51325)
  *   'dlive'     → Allen & Heath dLive (TCP MIDI port 51325, same as Avantis)
  *   'yamaha'    → Yamaha CL / QL / TF (port 8765 or 49280)
@@ -51,8 +51,8 @@ class MixerBridge extends EventEmitter {
       case 'allenheath':
         return new AllenHeathMixer({
           host,
-          port: port || 51326,
-          midiPort: midiPort,
+          port,               // TCP MIDI port; driver defaults to 51325 and maps legacy 51326
+          midiPort,
           model: model || 'SQ',
           midiChannel,
         });

@@ -147,7 +147,7 @@ scripts/
         ├── 04-companion-press.js
         ├── 05-atem-disconnect-recovery.js
         ├── 06-teradek-battery-alert.js
-        ├── 07-sq-channel-rename.js
+        ├── 07-sq-master-mute.js
         ├── 10-recovery-all-mocks.js   # builds 11 sub-scenarios
         ├── 20-cron-offline-detection.js
         ├── 21-cron-weekly-digest.js

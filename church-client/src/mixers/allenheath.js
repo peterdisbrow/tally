@@ -1,26 +1,27 @@
 /**
- * Allen & Heath SQ Hybrid Driver (OSC + TCP MIDI)
+ * Allen & Heath SQ-5 / SQ-6 / SQ-7 driver — MIDI over TCP (port 51325).
  *
- * The SQ exposes two control interfaces:
- *   • OSC on port 51326 — channel naming, HPF frequency
- *   • TCP MIDI on port 51325 — mutes, faders, sends, DCAs, mute groups,
- *     scenes, SoftKeys, pan/balance, routing assigns
+ * The SQ has exactly one remote-control protocol: MIDI over TCP/IP on port
+ * 51325 (SQ MIDI Protocol, Issue 5). It has NO OSC — earlier versions of this
+ * driver sent channel names / HPF over "OSC 51326" into the void and reported
+ * success. Those functions now refuse honestly.
  *
- * This driver uses BOTH simultaneously for maximum capability:
- *   - TCP MIDI handles the heavy lifting (14-bit faders, full routing matrix)
- *   - OSC fills gaps MIDI can't cover (channel names, HPF frequency)
- *   - Bidirectional: incoming NRPN messages from the console update live state
+ * Honesty contract (same as the X32 driver):
+ *   • Every SET is followed by a GET (NRPN data-increment 0x7F); the command
+ *     only succeeds when the console reports the new value back. No reply →
+ *     "did not confirm"; wrong value → "did not apply".
+ *   • Liveness is a GET round-trip, not "the TCP socket is open": an SQ whose
+ *     cable is pulled behind a switch keeps a half-open socket for minutes.
+ *   • Unknown values are null, never "unmuted" / 0.
+ *   • Scene recall and SoftKeys have no read-back on the SQ; they are reported
+ *     as "sent, not confirmable", never as done.
  *
- * NRPN parameter tables sourced from the SQ MIDI Protocol Issue 5 and
- * verified against the Bitfocus Companion module implementation.
- *
- * Key convention (same as previous OSC driver):
- *   SQ mute:  1 = muted,  0 = unmuted  (OPPOSITE of X32)
+ * NRPN tables: SQ MIDI Protocol Issue 5 (checked against the reference tables).
+ * SQ mute data: 1 = muted, 0 = unmuted.
  */
 
 'use strict';
 
-const { OSCClient } = require('../osc');
 const { TcpMidi }   = require('../tcp-midi');
 
 // ─── SQ MODEL COUNTS ─────────────────────────────────────────────────────────
@@ -42,8 +43,12 @@ const SOFTKEY_COUNTS = { SQ5: 8, SQ6: 16, SQ7: 16 };
 
 // ─── PORTS ───────────────────────────────────────────────────────────────────
 
-const OSC_PORT  = 51326;
 const MIDI_PORT = 51325;
+const LEGACY_OSC_PORT = 51326; // old configs stored this; the SQ never listened on it
+const GET_TIMEOUT_MS = 1000;
+const PROBE_TIMEOUT_MS = 1500;
+const LEVEL_TOLERANCE = 128;   // ≈1 dB — the SQ quantises some values on read-back
+const PAN_TOLERANCE = 256;
 
 // ─── NRPN HELPERS ────────────────────────────────────────────────────────────
 
@@ -138,22 +143,55 @@ const SEND_PAN = {
   mixToMatrix:    { msb: 0x5E, lsb: 0x27, sinks: 3 },
 };
 
-// ─── LEVEL CONVERSION (Linear Taper) ─────────────────────────────────────────
+// ─── LEVEL CONVERSION ────────────────────────────────────────────────────────
+//
+// Tally's mixer API speaks "fader position" 0.0–1.0 with the SAME law on every
+// console (X32 law: 0.75 = 0 dB, 0.5 = −10 dB, 0.25 = −30 dB, 1.0 = +10 dB), so a
+// remote "fader 75%" means unity whether the booth has an X32 or an SQ.
+// The SQ's NRPN Linear Taper is ~118.8 data steps per dB with 0 dB = 15196
+// (SQ MIDI Protocol Issue 5; A&H forum formula). 0 = −∞.
 
 const LEVEL_0DB_DATA = 15196;
 const LEVEL_SCALE    = 118.775;
 const LEVEL_MAX_DATA = 16383;
+const FADER_LAW = [
+  { f: 0.00, dB: -90 },
+  { f: 0.25, dB: -30 },
+  { f: 0.50, dB: -10 },
+  { f: 0.75, dB:   0 },
+  { f: 1.00, dB:  10 },
+];
 
-/** Normalised 0.0–1.0 → 14-bit data value (Linear Taper). */
-function normalToData(norm) {
-  if (norm <= 0) return 0;
-  return Math.round(Math.max(0, Math.min(1, norm)) * LEVEL_MAX_DATA);
+function normalToDb(norm) {
+  const n = Math.max(0, Math.min(1, Number(norm)));
+  if (n <= 0) return -Infinity;
+  for (let i = 1; i < FADER_LAW.length; i++) {
+    const a = FADER_LAW[i - 1], b = FADER_LAW[i];
+    if (n <= b.f) return a.dB + ((n - a.f) / (b.f - a.f)) * (b.dB - a.dB);
+  }
+  return 10;
+}
+function dbToNormal(dB) {
+  if (!Number.isFinite(dB) || dB <= -90) return 0;
+  for (let i = 1; i < FADER_LAW.length; i++) {
+    const a = FADER_LAW[i - 1], b = FADER_LAW[i];
+    if (dB <= b.dB) return a.f + ((dB - a.dB) / (b.dB - a.dB)) * (b.f - a.f);
+  }
+  return 1;
 }
 
-/** 14-bit data value → normalised 0.0–1.0. */
+/** Fader position 0.0–1.0 → 14-bit SQ Linear Taper data. */
+function normalToData(norm) {
+  const dB = normalToDb(norm);
+  if (dB === -Infinity || dB <= -89.9) return 0;
+  return Math.max(0, Math.min(LEVEL_MAX_DATA, Math.round(LEVEL_0DB_DATA + dB * LEVEL_SCALE)));
+}
+
+/** 14-bit SQ Linear Taper data → fader position 0.0–1.0. */
 function dataToNormal(data) {
+  if (data == null) return null;
   if (data <= 0) return 0;
-  return Math.min(1, data / LEVEL_MAX_DATA);
+  return Math.round(dbToNormal((data - LEVEL_0DB_DATA) / LEVEL_SCALE) * 1000) / 1000;
 }
 
 /** Split 14-bit data value to { vc, vf }. */
@@ -230,19 +268,24 @@ function buildSoftKey(midiCh, keyIndex, press) {
 
 class AllenHeathMixer {
   /**
-   * Convert a 1-based channel/DCA/group number to a safe 0-based index.
-   * Returns 0 for any non-numeric or missing input so callers never receive NaN.
-   * @param {*} val  1-based number from user input
-   * @returns {number} 0-based index ≥ 0
+   * Validate a 1-based number from user input and return the 0-based index.
+   * Throws instead of silently mapping garbage to channel 1.
    */
-  static _idx(val) {
-    return Math.max(0, (parseInt(val, 10) || 1) - 1);
+  static _idx(val, max, what = 'channel') {
+    const n = Number(val);
+    if (!Number.isInteger(n) || n < 1 || (max && n > max)) {
+      throw new Error(`Invalid ${what} "${val}"${max ? ` (valid: 1–${max})` : ''}`);
+    }
+    return n - 1;
   }
 
-  /**
-   * Send MIDI bytes and throw if the write fails (dead/stale socket).
-   * @param {number[]} bytes
-   */
+  static _level(level) {
+    const l = Number(level);
+    if (!Number.isFinite(l) || l < 0 || l > 1) throw new Error(`level must be 0.0–1.0 (got ${level})`);
+    return l;
+  }
+
+  /** Send MIDI bytes and throw if the write fails (dead/stale socket). */
   _send(bytes) {
     if (!this._tcp.send(bytes)) {
       this._online = false;
@@ -252,40 +295,32 @@ class AllenHeathMixer {
 
   /**
    * @param {{ host: string, port?: number, midiPort?: number, model?: string, midiChannel?: number }} opts
-   *   port:        OSC port (default 51326)
-   *   midiPort:    TCP MIDI port (default 51325) — overridable for tests / non-default deployments
+   *   port / midiPort: TCP MIDI port (default 51325). A stored legacy 51326 is treated as 51325.
    *   model:       'SQ' | 'SQ5' | 'SQ6' | 'SQ7' (default 'SQ')
-   *   midiChannel: 0–15 (default 0 = MIDI channel 1)
+   *   midiChannel: 0–15 (default 0 = MIDI channel 1) — must match the console's MIDI setting
    */
   constructor({ host, port, midiPort, model = 'SQ', midiChannel = 0 }) {
     this.host  = host;
-    this.model = model.toUpperCase();
-    this.midiCh = midiChannel & 0x0F;
+    this.model = String(model || 'SQ').toUpperCase().replace(/[\s-]/g, '');
+    this.midiCh = (Number(midiChannel) || 0) & 0x0F;
 
-    // OSC for channel naming + HPF (port 51326)
-    this._osc = null;
-    this._oscPort = port || OSC_PORT;
-
-    // TCP MIDI for everything else (default port 51325)
-    const midiPortToUse = Number(midiPort) || MIDI_PORT;
-    this._tcp = new TcpMidi({ host, port: midiPortToUse, autoReconnect: true });
+    const p = Number(midiPort) || Number(port);
+    this.port = p && p !== LEGACY_OSC_PORT ? p : MIDI_PORT;
+    this._tcp = new TcpMidi({ host, port: this.port, autoReconnect: true });
     this._online = false;
 
-    // Live state from bidirectional feedback
     this._state = {
-      mutes:  {},   // { 'input:0': true, 'dca:3': false, ... }
-      faders: {},   // { 'input:0': 15196, 'mix:2': 8000, ... }
+      mutes:  {},   // { 'input:0': true, 'lr:0': false, 'dca:3': false, 'muteGroup:0': true }
+      faders: {},   // { 'input:0': 15196, 'lr:0': 15196, 'dca:2': 8000, 'mix:1': ... }
       scene:  null,
     };
+    this._nrpnState = { paramMsb: null, paramLsb: null, vc: null, sceneBank: 0 };
+    this._waiters = new Map(); // nrpn14 → [resolve]
 
-    // NRPN parsing state for incoming messages
-    this._nrpnState = { paramMsb: null, paramLsb: null };
-
-    // Wire TCP MIDI events
     this._tcp.on('connected', () => {
       this._online = true;
-      console.log(`🎛️  ${this.model}: TCP MIDI connected to ${host}:${MIDI_PORT}`);
-      this._queryInitialState();
+      console.log(`🎛️  ${this.model}: TCP MIDI connected to ${host}:${this.port}`);
+      this._queryInitialState().catch(() => {});
     });
     this._tcp.on('disconnected', () => {
       this._online = false;
@@ -301,365 +336,312 @@ class AllenHeathMixer {
   // ─── LIFECYCLE ──────────────────────────────────────────────────────────────
 
   async connect() {
-    // Connect both TCP MIDI and OSC
     try {
       await this._tcp.connect();
       this._online = true;
     } catch {
       this._online = false;
     }
-
-    // OSC — best effort (used only for naming + HPF)
-    try {
-      this._osc = new OSCClient({ host: this.host, port: this._oscPort });
-      await this._osc.query('/sq/alive', [], 3000).catch(() => null);
-    } catch {
-      this._osc = null;
-    }
   }
 
   async disconnect() {
     this._tcp.disconnect();
-    if (this._osc) { this._osc.close(); this._osc = null; }
     this._online = false;
+    for (const list of this._waiters.values()) for (const w of list) w(undefined);
+    this._waiters.clear();
   }
 
+  /**
+   * Online = the console answers a GET (LR mute) — not merely "socket open".
+   * Never opens a second TCP connection to the desk.
+   */
   async isOnline() {
-    const reachable = await this._tcp.isOnline();
-    this._online = reachable;
-    return reachable;
+    if (!this._tcp.online) { this._online = false; return false; }
+    const v = await this._get(MUTE.lr.msb, MUTE.lr.lsb, PROBE_TIMEOUT_MS).catch(() => undefined);
+    this._online = v !== undefined;
+    return this._online;
   }
 
   async getStatus() {
     const online = await this.isOnline();
-    // Query main LR level if connected
+    if (online) {
+      await this._get(OUTPUT_LEVEL.lr.msb, OUTPUT_LEVEL.lr.lsb, PROBE_TIMEOUT_MS).catch(() => undefined);
+    }
     const lrData = this._state.faders['lr:0'];
-    const mainFader = lrData != null ? dataToNormal(lrData) : 0;
-    const mainMuted = this._state.mutes['lr:0'] || false;
+    const lrMute = this._state.mutes['lr:0'];
     return {
       online,
       model: this.model,
       firmware: '',
-      mainFader,
-      mainMuted,
+      mainFader: online && lrData != null ? dataToNormal(lrData) : null,
+      mainMuted: online && lrMute != null ? lrMute : null,
       scene: this._state.scene,
     };
   }
 
+  // ─── GET / VERIFIED SET ─────────────────────────────────────────────────────
+
+  _requireOnline() {
+    if (!this._online || !this._tcp.online) throw new Error(`${this.model} not connected`);
+  }
+
+  /** Ask the console for a parameter; resolves with its 14-bit value. */
+  _get(msb, lsb, timeoutMs = GET_TIMEOUT_MS) {
+    const nrpn = makeNrpn(msb, lsb);
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const waiter = (v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (v === undefined) reject(new Error('disconnected'));
+        else resolve(v);
+      };
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        const list = this._waiters.get(nrpn);
+        if (list) {
+          const i = list.indexOf(waiter);
+          if (i >= 0) list.splice(i, 1);
+          if (!list.length) this._waiters.delete(nrpn);
+        }
+        reject(new Error('timeout'));
+      }, timeoutMs);
+      if (!this._waiters.has(nrpn)) this._waiters.set(nrpn, []);
+      this._waiters.get(nrpn).push(waiter);
+      if (!this._tcp.send(buildNrpnIncrement(this.midiCh, msb, lsb, 0x7F))) {
+        waiter(undefined);
+      }
+    });
+  }
+
+  /**
+   * SET then GET. Resolves only when the console reports the value back.
+   * @param {{msb:number,lsb:number}} addr
+   * @param {number} data 14-bit value
+   * @param {string} label human description for errors
+   * @param {number} [tol=0] allowed read-back difference
+   */
+  async _setVerified(addr, data, label, tol = 0) {
+    this._requireOnline();
+    const { vc, vf } = dataToVcVf(data);
+    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    let got;
+    try {
+      got = await this._get(addr.msb, addr.lsb);
+    } catch {
+      throw new Error(`${this.model} did not confirm ${label} — no reply from the console (check it is powered, on the network, and set to MIDI channel ${this.midiCh + 1})`);
+    }
+    if (Math.abs(got - data) > tol) {
+      throw new Error(`${this.model} did not apply ${label} — console reports ${got}, expected ${data}`);
+    }
+    return got;
+  }
+
+  async _setMute(addr, muted, key, label) {
+    await this._setVerified(addr, muted ? 1 : 0, label);
+    this._state.mutes[key] = !!muted;
+  }
+
   // ─── MUTE CONTROL ──────────────────────────────────────────────────────────
 
-  async muteChannel(ch) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(ch);
+  async muteChannel(ch)   { return this._inputMute(ch, true); }
+  async unmuteChannel(ch) { return this._inputMute(ch, false); }
+
+  async _inputMute(ch, muted) {
+    const n = AllenHeathMixer._idx(ch, SQ_COUNTS.inputs);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
-    this._state.mutes[`input:${n}`] = true;
+    await this._setMute(addr, muted, `input:${n}`, `channel ${n + 1} ${muted ? 'mute' : 'unmute'}`);
   }
 
-  async unmuteChannel(ch) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(ch);
-    const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
-    this._state.mutes[`input:${n}`] = false;
-  }
-
-  async muteMaster() {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x01));
-    this._state.mutes['lr:0'] = true;
-  }
-
-  async unmuteMaster() {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    this._send(buildNrpnSet(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x00, 0x00));
-    this._state.mutes['lr:0'] = false;
-  }
+  async muteMaster()   { await this._setMute(MUTE.lr, true, 'lr:0', 'main LR mute'); }
+  async unmuteMaster() { await this._setMute(MUTE.lr, false, 'lr:0', 'main LR unmute'); }
 
   // ─── DCA / MUTE GROUP CONTROL ──────────────────────────────────────────────
 
-  /**
-   * Mute a DCA (1-based).
-   */
-  async muteDca(dca) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(dca);
-    const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
-    this._state.mutes[`dca:${n}`] = true;
+  async muteDca(dca)   { return this._dcaMute(dca, true); }
+  async unmuteDca(dca) { return this._dcaMute(dca, false); }
+
+  async _dcaMute(dca, muted) {
+    const n = AllenHeathMixer._idx(dca, SQ_COUNTS.dcas, 'DCA');
+    await this._setMute(nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n), muted, `dca:${n}`, `DCA ${n + 1} ${muted ? 'mute' : 'unmute'}`);
   }
 
-  async unmuteDca(dca) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(dca);
-    const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
-    this._state.mutes[`dca:${n}`] = false;
-  }
-
-  /**
-   * Set DCA fader level (normalised 0.0–1.0).
-   */
   async setDcaFader(dca, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(dca);
-    const addr = nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, n);
-    const data = normalToData(parseFloat(level));
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    const n = AllenHeathMixer._idx(dca, SQ_COUNTS.dcas, 'DCA');
+    const data = normalToData(AllenHeathMixer._level(level));
+    const got = await this._setVerified(nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, n), data, `DCA ${n + 1} level`, LEVEL_TOLERANCE);
+    this._state.faders[`dca:${n}`] = got;
   }
 
-  /**
-   * Activate a mute group (1-based).
-   */
-  async activateMuteGroup(mg) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(mg);
-    const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
-  }
+  async activateMuteGroup(mg)   { return this._muteGroup(mg, true); }
+  async deactivateMuteGroup(mg) { return this._muteGroup(mg, false); }
 
-  async deactivateMuteGroup(mg) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(mg);
-    const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
+  async _muteGroup(mg, on) {
+    const n = AllenHeathMixer._idx(mg, SQ_COUNTS.muteGroups, 'mute group');
+    await this._setMute(nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n), on, `muteGroup:${n}`, `mute group ${n + 1} ${on ? 'on' : 'off'}`);
   }
 
   // ─── FADER CONTROL ─────────────────────────────────────────────────────────
 
-  /**
-   * Set input channel fader (normalised 0.0–1.0, 14-bit resolution).
-   */
+  /** Input channel fader = the input→LR send level on the SQ. */
   async setFader(ch, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(ch);
+    const n = AllenHeathMixer._idx(ch, SQ_COUNTS.inputs);
+    const data = normalToData(AllenHeathMixer._level(level));
     const addr = nrpn2D(SEND_LEVEL.inputToLr.msb, SEND_LEVEL.inputToLr.lsb, 1, n, 0);
-    const data = normalToData(parseFloat(level));
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    const got = await this._setVerified(addr, data, `channel ${n + 1} fader`, LEVEL_TOLERANCE);
+    this._state.faders[`input:${n}`] = got;
   }
 
-  /**
-   * Get channel status from live-tracked state.
-   */
+  /** Live read from the console; null for anything it didn't report. */
   async getChannelStatus(ch) {
-    const n = AllenHeathMixer._idx(ch);
-    return {
-      fader: this._state.faders[`input:${n}`] != null
-        ? dataToNormal(this._state.faders[`input:${n}`])
-        : 0,
-      muted: this._state.mutes[`input:${n}`] || false,
-    };
+    const n = AllenHeathMixer._idx(ch, SQ_COUNTS.inputs);
+    if (this._online) {
+      const m = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
+      const f = nrpn2D(SEND_LEVEL.inputToLr.msb, SEND_LEVEL.inputToLr.lsb, 1, n, 0);
+      await Promise.all([
+        this._get(m.msb, m.lsb).catch(() => undefined),
+        this._get(f.msb, f.lsb).catch(() => undefined),
+      ]);
+    }
+    const fd = this._state.faders[`input:${n}`];
+    const mu = this._state.mutes[`input:${n}`];
+    return { fader: fd != null ? dataToNormal(fd) : null, muted: mu != null ? mu : null };
   }
 
-  // ─── SEND LEVELS (the big upgrade) ─────────────────────────────────────────
+  // ─── SEND LEVELS ───────────────────────────────────────────────────────────
 
-  /**
-   * Set send level from an input channel to a mix bus.
-   * @param {number} inputCh  Input channel (1-based)
-   * @param {number} mixBus   Mix bus (1-based, 1–12)
-   * @param {number} level    Normalised 0.0–1.0
-   */
   async setSendLevel(inputCh, mixBus, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = AllenHeathMixer._idx(inputCh);
-    const snk = AllenHeathMixer._idx(mixBus);
+    const src = AllenHeathMixer._idx(inputCh, SQ_COUNTS.inputs);
+    const snk = AllenHeathMixer._idx(mixBus, SQ_COUNTS.mixes, 'mix bus');
     const addr = nrpn2D(SEND_LEVEL.inputToMix.msb, SEND_LEVEL.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
-    const data = normalToData(parseFloat(level));
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    await this._setVerified(addr, normalToData(AllenHeathMixer._level(level)), `channel ${src + 1} → mix ${snk + 1} send`, LEVEL_TOLERANCE);
   }
 
-  /**
-   * Set send level from an input channel to an FX send.
-   * @param {number} inputCh  Input channel (1-based)
-   * @param {number} fxSend   FX send (1-based, 1–4)
-   * @param {number} level    Normalised 0.0–1.0
-   */
   async setFxSendLevel(inputCh, fxSend, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = AllenHeathMixer._idx(inputCh);
-    const snk = AllenHeathMixer._idx(fxSend);
+    const src = AllenHeathMixer._idx(inputCh, SQ_COUNTS.inputs);
+    const snk = AllenHeathMixer._idx(fxSend, SQ_COUNTS.fxSends, 'FX send');
     const addr = nrpn2D(SEND_LEVEL.inputToFxSend.msb, SEND_LEVEL.inputToFxSend.lsb, SQ_COUNTS.fxSends, src, snk);
-    const data = normalToData(parseFloat(level));
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    await this._setVerified(addr, normalToData(AllenHeathMixer._level(level)), `channel ${src + 1} → FX ${snk + 1} send`, LEVEL_TOLERANCE);
   }
 
-  /**
-   * Set output level for a mix bus (1-based).
-   */
   async setMixLevel(mixBus, level) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(mixBus);
-    const addr = nrpn1D(OUTPUT_LEVEL.mix.msb, OUTPUT_LEVEL.mix.lsb, n);
-    const data = normalToData(parseFloat(level));
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    const n = AllenHeathMixer._idx(mixBus, SQ_COUNTS.mixes, 'mix bus');
+    const got = await this._setVerified(nrpn1D(OUTPUT_LEVEL.mix.msb, OUTPUT_LEVEL.mix.lsb, n), normalToData(AllenHeathMixer._level(level)), `mix ${n + 1} level`, LEVEL_TOLERANCE);
+    this._state.faders[`mix:${n}`] = got;
   }
 
   // ─── ROUTING ASSIGNS ───────────────────────────────────────────────────────
 
-  /**
-   * Assign/unassign an input channel to a mix bus.
-   */
   async setInputToMixAssign(inputCh, mixBus, assigned) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = AllenHeathMixer._idx(inputCh);
-    const snk = AllenHeathMixer._idx(mixBus);
+    const src = AllenHeathMixer._idx(inputCh, SQ_COUNTS.inputs);
+    const snk = AllenHeathMixer._idx(mixBus, SQ_COUNTS.mixes, 'mix bus');
     const addr = nrpn2D(SEND_ASSIGN.inputToMix.msb, SEND_ASSIGN.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
+    await this._setVerified(addr, assigned ? 1 : 0, `channel ${src + 1} → mix ${snk + 1} assign`);
   }
 
-  /**
-   * Assign/unassign an input channel to a group.
-   */
   async setInputToGroupAssign(inputCh, group, assigned) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = AllenHeathMixer._idx(inputCh);
-    const snk = AllenHeathMixer._idx(group);
+    const src = AllenHeathMixer._idx(inputCh, SQ_COUNTS.inputs);
+    const snk = AllenHeathMixer._idx(group, SQ_COUNTS.groups, 'group');
     const addr = nrpn2D(SEND_ASSIGN.inputToGroup.msb, SEND_ASSIGN.inputToGroup.lsb, SQ_COUNTS.groups, src, snk);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
+    await this._setVerified(addr, assigned ? 1 : 0, `channel ${src + 1} → group ${snk + 1} assign`);
   }
 
   // ─── PAN ───────────────────────────────────────────────────────────────────
 
-  /**
-   * Set input channel pan in LR.
-   * @param {number} pan -1.0 (left) to +1.0 (right), 0 = center
-   */
+  /** @param {number} pan -1.0 (left) to +1.0 (right), 0 = center */
   async setPan(ch, pan) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = AllenHeathMixer._idx(ch);
+    const n = AllenHeathMixer._idx(ch, SQ_COUNTS.inputs);
     const p = Number(pan);
     if (!Number.isFinite(p)) throw new Error('pan must be a number');
     if (p < -1 || p > 1) throw new Error(`Pan out of range: ${pan} (valid: -1.0 to +1.0)`);
-
-    // SQ NRPN pan is 0.0–1.0 with center at 0.5.
-    const normalized = (p + 1) / 2;
     const addr = nrpn2D(SEND_PAN.inputToLr.msb, SEND_PAN.inputToLr.lsb, 1, n, 0);
-    const data = normalToPanData(normalized);
-    const { vc, vf } = dataToVcVf(data);
-    this._send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
+    await this._setVerified(addr, normalToPanData((p + 1) / 2), `channel ${n + 1} pan`, PAN_TOLERANCE);
   }
 
   // ─── SCENE RECALL ──────────────────────────────────────────────────────────
 
+  /**
+   * The SQ has no scene read-back over MIDI and silently ignores a recall of a
+   * blank scene, so this can only report "sent". Returns { confirmed: false }.
+   */
   async recallScene(n) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const sceneNum = Math.max(1, Math.min(SQ_COUNTS.scenes, parseInt(n)));
+    this._requireOnline();
+    const sceneNum = Number(n);
+    if (!Number.isInteger(sceneNum) || sceneNum < 1 || sceneNum > SQ_COUNTS.scenes) {
+      throw new Error(`Invalid scene "${n}" (valid: 1–${SQ_COUNTS.scenes})`);
+    }
     const { bankMsg, pgmMsg } = buildSceneRecall(this.midiCh, sceneNum);
     this._send(bankMsg);
-    // 200ms delay between bank select and program change (SQ requirement)
     await new Promise(r => setTimeout(r, 200));
     this._send(pgmMsg);
-    this._state.scene = sceneNum;
+    // Prove the desk is still there after the recall (not proof the scene loaded).
+    if (!(await this.isOnline())) {
+      throw new Error(`${this.model} stopped responding after scene ${sceneNum} recall`);
+    }
+    return { confirmed: false, reason: 'The SQ does not report scene recalls over MIDI, and ignores recalls of blank scenes' };
   }
 
-  async saveScene(n, name) {
-    console.warn(`🎛️  ${this.model}: scene save not available via MIDI — save at console`);
+  async saveScene() {
+    throw new Error(`Scene save is not available on ${this.model} over MIDI — save at the console`);
   }
 
   async clearSolos() {
-    // Not available via MIDI or OSC on SQ
+    throw new Error(`Solo clear is not available on ${this.model} over MIDI — clear at the console`);
   }
 
   // ─── SOFTKEYS ──────────────────────────────────────────────────────────────
 
-  /**
-   * Press and release a SoftKey (1-based).
-   * SoftKeys can be mapped to any console function on the SQ surface.
-   */
+  /** Press + release a SoftKey (1-based). No read-back exists → { confirmed: false }. */
   async pressSoftKey(key) {
-    if (!this._online) throw new Error(`${this.model} not connected`);
-    const idx = AllenHeathMixer._idx(key);
+    this._requireOnline();
+    const max = SOFTKEY_COUNTS[this.model] || 16;
+    const idx = AllenHeathMixer._idx(key, max, 'SoftKey');
     this._send(buildSoftKey(this.midiCh, idx, true));
     await new Promise(r => setTimeout(r, 100));
     this._send(buildSoftKey(this.midiCh, idx, false));
+    return { confirmed: false, reason: 'The SQ does not report SoftKey presses back over MIDI' };
   }
 
-  // ─── CHANNEL PROCESSING (OSC — MIDI can't do these) ────────────────────────
+  // ─── NOT AVAILABLE OVER SQ MIDI ────────────────────────────────────────────
 
-  async setChannelName(ch, name) {
-    if (!this._osc) {
-      console.warn(`🎛️  ${this.model}: OSC not connected — channel name requires OSC`);
-      return;
-    }
-    const truncated = String(name || '').slice(0, 8);
-    this._osc.send(`/ch/${parseInt(ch)}/name`, [{ type: 's', value: truncated }]);
+  _notAvailable(what) {
+    throw new Error(`${what} is not available on ${this.model} over MIDI — set it at the console`);
   }
-
-  async setHpf(ch, { enabled = true, frequency = 80 } = {}) {
-    if (!this._osc) {
-      console.warn(`🎛️  ${this.model}: OSC not connected — HPF requires OSC`);
-      return;
-    }
-    const n = parseInt(ch);
-    this._osc.send(`/ch/${n}/hpf/on`, [{ type: 'i', value: enabled ? 1 : 0 }]);
-    if (frequency != null) {
-      const f = Math.max(0, Math.min(1, Math.log(frequency / 20) / Math.log(400 / 20)));
-      this._osc.send(`/ch/${n}/hpf/freq`, [{ type: 'f', value: f }]);
-    }
-  }
-
-  async setEq(ch, { enabled = true } = {}) {
-    if (!this._osc) return;
-    try {
-      this._osc.send(`/ch/${parseInt(ch)}/eq/on`, [{ type: 'i', value: enabled ? 1 : 0 }]);
-    } catch { /* some firmware may not support this */ }
-    console.warn(`🎛️  ${this.model}: per-band EQ not available via MIDI or OSC — use console`);
-  }
-
-  async setCompressor() {
-    console.warn(`🎛️  ${this.model}: compressor not available via MIDI or OSC — use console`);
-  }
-
-  async setGate() {
-    console.warn(`🎛️  ${this.model}: gate not available via MIDI or OSC — use console`);
-  }
+  async setChannelName() { this._notAvailable('Channel naming'); }
+  async setHpf()         { this._notAvailable('HPF'); }
+  async setEq()          { this._notAvailable('EQ'); }
+  async setCompressor()  { this._notAvailable('Compressor'); }
+  async setGate()        { this._notAvailable('Gate'); }
 
   async setFullChannelStrip(ch, strip) {
     const applied = [];
     const skipped = [];
-
-    if (strip.name != null) { await this.setChannelName(ch, strip.name); applied.push('name'); }
-    if (strip.hpf) { await this.setHpf(ch, strip.hpf); applied.push('hpf'); }
-    if (strip.eq) {
-      try { await this.setEq(ch, strip.eq); applied.push('eq-enable'); } catch { skipped.push('eq'); }
+    for (const k of ['name', 'hpf', 'eq', 'compressor', 'gate']) {
+      if (strip[k] != null && strip[k] !== false) skipped.push(k);
     }
     if (strip.pan != null) { await this.setPan(ch, strip.pan); applied.push('pan'); }
     if (strip.fader != null) { await this.setFader(ch, strip.fader); applied.push('fader'); }
     if (strip.mute === true) { await this.muteChannel(ch); applied.push('mute'); }
     else if (strip.mute === false) { await this.unmuteChannel(ch); applied.push('unmute'); }
-    if (strip.compressor) skipped.push('compressor');
-    if (strip.gate) skipped.push('gate');
-
     if (skipped.length > 0) {
-      console.warn(`🎛️  ${this.model} Ch${ch}: skipped [${skipped.join(', ')}] — not available via MIDI/OSC`);
+      console.warn(`🎛️  ${this.model} Ch${ch}: skipped [${skipped.join(', ')}] — not available over SQ MIDI`);
     }
-
     return { applied, skipped };
   }
 
-  // ─── BIDIRECTIONAL FEEDBACK (incoming MIDI from console) ────────────────────
+  // ─── INCOMING MIDI (GET replies + console surface changes) ─────────────────
 
   _handleIncoming(msg) {
-    if (msg.length === 0) return;
+    if (!msg || msg.length === 0) return;
     const status = msg[0];
+    if ((status & 0x0F) !== this.midiCh) return;
     const hi = status & 0xF0;
-
-    // ── Control Change: NRPN messages ──
-    if (hi === 0xB0) {
-      this._handleCC(msg);
-      return;
-    }
-
-    // ── Program Change: scene feedback ──
+    if (hi === 0xB0) { this._handleCC(msg); return; }
     if (hi === 0xC0 && msg.length >= 2) {
       const upper = this._nrpnState.sceneBank ?? 0;
       this._state.scene = ((upper & 0x7F) << 7) + msg[1] + 1;
-      return;
     }
   }
 
@@ -667,61 +649,46 @@ class AllenHeathMixer {
     if (msg.length < 3) return;
     const cc = msg[1];
     const val = msg[2];
-
     switch (cc) {
-      case 0x00: // Bank Select (for scene recall)
-        this._nrpnState.sceneBank = val;
-        break;
-      case 0x63: // NRPN MSB
-        this._nrpnState.paramMsb = val;
-        break;
-      case 0x62: // NRPN LSB
-        this._nrpnState.paramLsb = val;
-        break;
-      case 0x06: // Data Entry MSB (coarse value)
-        this._nrpnState.vc = val;
-        break;
-      case 0x26: // Data Entry LSB (fine value) → NRPN message complete
-        this._processNrpnValue(
-          this._nrpnState.paramMsb,
-          this._nrpnState.paramLsb,
-          this._nrpnState.vc,
-          val
-        );
+      case 0x00: this._nrpnState.sceneBank = val; break;
+      case 0x63: this._nrpnState.paramMsb = val; this._nrpnState.vc = null; break;
+      case 0x62: this._nrpnState.paramLsb = val; break;
+      case 0x06: this._nrpnState.vc = val; break;
+      case 0x26:
+        if (this._nrpnState.vc == null) return;
+        this._processNrpnValue(this._nrpnState.paramMsb, this._nrpnState.paramLsb, this._nrpnState.vc, val);
         break;
     }
   }
 
-  /**
-   * Process a complete incoming NRPN value.
-   */
   _processNrpnValue(msb, lsb, vc, vf) {
     if (msb == null || lsb == null) return;
     const nrpn = makeNrpn(msb, lsb);
     const data = vcVfToData(vc, vf);
 
-    // Classify by MSB range
     if (msb <= 0x04) {
-      // Mute event
       const key = this._muteNrpnToKey(nrpn);
-      if (key) this._state.mutes[key] = vf === 0x01;
+      if (key) this._state.mutes[key] = data === 1;
     } else if (msb >= 0x40 && msb <= 0x4F) {
-      // Fader / level event
       const key = this._levelNrpnToKey(nrpn);
       if (key) this._state.faders[key] = data;
     }
-    // Pan (0x50–0x5F) could be tracked here if needed
+
+    const list = this._waiters.get(nrpn);
+    if (list) {
+      this._waiters.delete(nrpn);
+      for (const w of list) w(data);
+    }
   }
 
-  /**
-   * Map a mute NRPN address back to a state key like 'input:5'.
-   */
+  /** Map a mute NRPN back to a state key ('input:5', 'lr:0', 'dca:2', 'muteGroup:0'). */
   _muteNrpnToKey(nrpn) {
     for (const [type, base] of Object.entries(MUTE)) {
       const baseN = makeNrpn(base.msb, base.lsb);
       const count = this._countForMuteType(type);
       if (nrpn >= baseN && nrpn < baseN + count) {
-        return `${type}:${nrpn - baseN}`;
+        const name = type === 'inputChannel' ? 'input' : type;
+        return `${name}:${nrpn - baseN}`;
       }
     }
     return null;
@@ -742,88 +709,55 @@ class AllenHeathMixer {
     return map[type] || 0;
   }
 
-  /**
-   * Map a level NRPN address back to a state key.
-   * Covers input→LR sends and output levels.
-   */
   _levelNrpnToKey(nrpn) {
-    // Input→LR levels (input faders as perceived by the TD)
     const inLrBase = makeNrpn(SEND_LEVEL.inputToLr.msb, SEND_LEVEL.inputToLr.lsb);
-    if (nrpn >= inLrBase && nrpn < inLrBase + SQ_COUNTS.inputs) {
-      return `input:${nrpn - inLrBase}`;
-    }
-    // LR output level
+    if (nrpn >= inLrBase && nrpn < inLrBase + SQ_COUNTS.inputs) return `input:${nrpn - inLrBase}`;
     const lrBase = makeNrpn(OUTPUT_LEVEL.lr.msb, OUTPUT_LEVEL.lr.lsb);
     if (nrpn === lrBase) return 'lr:0';
-    // Mix output levels
     const mixBase = makeNrpn(OUTPUT_LEVEL.mix.msb, OUTPUT_LEVEL.mix.lsb);
-    if (nrpn >= mixBase && nrpn < mixBase + SQ_COUNTS.mixes) {
-      return `mix:${nrpn - mixBase}`;
-    }
-    // DCA levels
+    if (nrpn >= mixBase && nrpn < mixBase + SQ_COUNTS.mixes) return `mix:${nrpn - mixBase}`;
     const dcaBase = makeNrpn(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb);
-    if (nrpn >= dcaBase && nrpn < dcaBase + SQ_COUNTS.dcas) {
-      return `dca:${nrpn - dcaBase}`;
-    }
+    if (nrpn >= dcaBase && nrpn < dcaBase + SQ_COUNTS.dcas) return `dca:${nrpn - dcaBase}`;
     return null;
   }
 
   // ─── INITIAL STATE QUERY ───────────────────────────────────────────────────
 
   /**
-   * Query all mute and fader states from the console on connect.
-   * Uses NRPN Increment with val=0x7F (query) and throttles to avoid
-   * overwhelming the console.
+   * Query mute and key level states on connect (throttled — some SQ firmware
+   * resets the connection if NRPN traffic floods in right after connect).
    */
   async _queryInitialState() {
-    // Brief pause after TCP handshake before querying — some SQ firmware
-    // resets the connection if NRPN traffic arrives too quickly after connect
-    await new Promise(r => setTimeout(r, 1000));
-
+    const settleMs = Number(process.env.TALLY_SQ_SETTLE_MS) || 1000;
+    await new Promise(r => setTimeout(r, settleMs));
     const BATCH_SIZE = 8;
-    const BATCH_DELAY = 500; // ms — conservative to avoid SQ connection reset
-
+    const BATCH_DELAY = Number(process.env.TALLY_SQ_BATCH_DELAY_MS) || 500;
     const queries = [];
-
-    // Query all input mutes
+    queries.push(buildNrpnIncrement(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x7F));
+    queries.push(buildNrpnIncrement(this.midiCh, OUTPUT_LEVEL.lr.msb, OUTPUT_LEVEL.lr.lsb, 0x7F));
     for (let i = 0; i < SQ_COUNTS.inputs; i++) {
       const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, i);
       queries.push(buildNrpnIncrement(this.midiCh, addr.msb, addr.lsb, 0x7F));
     }
-    // Query LR mute
-    queries.push(buildNrpnIncrement(this.midiCh, MUTE.lr.msb, MUTE.lr.lsb, 0x7F));
-    // Query DCA mutes
     for (let i = 0; i < SQ_COUNTS.dcas; i++) {
-      const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, i);
-      queries.push(buildNrpnIncrement(this.midiCh, addr.msb, addr.lsb, 0x7F));
+      const m = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, i);
+      queries.push(buildNrpnIncrement(this.midiCh, m.msb, m.lsb, 0x7F));
+      const l = nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, i);
+      queries.push(buildNrpnIncrement(this.midiCh, l.msb, l.lsb, 0x7F));
     }
-    // Query mix mutes
     for (let i = 0; i < SQ_COUNTS.mixes; i++) {
       const addr = nrpn1D(MUTE.mix.msb, MUTE.mix.lsb, i);
       queries.push(buildNrpnIncrement(this.midiCh, addr.msb, addr.lsb, 0x7F));
     }
-
-    // Send in batches
     for (let i = 0; i < queries.length; i++) {
+      if (!this._tcp.online) return;
       this._tcp.send(queries[i]);
-      if ((i + 1) % BATCH_SIZE === 0) {
-        await new Promise(r => setTimeout(r, BATCH_DELAY));
-      }
-    }
-
-    // Brief pause, then query key levels
-    await new Promise(r => setTimeout(r, BATCH_DELAY));
-
-    // Query LR output level
-    const lrAddr = nrpn1D(OUTPUT_LEVEL.lr.msb, OUTPUT_LEVEL.lr.lsb, 0);
-    this._tcp.send(buildNrpnIncrement(this.midiCh, lrAddr.msb, lrAddr.lsb, 0x7F));
-
-    // Query DCA levels
-    for (let i = 0; i < SQ_COUNTS.dcas; i++) {
-      const addr = nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, i);
-      this._tcp.send(buildNrpnIncrement(this.midiCh, addr.msb, addr.lsb, 0x7F));
+      if ((i + 1) % BATCH_SIZE === 0) await new Promise(r => setTimeout(r, BATCH_DELAY));
     }
   }
 }
 
-module.exports = { AllenHeathMixer };
+module.exports = {
+  AllenHeathMixer,
+  _internals: { normalToData, dataToNormal, normalToDb, dbToNormal, LEVEL_0DB_DATA, MIDI_PORT },
+};

@@ -178,6 +178,7 @@ function renderDeviceCard(deviceId, instanceIndex) {
   } else {
     fieldsHtml += '<div class="equip-row">';
     for (const field of def.fields) {
+      if (field.onlyForTypes && !field.onlyForTypes.includes(state.type)) continue;
       const val = state[field.key] || '';
       const dataAttrs = `data-field="${field.key}" data-device="${deviceId}"${isMulti ? ` data-idx="${instanceIndex}"` : ''}`;
 

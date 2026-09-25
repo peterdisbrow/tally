@@ -41,7 +41,7 @@ const DEFAULT_DEVICE_PORTS = {
   'birddog':         8081,
   'teradek':         8082,
   'resolume':        8080,
-  'sq':              51325, // also opens 51326 for OSC
+  'sq':              51325, // TCP MIDI only (the SQ has no OSC)
   'planning-center': 8083,
 };
 

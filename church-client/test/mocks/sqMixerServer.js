@@ -1,304 +1,293 @@
 /**
- * Mock Allen & Heath SQ mixer — UDP OSC (port 51326) + TCP MIDI stub (port 51325).
+ * Stateful Allen & Heath SQ-5/6/7 mock — MIDI over TCP (default port 51325).
  *
- * SQ mixers speak two protocols simultaneously:
- *   - TCP MIDI for everything operational (mute, fader, sends, scenes) using
- *     A&H's NRPN parameter table from the SQ MIDI Protocol Issue 5 spec.
- *   - UDP OSC for channel name + HPF reads, on /sq/* paths.
+ * Behaviour follows the SQ MIDI Protocol, Issue 5 (firmware 1.5/1.6):
+ *   - The SQ speaks NO OSC. Everything is NRPN / Program Change / Note over TCP.
+ *   - SET  (BN 63 MB  BN 62 LB  BN 06 VC  BN 26 VF) → applied SILENTLY
+ *     (the console does not echo a remote SET back to the sender).
+ *   - GET  (BN 63 MB  BN 62 LB  BN 60 7F) → the console replies with the full
+ *     4-CC value message for that parameter.
+ *   - Mute toggle (BN 60 00 / BN 61 00 on a mute parameter) flips the mute.
+ *   - Scene recall = BN 00 BK + CN PG. "Blank scenes cannot be recalled" —
+ *     a recall of an empty scene is ignored. The console sends no reply.
+ *   - SoftKeys = Note On 0x30+n / Note Off. No reply.
+ *   - Messages on a MIDI channel other than the console's are ignored.
+ *   - Parameters outside the SQ tables are ignored (no reply to a GET).
+ *   - Changes made on the console surface (control action `surfaceSet`) are
+ *     transmitted to every connected client as NRPN value messages.
  *
- * This mock implements:
- *   - **OSC** (UDP, port 51326) — full mock. Handles /sq/alive (liveness probe)
- *     and /sq/ch/<n>/name (channel name read). OSC packet codec is hand-rolled
- *     because the church-client uses its own minimal OSC implementation in
- *     src/osc.js — keeping the mock dependency-free.
- *   - **TCP MIDI** (TCP, port 51325) — partial NRPN parser. Accepts the
- *     connection, decodes the four-CC NRPN Data Entry frames the
- *     church-client emits (mute on/off, input fader level), and tracks
- *     the resulting state for tests to read. The full SQ NRPN dictionary
- *     is much larger than what we parse — anything we don't recognise is
- *     counted under `unknownNrpns` and discarded so the client doesn't
- *     hang waiting for an ACK.
+ * It says no: blank scenes don't recall, wrong MIDI channel is ignored, bogus
+ * parameters don't answer, an unplugged console (setReachable false) keeps the
+ * TCP socket but goes silent, `dropClients` closes sockets, and
+ * `midiAcceptingClients:false` refuses new connections.
  *
- * Tests can manipulate the mock via the control API:
- *   POST /action { action: "setChannelName", args: { channel, name } }
- *   POST /action { action: "midiAcceptingClients", args: { accepting: false } }
- *     → start refusing TCP MIDI connections to test reconnect logic
+ * Mutation modes (SQ_MOCK_BREAK or start({ breakMode })) make it sloppy ONE way:
+ *   drop-sets    answers every GET but silently ignores SETs
+ *   no-reply     receives everything, answers no GET
+ *   stale        applies SETs but GET keeps answering the power-on value
+ *   no-scene     ignores scene recalls
  */
-
 'use strict';
 
-const dgram = require('node:dgram');
 const net = require('node:net');
 const { createControlServer } = require('./_lib/control');
 
-const DEFAULTS = {
-  channelNames: {
-    1: 'Lead Vox', 2: 'Choir', 3: 'Acoustic', 4: 'Electric',
-    5: 'Bass', 6: 'Kick', 7: 'Snare', 8: 'OH L',
-  },
-  midiBytesReceived: 0,
-  midiClientsConnected: 0,
-  midiAcceptingClients: true,
-  oscPacketsReceived: 0,
-  // Tracked NRPN state. Keys mirror the church-client's allenheath driver:
-  //   mutes:  'input:<n>', 'lr:0', 'mix:<n>', 'dca:<n>'  → boolean
-  //   faders: same key shape  → 14-bit integer (0..16383)
-  mutes: {},
-  faders: {},
-  // Last NRPN frame parsed, useful for tests that assert "the agent sent
-  // *some* command and we caught it." Each entry is { msb, lsb, vc, vf, ts }.
-  nrpnLog: [],
-  unknownNrpns: 0,
-};
+const N = (msb, lsb) => (msb << 7) + lsb;
+const LEVEL_0DB = 15196;
+const PAN_CENTER = 8191;
 
-// SQ NRPN parameter base addresses (subset — covers what the e2e tests need).
-// Keep in sync with church-client/src/mixers/allenheath.js MUTE / SEND_LEVEL.
-const NRPN_BASES = [
-  // Mutes
-  { kind: 'mute', key: 'input',  base: (0x00 << 7) + 0x00, max: 48 },
-  { kind: 'mute', key: 'group',  base: (0x00 << 7) + 0x30, max: 12 },
-  { kind: 'mute', key: 'lr',     base: (0x00 << 7) + 0x44, max: 1  },
-  { kind: 'mute', key: 'mix',    base: (0x00 << 7) + 0x45, max: 12 },
-  { kind: 'mute', key: 'dca',    base: (0x02 << 7) + 0x00, max: 8  },
-  // Input → LR fader (the only fader path used by mixer.setFader on SQ).
-  { kind: 'fader', key: 'input', base: (0x40 << 7) + 0x00, max: 48 },
+// Valid parameter ranges from the SQ Issue 5 reference tables.
+const RANGES = [
+  { kind: 'mute',   from: N(0x00, 0x00), to: N(0x00, 0x57) }, // inputs, groups, FX rtn, LR, aux, FX snd, mtx
+  { kind: 'mute',   from: N(0x02, 0x00), to: N(0x02, 0x07) }, // DCA 1-8
+  { kind: 'mute',   from: N(0x04, 0x00), to: N(0x04, 0x07) }, // mute groups 1-8
+  { kind: 'level',  from: N(0x40, 0x00), to: N(0x4F, 0x27) }, // sends + master levels
+  { kind: 'pan',    from: N(0x50, 0x00), to: N(0x5F, 0x13) },
+  { kind: 'assign', from: N(0x60, 0x00), to: N(0x6F, 0x7F) },
 ];
-
-function decodeNrpn(nrpn14) {
-  for (const entry of NRPN_BASES) {
-    if (nrpn14 >= entry.base && nrpn14 < entry.base + entry.max) {
-      const idx = nrpn14 - entry.base;
-      return { kind: entry.kind, key: entry.key, idx };
-    }
-  }
+function kindOf(nrpn) {
+  for (const r of RANGES) if (nrpn >= r.from && nrpn <= r.to) return r.kind;
   return null;
 }
-
-const NRPN_LOG_LIMIT = 50;
-
-// ─── OSC codec (just enough for /sq/* paths the SQ adapter sends) ──────────
-
-function pad4(buf) {
-  // OSC requires 4-byte aligned length with at least one trailing null.
-  const len = buf.length;
-  const padding = 4 - (len % 4);
-  return Buffer.concat([buf, Buffer.alloc(padding)]);
+function defaultValue(kind) {
+  if (kind === 'level') return LEVEL_0DB;
+  if (kind === 'pan') return PAN_CENTER;
+  if (kind === 'assign') return 1;
+  return 0;
 }
 
-function encodeString(s) {
-  return pad4(Buffer.concat([Buffer.from(s, 'utf8'), Buffer.from([0])]));
+// Friendly keys (mirrors church-client/src/mixers/allenheath.js)
+function keyOf(nrpn) {
+  if (nrpn >= 0 && nrpn < 48) return `mute:input:${nrpn}`;
+  if (nrpn >= N(0, 0x30) && nrpn <= N(0, 0x3B)) return `mute:group:${nrpn - N(0, 0x30)}`;
+  if (nrpn === N(0, 0x44)) return 'mute:lr:0';
+  if (nrpn >= N(0, 0x45) && nrpn <= N(0, 0x50)) return `mute:mix:${nrpn - N(0, 0x45)}`;
+  if (nrpn >= N(2, 0) && nrpn <= N(2, 7)) return `mute:dca:${nrpn - N(2, 0)}`;
+  if (nrpn >= N(4, 0) && nrpn <= N(4, 7)) return `mute:muteGroup:${nrpn - N(4, 0)}`;
+  if (nrpn >= N(0x40, 0) && nrpn < N(0x40, 0) + 48) return `level:inputToLr:${nrpn - N(0x40, 0)}`;
+  if (nrpn === N(0x4F, 0)) return 'level:lr:0';
+  if (nrpn >= N(0x4F, 0x20) && nrpn <= N(0x4F, 0x27)) return `level:dca:${nrpn - N(0x4F, 0x20)}`;
+  return `nrpn:${nrpn}`;
 }
 
-function encodeOscMessage(address, args = []) {
-  // Args supported: string (s), int32 (i). Sufficient for SQ name reads.
-  const addressBuf = encodeString(address);
-  const typeTags = ',' + args.map((a) => (typeof a === 'number' ? 'i' : 's')).join('');
-  const tagsBuf = encodeString(typeTags);
-  const argBufs = args.map((a) => {
-    if (typeof a === 'number') {
-      const b = Buffer.alloc(4);
-      b.writeInt32BE(a, 0);
-      return b;
-    }
-    return encodeString(String(a));
-  });
-  return Buffer.concat([addressBuf, tagsBuf, ...argBufs]);
+function freshState(model) {
+  return {
+    model,
+    midiChannel: 0,
+    params: {},           // nrpn14 -> data14 (only ones that differ from default or were touched)
+    scenes: { 1: { name: 'Sunday', params: {} } },  // scene -> { name, params }
+    currentScene: null,
+    softKeys: [],          // [{ key, on, ts }]
+    midiBytesReceived: 0,
+    midiClientsConnected: 0,
+    midiAcceptingClients: true,
+    reachable: true,
+    // Friendly views of params for e2e readers: mutes { 'input:4': true, 'lr:0': false },
+    // faders { 'input:0': 15196, 'lr:0': …, 'dca:2': … } (14-bit SQ linear-taper data).
+    mutes: {},
+    faders: {},
+    sets: 0, gets: 0, ignored: 0, recalls: 0, refusedRecalls: 0,
+    nrpnLog: [],
+  };
 }
 
-function decodeOscMessage(buf) {
-  // Returns { address, args } or null. Supports string, int32, float32 args.
-  function readString(offset) {
-    const end = buf.indexOf(0, offset);
-    if (end === -1) return null;
-    const s = buf.slice(offset, end).toString('utf8');
-    const next = end + (4 - (end - offset) % 4);
-    return { value: s, next };
+async function start(opts = {}) {
+  let { port, midiPort, controlPort = 0 } = opts;
+  midiPort = midiPort ?? port ?? 51325;
+  const breakMode = opts.breakMode || process.env.SQ_MOCK_BREAK || '';
+  const state = freshState(opts.model || 'SQ6');
+  const initial = JSON.parse(JSON.stringify(state));
+  const powerOn = {};                 // for `stale`
+  const clients = new Set();
+
+  const get = (nrpn) => {
+    if (Object.prototype.hasOwnProperty.call(state.params, nrpn)) return state.params[nrpn];
+    return defaultValue(kindOf(nrpn));
+  };
+  const set = (nrpn, data) => {
+    if (breakMode === 'stale' && !(nrpn in powerOn)) powerOn[nrpn] = get(nrpn);
+    state.params[nrpn] = data;
+    const k = keyOf(nrpn);
+    if (k.startsWith('mute:')) state.mutes[k.slice(5)] = data === 1;
+    else if (k.startsWith('level:inputToLr:')) state.faders[`input:${k.split(':')[2]}`] = data;
+    else if (k.startsWith('level:')) state.faders[k.slice(6)] = data;
+    state.nrpnLog.push({ key: keyOf(nrpn), nrpn, data, ts: Date.now() });
+    while (state.nrpnLog.length > 100) state.nrpnLog.shift();
+  };
+  const valueMsg = (ch, nrpn, data) => {
+    const cc = 0xB0 | ch;
+    return Buffer.from([cc, 0x63, (nrpn >> 7) & 0x7F, cc, 0x62, nrpn & 0x7F,
+      cc, 0x06, (data >> 7) & 0x7F, cc, 0x26, data & 0x7F]);
+  };
+
+  function applySet(nrpn, data) {
+    const kind = kindOf(nrpn);
+    if (!kind) { state.ignored++; return; }
+    if ((kind === 'mute' || kind === 'assign') && data !== 0 && data !== 1) { state.ignored++; return; }
+    if (breakMode === 'drop-sets') { state.ignored++; return; }
+    state.sets++;
+    set(nrpn, data);
   }
-  const a = readString(0);
-  if (!a) return null;
-  const t = readString(a.next);
-  if (!t || !t.value.startsWith(',')) return { address: a.value, args: [] };
-  const tags = t.value.slice(1);
-  let cursor = t.next;
-  const args = [];
-  for (const tag of tags) {
-    if (tag === 's') {
-      const s = readString(cursor);
-      if (!s) break;
-      args.push(s.value);
-      cursor = s.next;
-    } else if (tag === 'i') {
-      args.push(buf.readInt32BE(cursor));
-      cursor += 4;
-    } else if (tag === 'f') {
-      args.push(buf.readFloatBE(cursor));
-      cursor += 4;
-    } else {
-      break;
-    }
+
+  function handleGet(sock, ch, nrpn) {
+    const kind = kindOf(nrpn);
+    if (!kind) { state.ignored++; return; }
+    if (breakMode === 'no-reply') { state.ignored++; return; }
+    state.gets++;
+    const v = breakMode === 'stale' && nrpn in powerOn ? powerOn[nrpn] : get(nrpn);
+    sock.write(valueMsg(ch, nrpn, v));
   }
-  return { address: a.value, args };
-}
 
-async function start({ oscPort = 51326, midiPort = 51325, port, controlPort = 0 } = {}) {
-  // The launcher passes a single `port` per mock — alias it to MIDI so SQ
-  // composes cleanly with the rest of the registry. OSC stays on its
-  // default unless the caller passes `oscPort` explicitly.
-  if (port !== undefined && midiPort === 51325) midiPort = port;
-  const state = JSON.parse(JSON.stringify(DEFAULTS));
+  function recall(scene) {
+    if (breakMode === 'no-scene') { state.ignored++; return; }
+    const sc = state.scenes[scene];
+    if (!sc) { state.refusedRecalls++; return; }   // blank scenes cannot be recalled
+    state.recalls++;
+    for (const [k, v] of Object.entries(sc.params)) set(Number(k), v);
+    state.currentScene = scene;
+  }
 
-  // ── UDP OSC server ─────────────────────────────────────────────────────────
-  const oscSock = dgram.createSocket('udp4');
-  await new Promise((resolve, reject) => {
-    oscSock.once('error', reject);
-    oscSock.bind(oscPort, '127.0.0.1', resolve);
-  });
-  const actualOscPort = oscSock.address().port;
-
-  oscSock.on('message', (msg, rinfo) => {
-    state.oscPacketsReceived += 1;
-    const decoded = decodeOscMessage(msg);
-    if (!decoded) return;
-
-    // /sq/alive — respond with a heartbeat
-    if (decoded.address === '/sq/alive') {
-      oscSock.send(encodeOscMessage('/sq/alive', ['ok']), rinfo.port, rinfo.address);
+  function onMessage(sock, ps, msg) {
+    const status = msg[0];
+    const hi = status & 0xF0;
+    const ch = status & 0x0F;
+    if (ch !== state.midiChannel) { state.ignored++; return; }
+    if (hi === 0xB0) {
+      const [, cc, val] = msg;
+      switch (cc) {
+        case 0x00: ps.bank = val; break;
+        case 0x63: ps.msb = val; ps.vc = null; break;
+        case 0x62: ps.lsb = val; break;
+        case 0x06: ps.vc = val; break;
+        case 0x26:
+          if (ps.msb == null || ps.lsb == null || ps.vc == null) return;
+          applySet(N(ps.msb, ps.lsb), (ps.vc << 7) | val);
+          break;
+        case 0x60: case 0x61: {
+          if (ps.msb == null || ps.lsb == null) return;
+          const nrpn = N(ps.msb, ps.lsb);
+          if (cc === 0x60 && val === 0x7F) { handleGet(sock, ch, nrpn); return; }
+          const kind = kindOf(nrpn);
+          if (kind === 'mute' && breakMode !== 'drop-sets') { state.sets++; set(nrpn, get(nrpn) ? 0 : 1); }
+          else if (kind === 'level' && breakMode !== 'drop-sets') {
+            state.sets++; set(nrpn, Math.max(0, Math.min(16383, get(nrpn) + (cc === 0x60 ? 119 : -119))));
+          } else state.ignored++;
+          break;
+        }
+        default: state.ignored++;
+      }
       return;
     }
-    // /sq/ch/N/name — return the channel name as a string arg
-    const nameMatch = decoded.address.match(/^\/sq\/ch\/(\d+)\/name$/);
-    if (nameMatch) {
-      const chan = Number(nameMatch[1]);
-      const name = state.channelNames[chan] || `Ch ${chan}`;
-      oscSock.send(encodeOscMessage(`/sq/ch/${chan}/name`, [name]), rinfo.port, rinfo.address);
+    if (hi === 0xC0) { recall(((ps.bank || 0) << 7) + msg[1] + 1); return; }
+    if (hi === 0x90 || hi === 0x80) {
+      const key = msg[1] - 0x30 + 1;
+      if (key < 1 || key > 16) { state.ignored++; return; }
+      state.softKeys.push({ key, on: hi === 0x90 && msg[2] > 0, ts: Date.now() });
+      while (state.softKeys.length > 50) state.softKeys.shift();
     }
-  });
+  }
 
-  // ── TCP MIDI server with NRPN parser ──────────────────────────────────────
-  // The SQ driver always emits NRPN Data Entry frames using ControlChange CCs
-  // 0x63 (NRPN MSB), 0x62 (NRPN LSB), 0x06 (Data MSB / vc), 0x26 (Data LSB / vf).
-  // We track the most recent NRPN address per channel and apply Data Entry
-  // bytes against it — that's all the church-client emits for set operations.
-  function parseMidiBuffer(perSocket, buf) {
-    for (const byte of buf) {
-      // Status byte: top bit set. Latches the running status.
-      if (byte & 0x80) {
-        // Realtime / system bytes (>= 0xF8) don't reset running status — ignore.
-        if (byte >= 0xF8) continue;
-        perSocket.status = byte;
-        perSocket.dataIdx = 0;
-        perSocket.data = [];
-        continue;
-      }
-      // Data byte. Need a status to make sense of it.
-      if (perSocket.status == null) continue;
-      perSocket.data.push(byte);
-
-      const cmd = perSocket.status & 0xF0;
-      // ControlChange messages take exactly 2 data bytes (CC#, value).
-      if (cmd === 0xB0 && perSocket.data.length === 2) {
-        const ccNum = perSocket.data[0];
-        const ccVal = perSocket.data[1];
-        perSocket.data = []; // ready for next two-byte payload (running status)
-        applyCc(state, perSocket, ccNum, ccVal);
-        continue;
-      }
-      // Note On/Off/aftertouch (rare here) — drop after 2 bytes.
-      if ((cmd === 0x80 || cmd === 0x90 || cmd === 0xA0) && perSocket.data.length === 2) {
-        perSocket.data = [];
-        continue;
-      }
-      // Program Change / channel pressure — 1 data byte.
-      if ((cmd === 0xC0 || cmd === 0xD0) && perSocket.data.length === 1) {
-        perSocket.data = [];
-        continue;
+  // Minimal running-status MIDI parser per socket.
+  function feed(sock, ps, buf) {
+    for (const b of buf) {
+      if (b >= 0xF8) continue;
+      if (b & 0x80) { ps.status = b; ps.data = []; continue; }
+      if (ps.status == null) continue;
+      ps.data.push(b);
+      const hi = ps.status & 0xF0;
+      const need = (hi === 0xC0 || hi === 0xD0) ? 1 : 2;
+      if (ps.data.length === need) {
+        const msg = [ps.status, ...ps.data];
+        ps.data = [];
+        onMessage(sock, ps, msg);
       }
     }
   }
 
-  function applyCc(state, perSocket, ccNum, ccVal) {
-    if (ccNum === 0x63) { perSocket.nrpnMsb = ccVal; perSocket.dataMsb = null; perSocket.dataLsb = null; return; }
-    if (ccNum === 0x62) { perSocket.nrpnLsb = ccVal; return; }
-    if (ccNum === 0x06) { perSocket.dataMsb = ccVal; return; }
-    if (ccNum === 0x26) {
-      perSocket.dataLsb = ccVal;
-      // We have a complete NRPN Data Entry frame.
-      if (perSocket.nrpnMsb == null || perSocket.nrpnLsb == null || perSocket.dataMsb == null) return;
-      const nrpn14 = (perSocket.nrpnMsb << 7) + perSocket.nrpnLsb;
-      const data14 = (perSocket.dataMsb << 7) + perSocket.dataLsb;
-      const decoded = decodeNrpn(nrpn14);
-      state.nrpnLog.push({ nrpn: nrpn14, data: data14, decoded, ts: Date.now() });
-      while (state.nrpnLog.length > NRPN_LOG_LIMIT) state.nrpnLog.shift();
-      if (!decoded) {
-        state.unknownNrpns += 1;
-        return;
-      }
-      const stateKey = `${decoded.key}:${decoded.idx}`;
-      if (decoded.kind === 'mute') {
-        // SQ convention: data 1 = muted, 0 = unmuted.
-        state.mutes[stateKey] = data14 === 1 || perSocket.dataLsb === 1;
-      } else if (decoded.kind === 'fader') {
-        state.faders[stateKey] = data14;
-      }
-    }
-  }
-
-  const midiServer = net.createServer((socket) => {
-    if (!state.midiAcceptingClients) {
-      socket.destroy();
-      return;
-    }
+  const server = net.createServer((sock) => {
+    if (!state.midiAcceptingClients) { sock.destroy(); return; }
+    clients.add(sock);
     state.midiClientsConnected += 1;
-    const perSocket = { status: null, data: [], nrpnMsb: null, nrpnLsb: null, dataMsb: null, dataLsb: null };
-    socket.on('data', (buf) => {
+    const ps = { status: null, data: [], msb: null, lsb: null, vc: null, bank: 0 };
+    sock.on('data', (buf) => {
       state.midiBytesReceived += buf.length;
-      parseMidiBuffer(perSocket, buf);
+      if (!state.reachable) return;               // cable pulled: bytes vanish
+      feed(sock, ps, buf);
     });
-    socket.on('close', () => { state.midiClientsConnected = Math.max(0, state.midiClientsConnected - 1); });
-    socket.on('error', () => { /* ignore client errors */ });
+    sock.on('close', () => { clients.delete(sock); state.midiClientsConnected = Math.max(0, state.midiClientsConnected - 1); });
+    sock.on('error', () => {});
   });
-
   await new Promise((resolve, reject) => {
-    midiServer.once('error', reject);
-    midiServer.listen(midiPort, '127.0.0.1', resolve);
+    server.once('error', reject);
+    server.listen(midiPort, '127.0.0.1', resolve);
   });
-  const actualMidiPort = midiServer.address().port;
+  const actualPort = server.address().port;
+
+  function surfaceSet(nrpn, data) {
+    if (!kindOf(nrpn)) throw new Error(`not an SQ parameter: ${nrpn}`);
+    set(nrpn, data);
+    if (!state.reachable) return;
+    for (const c of clients) c.write(valueMsg(state.midiChannel, nrpn, data));
+  }
+  const byKey = (key) => {
+    const [kind, type, idx] = String(key).split(':');
+    const i = Number(idx);
+    if (kind === 'mute' && type === 'input') return N(0, 0) + i;
+    if (kind === 'mute' && type === 'lr') return N(0, 0x44);
+    if (kind === 'mute' && type === 'dca') return N(2, 0) + i;
+    if (kind === 'mute' && type === 'muteGroup') return N(4, 0) + i;
+    if (kind === 'level' && type === 'inputToLr') return N(0x40, 0) + i;
+    if (kind === 'level' && type === 'lr') return N(0x4F, 0);
+    if (kind === 'level' && type === 'dca') return N(0x4F, 0x20) + i;
+    throw new Error(`unknown key ${key}`);
+  };
+
+  const api = {
+    get: (key) => get(byKey(key)),
+    getNrpn: get,
+    surfaceSet: (key, data) => surfaceSet(byKey(key), data),
+    storeScene: (n, name = `Scene ${n}`, params = {}) => {
+      const p = {};
+      for (const [k, v] of Object.entries(params)) p[byKey(k)] = v;
+      state.scenes[n] = { name, params: p };
+    },
+    setReachable: (r) => { state.reachable = !!r; },
+    dropClients: () => { for (const c of clients) c.destroy(); },
+    setMidiChannel: (c) => { state.midiChannel = c & 0x0F; },
+  };
 
   const control = await createControlServer({
-    device: 'sq',
-    port: controlPort,
-    state,
-    initialState: DEFAULTS,
+    device: 'sq', port: controlPort, state, initialState: initial,
     actions: {
-      setChannelName: ({ channel, name }) => { state.channelNames[channel] = String(name); },
       midiAcceptingClients: ({ accepting }) => { state.midiAcceptingClients = !!accepting; },
+      setReachable: ({ reachable }) => api.setReachable(reachable),
+      dropClients: () => api.dropClients(),
+      surfaceSet: ({ key, value }) => api.surfaceSet(key, Number(value)),
+      storeScene: ({ scene, name, params }) => api.storeScene(Number(scene), name, params || {}),
     },
   });
 
   return {
     device: 'sq',
-    port: actualMidiPort, // surface MIDI as the canonical port (matches A&H docs)
-    oscPort: actualOscPort,
-    midiPort: actualMidiPort,
-    url: `tcp://127.0.0.1:${actualMidiPort}`,
+    port: actualPort,
+    midiPort: actualPort,
+    url: `tcp://127.0.0.1:${actualPort}`,
+    breakMode,
     control,
     state,
+    ...api,
     stop: async () => {
-      await new Promise((r) => oscSock.close(() => r()));
-      await new Promise((r) => midiServer.close(() => r()));
+      for (const c of clients) c.destroy();
+      await new Promise((r) => server.close(() => r()));
       await control.stop();
     },
   };
 }
 
-module.exports = { start };
+module.exports = { start, LEVEL_0DB };
 
 if (require.main === module) {
-  start({
-    oscPort: Number(process.env.PORT_OSC) || 51326,
-    midiPort: Number(process.env.PORT) || 51325,
-    controlPort: Number(process.env.CONTROL_PORT) || 0,
-  })
-    .then((s) => console.log(`[mock-sq] midi=tcp://127.0.0.1:${s.midiPort}  osc=udp://127.0.0.1:${s.oscPort}  control=${s.control.url}`))
+  start({ midiPort: Number(process.env.PORT) || 51325, controlPort: Number(process.env.CONTROL_PORT) || 0 })
+    .then((s) => console.log(`[mock-sq] midi=tcp://127.0.0.1:${s.midiPort}  control=${s.control.url}${s.breakMode ? '  break=' + s.breakMode : ''}`))
     .catch((e) => { console.error(e); process.exit(1); });
 }

@@ -349,9 +349,13 @@ function getAudioSummary(status) {
   const live = !!(s.streaming || (s.obs && s.obs.streaming) || (s.vmix && s.vmix.streaming) || (s.encoder && s.encoder.live));
   const mixerConfigured = !!(mixer && (mixer.configured === true || mixer.type));
   const typeU = mixer && mixer.type ? String(mixer.type).toUpperCase() : '';
+  // Human brand for protocol-family types ("allenheath" → "Allen & Heath").
+  const BRANDS = { allenheath: 'Allen & Heath', dlive: 'Allen & Heath', avantis: 'Allen & Heath', yamaha: 'Yamaha', behringer: 'Behringer', midas: 'Midas' };
+  const brand = mixer && mixer.type ? BRANDS[String(mixer.type).toLowerCase()] : null;
   const name = mixer && mixer.model
-    ? (String(mixer.model).toUpperCase().startsWith(typeU) ? String(mixer.model) : `${typeU} ${mixer.model}`.trim())
-    : (mixer && mixer.type ? String(mixer.type).toUpperCase() : 'Audio console');
+    ? (brand ? `${brand} ${mixer.model}`
+      : (String(mixer.model).toUpperCase().startsWith(typeU) ? String(mixer.model) : `${typeU} ${mixer.model}`.trim()))
+    : (brand || (mixer && mixer.type ? String(mixer.type).toUpperCase() : 'Audio console'));
   const srcLabel = audio.source === 'atem' ? 'ATEM' : audio.source === 'vmix' ? 'vMix' : (audio.source ? String(audio.source) : '');
   if (mixerConfigured && !mixer.connected) {
     return { state: 'error', value: 'Console offline', detail: `${name} not responding`, issue: true };
@@ -4465,6 +4469,12 @@ function setEquipMode(mode) {
   }
 }
 
+/** Human console name for the Devices list (never "ALLENHEATH"). */
+function mixerDisplayName(type) {
+  const names = { x32: 'X32', behringer: 'Behringer X32', midas: 'Midas M32', allenheath: 'Allen & Heath SQ', dlive: 'Allen & Heath dLive', avantis: 'Allen & Heath Avantis', yamaha: 'Yamaha' };
+  return names[String(type || '').toLowerCase()] || (type ? String(type).toUpperCase() : 'Mixer');
+}
+
 function renderSimpleDeviceList(eq) {
   const container = document.getElementById('simple-device-list');
   if (!container) return;
@@ -4487,7 +4497,7 @@ function renderSimpleDeviceList(eq) {
   if (eq.proPresenterHost) items.push({ key: 'proPresenter', icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
   if (eq.vmixHost) items.push({ key: 'vmix', icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
   if (eq.resolumeHost) items.push({ key: 'resolume', icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
-  if (eq.mixerHost) items.push({ key: 'mixer', icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
+  if (eq.mixerHost) items.push({ key: 'mixer', icon: '\uD83C\uDFA4', name: `${mixerDisplayName(eq.mixerType)} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
   (eq.hyperdecks || []).forEach((h, i) => { const ip = typeof h === 'string' ? h : h.ip; if (ip) items.push({ icon: '\u23FA', name: `HyperDeck ${i + 1}`, detail: ip }); });
   (eq.ptz || []).forEach((c, i) => { if (c.ip) items.push({ icon: '\uD83C\uDFA5', name: c.name || `PTZ ${i + 1}`, detail: c.ip }); });
   if (items.length === 0) {
@@ -4567,7 +4577,7 @@ async function loadEquipment() {
     : eq.audioViaAtemOverride === 'off' ? 'atem-none'
     : eq.audioViaAtem ? 'atem-auto'
     : (eq.mixerType || '');
-  deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
+  deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '', midiChannel: eq.mixerMidiChannel ? String(eq.mixerMidiChannel) : '' };
   deviceState['atem-recording'] = { autoRecord: !!eq.atemAutoRecord };
   deviceState.hyperdeck = (eq.hyperdecks || []).map(ip => ({ ip: typeof ip === 'string' ? ip : (ip.ip || '') }));
   deviceState.ptz = (eq.ptz || []).map((cam, i) => ({
@@ -5109,6 +5119,8 @@ async function _doSaveEquipment() {
     mixerType: ['atem-auto', 'atem-direct', 'atem-none'].includes(deviceState.mixer.type) ? '' : (deviceState.mixer.type || ''),
     mixerHost: (deviceState.mixer.host || '').trim(),
     mixerPort: parseInt(deviceState.mixer.port) || 0,
+    // 1–16 as shown on the console; 0 = console default. Only A&H consoles use it.
+    mixerMidiChannel: ['allenheath', 'dlive', 'avantis'].includes(deviceState.mixer.type) ? (parseInt(deviceState.mixer.midiChannel) || 0) : 0,
     audioViaAtem: deviceState.mixer.type === 'atem-auto' || deviceState.mixer.type === 'atem-direct' ? 1 : 0,
     audioViaAtemOverride: deviceState.mixer.type === 'atem-direct' ? 'on'
       : deviceState.mixer.type === 'atem-none' ? 'off'

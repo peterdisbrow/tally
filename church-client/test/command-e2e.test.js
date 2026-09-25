@@ -235,14 +235,12 @@ e2e('mixer.setFader → mock sees fader 14-bit value', async () => {
 
   await waitFor(async () => {
     const s = await h.mocks.sq.readState();
-    return typeof s.faders['input:0'] === 'number' && s.faders['input:0'] > 0;
+    return s.faders['input:0'] === 15196;
   }, { timeoutMs: 4000, label: 'SQ fader to land' });
 
   const state = await h.mocks.sq.readState();
-  // 0.75 normalised × 16383 ≈ 12287 (with rounding).
-  const fader = state.faders['input:0'];
-  assert.ok(fader >= 12000 && fader <= 12500,
-    `fader value should be ~12287 (got ${fader})`);
+  // Same fader law on every console: 0.75 = 0 dB = SQ linear-taper 15196.
+  assert.equal(state.faders['input:0'], 15196, `fader 0.75 must land at 0 dB (got ${state.faders['input:0']})`);
 });
 
 // ─── BirdDog / VISCA PTZ ─────────────────────────────────────────────────────

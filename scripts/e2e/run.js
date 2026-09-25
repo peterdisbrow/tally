@@ -43,7 +43,7 @@ const SERVICE_SCENARIOS = [
   { name: 'D. Companion press dispatched',    fn: require('./scenarios/04-companion-press') },
   { name: 'E. ATEM disconnect + recovery',    fn: require('./scenarios/05-atem-disconnect-recovery') },
   { name: 'F. Teradek battery alert',         fn: require('./scenarios/06-teradek-battery-alert') },
-  { name: 'G. SQ channel rename',             fn: require('./scenarios/07-sq-channel-rename') },
+  { name: 'G. SQ master mute (surface)',     fn: require('./scenarios/07-sq-master-mute') },
 ];
 
 const buildRecoverySuite     = require('./scenarios/10-recovery-all-mocks');

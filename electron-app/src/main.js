@@ -2589,6 +2589,8 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
           type: typeof equipConfig.mixerType === 'string' ? equipConfig.mixerType.slice(0, 64) : '',
           host: sanitizeHost(equipConfig.mixerHost),
           port: sanitizePort(equipConfig.mixerPort, null),
+          ...(Number(equipConfig.mixerMidiChannel) >= 1 && Number(equipConfig.mixerMidiChannel) <= 16
+            ? { midiChannel: Number(equipConfig.mixerMidiChannel) - 1 } : {}),
         }
       : null;
   }
@@ -2689,6 +2691,7 @@ ipcMain.handle('get-equipment', () => {
     mixerType: config.mixer?.type || '',
     mixerHost: config.mixer?.host || '',
     mixerPort: config.mixer?.port || '',
+    mixerMidiChannel: Number.isInteger(config.mixer?.midiChannel) ? config.mixer.midiChannel + 1 : '',
     audioViaAtem: config.audioViaAtem || 0,
     audioViaAtemOverride: config.audioViaAtemOverride || null,
     // Multi-encoder array (new format)

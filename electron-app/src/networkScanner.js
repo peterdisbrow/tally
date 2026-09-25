@@ -7,7 +7,7 @@
  *  - ATEM: UDP port 9910 (proprietary Blackmagic protocol)
  *  - Blackmagic Web Presenter: HTTP port 80 (REST API v1 fingerprint)
  *  - Behringer/Midas X32/M32: OSC over UDP port 10023
- *  - Allen & Heath SQ/dLive: OSC over UDP port 51326/51327
+ *  - Allen & Heath SQ/dLive/Avantis: MIDI over TCP port 51325 (no OSC)
  *  - Yamaha CL/QL: OSC over UDP port 8765
  *  - OBS, HyperDeck, Companion, ProPresenter, vMix, TriCaster, BirdDog: TCP/HTTP
  */
@@ -383,7 +383,8 @@ function probeDevice(ip, port, type, timeoutMs) {
     case 'mixer-behringer':
       return tryUdpProbe(ip, port, OSC_INFO_PACKET, timeoutMs);
     case 'mixer-allenheath':
-      return tryUdpProbe(ip, port, OSC_SQ_ALIVE_PACKET, timeoutMs);
+      // SQ/dLive/Avantis speak MIDI over TCP 51325 only — a UDP OSC probe never answers.
+      return tryTcpConnect(ip, port, timeoutMs);
     case 'mixer-yamaha':
       return tryUdpProbe(ip, port, OSC_YAMAHA_STATE_PACKET, timeoutMs);
     default:
@@ -528,7 +529,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'tricaster-http', ip: '127.0.0.1', port: 5952 },
     { type: 'birddog', ip: '127.0.0.1', port: 8080 },
     { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
-    { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51326 },
+    { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51325 },
     { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
     { type: 'videohub', ip: '127.0.0.1', port: 9990 },
     { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
@@ -666,7 +667,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 5951,  type: 'tricaster-control' },    // TCP — TriCaster control
     { port: 5952,  type: 'tricaster-http' },       // TCP — TriCaster HTTP
     { port: 10023, type: 'mixer-behringer' },      // UDP — Behringer X32 / Midas M32 OSC
-    { port: 51326, type: 'mixer-allenheath' },     // UDP — Allen & Heath SQ OSC
+    { port: 51325, type: 'mixer-allenheath' },     // TCP — Allen & Heath SQ/dLive/Avantis MIDI
     { port: 8765,  type: 'mixer-yamaha' },         // UDP — Yamaha CL/QL OSC
     { port: 9990,  type: 'videohub' },              // TCP — Blackmagic Videohub protocol
     { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP

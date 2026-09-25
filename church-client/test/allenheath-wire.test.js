@@ -27,12 +27,37 @@ const { MidiParser }      = require('../src/tcp-midi');
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
 
-/** Create a mock TCP MIDI transport that records all send() calls. */
-function makeMockTcp() {
+/**
+ * Stateful fake SQ transport: remembers every NRPN SET and answers GETs
+ * (NRPN data-increment 0x7F) with the stored value, like the real console.
+ * `sent` holds everything except GETs (so wire assertions see the SET);
+ * `gets` holds the GET frames the driver used to verify.
+ */
+function makeMockTcp(getMixer) {
   const sent = [];
+  const gets = [];
+  const params = new Map();
   return {
-    sent,
-    send(bytes) { sent.push(Array.from(bytes)); return true; },
+    sent, gets, params,
+    online: true,
+    send(bytes) {
+      const b = Array.from(bytes);
+      if (b.length === 9 && b[7] === 0x60 && b[8] === 0x7F) {
+        gets.push(b);
+        const nrpn = (b[2] << 7) + b[5];
+        const v = params.has(nrpn) ? params.get(nrpn) : 0;
+        const cc = 0xB0 | (b[0] & 0x0F);
+        setImmediate(() => {
+          for (const m of [[cc, 0x63, b[2]], [cc, 0x62, b[5]], [cc, 0x06, (v >> 7) & 0x7F], [cc, 0x26, v & 0x7F]]) {
+            getMixer()._handleIncoming(new Uint8Array(m));
+          }
+        });
+        return true;
+      }
+      if (b.length === 12 && b[1] === 0x63 && b[7] === 0x06) params.set((b[2] << 7) + b[5], (b[8] << 7) | b[11]);
+      sent.push(b);
+      return true;
+    },
     on() {},
     disconnect() {},
     isOnline: async () => true,
@@ -47,7 +72,7 @@ function makeMixer(opts = {}) {
     midiChannel: 0,
     ...opts,
   });
-  const mockTcp = makeMockTcp();
+  const mockTcp = makeMockTcp(() => mixer);
   mixer._tcp    = mockTcp;
   mixer._online = true;
   return { mixer, sent: mockTcp.sent };
@@ -148,10 +173,8 @@ test('NRPN math: mute group 1 = nrpn(0x04,0x00)+0 = {msb:4, lsb:0}', () => {
 
 // ─── SECTION 2: 14-bit data conversion ────────────────────────────────────────
 
-function normalToData(norm) {
-  if (norm <= 0) return 0;
-  return Math.round(Math.max(0, Math.min(1, norm)) * 16383);
-}
+// Driver's own conversion (X32-style fader law: 0.75 = 0 dB = SQ data 15196).
+const { normalToData } = require('../src/mixers/allenheath')._internals;
 function dataToVcVf(data) {
   return { vc: (data >> 7) & 0x7F, vf: data & 0x7F };
 }
@@ -164,8 +187,12 @@ test('normalToData(1.0) = 16383 (0x3FFF)', () => {
   assert.equal(normalToData(1.0), 16383);
 });
 
-test('normalToData(0.5) = 8192 (approx)', () => {
-  assert.equal(normalToData(0.5), Math.round(0.5 * 16383));
+test('normalToData(0.75) = 15196 (SQ 0 dB) — same fader law as X32', () => {
+  assert.equal(normalToData(0.75), 15196);
+});
+
+test('normalToData(0.5) = −10 dB on the SQ linear taper', () => {
+  assert.equal(normalToData(0.5), Math.round(15196 - 10 * 118.775));
 });
 
 test('dataToVcVf(16383): vc=0x7F, vf=0x7F', () => {
@@ -334,10 +361,10 @@ test('setFader(2, 1.0) → channel 2 is at nrpn offset +1 from channel 1', async
   assertNrpnSet(last(sent), 0, 0x40, 0x01, 0x7F, 0x7F);
 });
 
-test('setFader(1, 0.5) → 14-bit midpoint', async () => {
+test('setFader(1, 0.5) → −10 dB (X32-style fader law)', async () => {
   const { mixer, sent } = makeMixer();
   await mixer.setFader(1, 0.5);
-  const data = Math.round(0.5 * 16383);
+  const data = normalToData(0.5);
   const vc = (data >> 7) & 0x7F;
   const vf = data & 0x7F;
   assertNrpnSet(last(sent), 0, 0x40, 0x00, vc, vf);
@@ -405,20 +432,24 @@ test('recallScene(256) → upper=1, lower=0x7F', async () => {
   assert.deepEqual(sent[1], [0xC0, 0x7F]);
 });
 
-test('recallScene clamps to scene 1 at minimum', async () => {
+test('recallScene(0) is refused — never silently recalls scene 1', async () => {
   const { mixer, sent } = makeMixer();
-  await mixer.recallScene(0);
-  // n=max(1, min(300, 0))=1, zeroIdx=0
-  assert.deepEqual(sent[1], [0xC0, 0x00]);
+  await assert.rejects(() => mixer.recallScene(0), /invalid scene/i);
+  assert.equal(sent.length, 0);
 });
 
-test('recallScene clamps to 300 at maximum', async () => {
+test('recallScene(999) is refused — never silently recalls scene 300', async () => {
   const { mixer, sent } = makeMixer();
-  await mixer.recallScene(999);
-  // n=max(1, min(300, 999))=300, zeroIdx=299
-  // upper=(299>>7)&0x0F=2, lower=299&0x7F=0x2B(=43)
+  await assert.rejects(() => mixer.recallScene(999), /invalid scene/i);
+  assert.equal(sent.length, 0);
+});
+
+test('recallScene(300) → upper bank 2, program 0x2B', async () => {
+  const { mixer, sent } = makeMixer();
+  const r = await mixer.recallScene(300);
   assert.deepEqual(sent[0], [0xB0, 0x00, 0x02]);
   assert.deepEqual(sent[1], [0xC0, 0x2B]);
+  assert.equal(r.confirmed, false, 'SQ gives no scene read-back — never claimed as confirmed');
 });
 
 test('recallScene uses MIDI channel 0 (status byte 0xB0/0xC0)', async () => {
@@ -707,8 +738,7 @@ test('incoming mute NRPN for ch1 updates _state.mutes', () => {
 
   // Channel 1 = index 0, param nrpn(0,0)+0=0 = inputChannel
   // The driver should store mute state
-  assert.ok(mixer._state.mutes['input:0'] === true || mixer._nrpnState !== undefined,
-    'NRPN state updated on incoming mute');
+  assert.equal(mixer._state.mutes['input:0'], true, 'surface mute stored under the key reads use');
 });
 
 test('incoming Program Change updates scene state', () => {
