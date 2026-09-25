@@ -9,6 +9,9 @@
  */
 
 const WebSocket = require('ws');
+const OBS_REQUEST_TIMEOUT_MS = Number(process.env.TALLY_OBS_REQUEST_TIMEOUT_MS) || 5000;
+const OBS_CONNECT_TIMEOUT_MS = Number(process.env.TALLY_OBS_CONNECT_TIMEOUT_MS) || 8000;
+const OBS_HEARTBEAT_MS = Number(process.env.TALLY_OBS_HEARTBEAT_MS) || 5000;
 const { Atem, Enums } = require('atem-connection');
 const OBSWebSocket = require('obs-websocket-js').default;
 const { program } = require('commander');
@@ -1688,6 +1691,31 @@ class ChurchAVAgent {
     return String(this.config.encoder?.type || '').trim().toLowerCase() === 'obs';
   }
 
+  /** obs.call with a deadline; a missed deadline drops the (hung) socket. */
+  _obsCallWithDeadline(rawCall, requestType, requestData) {
+    const ms = OBS_REQUEST_TIMEOUT_MS;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const err = new Error(`OBS did not answer "${requestType}" within ${ms / 1000}s — OBS appears frozen or unreachable (if OBS recovers it may still carry out the request)`);
+        err.code = 'OBS_TIMEOUT';
+        this._obsUnresponsive(requestType);
+        reject(err);
+      }, ms);
+      Promise.resolve().then(() => rawCall(requestType, requestData)).then(
+        (r) => { clearTimeout(timer); resolve(r); },
+        (e) => { clearTimeout(timer); reject(e); },
+      );
+    });
+  }
+
+  _obsUnresponsive(what) {
+    const sock = this.obs?.socket;
+    if (!sock) return;
+    console.warn(`⚠️  OBS stopped answering (${what}) — dropping the connection`);
+    this._obsHung = true;
+    try { sock.terminate(); } catch { /* ignore */ }
+  }
+
   async connectOBS() {
     if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
     const obsUrl = this.getObsUrlForConnection();
@@ -1698,6 +1726,13 @@ class ChurchAVAgent {
     // On reconnect we reuse the same instance — just call connect() again.
     if (!this.obs) {
       this.obs = new OBSWebSocket();
+      // obs-websocket-js has no request deadline: a hung OBS (frozen UI thread,
+      // stopped process, half-open link) leaves every call — engineer commands,
+      // the stats poll, stream protection — pending forever while the booth keeps
+      // showing "connected". Every request now gets a deadline; missing one
+      // drops the socket so the status turns honest and the normal reconnect runs.
+      const rawCall = this.obs.call.bind(this.obs);
+      this.obs.call = (requestType, requestData) => this._obsCallWithDeadline(rawCall, requestType, requestData);
 
       // ConnectionOpened fires when the TCP/WebSocket opens — BEFORE the
       // obs-websocket Hello/Identify handshake (and before auth is checked).
@@ -1708,6 +1743,7 @@ class ChurchAVAgent {
       });
 
       this.obs.on('Identified', () => {
+        this._obsHung = false;
         console.log('✅ OBS connected');
         this.status.obs.connected = true;
         this.status.obs.app = 'OBS Studio';
@@ -1761,6 +1797,8 @@ class ChurchAVAgent {
             : 'OBS requires a password — enter the OBS WebSocket password';
         } else if (code === 4010) {
           this.status.obs.error = 'OBS WebSocket version not supported — needs obs-websocket v5 (OBS 28+)';
+        } else if (this._obsHung) {
+          this.status.obs.error = 'OBS stopped responding (frozen or unreachable) — reconnecting';
         } else if (!wasConnected && this.status.obs.error && /password|version/i.test(this.status.obs.error)) {
           // keep the auth/version reason until a successful Identify
         } else {
@@ -1832,6 +1870,17 @@ class ChurchAVAgent {
         this.sendStatus();
       });
 
+      // Liveness — a cheap GetVersion every 5 s. A frozen OBS misses the
+      // request deadline and is shown offline within ~10 s even when idle.
+      if (!this._obsHeartbeatStarted) {
+        this._obsHeartbeatStarted = true;
+        this._track(setInterval(() => {
+          if (!this.status.obs.connected || this._obsHeartbeatInFlight) return;
+          this._obsHeartbeatInFlight = true;
+          this.obs.call('GetVersion').catch(() => {}).finally(() => { this._obsHeartbeatInFlight = false; });
+        }, OBS_HEARTBEAT_MS));
+      }
+
       // Stats poll — registered ONCE, checks connected flag before each call
       if (!this._obsStatsPollStarted) {
         this._obsStatsPollStarted = true;
@@ -1881,7 +1930,19 @@ class ChurchAVAgent {
 
     try {
       console.log(`🎬 Connecting to OBS at ${obsUrl}...`);
-      await this.obs.connect(obsUrl, this.config.obsPassword);
+      // A frozen OBS can accept the TCP connection and never say Hello:
+      // give the handshake a deadline, then drop it so the retry loop runs.
+      let connectTimer = null;
+      await Promise.race([
+        this.obs.connect(obsUrl, this.config.obsPassword),
+        new Promise((_, reject) => {
+          connectTimer = setTimeout(() => {
+            this._obsHung = true;
+            try { this.obs.socket?.terminate?.(); } catch { /* ignore */ }
+            reject(new Error(`OBS did not complete the WebSocket handshake within ${OBS_CONNECT_TIMEOUT_MS / 1000}s`));
+          }, OBS_CONNECT_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(connectTimer));
     } catch (e) {
       console.warn('⚠️  OBS not available:', e.message);
       console.log('   (OBS optional — ATEM monitoring still works)');

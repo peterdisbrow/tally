@@ -5,28 +5,70 @@ function ensureObs(agent) {
   return agent.obs;
 }
 
-async function obsStartStream(agent) {
+// ─── Outputs: confirmed by OBS's own state events ───────────────────────────
+//
+// OBS answers StartStream/StartRecord with "ok" immediately; the output then
+// goes STARTING → STARTED, or STARTING → STOPPED when it fails (bad stream key,
+// ingest unreachable, disk full, encoder error). "Stream started" is only true
+// once OBS says STARTED.
+
+const OUTPUT_CONFIRM_MS = 10_000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const OUTPUTS = {
+  stream: {
+    event: 'StreamStateChanged', statusReq: 'GetStreamStatus', start: 'StartStream', stop: 'StopStream',
+    failed: 'OBS could not start the stream — it stopped right after starting (check Settings → Stream: server and stream key, and the internet connection)',
+  },
+  record: {
+    event: 'RecordStateChanged', statusReq: 'GetRecordStatus', start: 'StartRecord', stop: 'StopRecord',
+    failed: 'OBS could not start recording — it stopped right away (check the recording path and free disk space in Settings → Output)',
+  },
+};
+
+async function driveOutput(agent, kind, wantActive) {
   const obs = ensureObs(agent);
-  await obs.call('StartStream');
-  return 'Stream started';
+  const o = OUTPUTS[kind];
+  const states = [];
+  const onEvent = (d) => { if (d && d.outputState) states.push(d.outputState); };
+  obs.on(o.event, onEvent);
+  try {
+    await obs.call(wantActive ? o.start : o.stop);
+    const done = wantActive ? 'OBS_WEBSOCKET_OUTPUT_STARTED' : 'OBS_WEBSOCKET_OUTPUT_STOPPED';
+    const t0 = Date.now();
+    while (Date.now() - t0 < OUTPUT_CONFIRM_MS) {
+      const last = states.filter((x) => x === 'OBS_WEBSOCKET_OUTPUT_STARTED' || x === 'OBS_WEBSOCKET_OUTPUT_STOPPED').pop();
+      if (last === done) return true;
+      if (wantActive && last === 'OBS_WEBSOCKET_OUTPUT_STOPPED') throw new Error(o.failed);
+      if (!agent.status.obs?.connected) throw new Error(`OBS disconnected before confirming the ${kind} ${wantActive ? 'start' : 'stop'}`);
+      await sleep(50);
+    }
+    // No terminal event in time: ask OBS directly before deciding.
+    const st = await obs.call(o.statusReq);
+    if (!!st?.outputActive === wantActive) return true;
+    throw new Error(`OBS accepted the ${kind} ${wantActive ? 'start' : 'stop'} but has not confirmed it after ${OUTPUT_CONFIRM_MS / 1000}s (not confirmed)`);
+  } finally {
+    obs.off(o.event, onEvent);
+  }
+}
+
+async function obsStartStream(agent) {
+  await driveOutput(agent, 'stream', true);
+  return 'Stream started (OBS is live)';
 }
 
 async function obsStopStream(agent) {
-  const obs = ensureObs(agent);
-  await obs.call('StopStream');
-  return 'Stream stopped';
+  await driveOutput(agent, 'stream', false);
+  return 'Stream stopped (confirmed by OBS)';
 }
 
 async function obsStartRecording(agent) {
-  const obs = ensureObs(agent);
-  await obs.call('StartRecord');
-  return 'OBS recording started';
+  await driveOutput(agent, 'record', true);
+  return 'OBS recording started (confirmed by OBS)';
 }
 
 async function obsStopRecording(agent) {
-  const obs = ensureObs(agent);
-  await obs.call('StopRecord');
-  return 'OBS recording stopped';
+  await driveOutput(agent, 'record', false);
+  return 'OBS recording stopped (confirmed by OBS)';
 }
 
 async function obsSetScene(agent, params) {

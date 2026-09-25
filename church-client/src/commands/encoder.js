@@ -24,16 +24,20 @@ function encoderBrandName(type) {
   }
 }
 
+// ATEM Mini's built-in encoder and OBS-as-encoder go through the same
+// confirmed paths as atem.* / obs.* (read back from the device), so an engineer
+// never gets "started" for a stream that isn't live — nor "not supported" for
+// one that is (old bug: OBS's startStream() returned nothing → "does not
+// support remote stream start" while OBS had actually gone live).
+function confirmedHandlers() {
+  return { atem: require('./atem'), obs: require('./obs') };
+}
+
 async function encoderStartStream(agent) {
   const bridge = ensureEncoderBridge(agent);
-  // ATEM Mini's built-in encoder uses ATEM protocol, not generic encoder API
-  if (bridge.type === 'atem-streaming') {
-    if (typeof agent.atem?.startStreaming === 'function') {
-      await agent.atem.startStreaming();
-      return 'ATEM streaming started';
-    }
-    throw new Error('ATEM streaming start is not supported by this switcher');
-  }
+  const h = confirmedHandlers();
+  if (bridge.type === 'atem-streaming') return h.atem['atem.startStreaming'](agent, {});
+  if (bridge.type === 'obs') return h.obs['obs.startStream'](agent, {});
   const result = await bridge.startStream();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream start`);
   return 'Encoder stream started';
@@ -41,14 +45,9 @@ async function encoderStartStream(agent) {
 
 async function encoderStopStream(agent) {
   const bridge = ensureEncoderBridge(agent);
-  // ATEM Mini's built-in encoder uses ATEM protocol, not generic encoder API
-  if (bridge.type === 'atem-streaming') {
-    if (typeof agent.atem?.stopStreaming === 'function') {
-      await agent.atem.stopStreaming();
-      return 'ATEM streaming stopped';
-    }
-    throw new Error('ATEM streaming stop is not supported by this switcher');
-  }
+  const h = confirmedHandlers();
+  if (bridge.type === 'atem-streaming') return h.atem['atem.stopStreaming'](agent, {});
+  if (bridge.type === 'obs') return h.obs['obs.stopStream'](agent, {});
   const result = await bridge.stopStream();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream stop`);
   return 'Encoder stream stopped';
@@ -56,6 +55,7 @@ async function encoderStopStream(agent) {
 
 async function encoderStartRecording(agent) {
   const bridge = ensureEncoderBridge(agent);
+  if (bridge.type === 'obs') return confirmedHandlers().obs['obs.startRecording'](agent, {});
   const result = await bridge.startRecord();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote recording start`);
   return 'Encoder recording started';
@@ -63,6 +63,7 @@ async function encoderStartRecording(agent) {
 
 async function encoderStopRecording(agent) {
   const bridge = ensureEncoderBridge(agent);
+  if (bridge.type === 'obs') return confirmedHandlers().obs['obs.stopRecording'](agent, {});
   const result = await bridge.stopRecord();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote recording stop`);
   return 'Encoder recording stopped';

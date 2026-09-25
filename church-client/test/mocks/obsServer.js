@@ -93,6 +93,12 @@ const DEFAULTS = {
   password: '',
   connections: 0,
   authFailures: 0,
+  // How real OBS fails an output it accepted: StartStream answers 100, then
+  // STARTING → STOPPED (e.g. bad stream key / ingest unreachable / disk full).
+  streamFailure: '',
+  recordFailure: '',
+  outputStartMs: 0, // real OBS takes ~0.5–3 s from STARTING to STARTED
+  frozen: false,    // OBS hung (SIGSTOP / beachball): socket open, nothing answered
 };
 
 function makeResponse(state, requestType, requestId, data) {
@@ -173,7 +179,7 @@ function handleRequest(state, requestType, requestId, requestData, emit = () => 
       return makeResponse(state, requestType, requestId, { studioModeEnabled: state.studioMode });
     case 'StartStream':
       if (state.streaming.outputActive) return makeError(requestType, requestId, 500, 'The stream output is already running.');
-      setOutput(state, 'streaming', true, emit);
+      startOutput(state, 'streaming', emit);
       return makeResponse(state, requestType, requestId, undefined);
     case 'StopStream':
       if (!state.streaming.outputActive) return makeError(requestType, requestId, 501, 'The stream output is not running.');
@@ -181,7 +187,7 @@ function handleRequest(state, requestType, requestId, requestData, emit = () => 
       return makeResponse(state, requestType, requestId, undefined);
     case 'StartRecord':
       if (state.recording.outputActive) return makeError(requestType, requestId, 500, 'The record output is already running.');
-      setOutput(state, 'recording', true, emit);
+      startOutput(state, 'recording', emit);
       return makeResponse(state, requestType, requestId, undefined);
     case 'StopRecord':
       if (!state.recording.outputActive) return makeError(requestType, requestId, 501, 'The record output is not running.');
@@ -209,7 +215,7 @@ function streamStatus(state) {
     s.outputBytes = Math.round(secs * (state.streamKbps * 1000 / 8));
     s.outputTotalFrames = Math.round(secs * state.stats.activeFps);
   }
-  const { _startedAt, ...pub } = s;
+  const { _startedAt, _pending, ...pub } = s;
   return pub;
 }
 
@@ -227,6 +233,28 @@ function setOutput(state, key, active, emit) {
   const data = { outputActive: active, outputState: active ? 'OBS_WEBSOCKET_OUTPUT_STARTED' : 'OBS_WEBSOCKET_OUTPUT_STOPPED' };
   if (key === 'recording' && !active) data.outputPath = '/tmp/mock-recording.mkv';
   emit(ev, data);
+}
+
+// StartStream/StartRecord as real OBS does them: the request is accepted at
+// once; the output then STARTS (after outputStartMs) or FAILS (STOPPED again).
+function startOutput(state, key, emit) {
+  const ev = key === 'streaming' ? 'StreamStateChanged' : 'RecordStateChanged';
+  const failure = key === 'streaming' ? state.streamFailure : state.recordFailure;
+  if (!failure && !state.outputStartMs) { setOutput(state, key, true, emit); return; }
+  if (state[key]._pending) return;
+  state[key]._pending = true;
+  emit(ev, { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTING' });
+  setTimeout(() => {
+    state[key]._pending = false;
+    if (failure) {
+      state[key].outputActive = false;
+      emit(ev, { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED' });
+      return;
+    }
+    state[key].outputActive = true;
+    if (key === 'streaming') state[key]._startedAt = Date.now();
+    emit(ev, { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' });
+  }, state.outputStartMs || 300);
 }
 
 function authString(password, salt, challenge) {
@@ -261,12 +289,19 @@ async function start({ port = 4455, controlPort = 0, password = '' } = {}) {
   const encodeFor = (c, obj) => ((c.protocol === 'obswebsocket.msgpack' && !!msgpackEncode)
     ? Buffer.from(msgpackEncode(obj)) : JSON.stringify(obj));
   const broadcastEvent = (eventType, eventData) => {
-    if (BREAK === 'no-events') return;
+    if (BREAK === 'no-events' || state.frozen) return;
     const frame = { op: 5, d: { eventType, eventIntent: 0, eventData } };
     for (const c of clients) { try { c.send(encodeFor(c, frame)); } catch { /* closing */ } }
   };
 
+  // While frozen, a new TCP/WebSocket connection is accepted by the kernel but
+  // the (stopped) process never says Hello; it is served once OBS resumes.
+  const deferred = [];
   wss.on('connection', (socket) => {
+    if (state.frozen) { deferred.push(socket); allSockets.add(socket); socket.on('close', () => allSockets.delete(socket)); return; }
+    serve(socket);
+  });
+  function serve(socket) {
     state.connections++;
     allSockets.add(socket);
     const send = (obj) => { try { socket.send(encodeFor(socket, obj)); } catch { /* closed */ } };
@@ -290,6 +325,7 @@ async function start({ port = 4455, controlPort = 0, password = '' } = {}) {
     if (BREAK !== 'no-hello') send({ op: 0, d: hello });
 
     socket.on('message', (raw) => {
+      if (state.frozen) return;
       const msg = decode(raw);
       if (!msg || typeof msg.op !== 'number') return;
       state.stats.webSocketSessionIncomingMessages++;
@@ -326,9 +362,16 @@ async function start({ port = 4455, controlPort = 0, password = '' } = {}) {
       }
       // Reidentify (3) / RequestBatch (8): not modeled.
     });
-  });
+  }
 
   const dropAll = () => { if (BREAK === 'crash-keeps-socket') return; for (const s of allSockets) { try { s.terminate(); } catch { /* */ } } };
+
+  const freeze = (on) => {
+    state.frozen = !!on;
+    for (const s of allSockets) { try { if (on) s._socket.pause(); else s._socket.resume(); } catch { /* */ } }
+    if (!on) { while (deferred.length) { const s = deferred.shift(); if (s.readyState === 1) serve(s); } }
+    return { frozen: state.frozen };
+  };
 
   const control = await createControlServer({
     device: 'obs',
@@ -347,6 +390,13 @@ async function start({ port = 4455, controlPort = 0, password = '' } = {}) {
       setScenes: (scenes) => { if (Array.isArray(scenes)) state.scenes = scenes; },
       setStats: (stats) => { Object.assign(state.stats, stats || {}); },
       setPassword: ({ password: pw }) => { state.password = pw || ''; },
+      setStreamFailure: ({ reason }) => { state.streamFailure = reason || ''; },
+      setRecordFailure: ({ reason }) => { state.recordFailure = reason || ''; },
+      setOutputStartMs: ({ ms }) => { state.outputStartMs = Number(ms) || 0; },
+      // OBS hung (process stopped / frozen UI thread): TCP stays open, nothing
+      // is read or answered, not even WebSocket pings.
+      freeze: () => freeze(true),
+      thaw: () => freeze(false),
       // OBS crash / network cable pull: sockets die without a close frame.
       crash: () => { dropAll(); return { dropped: true }; },
       // Operator quits OBS: ExitStarted, then a normal close (1001 going away).
@@ -365,6 +415,8 @@ async function start({ port = 4455, controlPort = 0, password = '' } = {}) {
     control,
     state,
     crash: dropAll,
+    freeze: () => freeze(true),
+    thaw: () => freeze(false),
     stop: async () => {
       // ws.Server.close() does NOT close open sockets — terminate them so a
       // stopped mock really looks like a dead OBS to the client.

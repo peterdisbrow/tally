@@ -31,26 +31,46 @@ const handlers = require('../src/commands/atem');
 function createAgent({ fakeAtem = false, inputLabels = null, atemOverrides = {} } = {}) {
   const calls = [];
 
+  // A STATEFUL stand-in for the switcher: commands change its state the way a
+  // real ATEM does, because the handlers now confirm every command by reading
+  // the switcher state back (a real ATEM acks and silently ignores commands it
+  // can't do). `refuse: true` on the agent makes it ack-and-ignore everything.
+  const state = {
+    video: { mixEffects: [{ programInput: 1, previewInput: 2, transitionPosition: { inTransition: false } }, { programInput: 1, previewInput: 2, transitionPosition: { inTransition: false } }] },
+    recording: { status: { state: 0, error: 2 } },
+    streaming: { status: { state: 1 } },
+  };
+  const me = (i) => state.video.mixEffects[i || 0];
+  let refuse = false;
+  const act = (fn) => { if (!refuse) fn(); };
+  // real atem-connection arg order is (input, me); FakeAtem is (me, input)
+  const pv = (a, b) => (fakeAtem ? [a, b] : [b, a]);
+
   const atem = {
-    changeProgramInput:    async (a, b)    => { calls.push(['changeProgramInput', a, b]); },
-    changePreviewInput:    async (a, b)    => { calls.push(['changePreviewInput', a, b]); },
-    cut:                   async (me)      => { calls.push(['cut', me]); },
-    autoTransition:        async (me)      => { calls.push(['autoTransition', me]); },
-    startRecording:        async ()        => { calls.push(['startRecording']); },
-    stopRecording:         async ()        => { calls.push(['stopRecording']); },
-    startStreaming:        async ()        => { calls.push(['startStreaming']); },
-    stopStreaming:         async ()        => { calls.push(['stopStreaming']); },
-    fadeToBlack:           async (me)      => { calls.push(['fadeToBlack', me]); },
+    state,
+    changeProgramInput:    async (a, b)    => { calls.push(['changeProgramInput', a, b]); const [m, i] = pv(a, b); act(() => { me(m).programInput = i; }); },
+    changePreviewInput:    async (a, b)    => { calls.push(['changePreviewInput', a, b]); const [m, i] = pv(a, b); act(() => { me(m).previewInput = i; }); },
+    cut:                   async (m)       => { calls.push(['cut', m]); act(() => { const x = me(m); [x.programInput, x.previewInput] = [x.previewInput, x.programInput]; }); },
+    autoTransition:        async (m)       => { calls.push(['autoTransition', m]); act(() => { const x = me(m); [x.programInput, x.previewInput] = [x.previewInput, x.programInput]; }); },
+    startRecording:        async ()        => { calls.push(['startRecording']); act(() => { state.recording.status.state = 1; }); },
+    stopRecording:         async ()        => { calls.push(['stopRecording']); act(() => { state.recording.status.state = 0; }); },
+    startStreaming:        async ()        => { calls.push(['startStreaming']); act(() => { state.streaming.status.state = 4; }); },
+    stopStreaming:         async ()        => { calls.push(['stopStreaming']); act(() => { state.streaming.status.state = 1; }); },
+    fadeToBlack:           async (m)       => { calls.push(['fadeToBlack', m]); },
     setInputSettings:      async (a, b)    => { calls.push(['setInputSettings', a, b]); },
     macroRun:              async (idx)     => { calls.push(['macroRun', idx]); },
     macroStop:             async ()        => { calls.push(['macroStop']); },
     setAuxSource:          async (a, b)    => { calls.push(['setAuxSource', a, b]); },
     setTransitionStyle:    async (a, b)    => { calls.push(['setTransitionStyle', a, b]); },
     setMixTransitionSettings: async (a, b) => { calls.push(['setMixTransitionSettings', a, b]); },
-    setTransitionRate:     async (me, r)   => { calls.push(['setTransitionRate', me, r]); },
+    setTransitionRate:     async (m, r)    => { calls.push(['setTransitionRate', m, r]); },
     setDownstreamKeyOnAir: async (onAir, k) => { calls.push(['setDownstreamKeyOnAir', onAir, k]); },
     ...atemOverrides,
   };
+  if (atemOverrides.setRecordingAction && !atemOverrides.startRecording) {
+    const orig = atemOverrides.setRecordingAction;
+    atem.setRecordingAction = async (opts) => { await orig(opts); act(() => { state.recording.status.state = opts?.action === 1 ? 1 : 0; }); };
+  }
 
   return {
     atem,
@@ -60,6 +80,7 @@ function createAgent({ fakeAtem = false, inputLabels = null, atemOverrides = {} 
     },
     async atemCommand(fn) { return fn(); },
     calls,
+    set refuse(v) { refuse = !!v; },
   };
 }
 
@@ -68,7 +89,7 @@ function createAgent({ fakeAtem = false, inputLabels = null, atemOverrides = {} 
 test('atem.cut without input executes cut on ME 0', async () => {
   const agent = createAgent();
   const result = await handlers['atem.cut'](agent, {});
-  assert.equal(result, 'Cut executed');
+  assert.match(result, /^Cut executed — Cam 2 is on program$/);
   assert.deepStrictEqual(agent.calls[0], ['cut', 0]);
 });
 
@@ -135,7 +156,7 @@ test('atem.cut error message lists available inputs', async () => {
 test('atem.auto executes auto transition on ME 0', async () => {
   const agent = createAgent();
   const result = await handlers['atem.auto'](agent, {});
-  assert.equal(result, 'Auto transition executed');
+  assert.match(result, /^Auto transition done — Cam 2 is on program$/);
   assert.deepStrictEqual(agent.calls[0], ['autoTransition', 0]);
 });
 
@@ -204,15 +225,15 @@ test('atem.setPreview rejects missing input', async () => {
 test('atem.startRecording calls atem.startRecording()', async () => {
   const agent = createAgent();
   const result = await handlers['atem.startRecording'](agent, {});
-  assert.equal(result, 'Recording started');
+  assert.equal(result, 'Recording started (confirmed by the ATEM)');
   assert.deepStrictEqual(agent.calls[0], ['startRecording']);
 });
 
 test('atem.startRecording falls back to setRecordingAction({ action: 1 })', async () => {
   const agent = createAgent({ atemOverrides: { startRecording: undefined } });
-  agent.atem.setRecordingAction = async (p) => { agent.calls.push(['setRecordingAction', p]); };
+  agent.atem.setRecordingAction = async (p) => { agent.calls.push(['setRecordingAction', p]); agent.atem.state.recording.status.state = p.action === 1 ? 1 : 0; };
   const result = await handlers['atem.startRecording'](agent, {});
-  assert.equal(result, 'Recording started');
+  assert.equal(result, 'Recording started (confirmed by the ATEM)');
   assert.deepStrictEqual(agent.calls[0], ['setRecordingAction', { action: 1 }]);
 });
 
@@ -227,7 +248,7 @@ test('atem.startRecording throws when neither method is available', async () => 
 test('atem.stopRecording calls atem.stopRecording()', async () => {
   const agent = createAgent();
   const result = await handlers['atem.stopRecording'](agent, {});
-  assert.equal(result, 'Recording stopped');
+  assert.equal(result, 'Recording stopped (confirmed by the ATEM)');
   assert.deepStrictEqual(agent.calls[0], ['stopRecording']);
 });
 
@@ -251,7 +272,7 @@ test('atem.stopRecording throws when neither method is available', async () => {
 test('atem.startStreaming calls atem.startStreaming()', async () => {
   const agent = createAgent();
   const result = await handlers['atem.startStreaming'](agent, {});
-  assert.equal(result, 'Streaming started');
+  assert.equal(result, 'Streaming started (the ATEM is live)');
   assert.deepStrictEqual(agent.calls[0], ['startStreaming']);
 });
 
@@ -266,7 +287,7 @@ test('atem.startStreaming throws when not supported', async () => {
 test('atem.stopStreaming calls atem.stopStreaming()', async () => {
   const agent = createAgent();
   const result = await handlers['atem.stopStreaming'](agent, {});
-  assert.equal(result, 'Streaming stopped');
+  assert.equal(result, 'Streaming stopped (confirmed by the ATEM)');
   assert.deepStrictEqual(agent.calls[0], ['stopStreaming']);
 });
 
@@ -616,6 +637,26 @@ test('validateAtemInput: input null skips validation entirely', async () => {
   const agent = createAgent({ inputLabels: { 1: 'Cam 1' } });
   // No input param → cut ME only, no validation
   const result = await handlers['atem.cut'](agent, {});
-  assert.equal(result, 'Cut executed');
+  assert.match(result, /^Cut executed — Cam 2 is on program$/);
   assert.equal(agent.calls.length, 1);
+});
+
+// ─── Read-back: a switcher that acks but ignores is a refusal ─────────────────
+
+test('read-back: setProgram / setPreview / cut / auto the switcher ignored → error, never "done"', async () => {
+  const agent = createAgent();
+  agent.refuse = true;
+  await assert.rejects(handlers['atem.setProgram'](agent, { input: 3 }), /did not switch program to Cam 3/);
+  await assert.rejects(handlers['atem.setPreview'](agent, { input: 3 }), /did not put Cam 3 on preview/);
+  await assert.rejects(handlers['atem.cut'](agent, {}), /did not cut/);
+  await assert.rejects(handlers['atem.cut'](agent, { input: 3020 }), /did not cut to MP2.*may not have that source/);
+  await assert.rejects(handlers['atem.auto'](agent, {}), /did not start the auto transition/);
+});
+
+test('read-back: record/stream the switcher did not start → error with the reason', async () => {
+  const agent = createAgent();
+  agent.refuse = true;
+  agent.atem.state.recording.status.error = 0; // NoMedia
+  await assert.rejects(handlers['atem.startRecording'](agent, {}), /No media/);
+  await assert.rejects(handlers['atem.startStreaming'](agent, {}), /did not start streaming/);
 });

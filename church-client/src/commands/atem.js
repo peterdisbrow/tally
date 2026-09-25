@@ -131,6 +131,62 @@ function resolveAtem(agent, params) {
   return { atem: agent.atem, fake: isFakeAtem(agent) };
 }
 
+// ─── READ-BACK CONFIRMATION ─────────────────────────────────────────────────
+//
+// A real ATEM never answers "error". It ACKs every packet — including a switch
+// to a source the model doesn't have, a record start with no disk, or a packet
+// that went out just as the cable was pulled (atem-connection then resolves the
+// command when it resets the link) — and simply doesn't do it. The only truth
+// is the switcher's own state, so every command below is confirmed by reading
+// the state back. No confirmation → a clear refusal, never "done".
+
+const CONFIRM_MS = 1500;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function waitForAtemState(atem, pred, timeoutMs = CONFIRM_MS) {
+  const t0 = Date.now();
+  for (;;) {
+    let ok = false;
+    try { ok = !!pred(atem?.state || {}); } catch { ok = false; }
+    if (ok) return true;
+    if (Date.now() - t0 >= timeoutMs) return false;
+    await sleep(25);
+  }
+}
+
+function meState(state, me) {
+  return state?.video?.mixEffects?.[me] || null;
+}
+
+function sourceHint(input) {
+  return input >= 1000
+    ? ' (this switcher model may not have that source)'
+    : ' (check the input exists and the ATEM is reachable)';
+}
+
+function isRecordingState(st) {
+  const s = st?.recording?.status;
+  return s === 'Recording' || s?.state === 1;
+}
+function recordingRefusalReason(st) {
+  const e = st?.recording?.status?.error;
+  if (e === 0) return 'no recording disk (the ATEM reports "No media")';
+  if (e === 4) return 'the recording disk is full';
+  if (e === 8) return 'the recording disk has an error';
+  if (e === 16) return 'the recording disk is not formatted';
+  return 'the ATEM did not start recording';
+}
+// atem-connection StreamingStatus: Idle 1, Connecting 2, Streaming 4, Stopping 32
+function streamingStateOf(st) { return st?.streaming?.status?.state; }
+
+async function confirmProgram(atem, me, input, verb = 'switch program to') {
+  const ok = await waitForAtemState(atem, (st) => meState(st, me)?.programInput === input);
+  if (!ok) {
+    const now = meState(atem?.state, me)?.programInput;
+    throw new Error(`ATEM did not ${verb} ${friendlyInputName(input)} — the switcher ignored the command${sourceHint(input)}. Program is still ${now != null ? friendlyInputName(now) : 'unknown'}.`);
+  }
+}
+
 // ─── CORE SWITCHING ─────────────────────────────────────────────────────────
 
 async function atemCut(agent, params) {
@@ -138,6 +194,7 @@ async function atemCut(agent, params) {
   const input = params.input != null ? toInt(params.input, 'input') : null;
   if (input != null) validateAtemInput(agent, input, params.switcherId);
   const { atem, fake } = resolveAtem(agent, params);
+  const before = { ...(meState(atem?.state, me) || {}) };
   await agent.atemCommand(async () => {
     if (input != null) {
       if (fake) await atem?.changeProgramInput(me, input);
@@ -146,13 +203,36 @@ async function atemCut(agent, params) {
     }
     await atem?.cut(me);
   });
-  return input != null ? `Cut to ${friendlyInputName(input)}` : 'Cut executed';
+  if (input != null) {
+    await confirmProgram(atem, me, input, 'cut to');
+    return `Cut to ${friendlyInputName(input)}`;
+  }
+  const target = before.previewInput;
+  const ok = await waitForAtemState(atem, (st) => target != null && meState(st, me)?.programInput === target);
+  if (!ok) throw new Error(`ATEM did not cut — program is still ${friendlyInputName(meState(atem?.state, me)?.programInput)} (the switcher ignored the command or is not reachable).`);
+  return `Cut executed — ${friendlyInputName(target)} is on program`;
 }
 
 async function atemAuto(agent, params) {
+  const me = toInt(params.me ?? 0, 'me');
   const { atem } = resolveAtem(agent, params);
-  await agent.atemCommand(() => atem?.autoTransition(params.me || 0));
-  return 'Auto transition executed';
+  const before = { ...(meState(atem?.state, me) || {}) };
+  const target = before.previewInput;
+  await agent.atemCommand(() => atem?.autoTransition(me));
+  // 1) the switcher must actually start (or already have finished) the transition
+  const started = await waitForAtemState(atem, (st) => {
+    const m = meState(st, me);
+    return !!m && (m.transitionPosition?.inTransition === true || (target != null && m.programInput === target));
+  });
+  if (!started) throw new Error('ATEM did not start the auto transition (the switcher ignored the command or is not reachable).');
+  // 2) confirmed only when it has finished with the preview source on program.
+  //    Max ATEM transition rate is 250 frames (~10 s at 25p).
+  const done = await waitForAtemState(atem, (st) => {
+    const m = meState(st, me);
+    return !!m && m.transitionPosition?.inTransition !== true && target != null && m.programInput === target;
+  }, 11_000);
+  if (!done) throw new Error('ATEM auto transition started but did not finish (not confirmed).');
+  return `Auto transition done — ${friendlyInputName(target)} is on program`;
 }
 
 async function atemSetProgram(agent, params) {
@@ -164,6 +244,7 @@ async function atemSetProgram(agent, params) {
     if (fake) return atem?.changeProgramInput(me, input);
     return atem?.changeProgramInput(input, me);
   });
+  await confirmProgram(atem, me, input);
   return `Program set to ${friendlyInputName(input)}`;
 }
 
@@ -176,41 +257,69 @@ async function atemSetPreview(agent, params) {
     if (fake) return atem?.changePreviewInput(me, input);
     return atem?.changePreviewInput(input, me);
   });
+  const ok = await waitForAtemState(atem, (st) => meState(st, me)?.previewInput === input);
+  if (!ok) {
+    const now = meState(atem?.state, me)?.previewInput;
+    throw new Error(`ATEM did not put ${friendlyInputName(input)} on preview — the switcher ignored the command${sourceHint(input)}. Preview is still ${now != null ? friendlyInputName(now) : 'unknown'}.`);
+  }
   return `Preview set to ${friendlyInputName(input)}`;
 }
 
-async function atemStartRecording(agent) {
+async function atemStartRecording(agent, params = {}) {
+  const { atem } = resolveAtem(agent, params);
   await agent.atemCommand(async () => {
-    if (typeof agent.atem?.startRecording === 'function') return agent.atem.startRecording();
-    if (typeof agent.atem?.setRecordingAction === 'function') return agent.atem.setRecordingAction({ action: 1 });
+    if (typeof atem?.startRecording === 'function') return atem.startRecording();
+    if (typeof atem?.setRecordingAction === 'function') return atem.setRecordingAction({ action: 1 });
     throw new Error('ATEM recording start is not supported by this switcher');
   });
-  return 'Recording started';
+  const ok = await waitForAtemState(atem, isRecordingState, 2500);
+  if (!ok) throw new Error(`ATEM recording did not start: ${recordingRefusalReason(atem?.state)}.`);
+  return 'Recording started (confirmed by the ATEM)';
 }
 
-async function atemStopRecording(agent) {
+async function atemStopRecording(agent, params = {}) {
+  const { atem } = resolveAtem(agent, params);
   await agent.atemCommand(async () => {
-    if (typeof agent.atem?.stopRecording === 'function') return agent.atem.stopRecording();
-    if (typeof agent.atem?.setRecordingAction === 'function') return agent.atem.setRecordingAction({ action: 0 });
+    if (typeof atem?.stopRecording === 'function') return atem.stopRecording();
+    if (typeof atem?.setRecordingAction === 'function') return atem.setRecordingAction({ action: 0 });
     throw new Error('ATEM recording stop is not supported by this switcher');
   });
-  return 'Recording stopped';
+  const ok = await waitForAtemState(atem, (st) => !isRecordingState(st), 2500);
+  if (!ok) throw new Error('ATEM is still recording — the stop was not confirmed.');
+  return 'Recording stopped (confirmed by the ATEM)';
 }
 
-async function atemStartStreaming(agent) {
+async function atemStartStreaming(agent, params = {}) {
+  const { atem } = resolveAtem(agent, params);
   await agent.atemCommand(async () => {
-    if (typeof agent.atem?.startStreaming === 'function') return agent.atem.startStreaming();
+    if (typeof atem?.startStreaming === 'function') return atem.startStreaming();
     throw new Error('ATEM streaming start is not supported by this switcher');
   });
-  return 'Streaming started';
+  // Connecting (2) → Streaming (4), or back to Idle (1) when the service refuses.
+  let sawConnecting = false;
+  const t0 = Date.now();
+  await waitForAtemState(atem, (st) => {
+    const s = streamingStateOf(st);
+    if (s === 2 || s === 4) sawConnecting = true;
+    if (s === 4 || (sawConnecting && s === 1)) return true;
+    return !sawConnecting && Date.now() - t0 > 2500; // never left Idle → ignored
+  }, 10_000);
+  const s = streamingStateOf(atem?.state);
+  if (s === 4) return 'Streaming started (the ATEM is live)';
+  if (sawConnecting && s === 1) throw new Error('ATEM could not start the stream — it went back to idle (check the stream key / service settings on the ATEM).');
+  if (s === 2) throw new Error('ATEM is still connecting to the streaming service after 10 s (not confirmed live).');
+  throw new Error('ATEM did not start streaming (the switcher ignored the command or is not reachable).');
 }
 
-async function atemStopStreaming(agent) {
+async function atemStopStreaming(agent, params = {}) {
+  const { atem } = resolveAtem(agent, params);
   await agent.atemCommand(async () => {
-    if (typeof agent.atem?.stopStreaming === 'function') return agent.atem.stopStreaming();
+    if (typeof atem?.stopStreaming === 'function') return atem.stopStreaming();
     throw new Error('ATEM streaming stop is not supported by this switcher');
   });
-  return 'Streaming stopped';
+  const ok = await waitForAtemState(atem, (st) => streamingStateOf(st) === 1, 5000);
+  if (!ok) throw new Error('ATEM stream stop was not confirmed — it still reports streaming.');
+  return 'Streaming stopped (confirmed by the ATEM)';
 }
 
 async function atemFadeToBlack(agent, params) {
