@@ -1,8 +1,12 @@
 # TallyConnect E2E Test Harness
 
-Single-command end-to-end test against production Neon + `api.tallyconnect.app`.
-Boots all 11 mock devices, spawns the church-client agent against a labeled
-test account in production, runs scenarios, prints pass/fail, tears down.
+Single-command end-to-end test against a **local** relay (default
+`http://127.0.0.1:3400`). Boots all 11 mock devices, spawns the church-client
+agent against a labeled test account, runs scenarios, prints pass/fail, tears down.
+
+`RELAY_URL` must be loopback (`127.0.0.1`, `localhost`, or `::1`). Anything else,
+including `https://api.tallyconnect.app`, is refused unless
+`E2E_ALLOW_NONLOCAL_RELAY=1` is set on purpose. Do not set that against production.
 
 ## Quick start
 
@@ -18,26 +22,13 @@ export DATABASE_URL='postgres://...'
 npm run test:e2e
 ```
 
-## Loading env from Railway CLI (recommended)
+## Stay on the local relay
 
-The relay's prod env vars live in Railway. Pull them into your shell with
-the awk-based quoting below — naive `eval $(railway variables --kv | sed
-'s/^/export /')` breaks on Postgres URLs that contain `&`, `?`, `=`, etc.
-
-```bash
-eval "$(cd relay-server && railway variables --kv \
-  | grep -E '^(DATABASE_URL|ADMIN_API_KEY|JWT_SECRET)=' \
-  | awk -F= '{printf "export %s=%s\n", $1, "\047" substr($0, index($0,"=")+1) "\047"}')"
-
-# Verify all three loaded
-env | grep -cE "^(ADMIN_API_KEY|DATABASE_URL|JWT_SECRET)="    # should print 3
-
-npm run test:e2e
-```
-
-The `awk` step single-quotes each value so shell metacharacters in the
-Postgres URL (the `?sslmode=require&channel_binding=require` tail in
-particular) survive the `eval`.
+Do not load production Railway variables into this shell. `RELAY_URL` defaults
+to `http://127.0.0.1:3400`. If the variable is already set to something else,
+the harness exits before it creates an account or sends a request. `DATABASE_URL`,
+when set, should be a local database too — cron scenarios use whatever URL is
+in the environment.
 
 What you'll see:
 
@@ -45,7 +36,7 @@ What you'll see:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TallyConnect E2E Harness
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Relay        : https://api.tallyconnect.app
+Relay        : http://127.0.0.1:3400
 Database     : configured
 ...
 
@@ -105,7 +96,8 @@ offline|connection|reconnect|restart` in the reply passes.
 | Var | Required? | Default | Purpose |
 |---|---|---|---|
 | `ADMIN_API_KEY` | yes | — | Admin key for `/api/churches/*` |
-| `RELAY_URL` | no | `https://api.tallyconnect.app` | Target relay |
+| `RELAY_URL` | no | `http://127.0.0.1:3400` | Target relay. Loopback only unless `E2E_ALLOW_NONLOCAL_RELAY=1` |
+| `E2E_ALLOW_NONLOCAL_RELAY` | no | unset | Set to `1` to allow a non-loopback `RELAY_URL`. Not for production. |
 | `DATABASE_URL` | no | — | Neon Postgres URL — enables full cron tests |
 | `JWT_SECRET` | no | — | Only needed if cron drivers need to mint tokens locally |
 | `E2E_TEST_PREFIX` | no | `test-e2e-` | Email prefix for the test account |
