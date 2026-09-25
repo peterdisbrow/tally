@@ -1,0 +1,20 @@
+Two gate logs. Neither is two consecutive fully green passes, so Companion and Planning Center stay candidates.
+
+First gate (/tmp/g7-clean.log), before MockLab pushed program/preview:
+- tally_program_preview_sim failed on source and deb in both passes (Camera 4/3 or Camera 1/2). AppImage passed.
+- Pass B church-sim: 96 pass, 1 fail (dLive main-mute visible). Isolated rerun of that test later passed.
+- Full-church source, AppImage, and deb passed in both passes (online, crash/unplug honest, recover, kill -9 rejoin).
+- Wrapper exited 0 only because the script did not fail the process. That is fixed.
+
+Second gate (/tmp/g7-after-push.log), after the push, SHA 5c51d7b:
+- Pass A: SUITE_DONE_A fails=0. Every booth on source, AppImage, and deb exited 0. Electron 467 (Playwright 71), church-unit 2239, church-sim 97 skipped 0, relay 5372. Source OBS and full-church on all three binaries exited 0.
+- Program/preview was Cam 5 / Cam 3 on all six e2e runs.
+- Pass B: one failure, g6B-src-hard. relay_down_ui_consistent and relay_down_offline_banner. SIGSTOP, page call sat 616s, UI stayed Connected / All Systems Nominal / Relay connected. bannerVisible=false. A later relay-down check in the same run did see "Monitoring Locally". AppImage and deb hard checks in pass B exited 0.
+- Pass B suites: electron 467, church-unit 2239, church-sim 97, relay 5372, all exit 0. Full-church source, AppImage, and deb exit 0.
+- GATE_DONE fails=1. GATE_WRAPPER_EXIT:1.
+
+Packages tested (built before the MockLab push; the lab MockLab is the external process):
+6e7a140adaf6503fef38a938b0983b3fa0058186c906e3b07fca9ecdebc5352b  Tally-1.1.67.AppImage
+73a695e20cd15ff0ef84996c080e84898c19cec787a2414cff1f32515630e798  tally-connect_1.1.67_amd64.deb
+
+The booth has one mixer slot. Full-church is ATEM + OBS + X32 + ProPresenter. SQ, dLive, and Yamaha have their own booth scenarios.
