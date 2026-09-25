@@ -1,0 +1,7 @@
+ack-no-apply exit=1 not ok 1 - r not ok 3 - r not ok 4 - r not ok 5 - r 
+accept-any-source exit=1 not ok 2 - r 
+no-state-push exit=1 not ok 1 - r not ok 3 - r not ok 4 - r not ok 5 - r not ok 6 - r not ok 7 - r 
+no-init-complete exit=1 not ok 1 - r not ok 2 - r not ok 3 - r not ok 4 - r not ok 5 - r not ok 6 - r not ok 1 - / 
+343:        // MUTATION: stale agent.atem
+stale exit=1 not ok 5 - r 
+MUT_DONE

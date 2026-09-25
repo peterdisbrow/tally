@@ -1,0 +1,533 @@
+=== g6A-src-e2e (e2e-electron.mjs source) 05:15:07
+=== g6A-src-e2e exit=0 05:15:28
+✓ [PASS] app_launch
+✓ [PASS] sign_in_local_relay — Signing in...
+✓ [PASS] room_select — wizard-skip or dashboard
+✓ [PASS] device_connect_atem_sim — SIMULATED MockLab; atem=true relay=true relayConnectedChurches=1; status={"relay":true,"atem":{"connected":true,"ip":"127.0.0.1","model":"ATEM Mini Extreme ISO",
+✓ [PASS] tally_program_preview_sim — SIMULATED MockLab; UI pgm="Cam 5" pvw="Cam 3" statusProg=5 statusPvw=3
+✓ [PASS] alert_disconnect_reconnect_sim — SIMULATED unreachable IP; disconnected=true reconnected=true
+✓ [PASS] relay_health_local — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":17,"status":"healthy","registeredChurches":1,"connectedChurches":1,"controllers":0,"totalMessagesRel
+✓ [PASS] app_restart_persistence — config keys=relay,autoStartMonitoring,schemaVersion,token,name,roomId,roomName,rejoinRoom,setupComplete,watchdog,localStatusPort,hyperdecks,ptz,videoHubs,proPres
+✓ [PASS] relay_drop_reconnect_agent — stop→relay/atem cleared=true; start→relay+atem back=true
+=== g6A-src-hard (paces-e2e.mjs source) 05:15:32
+=== g6A-src-hard exit=0 05:18:47
+✓ [PASS] cold_start_launch
+✓ [PASS] sign_in_room
+✓ [PASS] atem_sim_connect — atem=true status={"relay":true,"atem":{"connected":true,"model":"ATEM Mini Extreme ISO","ip":"127.0.0.1","modelCode":17,"productIdentifier":"Mock ATEM Mini Extreme ISO"
+✓ [PASS] pgm_pvw_visible — UI pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] ui_clean_atem_only_booth — {"banner":false,"bannerText":"Offline Mode — Local monitoring active","pill":"Connected","heroHead":"All Systems Nominal","heroSub":"Relay connected","network
+✓ [PASS] no_false_relay_offline_on_agent_restart — banner/pill/network stayed non-offline during 8s agent restart (relay healthy)
+✓ [PASS] dead_ip_then_recover — disconnected=true reconnected=true pgmPvw=true pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] rapid_atem_disconnect_reconnect_x5 — 5/5; c1:disc=true/rec=true; c2:disc=true/rec=true; c3:disc=true/rec=true; c4:disc=true/rec=true; c5:disc=true/rec=true; pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] relay_down_ui_consistent — {"banner":true,"bannerText":"Relay unreachable — running in local mode","pill":"Offline Mode","heroHead":"Monitoring Locally","heroSub":"Relay offline","netwo
+✓ [PASS] relay_down_offline_banner — bannerVisible=true text="Relay unreachable — running in local mode" conn="Offline Mode" mode=stop outageSecBeforeBanner=35 bannerStillAt40s=true atemLocal=tr
+✓ [PASS] relay_down_local_mode_honesty — ATEM stayed connected locally during relay outage
+✓ [PASS] config_persist_kill9 — marker before=true after=true atemIp=127.0.0.1 token=true recordBeforeKill=true
+✓ [PASS] kill9_auto_rejoin_same_room — screen=dashboard banner="Reconnected to Sanctuary Linux" / "Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch ro
+✓ [PASS] restart_after_kill9_reconnect — no manual start: atem=true@2621ms relay=true@2631ms (from relaunch)
+✓ [PASS] clean_quit_auto_rejoin — onDisk cleanExit=true roomIdClearedOnQuit=true screen=dashboard detail="Rejoined your last room automatically. Use Change Room to switch rooms." dashboard@2727ms 
+✓ [PASS] hero_honest_relay_down — relay down headlines seen=["Connecting to Relay…","Monitoring Locally"] settledLocal=true; relay back headline="All Systems Nominal"
+✓ [PASS] relay_down_relaunch_local_rejoin — local: screen=dashboard banner="Reconnected to Sanctuary Linux — relay offline" local=true atem=true@2666ms pgmPvw=true@2707ms relayClaimedWhileDown=f
+✓ [PASS] leave_room_relaunch_shows_picker — recordClearedOnLeave=true screen=room-selector agentRunning=false rejoinBanner=false
+✓ [PASS] picker_relay_down_keeps_equipment — atemIp before="127.0.0.1" after="127.0.0.1" savedCopy="127.0.0.1" roomId=31644abe-8dff-4070-9949-d3d6669efcca==31644abe-8dff-4070-9949-d3d6669efcca:tru
+✓ [PASS] signout_relaunch_shows_picker — wiped token=true record=true relaunch=sign-in afterSignIn=room-selector agentRunning=false
+✓ [PASS] deleted_room_relaunch_picker_message — adminDelete=200 screen=room-selector msg="Your last room “Sanctuary Linux” is no longer available. Choose or create a room to continue." agentRu
+✓ [PASS] two_sequential_sessions — [{"s":1,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"},{"s":2,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"}]
+✓ [PASS] relay_health_end — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":50,"status":"healthy","registeredChurches":1,"connectedChurches":0,"controllers":0,"totalMessagesRelay
+=== g6A-src-audio (sim/booth-audio.mjs source) 05:18:51
+=== g6A-src-audio exit=0 05:19:34
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Console 
+✓ [PASS] master_mute_honest — 3809ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4817ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Con
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"58d0832d-9a42-4d20-83bd-9214df98d510","result":"Channel 3 muted"} ch3.on=0; empty scene→"Scene 50 is empty on the X32 — no
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200/{"sent":true,"messageId":"c1cbf50f-ca5d-4258-814d-570001288642","localRecipients scene4=200 cur=4 emp
+✓ [PASS] console_unplug_honest — 6354ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"X32 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detailsAudio"
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"dcde2267-7672-40ce-80ff-52790db78a7a","localRecipients":1,"remotePublished":false,"completed":true,"error":"X32 is not
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 509ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● C
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-sq (sim/booth-sq.mjs source) 05:19:38
+=== g6A-src-sq exit=0 05:20:38
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 4ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"allenheath","host":"127.0.0.1","port":39359,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · 
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath SQ Console127.0.0.1:39359
+✓ [PASS] master_mute_honest — 3798ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4810ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAu
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"2478a97b-e948-4205-9096-bf021909c095","result":"Channel 3 muted"} ch3=1; ch60→"Invalid channel \"60\" (valid: 1–48)" ch1=0
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200 scene4=200:"Scene 4 recall sent — not confirmed by the console (The SQ does not report scene recall
+✓ [PASS] console_unplug_honest — 6337ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath SQ not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"9aaf0f2b-c1c7-4c91-adde-1118a284a40e","localRecipients":1,"remotePublished":false,"completed":true,"error":"SQ not con
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3296ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-dlive (sim/booth-ah.mjs source) 05:20:42
+=== g6A-src-dlive exit=0 05:21:42
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 5ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"dlive","host":"127.0.0.1","port":35741,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · st
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath dLive Console127.0.0.1:35741
+✓ [PASS] master_mute_honest — 3802ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4819ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"2b3db5e7-bef3-442f-a248-29e2512c9812","result":"Channel 3 muted"} ch3=true; ch200→"Invalid channel \"200\" (valid: 1–128)"
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recall sent — not confirmed by the console (the dLive does 
+✓ [PASS] console_unplug_honest — 6093ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath dLive not responding","hero":"1 Issue Detected","mixerDot":"device-dot error
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"c0c555cc-a9b5-4ae7-8478-5010d1413130","localRecipients":1,"remotePublished":false,"completed":true,"error":"dLive not 
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3047ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","det
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-avantis (sim/booth-ah.mjs source) 05:21:46
+=== g6A-src-avantis exit=0 05:22:46
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 5ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"avantis","host":"127.0.0.1","port":37661,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis �
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath Avantis Console127.0.0.1:37661
+✓ [PASS] master_mute_honest — 3804ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4817ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","deta
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"b8fc0f5b-ca9f-4c98-90dd-033797d96ed9","result":"Channel 3 mute sent — not confirmed by the console (the Avantis ha ch3=true;
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmute sent — not confirmed by the console (the Avantis has no mute/level read- scene4=2
+✓ [PASS] console_unplug_honest — 6092ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath Avantis not responding","hero":"1 Issue Detected","mixerDot":"device-dot err
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"478f80b0-f638-4f36-a0df-7cdbcc20196d","localRecipients":1,"remotePublished":false,"completed":true,"error":"Avantis no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3054ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","d
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-yamaha-cl5 (sim/booth-yamaha.mjs source) 05:22:50
+=== g6A-src-yamaha-cl5 exit=0 05:23:34
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3827ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4820ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"a18466f9-548e-452f-be17-07c131687e6e","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–72)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=4 scene250=422:CL5 refused scene 250 — not re
+✓ [PASS] console_unplug_honest — 6087ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha CL5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"0bac25ea-d988-448a-bda0-52bd36297438","localRecipients":1,"remotePublished":false,"completed":true,"error":"CL5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2035ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-yamaha-tf5 (sim/booth-yamaha.mjs source) 05:23:38
+=== g6A-src-yamaha-tf5 exit=0 05:24:22
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3805ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4820ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"a5e9a04f-6396-455e-8d6a-f2313b9615e4","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–40)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=scene_a:4 scene250=422:Invalid scene "250" (TF:
+✓ [PASS] console_unplug_honest — 6096ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha TF5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"a088da94-0ed6-4f09-b43c-b4914b7d50d8","localRecipients":1,"remotePublished":false,"completed":true,"error":"TF5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2035ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-pp (sim/booth-pp.mjs source) 05:24:25
+=== g6A-src-pp exit=0 05:25:10
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] test_button_honest — not-pp→"Something answered on port 41025 but it is not ProPresenter (enable Network in ProPresenter settings and check the port)" pp→"ProPresenter 7.16.2 running 
+✓ [PASS] pp_online_on_screen — cfg={"host":"127.0.0.1","port":41025,"triggerMode":"presentation","backupHost":"","backupPort":1025} {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","c
+✓ [PASS] operator_slide_follows — 763ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 5 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresenta
+✓ [PASS] operator_clear_shows_nothing_on_screen — 2032ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"Nothing on screen","hero":"All Systems Nominal","ppDot":"device-d
+✓ [PASS] audience_screens_state_shown — 2030ms screen=OFF
+✓ [PASS] booth_command_path_honest — next→{"error":"Unknown command: propresenter.next. Allowed: restart_stream, stop_stream, start_recording, stop_recording, rec idx=1
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 next=200:"Next slide — now slide 4 of \"Worship Set\"" go99=422:"ProPresenter refused slide 99 (not found in P
+✓ [PASS] remote_change_visible_in_booth — 1268ms look=Stream Only
+✓ [PASS] pp_quit_honest — 3292ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"ProPresenter not reachable","hero":"1 Issue Detected","ppDot":"device-dot error","s
+✓ [PASS] remote_command_pp_offline_fails — 422 {"sent":true,"messageId":"ef766992-4987-489d-be62-79f1c5459d9e","localRecipients":1,"remotePublished":false,"completed":true,"error":"ProPresenter is
+✓ [PASS] pp_stays_offline_no_flap — flapped=false
+✓ [PASS] pp_back_recovers — 4561ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 4 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresentation"
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-comp (sim/booth-companion.mjs source) 05:25:14
+=== g6A-src-comp exit=0 05:25:52
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] ui_default_port_8000 — placeholder=8000 value=8000
+✓ [PASS] test_button_honest — other→"Something answered at http://127.0.0.1:41800 but it is not Companion (HTTP 404)" apiOff→"Companion found, but its HTTP API is switched off — enable it in
+✓ [PASS] companion_online_on_screen — cfg=http://127.0.0.1:41800 {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-d
+✓ [PASS] module_error_named — 1770ms {"cardShown":true,"cardStatus":"error","cardValue":"Connected","cardDetail":"1 module in error: atem (connection_failure: ECONNREFUSED 10.0.0.9:9910)","hero":"
+✓ [PASS] module_recovers — 2785ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem","secLis
+✓ [PASS] remote_commands_real_results — failed=[] church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 press=200:"Companion button pressed: \"Service Start\" (page 1, row 0, column 1)" empty=422:"No button
+✓ [PASS] api_off_named_and_refused — 507ms {"cardShown":true,"cardStatus":"error","cardValue":"HTTP API off","cardDetail":"Enable Settings → Protocols → HTTP in Companion","hero":"1 Issue Dete
+✓ [PASS] companion_quit_honest — 2789ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"Companion not reachable","hero":"1 Issue Detected","dot":"device-dot error",
+✓ [PASS] remote_command_offline_fails — 422 {"sent":true,"messageId":"ef2fa223-c746-48b8-a9d8-f870d3042848","localRecipients":1,"remotePublished":false,"completed":true,"error":"Companion is not r
+✓ [PASS] companion_stays_offline_no_flap — flapped=false
+✓ [PASS] companion_back_recovers — 508ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem",
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-src-pco (sim/booth-pco.mjs source) 05:25:56
+=== g6A-src-pco exit=0 05:26:15
+✓ [PASS] booth_shows_not_connected — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"}
+✓ [PASS] connect_and_list_service_types — put=200 types=200:["Sunday Morning","Wednesday Night"]
+✓ [PASS] sync_wall_clock_times — 200 {"schedule":{"synced":2,"services":[{"day":0,"startHour":9,"startMin":0,"durationHours":2,"source":"planning_center"},{"day":0,"startHour":11,"startMin":0,"dur
+✓ [PASS] booth_shows_connected_synced — {"text":"Connected · synced 9/25/2026, 5:26:05 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] next_service_plan — 200 title=Sunday 9:00 items=3 team=2
+✓ [PASS] revoked_sync_refused — 500 {"error":"Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, expired, or revoked"}
+✓ [PASS] booth_shows_sync_failing — {"text":"Connected — sync failing: Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, ex
+✓ [PASS] pco_down_sync_refused — 500 {"error":"Planning Center API error (503): Service Unavailable: Planning Center is temporarily unavailable"}
+✓ [PASS] recovery_clears_warning — 200 {"text":"Connected · synced 9/25/2026, 5:26:08 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] mock_only_no_real_pco — mock calls=15
+✓ [PASS] booth_disconnect_really_disconnects — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"} next={"plan":null,"message":"No upcoming service plan found. Try sync
+=== g6A-appimage-e2e (e2e-electron.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:26:19
+=== g6A-appimage-e2e exit=0 05:26:40
+✓ [PASS] app_launch
+✓ [PASS] sign_in_local_relay — Signing in...
+✓ [PASS] room_select — wizard-skip or dashboard
+✓ [PASS] device_connect_atem_sim — SIMULATED MockLab; atem=true relay=true relayConnectedChurches=1; status={"relay":true,"atem":{"connected":true,"model":"ATEM Mini Extreme ISO","ip":"127.0.0.1",
+✓ [PASS] tally_program_preview_sim — SIMULATED MockLab; UI pgm="Cam 5" pvw="Cam 3" statusProg=5 statusPvw=3
+✓ [PASS] alert_disconnect_reconnect_sim — SIMULATED unreachable IP; disconnected=true reconnected=true
+✓ [PASS] relay_health_local — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":17,"status":"healthy","registeredChurches":1,"connectedChurches":1,"controllers":0,"totalMessagesRel
+✓ [PASS] app_restart_persistence — config keys=relay,autoStartMonitoring,schemaVersion,token,name,roomId,roomName,rejoinRoom,setupComplete,watchdog,localStatusPort,hyperdecks,ptz,videoHubs,proPres
+✓ [PASS] relay_drop_reconnect_agent — stop→relay/atem cleared=true; start→relay+atem back=true
+=== g6A-appimage-hard (paces-e2e.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:26:44
+=== g6A-appimage-hard exit=0 05:30:01
+✓ [PASS] cold_start_launch
+✓ [PASS] sign_in_room
+✓ [PASS] atem_sim_connect — atem=true status={"relay":true,"atem":{"connected":true,"model":"ATEM Mini Extreme ISO","ip":"127.0.0.1","modelCode":17,"productIdentifier":"Mock ATEM Mini Extreme ISO"
+✓ [PASS] pgm_pvw_visible — UI pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] ui_clean_atem_only_booth — {"banner":false,"bannerText":"Offline Mode — Local monitoring active","pill":"Connected","heroHead":"All Systems Nominal","heroSub":"Relay connected","network
+✓ [PASS] no_false_relay_offline_on_agent_restart — banner/pill/network stayed non-offline during 8s agent restart (relay healthy)
+✓ [PASS] dead_ip_then_recover — disconnected=true reconnected=true pgmPvw=true pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] rapid_atem_disconnect_reconnect_x5 — 5/5; c1:disc=true/rec=true; c2:disc=true/rec=true; c3:disc=true/rec=true; c4:disc=true/rec=true; c5:disc=true/rec=true; pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] relay_down_ui_consistent — {"banner":true,"bannerText":"Relay unreachable — running in local mode","pill":"Offline Mode","heroHead":"Monitoring Locally","heroSub":"Relay offline","netwo
+✓ [PASS] relay_down_offline_banner — bannerVisible=true text="Relay unreachable — running in local mode" conn="Offline Mode" mode=kill outageSecBeforeBanner=30 bannerStillAt40s=true atemLocal=tr
+✓ [PASS] relay_down_local_mode_honesty — ATEM stayed connected locally during relay outage
+✓ [PASS] config_persist_kill9 — marker before=true after=true atemIp=127.0.0.1 token=true recordBeforeKill=true
+✓ [PASS] kill9_auto_rejoin_same_room — screen=dashboard banner="Reconnected to Sanctuary Linux" / "Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch ro
+✓ [PASS] restart_after_kill9_reconnect — no manual start: atem=true@2681ms relay=true@2686ms (from relaunch)
+✓ [PASS] clean_quit_auto_rejoin — onDisk cleanExit=true roomIdClearedOnQuit=true screen=dashboard detail="Rejoined your last room automatically. Use Change Room to switch rooms." dashboard@2642ms 
+✓ [PASS] hero_honest_relay_down — relay down headlines seen=["Connecting to Relay…","Monitoring Locally"] settledLocal=true; relay back headline="All Systems Nominal"
+✓ [PASS] relay_down_relaunch_local_rejoin — local: screen=dashboard banner="Reconnected to Sanctuary Linux — relay offline" local=true atem=true@2668ms pgmPvw=true@2706ms relayClaimedWhileDown=f
+✓ [PASS] leave_room_relaunch_shows_picker — recordClearedOnLeave=true screen=room-selector agentRunning=false rejoinBanner=false
+✓ [PASS] picker_relay_down_keeps_equipment — atemIp before="127.0.0.1" after="127.0.0.1" savedCopy="127.0.0.1" roomId=30f50763-bc62-468c-848d-a073b6e7e0ce==30f50763-bc62-468c-848d-a073b6e7e0ce:tru
+✓ [PASS] signout_relaunch_shows_picker — wiped token=true record=true relaunch=sign-in afterSignIn=room-selector agentRunning=false
+✓ [PASS] deleted_room_relaunch_picker_message — adminDelete=200 screen=room-selector msg="Your last room “Sanctuary Linux” is no longer available. Choose or create a room to continue." agentRu
+✓ [PASS] two_sequential_sessions — [{"s":1,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"},{"s":2,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"}]
+✓ [PASS] relay_health_end — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":50,"status":"healthy","registeredChurches":1,"connectedChurches":0,"controllers":0,"totalMessagesRelay
+=== g6A-appimage-obs (sim/booth-obs.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:30:05
+=== g6A-appimage-obs exit=0 05:31:07
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] no_phantom_before_obs_config — {"chip":false,"card":false,"section":false,"phantom":[]}
+✓ [PASS] obs_wrong_password_keeps_tally_signed_in — dashboard=true signInVisible=false (a wrong OBS password must not sign the operator out of Tally)
+✓ [PASS] obs_wrong_password_honest — card reason="Authentication failed — check the OBS WebSocket password" (in viewport=true) section="⚠ Authentication failed — check the OBS WebSocket pass
+✓ [PASS] obs_connected_live_on_screen — after save 4255ms: chip=OBS/dot green card="OBS: Connected" fw="OBS 30.0.0" LIVE=true err=""
+✓ [PASS] obs_label_is_obs — chip="OBS" card="OBS"
+✓ [PASS] obs_control_action — setScene→{"sent":true,"commandId":"93179be6-311b-4cd7-a3ed-fe6d6a140429","result":"Scene set to: Scene 3"} mockScene=Scene 3; badScene→error="No source was found 
+✓ [PASS] obs_kill_honest_disconnect — 255ms (window 5000ms): chip=dot yellow card="Disconnected" LIVE=false
+✓ [PASS] obs_stays_down_while_dead — 12s watch flapped=false; chip=dot red card="Disconnected"
+✓ [PASS] obs_restart_recovers — 2541ms (window 15000ms): chip=dot green card="Connected" LIVE=false (mock restarted not streaming → LIVE must be false)
+✓ [PASS] obs_no_stale_live_after_restart — LIVE=false
+✓ [PASS] atem_still_green_no_phantoms — atem=true phantom=[]
+✓ [PASS] obs_removed_no_phantom — chip=false card=false section=false
+=== g6A-appimage-audio (sim/booth-audio.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:31:11
+=== g6A-appimage-audio exit=0 05:31:55
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Console 
+✓ [PASS] master_mute_honest — 3809ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4818ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Con
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"fe6ea7e8-876e-49e7-a86d-aeab115701d6","result":"Channel 3 muted"} ch3.on=0; empty scene→"Scene 50 is empty on the X32 — no
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200/{"sent":true,"messageId":"28845f53-4682-4430-a78b-a64e1a6225a1","localRecipients scene4=200 cur=4 emp
+✓ [PASS] console_unplug_honest — 6144ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"X32 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detailsAudio"
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"bd771d3a-040a-4a83-875a-4a305114d167","localRecipients":1,"remotePublished":false,"completed":true,"error":"X32 is not
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 510ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● C
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-sq (sim/booth-sq.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:31:59
+=== g6A-appimage-sq exit=0 05:32:59
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 4ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"allenheath","host":"127.0.0.1","port":38975,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · 
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath SQ Console127.0.0.1:38975
+✓ [PASS] master_mute_honest — 3808ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4821ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAu
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"661cb1b5-44c3-447b-9925-fae7d375d78d","result":"Channel 3 muted"} ch3=1; ch60→"Invalid channel \"60\" (valid: 1–48)" ch1=0
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200 scene4=200:"Scene 4 recall sent — not confirmed by the console (The SQ does not report scene recall
+✓ [PASS] console_unplug_honest — 6335ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath SQ not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"c0f3477c-9f07-4ff8-8efd-9dad52d70004","localRecipients":1,"remotePublished":false,"completed":true,"error":"SQ not con
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3047ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-dlive (sim/booth-ah.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:33:03
+=== g6A-appimage-dlive exit=0 05:34:03
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 5ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"dlive","host":"127.0.0.1","port":35609,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · st
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath dLive Console127.0.0.1:35609
+✓ [PASS] master_mute_honest — 3805ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4829ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"cb3c60e1-cf2e-4f85-8e81-2a4fa14d793d","result":"Channel 3 muted"} ch3=true; ch200→"Invalid channel \"200\" (valid: 1–128)"
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recall sent — not confirmed by the console (the dLive does 
+✓ [PASS] console_unplug_honest — 6109ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath dLive not responding","hero":"1 Issue Detected","mixerDot":"device-dot error
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"54cfe2f4-451b-4b3e-b86c-e26816536ae1","localRecipients":1,"remotePublished":false,"completed":true,"error":"dLive not 
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3045ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","det
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-avantis (sim/booth-ah.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:34:07
+=== g6A-appimage-avantis exit=0 05:35:07
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 5ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"avantis","host":"127.0.0.1","port":34151,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis �
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath Avantis Console127.0.0.1:34151
+✓ [PASS] master_mute_honest — 3800ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4812ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","deta
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"e4b67936-78b8-4e3c-b60a-39b8525f4c9b","result":"Channel 3 mute sent — not confirmed by the console (the Avantis ha ch3=true;
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmute sent — not confirmed by the console (the Avantis has no mute/level read- scene4=2
+✓ [PASS] console_unplug_honest — 6084ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath Avantis not responding","hero":"1 Issue Detected","mixerDot":"device-dot err
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"6edbef5a-1fb2-4a1a-81df-883114c716ec","localRecipients":1,"remotePublished":false,"completed":true,"error":"Avantis no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3044ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","d
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-yamaha-cl5 (sim/booth-yamaha.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:35:11
+=== g6A-appimage-yamaha-cl5 exit=0 05:35:55
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3797ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4812ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"041c12d4-beaa-4b68-ac60-dc7b59a3b0c7","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–72)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=4 scene250=422:CL5 refused scene 250 — not re
+✓ [PASS] console_unplug_honest — 6076ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha CL5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"d444c947-aa64-40de-817e-53e6e458b307","localRecipients":1,"remotePublished":false,"completed":true,"error":"CL5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2033ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-yamaha-tf5 (sim/booth-yamaha.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:35:59
+=== g6A-appimage-yamaha-tf5 exit=0 05:36:42
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3807ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4819ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"556360b8-5d7f-4b49-9d14-77118ff6a22e","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–40)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=scene_a:4 scene250=422:Invalid scene "250" (TF:
+✓ [PASS] console_unplug_honest — 6093ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha TF5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"8d7585c1-aeab-42c1-91b4-5c1fb95d7f1b","localRecipients":1,"remotePublished":false,"completed":true,"error":"TF5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2031ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-pp (sim/booth-pp.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:36:46
+=== g6A-appimage-pp exit=0 05:37:30
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] test_button_honest — not-pp→"Something answered on port 41025 but it is not ProPresenter (enable Network in ProPresenter settings and check the port)" pp→"ProPresenter 7.16.2 running 
+✓ [PASS] pp_online_on_screen — cfg={"host":"127.0.0.1","port":41025,"triggerMode":"presentation","backupHost":"","backupPort":1025} {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","c
+✓ [PASS] operator_slide_follows — 763ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 5 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresenta
+✓ [PASS] operator_clear_shows_nothing_on_screen — 2034ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"Nothing on screen","hero":"All Systems Nominal","ppDot":"device-d
+✓ [PASS] audience_screens_state_shown — 1779ms screen=OFF
+✓ [PASS] booth_command_path_honest — next→{"error":"Unknown command: propresenter.next. Allowed: restart_stream, stop_stream, start_recording, stop_recording, rec idx=1
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 next=200:"Next slide — now slide 4 of \"Worship Set\"" go99=422:"ProPresenter refused slide 99 (not found in P
+✓ [PASS] remote_change_visible_in_booth — 4ms look=Stream Only
+✓ [PASS] pp_quit_honest — 2535ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"ProPresenter not reachable","hero":"1 Issue Detected","ppDot":"device-dot error","s
+✓ [PASS] remote_command_pp_offline_fails — 422 {"sent":true,"messageId":"fe0ff79a-79f3-4458-bdb1-d3bd0745ec6b","localRecipients":1,"remotePublished":false,"completed":true,"error":"ProPresenter is
+✓ [PASS] pp_stays_offline_no_flap — flapped=false
+✓ [PASS] pp_back_recovers — 6612ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 4 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresentation"
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-comp (sim/booth-companion.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:37:34
+=== g6A-appimage-comp exit=0 05:38:13
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] ui_default_port_8000 — placeholder=8000 value=8000
+✓ [PASS] test_button_honest — other→"Something answered at http://127.0.0.1:41800 but it is not Companion (HTTP 404)" apiOff→"Companion found, but its HTTP API is switched off — enable it in
+✓ [PASS] companion_online_on_screen — cfg=http://127.0.0.1:41800 {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-d
+✓ [PASS] module_error_named — 1779ms {"cardShown":true,"cardStatus":"error","cardValue":"Connected","cardDetail":"1 module in error: atem (connection_failure: ECONNREFUSED 10.0.0.9:9910)","hero":"
+✓ [PASS] module_recovers — 2793ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem","secLis
+✓ [PASS] remote_commands_real_results — failed=[] church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 press=200:"Companion button pressed: \"Service Start\" (page 1, row 0, column 1)" empty=422:"No button
+✓ [PASS] api_off_named_and_refused — 261ms {"cardShown":true,"cardStatus":"error","cardValue":"HTTP API off","cardDetail":"Enable Settings → Protocols → HTTP in Companion","hero":"1 Issue Dete
+✓ [PASS] companion_quit_honest — 3044ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"Companion not reachable — not reachable (ECONNRESET)","hero":"1 Issue Dete
+✓ [PASS] remote_command_offline_fails — 422 {"sent":true,"messageId":"e3207ea7-f60f-4fb5-811f-d1b80b244f3c","localRecipients":1,"remotePublished":false,"completed":true,"error":"Companion is not r
+✓ [PASS] companion_stays_offline_no_flap — flapped=false
+✓ [PASS] companion_back_recovers — 509ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem",
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-appimage-pco (sim/booth-pco.mjs /tmp/g6-appimage/squashfs-root/tally-connect) 05:38:17
+=== g6A-appimage-pco exit=0 05:38:36
+✓ [PASS] booth_shows_not_connected — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"}
+✓ [PASS] connect_and_list_service_types — put=200 types=200:["Sunday Morning","Wednesday Night"]
+✓ [PASS] sync_wall_clock_times — 200 {"schedule":{"synced":2,"services":[{"day":0,"startHour":9,"startMin":0,"durationHours":2,"source":"planning_center"},{"day":0,"startHour":11,"startMin":0,"dur
+✓ [PASS] booth_shows_connected_synced — {"text":"Connected · synced 9/25/2026, 5:38:26 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] next_service_plan — 200 title=Sunday 9:00 items=3 team=2
+✓ [PASS] revoked_sync_refused — 500 {"error":"Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, expired, or revoked"}
+✓ [PASS] booth_shows_sync_failing — {"text":"Connected — sync failing: Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, ex
+✓ [PASS] pco_down_sync_refused — 500 {"error":"Planning Center API error (503): Service Unavailable: Planning Center is temporarily unavailable"}
+✓ [PASS] recovery_clears_warning — 200 {"text":"Connected · synced 9/25/2026, 5:38:29 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] mock_only_no_real_pco — mock calls=15
+✓ [PASS] booth_disconnect_really_disconnects — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"} next={"plan":null,"message":"No upcoming service plan found. Try sync
+=== g6A-deb-e2e (e2e-electron.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:38:40
+=== g6A-deb-e2e exit=0 05:39:01
+✓ [PASS] app_launch
+✓ [PASS] sign_in_local_relay — Signing in...
+✓ [PASS] room_select — wizard-skip or dashboard
+✓ [PASS] device_connect_atem_sim — SIMULATED MockLab; atem=true relay=true relayConnectedChurches=1; status={"relay":true,"atem":{"connected":true,"model":"ATEM Mini Extreme ISO","ip":"127.0.0.1",
+✓ [PASS] tally_program_preview_sim — SIMULATED MockLab; UI pgm="Cam 5" pvw="Cam 3" statusProg=5 statusPvw=3
+✓ [PASS] alert_disconnect_reconnect_sim — SIMULATED unreachable IP; disconnected=true reconnected=true
+✓ [PASS] relay_health_local — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":17,"status":"healthy","registeredChurches":1,"connectedChurches":1,"controllers":0,"totalMessagesRel
+✓ [PASS] app_restart_persistence — config keys=relay,autoStartMonitoring,schemaVersion,token,name,roomId,roomName,rejoinRoom,setupComplete,watchdog,localStatusPort,hyperdecks,ptz,videoHubs,proPres
+✓ [PASS] relay_drop_reconnect_agent — stop→relay/atem cleared=true; start→relay+atem back=true
+=== g6A-deb-hard (paces-e2e.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:39:05
+=== g6A-deb-hard exit=0 05:42:23
+✓ [PASS] cold_start_launch
+✓ [PASS] sign_in_room
+✓ [PASS] atem_sim_connect — atem=true status={"relay":true,"atem":{"connected":true,"model":"ATEM Mini Extreme ISO","ip":"127.0.0.1","modelCode":17,"productIdentifier":"Mock ATEM Mini Extreme ISO"
+✓ [PASS] pgm_pvw_visible — UI pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] ui_clean_atem_only_booth — {"banner":false,"bannerText":"Offline Mode — Local monitoring active","pill":"Connected","heroHead":"All Systems Nominal","heroSub":"Relay connected","network
+✓ [PASS] no_false_relay_offline_on_agent_restart — banner/pill/network stayed non-offline during 8s agent restart (relay healthy)
+✓ [PASS] dead_ip_then_recover — disconnected=true reconnected=true pgmPvw=true pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] rapid_atem_disconnect_reconnect_x5 — 5/5; c1:disc=true/rec=true; c2:disc=true/rec=true; c3:disc=true/rec=true; c4:disc=true/rec=true; c5:disc=true/rec=true; pgm="Cam 5" pvw="Cam 3"
+✓ [PASS] relay_down_ui_consistent — {"banner":true,"bannerText":"Relay unreachable — running in local mode","pill":"Offline Mode","heroHead":"Monitoring Locally","heroSub":"Relay offline","netwo
+✓ [PASS] relay_down_offline_banner — bannerVisible=true text="Relay unreachable — running in local mode" conn="Offline Mode" mode=stop outageSecBeforeBanner=34 bannerStillAt40s=true atemLocal=tr
+✓ [PASS] relay_down_local_mode_honesty — ATEM stayed connected locally during relay outage
+✓ [PASS] config_persist_kill9 — marker before=true after=true atemIp=127.0.0.1 token=true recordBeforeKill=true
+✓ [PASS] kill9_auto_rejoin_same_room — screen=dashboard banner="Reconnected to Sanctuary Linux" / "Tally closed unexpectedly and rejoined your last room automatically. Use Change Room to switch ro
+✓ [PASS] restart_after_kill9_reconnect — no manual start: atem=true@2715ms relay=true@2720ms (from relaunch)
+✓ [PASS] clean_quit_auto_rejoin — onDisk cleanExit=true roomIdClearedOnQuit=true screen=dashboard detail="Rejoined your last room automatically. Use Change Room to switch rooms." dashboard@2652ms 
+✓ [PASS] hero_honest_relay_down — relay down headlines seen=["Connecting to Relay…","Monitoring Locally"] settledLocal=true; relay back headline="All Systems Nominal"
+✓ [PASS] relay_down_relaunch_local_rejoin — local: screen=dashboard banner="Reconnected to Sanctuary Linux — relay offline" local=true atem=true@2675ms pgmPvw=true@2715ms relayClaimedWhileDown=f
+✓ [PASS] leave_room_relaunch_shows_picker — recordClearedOnLeave=true screen=room-selector agentRunning=false rejoinBanner=false
+✓ [PASS] picker_relay_down_keeps_equipment — atemIp before="127.0.0.1" after="127.0.0.1" savedCopy="127.0.0.1" roomId=70321ecd-a422-4ab0-9eb2-baa6e51facb4==70321ecd-a422-4ab0-9eb2-baa6e51facb4:tru
+✓ [PASS] signout_relaunch_shows_picker — wiped token=true record=true relaunch=sign-in afterSignIn=room-selector agentRunning=false
+✓ [PASS] deleted_room_relaunch_picker_message — adminDelete=200 screen=room-selector msg="Your last room “Sanctuary Linux” is no longer available. Choose or create a room to continue." agentRu
+✓ [PASS] two_sequential_sessions — [{"s":1,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"},{"s":2,"ok":true,"atemConnected":true,"pgm":"Cam 5","pvw":"Cam 3"}]
+✓ [PASS] relay_health_end — {"service":"tally-relay","version":"1.1.67","build":null,"uptime":51,"status":"healthy","registeredChurches":1,"connectedChurches":0,"controllers":0,"totalMessagesRelay
+=== g6A-deb-obs (sim/booth-obs.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:42:27
+=== g6A-deb-obs exit=0 05:43:29
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] no_phantom_before_obs_config — {"chip":false,"card":false,"section":false,"phantom":[]}
+✓ [PASS] obs_wrong_password_keeps_tally_signed_in — dashboard=true signInVisible=false (a wrong OBS password must not sign the operator out of Tally)
+✓ [PASS] obs_wrong_password_honest — card reason="Authentication failed — check the OBS WebSocket password" (in viewport=true) section="⚠ Authentication failed — check the OBS WebSocket pass
+✓ [PASS] obs_connected_live_on_screen — after save 4276ms: chip=OBS/dot green card="OBS: Connected" fw="OBS 30.0.0" LIVE=true err=""
+✓ [PASS] obs_label_is_obs — chip="OBS" card="OBS"
+✓ [PASS] obs_control_action — setScene→{"sent":true,"commandId":"4b25bb84-72d1-4ac4-8239-c83addd93c22","result":"Scene set to: Scene 3"} mockScene=Scene 3; badScene→error="No source was found 
+✓ [PASS] obs_kill_honest_disconnect — 255ms (window 5000ms): chip=dot yellow card="Disconnected" LIVE=false
+✓ [PASS] obs_stays_down_while_dead — 12s watch flapped=false; chip=dot red card="Disconnected"
+✓ [PASS] obs_restart_recovers — 2539ms (window 15000ms): chip=dot green card="Connected" LIVE=false (mock restarted not streaming → LIVE must be false)
+✓ [PASS] obs_no_stale_live_after_restart — LIVE=false
+✓ [PASS] atem_still_green_no_phantoms — atem=true phantom=[]
+✓ [PASS] obs_removed_no_phantom — chip=false card=false section=false
+=== g6A-deb-audio (sim/booth-audio.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:43:33
+=== g6A-deb-audio exit=0 05:44:17
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Console 
+✓ [PASS] master_mute_honest — 3808ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4819ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● Con
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"e5361c57-4008-4363-af52-8eb642afd550","result":"Channel 3 muted"} ch3.on=0; empty scene→"Scene 50 is empty on the X32 — no
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200/{"sent":true,"messageId":"312d4a50-ef5e-4210-a7b4-e571d7c0ee4e","localRecipients scene4=200 cur=4 emp
+✓ [PASS] console_unplug_honest — 6350ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"X32 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detailsAudio"
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"9aa08787-b163-4f72-b0f1-e4ee8666ca29","localRecipients":1,"remotePublished":false,"completed":true,"error":"X32 is not
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 257ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"X32 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"● C
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-sq (sim/booth-sq.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:44:21
+=== g6A-deb-sq exit=0 05:45:21
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 4ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"allenheath","host":"127.0.0.1","port":43457,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · 
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath SQ Console127.0.0.1:43457
+✓ [PASS] master_mute_honest — 3799ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4817ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAu
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"221a3244-1503-4a02-a78b-9a1e1ece4825","result":"Channel 3 muted"} ch3=1; ch60→"Invalid channel \"60\" (valid: 1–48)" ch1=0
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200 scene4=200:"Scene 4 recall sent — not confirmed by the console (The SQ does not report scene recall
+✓ [PASS] console_unplug_honest — 6332ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath SQ not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"68170cad-b5df-4315-af2e-a25fa70cfdc6","localRecipients":1,"remotePublished":false,"completed":true,"error":"SQ not con
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3048ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath SQ · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-dlive (sim/booth-ah.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:45:25
+=== g6A-deb-dlive exit=0 05:46:25
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 4ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"dlive","host":"127.0.0.1","port":46501,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · st
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath dLive Console127.0.0.1:46501
+✓ [PASS] master_mute_honest — 3800ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4817ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detail
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"cd84b0c4-08be-408a-8966-994487d5518c","result":"Channel 3 muted"} ch3=true; ch200→"Invalid channel \"200\" (valid: 1–128)"
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recall sent — not confirmed by the console (the dLive does 
+✓ [PASS] console_unplug_honest — 6087ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath dLive not responding","hero":"1 Issue Detected","mixerDot":"device-dot error
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"14fc6e0b-d12b-49a3-a73b-965d89ce508d","localRecipients":1,"remotePublished":false,"completed":true,"error":"dLive not 
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3047ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath dLive · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","det
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-avantis (sim/booth-ah.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:46:29
+=== g6A-deb-avantis exit=0 05:47:29
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] wrong_midi_channel_reads_offline — 4ms sawOnline=false {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Audio console not responding","hero":"1 Issue Detected","mixerDot"
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"avantis","host":"127.0.0.1","port":33209,"midiChannel":2} {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis �
+✓ [PASS] device_list_name_readable — 🎤 Allen & Heath Avantis Console127.0.0.1:33209
+✓ [PASS] master_mute_honest — 3806ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4827ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","deta
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"0d7b1309-20a5-4329-a764-4edb7fb51471","result":"Channel 3 mute sent — not confirmed by the console (the Avantis ha ch3=true;
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmute sent — not confirmed by the console (the Avantis has no mute/level read- scene4=2
+✓ [PASS] console_unplug_honest — 6091ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Allen & Heath Avantis not responding","hero":"1 Issue Detected","mixerDot":"device-dot err
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"3d053ec9-4aa5-4a1e-b6dc-ce8fe73d2b36","localRecipients":1,"remotePublished":false,"completed":true,"error":"Avantis no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 3043ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Allen & Heath Avantis · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","d
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-yamaha-cl5 (sim/booth-yamaha.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:47:33
+=== g6A-deb-yamaha-cl5 exit=0 05:48:17
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3803ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4821ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"b9f82763-ed47-47f3-b37d-57fa4e501851","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–72)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=4 scene250=422:CL5 refused scene 250 — not re
+✓ [PASS] console_unplug_honest — 6087ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha CL5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"1ef72b9d-6518-4cd7-96f1-a94d1e871bc4","localRecipients":1,"remotePublished":false,"completed":true,"error":"CL5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2031ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha CL5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-yamaha-tf5 (sim/booth-yamaha.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:48:21
+=== g6A-deb-yamaha-tf5 exit=0 05:49:05
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] mixer_online_on_screen — cfg.mixer={"type":"yamaha","host":"127.0.0.1","port":null} clients=1 {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"
+✓ [PASS] device_list_name_readable — 🎤 Yamaha Console127.0.0.1:
+✓ [PASS] master_mute_honest — 3801ms {"cardStatus":"error","cardValue":"MUTED","cardDetail":"Master output muted at the console","hero":"1 Issue Detected","mixerDot":"device-dot warning","detailsA
+✓ [PASS] master_unmute_clears — 4826ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio":"
+✓ [PASS] booth_command_real_result — mute→{"sent":true,"commandId":"83db8489-d1e0-441f-8f10-723160c9c751","result":"Channel 3 muted"} ch3.on=0; ch200→"Invalid channel \"200\" (valid: 1–40)" 
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 unmute=200:"Channel 3 unmuted" scene4=200:"Scene 4 recalled" cur=scene_a:4 scene250=422:Invalid scene "250" (TF:
+✓ [PASS] console_unplug_honest — 6099ms {"cardStatus":"error","cardValue":"Console offline","cardDetail":"Yamaha TF5 not responding","hero":"1 Issue Detected","mixerDot":"device-dot error","detail
+✓ [PASS] remote_command_console_offline_fails — 422 {"sent":true,"messageId":"986198bd-da08-4d05-99d3-835958d8650c","localRecipients":1,"remotePublished":false,"completed":true,"error":"TF5 did no
+✓ [PASS] console_stays_offline_no_flap — flapped=false
+✓ [PASS] console_replug_recovers — 2034ms {"cardStatus":"ok","cardValue":"Console online","cardDetail":"Yamaha TF5 · standby","hero":"All Systems Nominal","mixerDot":"device-dot ok","detailsAudio
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-pp (sim/booth-pp.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:49:08
+=== g6A-deb-pp exit=0 05:49:50
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] test_button_honest — not-pp→"Something answered on port 41025 but it is not ProPresenter (enable Network in ProPresenter settings and check the port)" pp→"ProPresenter 7.16.2 running 
+✓ [PASS] pp_online_on_screen — cfg={"host":"127.0.0.1","port":41025,"triggerMode":"presentation","backupHost":"","backupPort":1025} {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","c
+✓ [PASS] operator_slide_follows — 765ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 5 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresenta
+✓ [PASS] operator_clear_shows_nothing_on_screen — 2038ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"Nothing on screen","hero":"All Systems Nominal","ppDot":"device-d
+✓ [PASS] audience_screens_state_shown — 1777ms screen=OFF
+✓ [PASS] booth_command_path_honest — next→{"error":"Unknown command: propresenter.next. Allowed: restart_stream, stop_stream, start_recording, stop_recording, rec idx=1
+✓ [PASS] remote_commands_real_results — church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 next=200:"Next slide — now slide 4 of \"Worship Set\"" go99=422:"ProPresenter refused slide 99 (not found in P
+✓ [PASS] remote_change_visible_in_booth — 3ms look=Stream Only
+✓ [PASS] pp_quit_honest — 2544ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"ProPresenter not reachable","hero":"1 Issue Detected","ppDot":"device-dot error","s
+✓ [PASS] remote_command_pp_offline_fails — 422 {"sent":true,"messageId":"e6e0e905-3f50-4be3-a454-7ea31d3fc332","localRecipients":1,"remotePublished":false,"completed":true,"error":"ProPresenter is
+✓ [PASS] pp_stays_offline_no_flap — flapped=false
+✓ [PASS] pp_back_recovers — 4576ms {"cardShown":true,"cardStatus":"ok","cardValue":"Worship Set","cardDetail":"Slide 4 of 12","hero":"All Systems Nominal","ppDot":"device-dot ok","secPresentation"
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-comp (sim/booth-companion.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:49:54
+=== g6A-deb-comp exit=0 05:50:36
+✓ [PASS] booth_up_atem_relay — atem+relay=true
+✓ [PASS] ui_default_port_8000 — placeholder=8000 value=8000
+✓ [PASS] test_button_honest — other→"Something answered at http://127.0.0.1:41800 but it is not Companion (HTTP 404)" apiOff→"Companion found, but its HTTP API is switched off — enable it in
+✓ [PASS] companion_online_on_screen — cfg=http://127.0.0.1:41800 {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-d
+✓ [PASS] module_error_named — 1779ms {"cardShown":true,"cardStatus":"error","cardValue":"Connected","cardDetail":"1 module in error: atem (connection_failure: ECONNREFUSED 10.0.0.9:9910)","hero":"
+✓ [PASS] module_recovers — 2797ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem","secLis
+✓ [PASS] remote_commands_real_results — failed=[] church=036f2d0c-5fc2-41b5-9e8f-68fa1efdbbf8 press=200:"Companion button pressed: \"Service Start\" (page 1, row 0, column 1)" empty=422:"No button
+✓ [PASS] api_off_named_and_refused — 3051ms {"cardShown":true,"cardStatus":"error","cardValue":"HTTP API off","cardDetail":"Enable Settings → Protocols → HTTP in Companion","hero":"1 Issue Det
+✓ [PASS] companion_quit_honest — 2789ms {"cardShown":true,"cardStatus":"error","cardValue":"Disconnected","cardDetail":"Companion not reachable — not reachable (ECONNRESET)","hero":"1 Issue Dete
+✓ [PASS] remote_command_offline_fails — 422 {"sent":true,"messageId":"9ac6d113-3a39-4894-b27c-1f13f5b8c048","localRecipients":1,"remotePublished":false,"completed":true,"error":"Companion is not r
+✓ [PASS] companion_stays_offline_no_flap — flapped=false
+✓ [PASS] companion_back_recovers — 516ms {"cardShown":true,"cardStatus":"ok","cardValue":"Connected","cardDetail":"1 module OK","hero":"All Systems Nominal","dot":"device-dot ok","secList":"atem",
+✓ [PASS] atem_unaffected — atem=true
+=== g6A-deb-pco (sim/booth-pco.mjs /tmp/g6-deb/opt/Tally/tally-connect) 05:50:40
+=== g6A-deb-pco exit=0 05:50:59
+✓ [PASS] booth_shows_not_connected — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"}
+✓ [PASS] connect_and_list_service_types — put=200 types=200:["Sunday Morning","Wednesday Night"]
+✓ [PASS] sync_wall_clock_times — 200 {"schedule":{"synced":2,"services":[{"day":0,"startHour":9,"startMin":0,"durationHours":2,"source":"planning_center"},{"day":0,"startHour":11,"startMin":0,"dur
+✓ [PASS] booth_shows_connected_synced — {"text":"Connected · synced 9/25/2026, 5:50:49 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] next_service_plan — 200 title=Sunday 9:00 items=3 team=2
+✓ [PASS] revoked_sync_refused — 500 {"error":"Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, expired, or revoked"}
+✓ [PASS] booth_shows_sync_failing — {"text":"Connected — sync failing: Planning Center rejected the credentials (401) — reconnect Planning Center: Unauthorized: The access token is invalid, ex
+✓ [PASS] pco_down_sync_refused — 500 {"error":"Planning Center API error (503): Service Unavailable: Planning Center is temporarily unavailable"}
+✓ [PASS] recovery_clears_warning — 200 {"text":"Connected · synced 9/25/2026, 5:50:52 AM","color":"var(--green)","btn":"Disconnect"}
+✓ [PASS] mock_only_no_real_pco — mock calls=15
+✓ [PASS] booth_disconnect_really_disconnects — {"text":"Not connected","color":"var(--muted)","btn":"Connect Planning Center"} next={"plan":null,"message":"No upcoming service plan found. Try sync
+electron exit=0 # pass 465 # fail 0 
+church-unit exit=0 # pass 2198 # fail 0 
+church-sim exit=0 # pass 83 # fail 0 # skipped 0 
+relay exit=0  Test Files  167 passed (167)       Tests  5372 passed (5372) 
+SUITE_DONE_A

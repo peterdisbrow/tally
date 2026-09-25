@@ -1,0 +1,3 @@
+obs-relay-20260925-093827/green	X=1	pass=6	fail=0	red_tests=
+obs-relay-20260925-093827/break-accept-any-password	OBS_MOCK_BREAK=accept-any-password	pass=6	fail=0	red_tests=
+obs-relay-20260925-093827/break-no-hello	OBS_MOCK_BREAK=no-hello	pass=0	fail=6	red_tests=1,2,3,4,5,6,

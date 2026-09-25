@@ -1,0 +1,17 @@
+OK   probe {"ok":true,"apiDisabled":false,"reason":null}
+OK   connections []
+OK   grid p1 row1 [{"row":1,"col":0,"text":""},{"row":1,"col":1,"text":"Dante: Sunday"},{"row":1,"col":2,"text":"Dante: Sunday Late"},{"row":1,"col":3,"text":""}]
+OK   pressNamed exact "Dante: Sunday" {"success":true,"page":1,"row":1,"col":1,"text":"Dante: Sunday"}
+ERR  pressNamed ambiguous "sunday" → "sunday" matches 2 Companion buttons ("Dante: Sunday" p1 r1 c1, "Dante: Sunday Late" p1 r1 c2) — nothing pressed; use the exact label or page/row/column
+OK   pressNamed unique partial "walk" {"success":true,"page":1,"row":2,"col":3,"text":"Walk In"}
+ERR  pressNamed missing "Nope" → No Companion button labelled "Nope" on pages 1–10
+ERR  press empty 1/3/7 → No button at page 1 row 3 column 7 in Companion — nothing pressed
+OK   press 1/2/3 {"success":true,"page":1,"row":2,"col":3,"text":"Walk In"}
+OK   setCustom existing "green"
+OK   getCustom "green"
+ERR  setCustom missing → Companion has no custom variable "no_such_var" — create it in Companion (Variables → Custom) first
+OK   getVariable internal:time_hms "03:06:33"
+OK   getVariable unknown null
+OK   offline probe {"ok":false,"apiDisabled":false,"reason":"not reachable (ECONNREFUSED)"}
+ERR  offline press → Companion is not reachable at http://127.0.0.1:18999 — press page 1 row 0 column 0 not done (ECONNREFUSED)
+OK   not-companion probe (lab relay) {"ok":false,"apiDisabled":false,"reason":"something answered at http://127.0.0.1:3400 but it is not Companion (HTTP 404)"}

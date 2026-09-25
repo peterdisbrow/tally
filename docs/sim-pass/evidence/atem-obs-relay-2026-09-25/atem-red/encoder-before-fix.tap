@@ -1,0 +1,57 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state # SKIP test name does not match pattern
+  ---
+  duration_ms: 1.332536
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done" # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.147456
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.083224
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.174408
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object) # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.122465
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.089074
+  ...
+# Subtest: remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+not ok 7 - remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+  ---
+  duration_ms: 4725.931033
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:189:1'
+  failureType: 'testCodeFailure'
+  error: 'stream the ATEM could not start was reported as: {"result":"ATEM streaming started","error":null,"ms":40}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: ~
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:193:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 6
+# todo 0
+# duration_ms 5120.999664

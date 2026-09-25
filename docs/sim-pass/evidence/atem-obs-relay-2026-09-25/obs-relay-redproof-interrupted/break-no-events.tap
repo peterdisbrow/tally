@@ -1,0 +1,32 @@
+TAP version 13
+# Subtest: remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+not ok 1 - remote: scene, stream and record commands are applied by OBS and confirmed; OBS refusals come back as errors
+  ---
+  duration_ms: 6932.908319
+  location: '/workspace/tally/church-client/test/sim/obs-relay.test.js:34:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    timeout (5000ms) waiting for relay shows Scene 3; relay status={"name":"Sim Church 1790343756554","connected":true,"status":{"atem":{"connected":false,"ip":null,"model":null,"modelCode":null,"productIdentifier":null,"protocolVersion":null,"programInput":null,"previewInput":null,"recording":false,"streaming":false,"streamingBitrate":null,"streamingCacheUsed":null,"streamingService":null,"inTransition":false,"audioDelays":{},"atemAudioSources":[],"inputSources":{},"cameras":{},"configured":false},"audioViaAtem":false,"audioViaAtemSource":"none","obs":{"connected":true,"error":null,"scenes":["Scene 1","Scene 2","Scene 3"],"currentScene":"Scene 1","app":"OBS Studio","version":"30.0.0","websocketVersion":"5.4.0","streaming":false,"recording":false,"bitrate":null,"fps":null,"configured":true},"encoder":{"connected":true,"live":false,"bitrateKbps":null,"cong
+    [logs: /tmp/tally-relayloop-timeout-1790343762608.log]
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Object.waitForRelay (/workspace/tally/church-client/test/helpers/relayLoop.js:129:11)
+    async TestContext.<anonymous> (/workspace/tally/church-client/test/sim/obs-relay.test.js:41:3)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+ok 2 - remote: OBS accepts StartStream but the stream fails (bad key / ingest down) → refusal, never "Stream started"
+  ---
+  duration_ms: 32651.577972
+  ...
+# Subtest: remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+ok 3 - remote: OBS crashed → honest offline, commands refused fast; OBS back → commands work
+  ---
+  duration_ms: 6852.184432
+  ...
+# Subtest: remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+ok 4 - remote: OBS frozen (socket open, nothing answers) → command fails with a reason in seconds, OBS shown offline, recovers on thaw
+  ---
+  duration_ms: 12234.019804
+  ...

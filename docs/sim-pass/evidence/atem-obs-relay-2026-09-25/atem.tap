@@ -1,0 +1,45 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+  ---
+  duration_ms: 7387.316118
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+  ---
+  duration_ms: 10384.566128
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+  ---
+  duration_ms: 11310.331733
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+  ---
+  duration_ms: 12994.581279
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 9902.655586
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+  ---
+  duration_ms: 7770.696115
+  ...
+# Subtest: remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+ok 7 - remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+  ---
+  duration_ms: 6212.033345
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 66126.457451

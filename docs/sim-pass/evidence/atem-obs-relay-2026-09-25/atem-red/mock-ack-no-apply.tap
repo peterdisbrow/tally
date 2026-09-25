@@ -1,0 +1,108 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+not ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+  ---
+  duration_ms: 6406.516345
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:43:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"ATEM did not switch program to Cam 3 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still unknown.","ms":1538}
+    + actual - expected
+    
+    + 'ATEM did not switch program to Cam 3 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still unknown.'
+    - null
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'ATEM did not switch program to Cam 3 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still unknown.'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:48:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+  ---
+  duration_ms: 10309.46193
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+not ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+  ---
+  duration_ms: 20477.979322
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:98:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"ATEM recording did not start: the ATEM did not start recording.","ms":2543}
+    + actual - expected
+    
+    + 'ATEM recording did not start: the ATEM did not start recording.'
+    - null
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'ATEM recording did not start: the ATEM did not start recording.'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:113:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+not ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+  ---
+  duration_ms: 14598.84574
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:124:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"ATEM did not switch program to Cam 4 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.","ms":1532}
+    + actual - expected
+    
+    + 'ATEM did not switch program to Cam 4 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.'
+    - null
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'ATEM did not switch program to Cam 4 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:150:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+not ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 10440.581774
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"ATEM did not switch program to Cam 2 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.","ms":1532}
+    + actual - expected
+    
+    + 'ATEM did not switch program to Cam 2 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.'
+    - null
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'ATEM did not switch program to Cam 2 — the switcher ignored the command (check the input exists and the ATEM is reachable). Program is still Cam 1.'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:165:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+  ---
+  duration_ms: 7802.851852
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 2
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 70198.242877

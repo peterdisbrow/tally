@@ -1,0 +1,62 @@
+TAP version 13
+# Subtest: remote: program / preview / cut / auto are applied on the switcher and confirmed by its state
+ok 1 - remote: program / preview / cut / auto are applied on the switcher and confirmed by its state # SKIP test name does not match pattern
+  ---
+  duration_ms: 1.379331
+  ...
+# Subtest: remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done"
+ok 2 - remote: the switcher ignoring a command (source the model lacks) is a refusal, never "done" # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.155834
+  ...
+# Subtest: remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed
+ok 3 - remote: ATEM recording with no USB disk and streaming with a bad key are refused; good cases confirmed # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.083838
+  ...
+# Subtest: remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works
+ok 4 - remote: ATEM unplugged → honest offline, commands refused fast (never "done"), recovery works # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.1346
+  ...
+# Subtest: remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+not ok 5 - remote: ATEM power-cycled → every command path works on the NEW connection (no stale switcher object)
+  ---
+  duration_ms: 9528.102993
+  location: '/workspace/tally/church-client/test/sim/atem.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"result":null,"error":"Socket process is not open","ms":41}
+    + actual - expected
+    
+    + 'Socket process is not open'
+    - null
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'Socket process is not open'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/workspace/tally/church-client/test/sim/atem.test.js:168:10)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued
+ok 6 - remote: operator switching on the ATEM panel shows up for the engineer; church offline → 503, nothing queued # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.675671
+  ...
+# Subtest: remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused
+ok 7 - remote: ATEM Mini built-in encoder — encoder.startStream/stopStream are confirmed by the switcher; a rejected key is refused # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.093272
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 6
+# todo 0
+# duration_ms 9675.452715
