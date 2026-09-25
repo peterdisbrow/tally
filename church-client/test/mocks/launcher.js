@@ -25,7 +25,7 @@ const path = require('node:path');
 // launcher and document the override; tests can pin either via PORT_<name>
 // or pass `port: 0` for ephemeral allocation.
 const REGISTRY = [
-  { name: 'companion',       file: 'companionServer.js',       defaultPort: 8000 },
+  { name: 'companion',       file: 'companionServer.js',       defaultPort: 18000 },  // not 8000: real Companion's default
   { name: 'propresenter',    file: 'propresenterServer.js',    defaultPort: 1025 },
   { name: 'videohub',        file: 'videohubServer.js',        defaultPort: 9990 },
   { name: 'obs',             file: 'obsServer.js',             defaultPort: 4455 },

@@ -308,23 +308,33 @@ async function stepOptional(config) {
   print();
 
   // Detect Companion
-  process.stdout.write('  Checking for Bitfocus Companion (localhost:8888)... ');
-  const companionOk = await tryTcp('localhost', 8888, 1500);
-  if (companionOk) {
+  process.stdout.write('  Checking for Bitfocus Companion (localhost:8000, then 8888)... ');
+  const { CompanionBridge } = require('./companion');
+  let companionFound = null;
+  for (const port of [8000, 8888]) {
+    const url = `http://localhost:${port}`;
+    const p = await new CompanionBridge({ companionUrl: url }).probe();
+    if (p.ok || p.apiDisabled) { companionFound = { url, apiDisabled: p.apiDisabled }; break; }
+  }
+  if (companionFound && !companionFound.apiDisabled) {
     printGreen('found ✓');
-    config.companionUrl = config.companionUrl || 'http://localhost:8888';
+    config.companionUrl = config.companionUrl || companionFound.url;
     printGreen('  → Companion auto-configured');
+  } else if (companionFound) {
+    print(C.yellow + 'found, but its HTTP API is switched off' + C.reset);
+    print(C.gray + '  Enable it in Companion → Settings → Protocols → HTTP, then re-run setup.' + C.reset);
+    config.companionUrl = config.companionUrl || companionFound.url;
   } else {
     print(C.gray + 'not found' + C.reset);
     const addCompanion = await askYesNo('Configure Companion manually?', false);
     if (addCompanion) {
-      config.companionUrl = await ask('Companion URL:', 'http://localhost:8888');
+      config.companionUrl = await ask('Companion URL:', 'http://localhost:8000');
     }
   }
 
   // ProPresenter
   process.stdout.write('  Checking for ProPresenter (localhost:1025)... ');
-  const ppOk = await tryHttp('http://localhost:1025/v1/version', 2000);
+  const ppOk = await tryHttp('http://localhost:1025/version', 2000);
   if (ppOk.ok) {
     printGreen('found ✓');
     config.proPresenter = { host: 'localhost', port: 1025 };

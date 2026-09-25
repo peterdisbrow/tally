@@ -325,6 +325,10 @@ function deviceDotState(key, status) {
     if (m.connected !== true) return 'error';
     return m.mainMuted === true ? 'warning' : 'ok';
   }
+  if (key === 'companion') {
+    const cs = getCompanionSummary(status.companion);
+    return cs ? (cs.state === 'error' || cs.state === 'warning' ? cs.state : 'ok') : 'unknown';
+  }
   const v = status[key];
   if (v === null || v === undefined) return 'unknown';
   return getStatusActive(v) ? 'ok' : 'error';
@@ -380,6 +384,26 @@ function getAudioSummary(status) {
   return { state: 'idle', value: 'Standby', detail: '', issue: false };
 }
 
+function getCompanionSummary(comp) {
+  // What the agent reports about Companion (see church-client/src/companion.js).
+  // null = not configured → no card. Module problems come from Companion's own status.
+  if (comp === null || comp === undefined) return null;
+  const c = typeof comp === 'object' ? comp : { connected: !!comp };
+  if (!getStatusActive(c)) {
+    if (c.apiDisabled) return { state: 'error', value: 'HTTP API off', detail: 'Enable Settings \u2192 Protocols \u2192 HTTP in Companion', issue: true };
+    return { state: 'error', value: 'Disconnected', detail: c.error ? `Companion not reachable \u2014 ${c.error}` : 'Companion not reachable', issue: true };
+  }
+  if (c.connectionsKnown === false) return { state: 'ok', value: 'Connected', detail: 'Modules not reported by this Companion version', issue: false };
+  const conns = Array.isArray(c.connections) ? c.connections : [];
+  const errs = conns.filter((x) => x && x.status === 'error');
+  const warns = conns.filter((x) => x && x.status === 'warning');
+  const name = (x) => `${x.label || x.id}${x.detail ? ` (${x.detail})` : ''}`;
+  if (errs.length) return { state: 'error', value: 'Connected', detail: `${errs.length} module${errs.length > 1 ? 's' : ''} in error: ${errs.slice(0, 3).map(name).join(', ')}`, issue: true };
+  if (warns.length) return { state: 'warning', value: 'Connected', detail: `${warns.length} module${warns.length > 1 ? 's' : ''} with warnings: ${warns.slice(0, 3).map(name).join(', ')}`, issue: false };
+  if (!conns.length) return { state: 'ok', value: 'Connected', detail: 'No modules configured in Companion', issue: false };
+  return { state: 'ok', value: 'Connected', detail: `${conns.length} module${conns.length > 1 ? 's' : ''} OK`, issue: false };
+}
+
 function updateControlRoom(status) {
   // ── Hero status ────────────────────────────────────────────
   const heroIcon = document.getElementById('cr-hero-icon');
@@ -391,7 +415,7 @@ function updateControlRoom(status) {
   const relayOk = relayState === 'online';
   const atemOk = getStatusActive(status.atem);
   const encoderOk = getStatusActive(status.encoder) || getStatusActive(status.obs);
-  const companionOk = getStatusActive(status.companion);
+  const companionSummary = getCompanionSummary(status.companion);
 
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
@@ -400,6 +424,8 @@ function updateControlRoom(status) {
   // Audio is core: dead console, muted master, or live silence is an issue.
   const audioSummary = getAudioSummary(status);
   if (audioSummary.issue) issues++;
+  // Configured Companion down (or a Companion module in error) = buttons/automation won't work.
+  if (companionSummary && companionSummary.issue) issues++;
 
   // Roll the Problem Finder auto-run issue count into the hero headline so we
   // never show "All Systems Nominal" while the System Check badge is reporting
@@ -511,8 +537,7 @@ function updateControlRoom(status) {
     if (compCard) compCard.style.display = 'none';
   } else {
     if (compCard) compCard.style.display = '';
-    setCard('cr-card-companion', companionOk ? 'ok' : 'error',
-      companionOk ? t('status.connected') : t('status.disconnected'), '');
+    setCard('cr-card-companion', companionSummary.state, companionSummary.value, companionSummary.detail);
   }
 
   // ProPresenter
@@ -2654,7 +2679,7 @@ function updateStatusUI(status) {
     }
     // Connection count & list
     const connCount = compData.connectionCount;
-    if (typeof connCount === 'number') {
+    if (companionConnected && typeof connCount === 'number') {
       setStatusValue('val-companion-connections', String(connCount), connCount > 0);
     } else {
       setStatusValue('val-companion-connections', '—', false);
@@ -2662,13 +2687,19 @@ function updateStatusUI(status) {
     const connListEl = document.getElementById('companion-connection-list');
     if (connListEl) {
       const conns = compData.connections;
-      if (Array.isArray(conns) && conns.length > 0) {
+      // Only a connected Companion can vouch for its modules — never show a stale list.
+      if (companionConnected && Array.isArray(conns) && conns.length > 0) {
+        const esc = (v) => String(v).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        const COLORS = { ok: ['34,197,94', 'var(--green)'], warning: ['245,158,11', '#f59e0b'], error: ['239,68,68', '#ef4444'] };
         connListEl.innerHTML = conns.map(c => {
-          const label = c.name || c.id || c.host || 'Unknown';
-          return `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px;color:var(--green);">${label}</span>`;
+          const label = c.label || c.name || c.id || 'Unknown';
+          const [rgb, fg] = COLORS[c.status] || ['148,163,184', '#94a3b8'];
+          const tip = c.status ? `${c.status}${c.detail ? ` — ${c.detail}` : ''}` : 'status unknown';
+          return `<span title="${esc(tip)}" data-status="${esc(c.status || 'unknown')}" style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(${rgb},0.1);border:1px solid rgba(${rgb},0.2);border-radius:4px;color:${fg};">${esc(label)}${c.status === 'error' || c.status === 'warning' ? ` — ${esc(c.detail || c.status)}` : ''}</span>`;
         }).join('');
         connListEl.style.display = '';
       } else {
+        connListEl.innerHTML = '';
         connListEl.style.display = 'none';
       }
     }
@@ -4542,19 +4573,19 @@ async function loadEquipment() {
   } else {
     deviceState.atem = [];
   }
-  // Parse companion URL → host + port (e.g. "http://localhost:8888" → "localhost", "8888")
+  // Parse companion URL → host + port (e.g. "http://localhost:8000" → "localhost", "8000")
   if (eq.companionUrl) {
     try {
       const u = new URL(eq.companionUrl);
       deviceState.companion.host = u.hostname || 'localhost';
-      deviceState.companion.port = u.port || '8888';
+      deviceState.companion.port = u.port || (u.protocol === 'https:' ? '443' : '80');
     } catch {
       deviceState.companion.host = eq.companionUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '') || '';
-      deviceState.companion.port = '8888';
+      deviceState.companion.port = '8000';
     }
   } else {
     deviceState.companion.host = '';
-    deviceState.companion.port = '8888';
+    deviceState.companion.port = '8000';
   }
   // Load encoders — prefer array format, fall back to single encoder flat fields
   if (Array.isArray(eq.encoders) && eq.encoders.length > 0) {
@@ -4966,8 +4997,10 @@ async function testEquip(type) {
     params.ip = (state.ip || '').trim();
     if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter an IP address'; setEquipDot(dotId, false); return; }
   } else if (type === 'companion') {
-    params.url = (state.url || '').trim();
-    if (!params.url) { if (detailEl) detailEl.textContent = 'Enter a URL'; setEquipDot(dotId, false); return; }
+    // The Companion form has host + port fields (no URL field) — build the address from them.
+    const host = (state.host || '').trim();
+    if (!host && !(state.url || '').trim()) { if (detailEl) detailEl.textContent = 'Enter the Companion host'; setEquipDot(dotId, false); return; }
+    params.url = host ? `http://${host}:${parseInt(state.port) || 8000}` : state.url.trim();
   } else if (type === 'propresenter') {
     params.ip = (state.host || '').trim() || 'localhost';
     params.port = parseInt(state.port) || 1025;
@@ -5101,7 +5134,7 @@ async function _doSaveEquipment() {
     atems,
     // Switchers config (for SwitcherManager)
     switchers: switchers.length > 0 ? switchers : undefined,
-    companionUrl: deviceState.companion.host ? `http://${(deviceState.companion.host || 'localhost').trim()}:${deviceState.companion.port || '8888'}` : '',
+    companionUrl: deviceState.companion.host ? `http://${(deviceState.companion.host || 'localhost').trim()}:${deviceState.companion.port || '8000'}` : '',
     // Encoders array (new format)
     encoders,
     // Primary encoder flat fields (backward compat)
@@ -5298,7 +5331,7 @@ async function startNetworkScan() {
       addFromScan('atem', d);
     }));
     (results.companion || []).forEach(d => addScanResult(resultsEl, `Companion at ${d.ip} (${d.connections} connections)`, () => {
-      addFromScan('companion', { ...d, host: d.ip, port: String(d.port || '8888') });
+      addFromScan('companion', { ...d, host: d.ip, port: String(d.port || '8000') });
     }));
     (results.obs || []).forEach(d => addScanResult(resultsEl, `OBS at ${d.ip}:${d.port}`, () => {
       addFromScan('obs', d);

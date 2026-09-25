@@ -1180,8 +1180,8 @@ class ChurchAVAgent {
                 await this.companion.pressButton(action.page, action.row, action.col);
                 results.push({ type: 'button_press', page: action.page, row: action.row, col: action.col, success: true });
               } else if (action.type === 'custom_variable') {
-                const ok = await this.companion.setCustomVariable(action.name, String(action.value ?? ''));
-                results.push({ type: 'custom_variable', name: action.name, success: ok });
+                await this.companion.setCustomVariable(action.name, String(action.value ?? ''));
+                results.push({ type: 'custom_variable', name: action.name, success: true });
               } else {
                 results.push({ type: action.type, success: false, error: 'Unknown action type' });
               }
@@ -2184,52 +2184,50 @@ class ChurchAVAgent {
     }
     const url = configuredUrl;
     console.log(`🎛️  Checking Companion at ${url}...`);
+    if (this.companion?.stopPolling) this.companion.stopPolling();
+    if (this._companionPollTimer) { clearInterval(this._companionPollTimer); this._companionPollTimer = null; }
     this.companion = new CompanionBridge({ companionUrl: url });
     this.status.companion.endpoint = url;
 
-    const available = await this.companion.isAvailable();
-    if (available) {
+    // Mirror the bridge into status and push immediately on any change — the bridge
+    // polls liveness every 3 s, so a Companion that dies or comes back shows up at once.
+    const c = this.companion;
+    const sync = () => {
+      const s = c.getStatus();
+      this.status.companion.connected = s.connected;
+      this.status.companion.apiDisabled = s.apiDisabled;
+      this.status.companion.error = s.error;
+      this.status.companion.connectionsKnown = s.connectionsKnown;
+      this.status.companion.connectionCount = s.connected ? s.connectionCount : 0;
+      this.status.companion.connections = s.connected ? s.connections : [];
+      this.status.companion.variables = s.variables;
+    };
+    let seenOnce = false;
+    c.on('connected', () => {
+      if (seenOnce) this.health.companion.reconnects++;
+      seenOnce = true;
       console.log('✅ Companion connected');
-      this.status.companion.connected = true;
       this.logIdentity('companion', 'Companion identity:', url);
-      try {
-        const conns = await this.companion.getConnections();
-        this.status.companion.connectionCount = conns.length;
-        this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
-        console.log(`   ${conns.length} Companion connections found`);
-        // Auto-subscribe to common variables for detected device types
-        this.companion.autoWatchConnections();
-      } catch { /* ignore */ }
-      this.companion.startPolling();
-    } else {
-      console.log('⚠️  Companion not available (optional)');
-    }
-    // Push initial connected state — connectRelay() fires sendStatus() before
-    // connectCompanion() runs (default: connected:false), so this corrects it.
-    this.sendStatus();
+      c.autoWatchConnections();
+      sync(); this.sendStatus();
+    });
+    c.on('disconnected', (why) => {
+      console.log(`⚠️  Companion disconnected${why ? ` — ${why}` : ''}`);
+      sync(); this.sendStatus();
+    });
+    c.on('connectionsChanged', () => { c.autoWatchConnections(); sync(); this.sendStatus(); });
+    c.on('variable_changed', () => { sync(); });
+    c.on('stateChanged', () => { sync(); this.sendStatus(); });   // e.g. offline → HTTP API switched off
 
-    // Periodically refresh companion status (guard against duplicate intervals on re-entry)
-    if (this._companionPollTimer) clearInterval(this._companionPollTimer);
-    this._companionPollTimer = this._track(setInterval(async () => {
-      try {
-        const wasConnected = this.status.companion.connected;
-        const avail = await this.companion.isAvailable();
-        this.status.companion.connected = avail;
-        if (avail) {
-          const conns = await this.companion.getConnections();
-          this.status.companion.connectionCount = conns.length;
-          this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
-          this.companion.autoWatchConnections(); // refresh variable subscriptions for new connections
-        }
-        // Update variable snapshot in status
-        if (this.companion._variableValues) this.status.companion.variables = this.companion._variableValues;
-        // Push status immediately on connection state changes
-        if (avail !== wasConnected) this.sendStatus();
-        // Log state changes so the Electron host picks them up
-        if (avail && !wasConnected) { this.health.companion.reconnects++; console.log('✅ Companion connected'); }
-        if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
-      } catch { /* ignore */ }
-    }, 30_000));
+    await c.startPolling();
+    sync();
+    if (c.connected) {
+      console.log(`   ${c.connectionsKnown ? `${c.connectionCount} Companion connections found` : 'Companion connections not reported by this version'}`);
+    } else {
+      console.log(`⚠️  Companion not available (optional)${c.lastError ? ` — ${c.lastError}` : ''}`);
+    }
+    // connectRelay() fires sendStatus() before connectCompanion() runs, so correct it now.
+    this.sendStatus();
   }
 
   // ─── PREVIEW SCREENSHOTS ────────────────────────────────────────────────

@@ -365,12 +365,12 @@ describe('executeOnboardingAction — save_equipment', () => {
     expect(result.localConfig.companionUrl).toBe('http://192.168.1.50:8888');
   });
 
-  it('uses default companion port 8888', () => {
+  it('uses default companion port 8000 (Companion 3+; 8888 was Companion 2.x)', () => {
     const result = executeOnboardingAction(db, 'church-1', {
       type: 'save_equipment',
       data: { companionHost: '10.0.0.1' },
     }, new Map(), null);
-    expect(result.localConfig.companionUrl).toBe('http://10.0.0.1:8888');
+    expect(result.localConfig.companionUrl).toBe('http://10.0.0.1:8000');
   });
 });
 

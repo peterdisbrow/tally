@@ -8229,11 +8229,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var labels = (comp.connections || []).map(function(c) { return c.label; }).filter(Boolean);
           statusEl.innerHTML = '<div style="padding:10px 14px;background:#0c2818;border:1px solid #16532e;border-radius:8px;font-size:13px">' +
             '<span style="color:#00E676;font-weight:700"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Companion Connected</span>' +
-            (cc > 0 ? ' — ' + cc + ' module' + (cc !== 1 ? 's' : '') + (labels.length ? ': ' + labels.join(', ') : '') : '') +
+            (cc > 0 ? ' — ' + cc + ' module' + (cc !== 1 ? 's' : '') + (labels.length ? ': ' + labels.map(escapeHtml).join(', ') : '') : '') +
+            (comp.connectionsKnown === false ? ' — this Companion version does not report its modules' : '') +
+            (function() {
+              var bad = (comp.connections || []).filter(function(c) { return c.status === 'error' || c.status === 'warning'; });
+              if (!bad.length) return '';
+              return '<div style="margin-top:6px;color:#FFB300">' + SVG.warning + ' ' + bad.length + ' module' + (bad.length !== 1 ? 's' : '') + ' with problems: ' +
+                bad.map(function(c) { return escapeHtml((c.label || c.id) + (c.detail ? ' (' + c.detail + ')' : '')); }).join(', ') + '</div>';
+            })() +
             '</div>';
         } else {
           statusEl.innerHTML = '<div style="padding:10px 14px;background:#1e1e1e;border:1px solid #333;border-radius:8px;font-size:13px;color:#8B9DAF">' +
-            SVG.warning + ' Companion not detected. Make sure it\'s running on the same machine as Tally (port 8888).' +
+            SVG.warning + (comp.apiDisabled
+              ? ' Companion found, but its HTTP API is switched off. Enable it in Companion \u2192 Settings \u2192 Protocols \u2192 HTTP.'
+              : ' Companion not detected. Make sure it\'s running and its HTTP API is enabled (Companion 3+ uses port 8000).' + (comp.error ? ' (' + escapeHtml(comp.error) + ')' : '')) +
             '</div>';
         }
       }

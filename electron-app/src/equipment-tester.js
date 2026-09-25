@@ -161,10 +161,22 @@ async function testEquipmentConnection(params) {
         return { success: ok, details: ok ? 'ATEM reachable (UDP handshake OK)' : 'Cannot reach ATEM — check IP and that it is powered on' };
       }
       case 'companion': {
-        const target = url || `http://${ip}:${port || 8888}`;
-        // Companion 4.x: probe a location slot — any HTTP response means it's running
-        const resp = await _tryHttpGet(`${target}/api/location/1/0/0`, 2000);
-        return { success: resp.success, details: resp.success ? 'Companion connected' : 'Cannot reach Companion' };
+        const target = String(url || `http://${ip || 'localhost'}:${port || 8000}`).replace(/\/$/, '');
+        // Only a real Companion answers its internal clock variable; 403 = HTTP API switched off.
+        const resp = await _tryHttpGet(`${target}/api/variable/internal/time_hms/value`, 2000);
+        if (!resp.success) return { success: false, details: `Cannot reach Companion at ${target} — is it running? (Companion 3+ uses port 8000 by default)` };
+        if (resp.statusCode === 403) return { success: false, details: 'Companion found, but its HTTP API is switched off — enable it in Companion → Settings → Protocols → HTTP' };
+        if (resp.statusCode !== 200 || !/^\s*\d{1,2}:\d{2}:\d{2}\s*$/.test(String(resp.body || ''))) {
+          return { success: false, details: `Something answered at ${target} but it is not Companion (HTTP ${resp.statusCode})` };
+        }
+        const conns = await _tryHttpGet(`${target}/api/connections`, 2000);
+        if (conns.success && conns.statusCode === 200 && Array.isArray(conns.data)) {
+          const enabled = conns.data.filter((c) => c && c.enabled !== false);
+          const bad = enabled.filter((c) => c.status && (c.status.category === 'error' || c.status.category === 'warning'));
+          const list = bad.slice(0, 3).map((c) => `${c.label || c.id}${c.status.message ? ` (${c.status.message})` : ''}`).join(', ');
+          return { success: true, details: `Companion connected — ${enabled.length} connection${enabled.length === 1 ? '' : 's'}${bad.length ? `, ${bad.length} with problems: ${list}` : ', all OK'}` };
+        }
+        return { success: true, details: 'Companion connected (this version does not report its connections)' };
       }
       case 'obs': {
         const ok = await _tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);

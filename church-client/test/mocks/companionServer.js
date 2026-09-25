@@ -1,21 +1,24 @@
 /**
- * Mock Bitfocus Companion 4.x HTTP server.
+ * Mock Bitfocus Companion — mirrors the HTTP API of a real Companion 5.0.6 as observed
+ * in the lab (tally-linux/wip/companion/REAL-COMPANION-5.0.6-FINDINGS.md):
  *
- * Implements the subset of /api/* endpoints that church-client/src/companion.js
- * exercises:
- *   - GET  /api/location/:p/:r/:c              → button state
- *   - POST /api/location/:p/:r/:c/press        → press button (logs + emits)
- *   - GET  /api/connections                    → list of configured modules
- *   - GET  /api/:conn/:var/value               → module variable value
- *   - GET  /api/custom-variable/:name/value    → custom variable
- *   - POST /api/custom-variable/:name/value    → set custom variable
+ *   GET  /api/variable/internal/time_hms/value        200 text "HH:MM:SS"
+ *   GET  /api/variable/internal/b_text_P_R_C/value    label ("" when unlabelled) | 404 no button
+ *   GET  /api/variable/internal/b_step_P_R_C/value, b_active_P_R_C
+ *   GET  /api/variable/<label>/<name>/value           module variable | 404
+ *   POST /api/location/P/R/C/press                    200 "ok" | 204 empty slot (nothing happens)
+ *   GET  /api/location/...                            404 (no GET for buttons in Companion)
+ *   GET  /api/custom-variable/<n>/value               value | 404 "Not found"
+ *   POST /api/custom-variable/<n>/value?value=X       200 "ok" | 404 variable doesn't exist
+ *        (a JSON body with no ?value= stores the raw body — exactly what real Companion does)
+ *   GET  /api/connections                             [{id,label,moduleId,enabled,status:{category,level,message}|null}]
+ *   GET  /                                            web UI HTML
  *
- * Default state: 1 page, 4×8 grid, 1 dummy connection ("atem"). Tests can
- * override via the control API (see _lib/control.js):
- *   POST /action { action: "setButton", args: { page, row, col, text, color } }
- *   POST /action { action: "setVariable", args: { connection, name, value } }
- *   POST /action { action: "setConnections", args: [ { id, label, moduleId } ] }
- *   POST /action { action: "simulatePress", args: { page, row, col } }
+ * Stateful: presses run the button's action (e.g. set a custom variable), so a test can
+ * check the effect. Modes (setMode): 'ok' | 'offline' (connections reset) | 'hang'
+ * (accepted, never answered) | 'api-disabled' (403 on every /api route, like the
+ * Settings → Protocols → HTTP switch) | 'v4' (no /api/connections → 404) |
+ * 'not-companion' (another web server on the port: every path 404).
  */
 
 'use strict';
@@ -24,159 +27,151 @@ const http = require('node:http');
 const { createControlServer } = require('./_lib/control');
 
 const DEFAULTS = {
-  buttons: {}, // key "p/r/c" → { text, bgcolor, pressed }
-  customVariables: {}, // name → string
+  // "page/row/col" → { text, action?: { setCustom: [name, value] } }
+  buttons: {
+    '1/0/0': { text: 'Walk In' },
+    '1/0/1': { text: 'Service Start' },
+    '1/0/2': { text: 'Dante: Sunday' },
+    '1/0/3': { text: 'Dante: Sunday Late' },
+    '1/1/0': { text: '' },                           // a button with no label
+  },
+  customVariables: { tally_service_ready: '' },
   connections: [
-    { id: 'atem', label: 'atem', moduleId: 'bmd-atem', enabled: true, status: 'ok' },
+    { id: 'c1', label: 'atem', moduleId: 'bmd-atem', enabled: true, status: { category: 'good', level: 'ok', message: null } },
   ],
-  variables: {}, // "connection:variable" → string
-  pressLog: [], // last N { page, row, col, ts }
+  variables: { 'atem:pgm1_input': 'Camera 1' },    // "label:name" → string
+  pressLog: [],
+  requests: 0,
 };
 
-function parseLocation(url, prefix = '/api/location/') {
-  const tail = url.slice(prefix.length).split('?')[0];
-  const parts = tail.split('/');
-  return { page: Number(parts[0]), row: Number(parts[1]), col: Number(parts[2]), action: parts[3] || null };
-}
+function hms(d = new Date()) { return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':'); }
 
 function readBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => resolve(body));
-  });
+  return new Promise((resolve) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => resolve(b)); });
 }
 
-async function start({ port = 8000, controlPort = 0 } = {}) {
+async function start({ port = 18000, controlPort = 0, mode: initialMode = 'ok' } = {}) {
   const state = JSON.parse(JSON.stringify(DEFAULTS));
+  let mode = initialMode;
+  const sockets = new Set();
+
+  function send(res, code, body = '', type = 'text/html; charset=utf-8') {
+    if (code === 204) { res.writeHead(204); res.end(); return; }
+    res.writeHead(code, { 'content-type': type });
+    res.end(body);
+  }
+
+  function press(page, row, col) {
+    const b = state.buttons[`${page}/${row}/${col}`];
+    if (!b) return false;
+    state.pressLog.push({ page, row, col, text: b.text, ts: Date.now() });
+    if (state.pressLog.length > 50) state.pressLog.shift();
+    b.step = ((b.step || 1) % (b.steps || 1)) + 1;
+    if (b.action && Array.isArray(b.action.setCustom)) {
+      const [n, v] = b.action.setCustom;
+      if (n in state.customVariables) state.customVariables[n] = String(v);
+    }
+    return true;
+  }
 
   const server = http.createServer(async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const url = req.url || '/';
+    state.requests++;
+    if (mode === 'hang') return;
+    if (mode === 'offline') { req.socket.destroy(); return; }
+    const [path, qs] = (req.url || '/').split('?');
+    const q = new URLSearchParams(qs || '');
+    const body = await readBody(req);
+    if (mode === 'not-companion') return send(res, 404, '<h1>Not Found</h1>');
+    if (!path.startsWith('/api/')) return send(res, 200, '<!doctype html><title>Bitfocus Companion</title>');
+    if (mode === 'api-disabled') return send(res, 403, 'Forbidden');
 
-    // GET /api/connections
-    if (req.method === 'GET' && url.startsWith('/api/connections')) {
-      res.end(JSON.stringify(state.connections));
-      return;
+    let m;
+    if (req.method === 'GET' && path === '/api/connections') {
+      if (mode === 'v4') return send(res, 404, '');
+      return send(res, 200, JSON.stringify(state.connections.map((c) => ({ ...c }))), 'application/json; charset=utf-8');
     }
-
-    // POST /api/location/:p/:r/:c/press
-    if (req.method === 'POST' && /^\/api\/location\/\d+\/\d+\/\d+\/press/.test(url)) {
-      const { page, row, col } = parseLocation(url);
-      const key = `${page}/${row}/${col}`;
-      const btn = state.buttons[key] || (state.buttons[key] = { text: '', bgcolor: null, pressed: false });
-      btn.pressed = true;
-      state.pressLog.push({ page, row, col, ts: Date.now() });
-      // Auto-release after 100ms so polling tests see the transition.
-      setTimeout(() => { btn.pressed = false; }, 100);
-      res.statusCode = 200;
-      res.end(JSON.stringify({ success: true }));
-      return;
+    if ((m = path.match(/^\/api\/location\/(\d+)\/(\d+)\/(\d+)\/press$/)) && req.method === 'POST') {
+      return press(+m[1], +m[2], +m[3]) ? send(res, 200, 'ok') : send(res, 204);
     }
-
-    // GET /api/location/:p/:r/:c
-    if (req.method === 'GET' && /^\/api\/location\/\d+\/\d+\/\d+/.test(url)) {
-      const { page, row, col } = parseLocation(url);
-      const key = `${page}/${row}/${col}`;
-      const btn = state.buttons[key] || { text: '', bgcolor: null, pressed: false };
-      res.end(JSON.stringify(btn));
-      return;
-    }
-
-    // POST /api/custom-variable/:name/value
-    if (req.method === 'POST' && /^\/api\/custom-variable\/[^/]+\/value/.test(url)) {
-      const name = decodeURIComponent(url.split('/')[3]);
-      const body = await readBody(req);
-      try {
-        const parsed = JSON.parse(body);
-        state.customVariables[name] = String(parsed.value ?? '');
-      } catch {
-        state.customVariables[name] = body;
+    if ((m = path.match(/^\/api\/custom-variable\/([^/]+)\/value$/))) {
+      const name = decodeURIComponent(m[1]);
+      if (!(name in state.customVariables)) return send(res, 404, 'Not found');
+      if (req.method === 'GET') return send(res, 200, state.customVariables[name]);
+      if (req.method === 'POST') {
+        state.customVariables[name] = q.has('value') ? q.get('value') : body;   // real Companion: raw body if no ?value=
+        return send(res, 200, 'ok');
       }
-      res.end(JSON.stringify({ ok: true }));
-      return;
     }
-
-    // GET /api/custom-variable/:name/value
-    if (req.method === 'GET' && /^\/api\/custom-variable\/[^/]+\/value/.test(url)) {
-      const name = decodeURIComponent(url.split('/')[3]);
-      const value = state.customVariables[name];
-      if (value === undefined) {
-        res.statusCode = 404;
-        res.end(JSON.stringify(null));
-        return;
+    if ((m = path.match(/^\/api\/variable\/([^/]+)\/([^/]+)\/value$/)) && req.method === 'GET') {
+      const label = decodeURIComponent(m[1]);
+      const name = decodeURIComponent(m[2]);
+      if (label === 'internal') {
+        if (name === 'time_hms') return send(res, 200, hms());
+        const bm = name.match(/^b_(text|step|active)_(\d+)_(\d+)_(\d+)$/);
+        if (bm) {
+          const b = state.buttons[`${bm[2]}/${bm[3]}/${bm[4]}`];
+          if (!b) return send(res, 404, 'Not found');
+          return send(res, 200, bm[1] === 'text' ? String(b.text ?? '') : bm[1] === 'step' ? String(b.step || 1) : 'false');
+        }
+        return send(res, 404, 'Not found');
       }
-      res.end(JSON.stringify(value));
-      return;
+      const v = state.variables[`${label}:${name}`];
+      return v === undefined ? send(res, 404, 'Not found') : send(res, 200, String(v));
     }
-
-    // GET /api/:connection/:variable/value (must come AFTER more specific routes)
-    if (req.method === 'GET' && /^\/api\/[^/]+\/[^/]+\/value/.test(url)) {
-      const parts = url.split('/');
-      const conn = decodeURIComponent(parts[2]);
-      const varName = decodeURIComponent(parts[3]);
-      const value = state.variables[`${conn}:${varName}`];
-      if (value === undefined) {
-        res.statusCode = 404;
-        res.end(JSON.stringify(null));
-        return;
-      }
-      res.end(JSON.stringify(value));
-      return;
-    }
-
-    res.statusCode = 404;
-    res.end(JSON.stringify({ error: 'not found' }));
+    return send(res, 404, '');
   });
+  server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); if (mode === 'offline') s.destroy(); });
 
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, '127.0.0.1', resolve);
-  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   const actualPort = server.address().port;
 
+  const api = {
+    setMode: (m2) => { mode = m2 || 'ok'; if (mode === 'offline') for (const s of sockets) s.destroy(); },
+    get mode() { return mode; },
+    setButton: ({ page, row, col, text = '', action = null }) => { state.buttons[`${page}/${row}/${col}`] = { text, ...(action ? { action } : {}) }; },
+    removeButton: ({ page, row, col }) => { delete state.buttons[`${page}/${row}/${col}`]; },
+    setVariable: ({ connection, name, value }) => { state.variables[`${connection}:${name}`] = String(value); },
+    createCustomVariable: ({ name, value = '' }) => { state.customVariables[name] = String(value); },
+    deleteCustomVariable: ({ name }) => { delete state.customVariables[name]; },
+    setConnections: (list) => { if (Array.isArray(list)) state.connections = list; },
+    setConnectionStatus: ({ label, category, level = null, message = null, enabled }) => {
+      const c = state.connections.find((x) => x.label === label || x.id === label);
+      if (!c) throw new Error(`no connection ${label}`);
+      c.status = category === null ? null : { category, level, message };
+      if (enabled !== undefined) c.enabled = !!enabled;
+    },
+    operatorPress: ({ page, row, col }) => press(page, row, col),
+    reset: () => { const f = JSON.parse(JSON.stringify(DEFAULTS)); for (const k of Object.keys(state)) delete state[k]; Object.assign(state, f); mode = 'ok'; },
+  };
+
   const control = await createControlServer({
-    device: 'companion',
-    port: controlPort,
-    state,
-    initialState: DEFAULTS,
+    device: 'companion', port: controlPort, state, initialState: DEFAULTS,
     actions: {
-      setButton: ({ page, row, col, text = '', color = null, pressed = false }) => {
-        state.buttons[`${page}/${row}/${col}`] = { text, bgcolor: color, pressed };
-      },
-      setVariable: ({ connection, name, value }) => {
-        state.variables[`${connection}:${name}`] = String(value);
-      },
-      setConnections: (conns) => {
-        if (Array.isArray(conns)) state.connections = conns;
-      },
-      simulatePress: ({ page, row, col }) => {
-        const key = `${page}/${row}/${col}`;
-        const btn = state.buttons[key] || (state.buttons[key] = { text: '', bgcolor: null, pressed: false });
-        btn.pressed = true;
-        state.pressLog.push({ page, row, col, ts: Date.now() });
-        setTimeout(() => { btn.pressed = false; }, 100);
-      },
+      setMode: ({ mode: m2 }) => api.setMode(m2),
+      setButton: (a) => api.setButton(a),
+      removeButton: (a) => api.removeButton(a),
+      setVariable: (a) => api.setVariable(a),
+      createCustomVariable: (a) => api.createCustomVariable(a),
+      deleteCustomVariable: (a) => api.deleteCustomVariable(a),
+      setConnections: (a) => api.setConnections(a),
+      setConnectionStatus: (a) => api.setConnectionStatus(a),
+      operatorPress: (a) => api.operatorPress(a),
+      reset: () => api.reset(),
     },
   });
 
   return {
-    device: 'companion',
-    port: actualPort,
-    url: `http://127.0.0.1:${actualPort}`,
-    control,
-    state,
-    stop: async () => {
-      await new Promise((r) => server.close(() => r()));
-      await control.stop();
-    },
+    device: 'companion', port: actualPort, url: `http://127.0.0.1:${actualPort}`, control,
+    get state() { return state; }, ...api,
+    stop: async () => { for (const s of sockets) s.destroy(); await new Promise((r) => server.close(() => r())); await control.stop(); },
   };
 }
 
-module.exports = { start };
+module.exports = { start, DEFAULTS };
 
 if (require.main === module) {
-  start({ port: Number(process.env.PORT) || 8000, controlPort: Number(process.env.CONTROL_PORT) || 0 })
+  // Never default to 8000: that is Companion's own default port (a real Companion may be running there).
+  start({ port: Number(process.env.PORT) || 18000, controlPort: Number(process.env.CONTROL_PORT) || 0 })
     .then((s) => console.log(`[mock-companion] device=${s.url}  control=${s.control.url}`))
     .catch((e) => { console.error(e); process.exit(1); });
 }

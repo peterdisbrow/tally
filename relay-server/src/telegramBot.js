@@ -2934,14 +2934,15 @@ class TallyBot {
       case 'companion.press':
         return `✅ Button pressed (page ${params.page}, row ${params.row}, col ${params.col})`;
       case 'companion.getGrid':
-        if (result && typeof result === 'object') {
-          const pages = Object.keys(result).length;
-          return `🎛️ *Companion Grid*: ${pages} page${pages !== 1 ? 's' : ''} available`;
+        if (Array.isArray(result)) {
+          const labelled = result.flat().filter(b => b && b.text);
+          return `🎛️ *Companion page ${params.page || 1}*: ${labelled.length} labelled button${labelled.length !== 1 ? 's' : ''}${labelled.length ? `\n${labelled.slice(0, 12).map(b => `• r${b.row} c${b.col}: ${b.text}`).join('\n')}` : ''}`;
         }
         return `✅ Companion grid loaded`;
       case 'companion.connections':
         if (Array.isArray(result)) {
-          const lines = result.map(c => `• ${c.label || c.id}: ${c.enabled !== false ? '✅ Active' : '⚫ Disabled'}`);
+          const icon = { ok: '✅ OK', warning: '⚠️ Warning', error: '❌ Error', disabled: '⚫ Disabled' };
+          const lines = result.map(c => `• ${c.label || c.id}: ${icon[c.status] || (c.enabled === false ? '⚫ Disabled' : '❔ Unknown')}${c.detail && (c.status === 'error' || c.status === 'warning') ? ` (${c.detail})` : ''}`);
           return `🎛️ *Companion Connections*\n${lines.join('\n') || 'No connections configured'}`;
         }
         return `✅ Companion connections loaded`;
@@ -3222,6 +3223,11 @@ class TallyBot {
     const e = error.toLowerCase();
     const device = (command || '').split('.')[0] || 'device';
     const deviceLabel = { atem: 'ATEM switcher', obs: 'OBS', vmix: 'vMix', encoder: 'encoder', mixer: 'audio mixer', companion: 'Companion', propresenter: 'ProPresenter', videohub: 'Video Hub', resolume: 'Resolume', ptz: 'PTZ camera' }[device] || device;
+
+    // Companion driver errors are already plain English and name the exact button/variable
+    // ("No button at page 1 row 3 column 7…", "\"sunday\" matches 2 Companion buttons…",
+    // "HTTP API is switched off…") — rewording them would hide what to fix.
+    if (device === 'companion' || device === 'dante') return error.length > 400 ? `${error.slice(0, 397)}…` : error;
 
     // Connection timeouts
     if (e.includes('etimedout') || e.includes('timed out') || e.includes('timeout')) {

@@ -183,18 +183,24 @@ e2e('companion.pressButton → mock records exactly one press', async () => {
   assert.equal(state.pressLog[0].col, 2);
 });
 
-e2e('companion.setCustomVariable → mock stores the value', async () => {
+e2e('companion.setCustomVariable → mock stores the value (only variables that exist in Companion)', async () => {
   await h.resetMocks();
 
   const result = await h.dispatch('companion.setCustomVariable', {
-    name: 'service_state', value: 'live',
+    name: 'tally_service_ready', value: 'live',
   });
   assert.equal(result.sent, true);
 
   await waitFor(async () => {
     const s = await h.mocks.companion.readState();
-    return s.customVariables.service_state === 'live';
+    return s.customVariables.tally_service_ready === 'live';
   }, { timeoutMs: 4000, label: 'companion variable to update' });
+
+  // A variable Companion doesn't have is refused by Companion (404) and never invented.
+  await h.dispatch('companion.setCustomVariable', { name: 'service_state', value: 'live' });
+  await new Promise((r) => setTimeout(r, 1000));
+  const s = await h.mocks.companion.readState();
+  assert.equal('service_state' in s.customVariables, false);
 });
 
 // ─── SQ Mixer ────────────────────────────────────────────────────────────────

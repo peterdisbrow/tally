@@ -12,7 +12,7 @@
 
 const deviceState = {
   atem:          [],  // [{ ip, role, name }]  — multi-instance (was single object)
-  companion:     { host: '', port: '8888' },
+  companion:     { host: '', port: '8000' },
   encoder:       [],  // [{ encoderType, host, port, password, label, statusUrl, source }]
   propresenter:  { host: '', port: '1025', configured: false },
   vmix:          { host: '', port: '8088', configured: false, switcherRole: '' },
@@ -34,7 +34,7 @@ const expandedDevices = new Set();
  */
 function resetDeviceState() {
   deviceState.atem = [];
-  deviceState.companion = { host: '', port: '8888' };
+  deviceState.companion = { host: '', port: '8000' };
   deviceState.encoder = [];
   deviceState.propresenter = { host: '', port: '1025', configured: false };
   deviceState.vmix = { host: '', port: '8088', configured: false, switcherRole: '' };
@@ -79,7 +79,7 @@ function renderActiveSummary() {
       addChip('encoder', encName + role, enc.host || '');
     }
   });
-  if (deviceState.companion.host) addChip('companion', 'Companion', `${deviceState.companion.host}:${deviceState.companion.port || '8888'}`);
+  if (deviceState.companion.host) addChip('companion', 'Companion', `${deviceState.companion.host}:${deviceState.companion.port || '8000'}`);
   deviceState.hyperdeck.forEach((h, i) => { if (h.ip) addChip('hyperdeck', `HD${i + 1}`, h.ip); });
   deviceState.ptz.forEach((c, i) => { if (c.ip) addChip('ptz', c.name || `PTZ${i + 1}`, c.ip); });
   if (deviceState.propresenter.configured) addChip('propresenter', 'ProPres', deviceState.propresenter.host || 'localhost');

@@ -99,7 +99,7 @@ Action types:
 ### Rules
 - Ask ONE topic per message. Don't overwhelm with questions.
 - If scan results found devices, mention them: "I found an ATEM at 192.168.1.240 — want to use it?"
-- Use smart defaults: OBS port 4455, ATEM port 9910, ProPresenter port 1025, Companion port 8888
+- Use smart defaults: OBS port 4455, ATEM port 9910, ProPresenter port 1025, Companion port 8000 (Companion 3 and newer; very old Companion 2.x used 8888)
 - For schedule, accept natural language: "Sundays at 9 and 11, Wednesday night at 7"
 - Parse times flexibly: "9", "9am", "9:00 AM", "9 o'clock" all mean 09:00
 - Default service duration: 1.5 hours
@@ -560,7 +560,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
           if (data.encoderPort) localConfig.encoderPort = data.encoderPort;
 
           if (data.companionHost) {
-            const port = data.companionPort || 8888;
+            const port = data.companionPort || 8000;
             localConfig.companionUrl = `http://${data.companionHost}:${port}`;
           }
 
@@ -678,7 +678,7 @@ function executeOnboardingAction(db, churchId, action, churches, scheduleEngine)
 
       // Companion config
       if (data.companionHost) {
-        const port = data.companionPort || 8888;
+        const port = data.companionPort || 8000;
         localConfig.companionUrl = `http://${data.companionHost}:${port}`;
       }
 

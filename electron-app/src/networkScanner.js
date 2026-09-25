@@ -267,6 +267,21 @@ async function tryProPresenterProbe(ip, port = 1025, timeoutMs = 2000) {
   return { version: resp.data.host_description || `API ${resp.data.api_version}`, name: resp.data.name || null };
 }
 
+/**
+ * Bitfocus Companion (3.x/4.x/5.x) answers GET /api/variable/internal/time_hms/value with
+ * its clock as plain "HH:MM:SS". 403 = Companion with the HTTP API switched off.
+ * Any other web server on 8000/8888 — or a 404 — is not Companion.
+ */
+function isCompanionClock(text) {
+  return typeof text === 'string' && /^\s*\d{1,2}:\d{2}:\d{2}\s*$/.test(text);
+}
+
+async function tryCompanionProbe(ip, port = 8000, timeoutMs = 2000) {
+  const resp = await tryHttpGet(`http://${ip}:${port}/api/variable/internal/time_hms/value`, timeoutMs);
+  if (resp.success && resp.statusCode === 200 && isCompanionClock(resp.body)) return { apiDisabled: false };
+  return null;
+}
+
 function isLikelyVmixXml(xml) {
   return typeof xml === 'string' && /<edition>/.test(xml);
 }
@@ -563,7 +578,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   const localhostChecks = [
     { type: 'atem', ip: '127.0.0.1', port: 9910 },
     { type: 'obs', ip: '127.0.0.1', port: 4455 },
-    { type: 'companion', ip: '127.0.0.1', port: 8888 },
+    { type: 'companion', ip: '127.0.0.1', port: 8000 },   // Companion 3.x+ default
+    { type: 'companion', ip: '127.0.0.1', port: 8888 },   // Companion 2.x / custom
     { type: 'hyperdeck', ip: '127.0.0.1', port: 9993 },
     { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
     { type: 'resolume', ip: '127.0.0.1', port: 8080 },
@@ -593,9 +609,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         results.obs.push({ ip: '127.0.0.1', port: 4455 });
         onProgress(3, 'Found OBS on localhost (found)');
       } else if (check.type === 'companion') {
-        // Companion 4.x: simple HTTP probe — web UI always responds at root
-        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/`, 2000);
-        if (resp.success) {
+        // Only a real Companion answers its internal clock variable (a random web server does not count)
+        const comp = await tryCompanionProbe('127.0.0.1', check.port, 2000);
+        if (comp && !results.companion.find((d) => d.ip === '127.0.0.1')) {
           results.companion.push({ ip: '127.0.0.1', port: check.port, connections: 0 });
           onProgress(4, 'Found Companion on localhost (found)');
         }
@@ -699,7 +715,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   const BATCH_SIZE = 50;
   const ports = [
     { port: 9910,  type: 'atem' },                // UDP — Blackmagic ATEM protocol
-    { port: 8888,  type: 'companion' },            // TCP — Bitfocus Companion HTTP
+    { port: 8000,  type: 'companion' },            // TCP — Bitfocus Companion HTTP (3.x+ default)
+    { port: 8888,  type: 'companion' },            // TCP — Bitfocus Companion HTTP (2.x / custom)
     { port: 4455,  type: 'obs' },                  // TCP — OBS WebSocket
     { port: 9993,  type: 'hyperdeck' },            // TCP — HyperDeck telnet
     { port: 1025,  type: 'propresenter' },         // TCP — ProPresenter HTTP
@@ -738,9 +755,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               results.atem.push({ ip, name: 'ATEM Switcher', model: 'Unknown' });
               onProgress(null, `Found ATEM at ${ip} (found)`);
             } else if (type === 'companion' && !results.companion.find((d) => d.ip === ip)) {
-              // Companion 4.x: simple HTTP probe — web UI always responds at root
-              const resp = await tryHttpGet(`http://${ip}:${port}/`, 2000);
-              if (resp.success) {
+              const comp = await tryCompanionProbe(ip, port, 2000);
+              if (comp && !results.companion.find((d) => d.ip === ip)) {
                 results.companion.push({ ip, port, connections: 0 });
                 onProgress(null, `Found Companion at ${ip} (found)`);
               }
@@ -888,4 +904,6 @@ module.exports = {
   tryYamahaRcpProbe,
   isProPresenterVersion,
   tryProPresenterProbe,
+  isCompanionClock,
+  tryCompanionProbe,
 };

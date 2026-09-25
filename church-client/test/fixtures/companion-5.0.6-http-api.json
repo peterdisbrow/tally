@@ -1,0 +1,19 @@
+{
+  "_source": "Observed with curl against a real Bitfocus Companion 5.0.6 (lab instance :18000, 25 Sep 2026 02:51–03:07 ET). See tally-linux/wip/companion/REAL-COMPANION-5.0.6-FINDINGS.md",
+  "observations": [
+    { "method": "GET",  "path": "/api/variable/internal/time_hms/value", "status": 200, "bodyPattern": "^\\d{2}:\\d{2}:\\d{2}$" },
+    { "method": "GET",  "path": "/api/location/1/0/0", "status": 404 },
+    { "method": "GET",  "path": "/api/connections", "status": 200, "json": true },
+    { "method": "POST", "path": "/api/location/1/0/0/press", "status": 200, "body": "ok", "_note": "button exists (1/0/0 is a label button in the mock defaults)" },
+    { "method": "POST", "path": "/api/location/1/3/7/press", "status": 204, "_note": "empty slot" },
+    { "method": "GET",  "path": "/api/variable/internal/b_text_1_0_0/value", "status": 200, "body": "Walk In" },
+    { "method": "GET",  "path": "/api/variable/internal/b_text_1_3_7/value", "status": 404 },
+    { "method": "GET",  "path": "/api/variable/internal/b_text_1_1_0/value", "status": 200, "body": "", "_note": "button with no label" },
+    { "method": "POST", "path": "/api/custom-variable/no_such_var/value?value=x", "status": 404 },
+    { "method": "GET",  "path": "/api/custom-variable/no_such_var/value", "status": 404 },
+    { "method": "POST", "path": "/api/custom-variable/tally_service_ready/value?value=green", "status": 200, "readBack": "green" },
+    { "method": "GET",  "path": "/api/variable/atem/nope/value", "status": 404 },
+    { "method": "GET",  "path": "/api/atem/pgm1_input/value", "status": 404, "_note": "the path the old driver used — never valid" }
+  ],
+  "apiDisabledStatus": 403
+}

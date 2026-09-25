@@ -89,9 +89,14 @@ ProPresenter:
 - Offline means ProPresenter did not answer GET /version; a different web server on the port is not treated as ProPresenter
 
 Companion (Bitfocus):
-- Protocol: HTTP API on port 8000
-- Config: companionUrl
-- Controls: press button by position or name, get grid, list connections
+- Protocol: Companion's HTTP API (polled every 3 s, no WebSocket), default port 8000 on Companion 3 and newer (8888 only on old 2.x)
+- Config: companionUrl. The HTTP API must be enabled in Companion → Settings → Protocols → HTTP (403 on everything = switched off)
+- Offline means Companion did not answer its internal clock variable; another web server on the port is not treated as Companion
+- Buttons: press by page/row/column (rows and columns count from 0) or by exact label; a partial label only works when it matches exactly one button. Pressing an empty slot is refused ("No button at …"), never reported as done
+- A press confirms Companion ran the button — NOT what the downstream device did (e.g. a Dante scene button is "pressed, not confirmed")
+- Button labels come from Companion's internal variables (b_text_page_row_col); pages 1–10 are searched for names
+- Variables: module variables are read as label:name; custom variables can be read and set, but only ones that already exist in Companion (set is read back to confirm)
+- Connections: each Companion module reports OK / warning / error / disabled with Companion's own message (Companion 5+; older versions don't report them)
 - Note: Companion controls 600+ device types — use it for devices not directly supported
 
 vMix:
@@ -169,7 +174,7 @@ ptz: pan, tilt, zoom, preset, setPreset, stop, home
 
 propresenter: next, previous, goToSlide, lastSlide, status, playlist, isRunning, clearAll, clearSlide, clearProps, clearMedia, clearAudio, clearAnnouncements, stageMessage, toggleStageMessage, clearMessage, messages, getLooks, activeLook, setLook, getTimers, timerStatus, startTimer, stopTimer, resetTimer, createTimer, incrementTimer, setTimerValue, triggerPresentation, triggerPlaylistItem, triggerLibraryCue, libraries, getProps, triggerProp, toggleProp, getGroups, triggerGroup, getMacros, triggerMacro, nextAnnouncement, previousAnnouncement, announcementStatus, getStageLayouts, setStageLayout, audienceScreens, toggleAudienceScreens, toggleStageScreens, screenStatus, triggerVideoInput, audio/media playlist (get/focus/trigger), transport (play/pause/skip/goToTime/goToEnd), timeline (play/pause/rewind), captureStart, captureStop, version
 
-companion: press, pressNamed, getGrid, connections
+companion: press, pressNamed, getGrid, connections, getVariable, getCustomVariable, setCustomVariable, watchVariable, getWatchedVariables
 
 vmix: status, startStream, stopStream, startRecording, stopRecording, cut, fade, setPreview, setProgram, listInputs, setVolume, mute, unmute, preview, isRunning, function, startPlaylist, stopPlaylist, audioLevels
 

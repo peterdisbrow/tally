@@ -57,7 +57,7 @@ const DEVICE_REGISTRY = {
     multi: false,
     fields: [
       { key: 'host', label: 'IP / Host', type: 'text', placeholder: 'localhost' },
-      { key: 'port', label: 'Port', type: 'number', placeholder: '8888', style: 'width:92px' },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '8000', style: 'width:92px' },
     ],
     testType: 'companion',
   },

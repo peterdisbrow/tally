@@ -4,8 +4,8 @@ const { collectDiagnosticBundle } = require('../diagnosticBundle');
 
 async function danteScene(agent, params) {
   if (!agent.companion) throw new Error('Companion not configured — Dante scenes require Companion buttons prefixed with "Dante:"');
-  await agent.companion.pressNamed(`Dante: ${params.name}`);
-  return `Dante scene "${params.name}" triggered via Companion`;
+  const r = await agent.companion.pressNamed(`Dante: ${params.name}`);
+  return `Dante scene "${params.name}" triggered via Companion button "${r.text}" — pressed, not confirmed (Companion does not report what the Dante controller did)`;
 }
 
 // ─── PRESET COMMANDS ─────────────────────────────────────────────────────────
@@ -157,15 +157,19 @@ async function preServiceCheck(agent) {
   // 4. Companion check
   if (agent.companion) {
     const companionAvail = await agent.companion.isAvailable();
-    checks.push({ name: 'Companion', pass: companionAvail, detail: companionAvail ? 'Running' : 'Not reachable' });
+    checks.push({ name: 'Companion', pass: companionAvail, detail: companionAvail ? 'Running' : `Not reachable — ${agent.companion.lastError || 'no answer'}` });
 
     if (companionAvail) {
       try {
         const conns = await agent.companion.getConnections();
-        checks.push({ name: 'Companion Connections', pass: conns.length > 0, detail: `${conns.length} connections configured` });
-        const errors = conns.filter(c => c.hasError);
-        if (errors.length > 0) {
-          checks.push({ name: 'Companion Errors', pass: false, detail: `${errors.length} connection(s) with errors: ${errors.map(e => e.label).join(', ')}` });
+        if (conns === null) {
+          checks.push({ name: 'Companion Connections', pass: true, detail: 'Not reported by this Companion version' });
+        } else {
+          checks.push({ name: 'Companion Connections', pass: conns.length > 0, detail: `${conns.length} connections configured` });
+          const errors = conns.filter(c => c.hasError);
+          if (errors.length > 0) {
+            checks.push({ name: 'Companion Errors', pass: false, detail: `${errors.length} connection(s) with errors: ${errors.map(e => `${e.label}${e.detail ? ` (${e.detail})` : ''}`).join(', ')}` });
+          }
         }
       } catch (e) {
         checks.push({ name: 'Companion Connections', pass: false, detail: `Error: ${e.message}` });
@@ -261,59 +265,6 @@ async function previewSnap(agent) {
   return { snapshot: true, size: frame.data.length };
 }
 
-// ─── COMPANION COMMANDS ─────────────────────────────────────────────────────
-
-async function companionPress(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  const result = await agent.companion.pressButton(params.page, params.row, params.col);
-  return `Companion button pressed: page ${params.page}, row ${params.row}, col ${params.col}`;
-}
-
-async function companionPressNamed(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  await agent.companion.pressNamed(params.name);
-  return `Companion button "${params.name}" pressed`;
-}
-
-async function companionGetGrid(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  return await agent.companion.getButtonGrid(params.page || 1);
-}
-
-async function companionConnections(agent) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  return await agent.companion.getConnections();
-}
-
-async function companionGetVariable(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  const value = await agent.companion.getVariable(params.connection, params.variable);
-  return { connection: params.connection, variable: params.variable, value };
-}
-
-async function companionGetCustomVariable(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  const value = await agent.companion.getCustomVariable(params.name);
-  return { name: params.name, value };
-}
-
-async function companionSetCustomVariable(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  const ok = await agent.companion.setCustomVariable(params.name, params.value);
-  return ok ? `Custom variable "${params.name}" set to "${params.value}"` : 'Failed to set custom variable';
-}
-
-async function companionWatchVariable(agent, params) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  agent.companion.watchVariable(params.connection, params.variable);
-  return `Now watching ${params.connection}:${params.variable}`;
-}
-
-function companionGetWatchedVariables(agent) {
-  if (!agent.companion) throw new Error('Companion not configured');
-  return agent.companion.getWatchedVariables();
-}
-
 function systemSetWatchdogMode(agent, params) {
   agent.watchdogActive = params.active !== false;
   return `Watchdog ${agent.watchdogActive ? 'enabled' : 'disabled'}`;
@@ -336,15 +287,6 @@ module.exports = {
   'preview.start': previewStart,
   'preview.stop': previewStop,
   'preview.snap': previewSnap,
-  'companion.press': companionPress,
-  'companion.pressNamed': companionPressNamed,
-  'companion.getGrid': companionGetGrid,
-  'companion.connections': companionConnections,
-  'companion.getVariable': companionGetVariable,
-  'companion.getCustomVariable': companionGetCustomVariable,
-  'companion.setCustomVariable': companionSetCustomVariable,
-  'companion.watchVariable': companionWatchVariable,
-  'companion.getWatchedVariables': companionGetWatchedVariables,
   'dante.scene': danteScene,
   'preset.save': presetSave,
   'preset.list': presetList,
