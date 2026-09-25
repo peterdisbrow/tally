@@ -213,8 +213,12 @@ async function testEquipmentConnection(params) {
         return { success: ok, details: ok ? 'VISCA TCP reachable' : 'Cannot reach VISCA TCP camera' };
       }
       case 'propresenter': {
-        const resp = await _tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
-        return { success: resp.success, details: resp.success ? 'ProPresenter running' : 'Cannot reach ProPresenter' };
+        // GET /version (official PP7 API). A 404 / other web server on the port is NOT ProPresenter.
+        const resp = await _tryHttpGet(`http://${ip}:${port || 1025}/version`, 3000);
+        const d = resp && resp.success && resp.statusCode === 200 ? resp.data : null;
+        const isPP = !!(d && typeof d === 'object' && (d.api_version || /propresenter/i.test(String(d.host_description || ''))));
+        if (isPP) return { success: true, details: `${d.host_description || 'ProPresenter'} running${d.name ? ` (${d.name})` : ''}` };
+        return { success: false, details: resp && resp.success ? `Something answered on port ${port || 1025} but it is not ProPresenter (enable Network in ProPresenter settings and check the port)` : 'Cannot reach ProPresenter (is it running with Network enabled?)' };
       }
       case 'vmix': {
         const resp = await _tryHttpGet(`http://${ip}:${port || 8088}/api/?Function=GetShortXML`, 3000);

@@ -2496,8 +2496,10 @@ class ChurchAVAgent {
       // Trust the ProPresenter instance's own connected state (managed by its 2s poll loop).
       // Don't call isRunning() here — that would create a competing connection check.
       if (!this.proPresenter.connected) {
-        this.status.proPresenter.connected = false;
-        this.status.proPresenter.running = this.proPresenter.running;
+        // toStatus() blanks slide/look/timers/screens while disconnected — never leave stale show data.
+        const before = JSON.stringify(this.status.proPresenter);
+        Object.assign(this.status.proPresenter, this.proPresenter.toStatus(), { connected: false });
+        if (JSON.stringify(this.status.proPresenter) !== before) this.sendStatus();
         return;
       }
       // Fetch all rich status in parallel — one failure doesn't block others

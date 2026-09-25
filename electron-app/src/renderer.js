@@ -395,6 +395,8 @@ function updateControlRoom(status) {
 
   if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
   if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
+  // Configured ProPresenter not answering = lyrics/slides can't be driven → an issue, not "nominal".
+  if (status.proPresenter !== null && status.proPresenter !== undefined && typeof status.proPresenter === 'object' && !getStatusActive(status.proPresenter)) issues++;
   // Audio is core: dead console, muted master, or live silence is an issue.
   const audioSummary = getAudioSummary(status);
   if (audioSummary.issue) issues++;
@@ -519,10 +521,15 @@ function updateControlRoom(status) {
     if (ppCard) ppCard.style.display = 'none';
   } else {
     if (ppCard) ppCard.style.display = '';
-    const ppOk = getStatusActive(status.proPresenter);
+    const pp = status.proPresenter;
+    const ppOk = getStatusActive(pp);
+    // What the agent actually reports (never stale: the agent blanks slide data while offline)
+    const ppDetail = !ppOk ? 'ProPresenter not reachable'
+      : pp.slideIndex != null ? `Slide ${pp.slideIndex + 1}${pp.slideTotal ? ` of ${pp.slideTotal}` : ''}`
+      : (pp.currentSlide === null && pp.connected) ? 'Nothing on screen' : '';
     setCard('cr-card-propresenter', ppOk ? 'ok' : 'error',
-      ppOk ? (status.ppPresentation || t('status.connected')) : t('status.disconnected'),
-      status.ppSlide || '');
+      ppOk ? (pp.currentSlide || t('status.connected')) : t('status.disconnected'),
+      ppDetail);
   }
 
   // Network
@@ -3075,8 +3082,14 @@ function updateProPresenterSection(pp) {
     return;
   }
   section.style.display = '';
-  setStatusValue('val-pp-presentation', pp.currentSlide || '—', pp.connected);
-  setStatusValue('val-pp-slide', pp.slideIndex != null ? `${pp.slideIndex + 1} / ${pp.slideTotal}` : '—', pp.connected);
+  if (!pp.connected) {
+    // Offline: show that, never the last known slide/look/screens
+    setStatusValue('val-pp-presentation', 'Not reachable', false);
+    for (const id of ['val-pp-slide', 'val-pp-look', 'val-pp-timers', 'val-pp-screen', 'val-pp-notes']) setStatusValue(id, '—', false);
+    return;
+  }
+  setStatusValue('val-pp-presentation', pp.currentSlide || 'Nothing on screen', !!pp.currentSlide);
+  setStatusValue('val-pp-slide', pp.slideIndex != null ? `${pp.slideIndex + 1}${pp.slideTotal ? ` / ${pp.slideTotal}` : ''}` : '—', pp.slideIndex != null);
   setStatusValue('val-pp-look', pp.activeLook?.name || '—', !!pp.activeLook);
 
   // Timers: show name + countdown for running timers
@@ -3086,7 +3099,8 @@ function updateProPresenterSection(pp) {
     .join('\n') || 'None running';
   setStatusValue('val-pp-timers', timerText, (pp.timers || []).some(t => t.state === 'Running'));
 
-  setStatusValue('val-pp-screen', pp.screens?.audience ? 'ON' : 'OFF', pp.screens?.audience);
+  const aud = pp.screens?.audience;
+  setStatusValue('val-pp-screen', aud === true ? 'ON' : aud === false ? 'OFF' : 'Unknown', aud === true);
 
   const notes = pp.slideNotes || '—';
   setStatusValue('val-pp-notes', notes.length > 300 ? notes.substring(0, 300) + '...' : notes, !!pp.slideNotes);

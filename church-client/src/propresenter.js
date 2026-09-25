@@ -1,22 +1,51 @@
 /**
- * ProPresenter Integration (PP7 / PP 21.x+)
- * Uses the official /v1/ REST API on port 1025.
- * Real-time slide updates via 2s polling (PP 21 removed the old
- * "Remote Classic" WebSocket protocol).
- * Supports presentation & playlist trigger modes, library browsing,
- * slide thumbnails, and optional backup PP mirroring.
+ * ProPresenter Integration (PP7 / PP 21.x+) — official /v1 REST API, default port 1025.
+ * Paths and methods follow Renewed Vision's published OpenAPI spec
+ * (openapi.propresenter.com): triggers are GET and answer 204; unknown ids → 404.
+ *
+ * Honesty contract (same as the mixer drivers):
+ *   • every command checks the HTTP status — a 404/500/timeout is an error, never "done";
+ *   • where PP exposes the resulting state, the command reads it back and only
+ *     succeeds when PP reports the change (slide index, look, timer state, layers,
+ *     audience/stage screens, message/prop active, capture status, transport);
+ *   • "running" means /version answered like ProPresenter, not "something on port 1025";
+ *   • status never shows stale slide data after PP stops answering;
+ *   • backup-PP mirroring is awaited and its outcome recorded in `lastMirror`
+ *     (commands report "backup did not follow" instead of pretending).
+ * Real-time slide updates via 2 s polling (PP 21 removed Remote Classic).
  */
+
+'use strict';
 
 const { EventEmitter } = require('events');
 
+const TIMER_STATES = { running: 'Running', stopped: 'Stopped', complete: 'Complete', overrunning: 'Overrun', overran: 'Overran' };
+const LAYERS = ['audio', 'props', 'messages', 'announcements', 'slide', 'media', 'video_input'];
+const TRANSPORT_LAYERS = ['presentation', 'announcement', 'audio'];
+const VERIFY_MS = 1500;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const idOf = (x) => x?.id?.uuid || x?.uuid || (typeof x?.id === 'string' ? x.id : null);
+const nameOf = (x) => x?.id?.name || x?.name || 'Untitled';
+const matchName = (list, nameOrId) => {
+  const s = String(nameOrId ?? '').trim();
+  const lc = s.toLowerCase();
+  return list.find((x) => x.id === s) || list.find((x) => (x.name || '').toLowerCase() === lc) || null;
+};
+
+class PPError extends Error {
+  constructor(message, { status, unreachable } = {}) { super(message); this.status = status; this.unreachable = !!unreachable; }
+}
+
 class ProPresenter extends EventEmitter {
-  constructor({ host = 'localhost', port = 1025, triggerMode = 'presentation', backupHost, backupPort } = {}) {
+  constructor({ host = 'localhost', port = 1025, triggerMode = 'presentation', backupHost, backupPort, isBackup = false } = {}) {
     super();
     this.host = host;
-    this.port = port;
-    this.triggerMode = triggerMode; // 'presentation' or 'playlist'
+    this.port = Number(port) || 1025;
+    this.triggerMode = triggerMode === 'playlist' ? 'playlist' : 'presentation';
     this.connected = false;
     this.running = false;
+    this._isBackup = isBackup;
     this._pollAbort = null;
     this._reconnectTimer = null;
     this._reconnectDelay = 5000;
@@ -25,1146 +54,746 @@ class ProPresenter extends EventEmitter {
     this._version = null;
     this._activeLook = null;
     this._activeTimers = [];
-    this._videoCountdown = null; // { name, time, duration, isPlaying }
+    this._videoCountdown = null;
     this._screenStatus = null;
     this._playlistFocused = null;
-
-    // Backup PP instance (fire-and-forget mirroring, no status polling)
-    this._backup = null;
-    if (backupHost) {
-      this._backup = new ProPresenter({ host: backupHost, port: backupPort || 1025 });
-    }
+    this.lastMirror = null;
+    this._backup = backupHost ? new ProPresenter({ host: backupHost, port: backupPort || 1025, triggerMode, isBackup: true }) : null;
   }
 
-  get baseUrl() {
-    return `http://${this.host}:${this.port}`;
-  }
+  get baseUrl() { return `http://${this.host}:${this.port}`; }
 
-  // ─── HTTP HELPERS ─────────────────────────────────────────────────────
+  // ─── HTTP ──────────────────────────────────────────────────────────────
 
-  async _fetch(path, options = {}) {
-    const url = `${this.baseUrl}${path}`;
+  /** Request that must succeed. Returns parsed JSON (or null for 204 / empty). */
+  async _req(method, path, { body, label, timeout = 5000 } = {}) {
+    const what = label || `${method} ${path}`;
+    let resp;
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000), ...options });
-      if (!resp.ok) return null;
-      const text = await resp.text();
-      try { return JSON.parse(text); } catch { return null; }
-    } catch {
-      return null;
+      resp = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        signal: AbortSignal.timeout(timeout),
+        ...(body !== undefined ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
+      });
+    } catch (e) {
+      throw new PPError(`ProPresenter${this._isBackup ? ' (backup)' : ''} is not reachable — ${what} not done (${e.name === 'TimeoutError' ? 'no answer' : e.cause?.code || e.message})`, { unreachable: true });
     }
+    const text = await resp.text().catch(() => '');
+    if (!resp.ok) {
+      const hint = resp.status === 404 ? 'not found in ProPresenter' : `HTTP ${resp.status}`;
+      throw new PPError(`ProPresenter refused ${what} (${hint})`, { status: resp.status });
+    }
+    if (!text) return null;
+    try { return JSON.parse(text); } catch { return text; }
   }
 
-  /** Fire-and-forget HTTP request (for triggers that return 204/empty). */
+  /** Best-effort read for status/polling: null on any failure. */
+  async _fetch(path) {
+    try { return await this._req('GET', path, { timeout: 4000 }); } catch { return null; }
+  }
+
+  /** Legacy helper name kept for callers: a GET trigger that must succeed. */
   async _fire(path, options = {}) {
-    const url = `${this.baseUrl}${path}`;
+    await this._req(options.method || 'GET', path, { body: options.body !== undefined ? JSON.parse(options.body) : undefined });
+    return true;
+  }
+
+  /** Mirror to the backup PP; awaited, never throws, outcome in this.lastMirror. */
+  async _mirror(method, path, body) {
+    if (!this._backup) return;
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000), ...options });
-      // Consume body to prevent socket hang
-      await resp.text();
-      return resp.ok || resp.status === 204;
-    } catch {
-      return false;
+      await this._backup._req(method, path, { body, timeout: 3000 });
+      this.lastMirror = { ok: true };
+    } catch (e) {
+      this.lastMirror = { ok: false, error: e.message };
     }
   }
 
-  /** Mirror a command to the backup PP instance (fire-and-forget). */
-  _mirror(path, options = {}) {
-    if (!this._backup) return;
-    this._backup._fire(path, options).catch(() => {});
+  async _cmd(method, path, { body, label, mirror = true } = {}) {
+    await this._req(method, path, { body, label });
+    if (mirror) await this._mirror(method, path, body);
   }
 
-  // ─── PUBLIC API ───────────────────────────────────────────────────────
+  /** Poll `read` until `ok(value)` or VERIFY_MS elapses; returns the last value. */
+  async _until(read, ok, ms = VERIFY_MS) {
+    const t0 = Date.now();
+    let v;
+    do {
+      v = await read();
+      if (ok(v)) return { ok: true, v };
+      await sleep(100);
+    } while (Date.now() - t0 < ms);
+    return { ok: false, v };
+  }
+
+  // ─── LIVENESS / VERSION ────────────────────────────────────────────────
 
   async isRunning() {
-    try {
-      // Use /v1/status/slide (proven reliable in PP 21.x, same as Tally Clicker).
-      // Any HTTP response (even 404) proves PP is running.
-      // Only a network-level failure (ECONNREFUSED, timeout) means not running.
-      const resp = await fetch(`${this.baseUrl}/v1/status/slide`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      // Consume body to prevent socket hang
-      await resp.text();
-      this.running = true;
-      return true;
-    } catch {
-      this.running = false;
-      return false;
-    }
+    const v = await this._fetch('/version');
+    const ok = !!(v && typeof v === 'object' && (v.api_version || /propresenter/i.test(v.host_description || '')));
+    if (ok) this._version = v.host_description || v.api_version;
+    this.running = ok;
+    return ok;
   }
 
   async getVersion() {
-    // Per PP spec, version endpoint lives at /version (not /v1/version)
-    // Try JSON parse first, fall back to raw text (PP 21 may return plain text)
-    try {
-      const resp = await fetch(`${this.baseUrl}/version`, { signal: AbortSignal.timeout(5000) });
-      if (!resp.ok) return null;
-      const text = (await resp.text()).trim();
-      if (!text) return null;
-      let data;
-      try { data = JSON.parse(text); } catch { /* not JSON */ }
-      if (data && typeof data === 'object') {
-        const v = data.version || data.appVersion || data.host_description || data.product || null;
-        this._version = v;
-        return v;
-      }
-      // Raw text response (strip surrounding quotes if present)
-      const cleaned = text.replace(/^["']|["']$/g, '');
-      if (cleaned) { this._version = cleaned; return cleaned; }
-      return null;
-    } catch {
-      return null;
-    }
+    const v = await this._fetch('/version');
+    if (!v || typeof v !== 'object' || !(v.api_version || v.host_description)) return null;
+    this._version = v.host_description || `API ${v.api_version}`;
+    return this._version;
+  }
+
+  // ─── SLIDES ────────────────────────────────────────────────────────────
+
+  async _slideIndex() {
+    const d = await this._fetch('/v1/presentation/slide_index');
+    if (!d || typeof d !== 'object') return undefined;             // unknown
+    const pi = d.presentation_index;
+    if (!pi) return null;                                          // nothing on screen
+    return { index: pi.index, uuid: pi.presentation_id?.uuid || null, name: pi.presentation_id?.name || null };
+  }
+
+  async _slideCount(uuid) {
+    if (!uuid) return null;
+    const d = await this._fetch(`/v1/presentation/${encodeURIComponent(uuid)}`);
+    const p = d?.presentation || d;
+    if (!p || !Array.isArray(p.groups)) return null;
+    return p.groups.reduce((a, g) => a + (Array.isArray(g.slides) ? g.slides.length : 0), 0);
   }
 
   async getCurrentSlide() {
-    const data = await this._fetch('/v1/presentation/active');
-    if (!data || typeof data !== 'object') return this._currentSlide || null;
-    // Log once for debugging PP 21 response format
-    if (!this._activeSlideFormatLogged) {
-      console.log('[ProPresenter] /v1/presentation/active response keys:', Object.keys(data).join(', '));
-      this._activeSlideFormatLogged = true;
-    }
-    const pres = data.presentation || data;
-    const result = {
-      presentationName: pres.name || data.id?.name || this._currentSlide?.presentationName || 'Unknown',
-      presentationUUID: pres.uuid || data.id?.uuid || this._currentSlide?.presentationUUID || null,
-      slideIndex: data.slideIndex ?? pres.slideIndex ?? data.index ?? this._currentSlide?.slideIndex ?? 0,
-      slideTotal: data.slideCount ?? pres.slideCount ?? data.slide_count ?? pres.groups?.reduce((a, g) => a + (g.slides?.length || 0), 0) ?? this._currentSlide?.slideTotal ?? 0,
-      slideNotes: data.notes || pres.notes || this._currentSlide?.slideNotes || '',
+    const si = await this._slideIndex();
+    if (si === undefined) { if (!this.connected) this._currentSlide = null; return this.connected ? this._currentSlide : null; }
+    if (si === null) { this._currentSlide = null; return { presentationName: null, presentationUUID: null, slideIndex: null, slideTotal: null, slideNotes: '', onScreen: false }; }
+    const total = this._currentSlide?.presentationUUID === si.uuid && this._currentSlide.slideTotal != null
+      ? this._currentSlide.slideTotal : await this._slideCount(si.uuid);
+    const st = await this._fetch('/v1/status/slide');
+    this._currentSlide = {
+      presentationName: si.name, presentationUUID: si.uuid, slideIndex: si.index,
+      slideTotal: total, slideNotes: st?.current?.notes || '', onScreen: true,
     };
-    // Don't overwrite good poll data with 'Unknown' from a sparse /active response
-    if (result.presentationName !== 'Unknown' || !this._currentSlide?.presentationName) {
-      this._currentSlide = result;
-    }
     return this._currentSlide;
   }
 
+  async _verifyMoved(before, label) {
+    const r = await this._until(() => this._slideIndex(), (s) => s && (!before || s.index !== before.index || s.uuid !== before.uuid));
+    if (!r.ok) {
+      if (r.v === undefined) throw new PPError(`ProPresenter stopped answering — cannot confirm ${label}`);
+      throw new PPError(`ProPresenter accepted ${label} but the slide did not change${before ? ` (still slide ${before.index + 1} of "${before.name}" — end of presentation?)` : ' (nothing on screen)'}`);
+    }
+    return r.v;
+  }
+
   async nextSlide() {
-    const path = this.triggerMode === 'playlist'
-      ? '/v1/trigger/next'
-      : '/v1/presentation/focused/next/trigger';
-    await this._fire(path);
-    this._mirror(path);
-    return true;
+    const before = await this._slideIndex();
+    const path = this.triggerMode === 'playlist' ? '/v1/trigger/next' : '/v1/presentation/focused/next/trigger';
+    await this._cmd('GET', path, { label: 'next slide' });
+    return this._verifyMoved(before, 'next slide');
   }
 
   async previousSlide() {
-    const path = this.triggerMode === 'playlist'
-      ? '/v1/trigger/previous'
-      : '/v1/presentation/focused/previous/trigger';
-    await this._fire(path);
-    this._mirror(path);
-    return true;
+    const before = await this._slideIndex();
+    const path = this.triggerMode === 'playlist' ? '/v1/trigger/previous' : '/v1/presentation/focused/previous/trigger';
+    await this._cmd('GET', path, { label: 'previous slide' });
+    return this._verifyMoved(before, 'previous slide');
   }
 
   async goToSlide(index) {
-    const path = `/v1/presentation/focused/${index}/trigger`;
-    await this._fire(path);
-    this._mirror(path);
-    return true;
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0) throw new Error(`Invalid slide "${index}"`);
+    await this._cmd('GET', `/v1/presentation/focused/${i}/trigger`, { label: `slide ${i + 1}` });
+    const r = await this._until(() => this._slideIndex(), (s) => s && s.index === i);
+    if (!r.ok) throw new PPError(`ProPresenter accepted slide ${i + 1} but reports ${r.v ? `slide ${r.v.index + 1}` : r.v === null ? 'nothing on screen' : 'no answer'}`);
+    return r.v;
   }
 
   async getPlaylist() {
     const data = await this._fetch('/v1/playlists');
-    if (!data) return [];
-    const items = [];
-    const extract = (list) => {
-      if (Array.isArray(list)) {
-        for (const item of list) {
-          if (item.name || item.id) items.push({ name: item.name || item.id, type: item.type || 'unknown' });
-          if (item.items) extract(item.items);
-        }
-      }
-    };
-    extract(data.playlists || data);
-    return items;
+    if (!Array.isArray(data)) return [];
+    const out = [];
+    const walk = (list) => { for (const it of list || []) { out.push({ name: nameOf(it), id: idOf(it), type: it.type || 'playlist' }); if (Array.isArray(it.playlists)) walk(it.playlists); } };
+    walk(data);
+    return out;
   }
 
-  // ─── RICH STATUS METHODS ──────────────────────────────────────────────
+  // ─── RICH STATUS ───────────────────────────────────────────────────────
 
   async getActiveLook() {
-    const data = await this._fetch('/v1/looks/current');
-    if (!data || typeof data !== 'object') return null;
-    if (!this._lookFormatLogged) {
-      console.log('[ProPresenter] /v1/looks/current response keys:', Object.keys(data).join(', '));
-      this._lookFormatLogged = true;
-    }
-    const look = { id: data.id?.uuid || data.uuid || null, name: data.id?.name || data.name || 'Unknown' };
+    const d = await this._fetch('/v1/look/current');
+    if (!d || typeof d !== 'object') return null;
+    const look = { id: idOf(d), name: nameOf(d) };
     const prev = this._activeLook;
     this._activeLook = look;
-    if (prev && prev.name !== look.name) this.emit('lookChanged', look);
+    if (prev && prev.id !== look.id) this.emit('lookChanged', look);
     return look;
   }
 
   async getTimerStatus() {
-    const data = await this._fetch('/v1/timers/current');
-    if (!data) return [];
-    const list = (Array.isArray(data) ? data : data.timers || []).map(t => ({
-      id: t.id?.uuid || t.id || t.uuid,
-      name: t.id?.name || t.name || 'Untitled',
-      time: t.time || '00:00',
-      state: t.state || 'Stopped', // Running, Stopped, Overrun
-    }));
+    const d = await this._fetch('/v1/timers/current');
+    if (!Array.isArray(d)) return this.connected ? this._activeTimers : [];
+    const list = d.map((t) => ({ id: idOf(t), name: nameOf(t), time: t.time || '00:00:00', state: TIMER_STATES[String(t.state || '').toLowerCase()] || 'Stopped' }));
     const prev = this._activeTimers;
     this._activeTimers = list;
-    // Emit if any timer state changed
-    if (JSON.stringify(prev.map(t => `${t.id}:${t.state}`)) !== JSON.stringify(list.map(t => `${t.id}:${t.state}`))) {
-      this.emit('timerUpdate', list);
-    }
+    if (JSON.stringify(prev.map((t) => `${t.id}:${t.state}`)) !== JSON.stringify(list.map((t) => `${t.id}:${t.state}`))) this.emit('timerUpdate', list);
     return list;
   }
 
   async getVideoCountdown() {
-    const data = await this._fetch('/v1/transport/presentation/current');
-    if (!data || typeof data !== 'object') {
-      this._videoCountdown = null;
-      return null;
-    }
-    // PP7 returns: { layer, is_playing, name, duration, time }
-    // duration and time are in seconds (float)
-    const duration = data.duration ?? 0;
-    const elapsed = data.time ?? 0;
-    const remaining = Math.max(0, duration - elapsed);
-    const isPlaying = !!data.is_playing;
-    const name = data.name || null;
-
-    // Only report if there's actual media with a duration
-    if (!duration || !name) {
-      this._videoCountdown = null;
-      return null;
-    }
-
-    const fmt = (sec) => {
-      const totalSec = Math.floor(sec);
-      const h = Math.floor(totalSec / 3600);
-      const m = Math.floor((totalSec % 3600) / 60);
-      const s = totalSec % 60;
-      return h > 0
-        ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-        : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    };
-
-    this._videoCountdown = {
-      name,
-      time: fmt(remaining),
-      elapsed: fmt(elapsed),
-      duration: fmt(duration),
-      remaining,
-      isPlaying,
-    };
+    const cur = await this._fetch('/v1/transport/presentation/current');
+    if (!cur || typeof cur !== 'object' || !cur.duration || !cur.name) { this._videoCountdown = null; return null; }
+    const t = await this._fetch('/v1/transport/presentation/time');
+    const elapsed = Number.isFinite(t) ? t : 0;
+    const remaining = Math.max(0, cur.duration - elapsed);
+    const fmt = (sec) => { const s = Math.floor(sec); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const r = s % 60; return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`; };
+    this._videoCountdown = { name: cur.name, time: fmt(remaining), elapsed: fmt(elapsed), duration: fmt(cur.duration), remaining, isPlaying: !!cur.is_playing };
     return this._videoCountdown;
   }
 
   async getAudienceScreenStatus() {
-    // Try /v1/status/screens first, then /v1/status/audience_screens
-    const data = await this._fetch('/v1/status/screens')
-      || await this._fetch('/v1/status/audience_screens');
-    if (!data || typeof data !== 'object') return null;
-    // Log once for debugging PP 21 response format
-    if (!this._screenFormatLogged) {
-      console.log('[ProPresenter] Screen status response:', JSON.stringify(data).slice(0, 500));
-      this._screenFormatLogged = true;
-    }
-    // PP7 format: { audience: true, stage: false }
-    // PP 21 may use: { screens: [{ name, enabled }] } or similar
-    let audience, stage;
-    if (data.audience !== undefined) {
-      audience = !!data.audience;
-      stage = !!data.stage;
-    } else if (Array.isArray(data.screens)) {
-      audience = data.screens.some(s => /audience/i.test(s.name || s.type || '') && s.enabled !== false);
-      stage = data.screens.some(s => /stage/i.test(s.name || s.type || '') && s.enabled !== false);
-    } else if (Array.isArray(data)) {
-      audience = data.some(s => /audience/i.test(s.name || s.type || '') && s.enabled !== false);
-      stage = data.some(s => /stage/i.test(s.name || s.type || '') && s.enabled !== false);
-    } else {
-      // Unknown format — log once for debugging
-      if (!this._screenFormatLogged) {
-        console.log('[ProPresenter] Screen status response format:', JSON.stringify(data));
-        this._screenFormatLogged = true;
-      }
-      return null;
-    }
-    const status = { audience, stage };
+    const a = await this._fetch('/v1/status/audience_screens');
+    const s = await this._fetch('/v1/status/stage_screens');
+    if (typeof a !== 'boolean' && typeof s !== 'boolean') { this._screenStatus = null; return null; }
+    const status = { audience: typeof a === 'boolean' ? a : null, stage: typeof s === 'boolean' ? s : null };
     const prev = this._screenStatus;
     this._screenStatus = status;
-    if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) {
-      this.emit('screenStateChanged', status);
-    }
+    if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) this.emit('screenStateChanged', status);
     return status;
   }
 
   async getPlaylistFocused() {
-    const data = await this._fetch('/v1/playlist/focused');
-    if (!data) return null;
-    this._playlistFocused = {
-      name: data.id?.name || data.name || null,
-      uuid: data.id?.uuid || data.uuid || null,
-      index: data.index ?? null,
-    };
+    const d = await this._fetch('/v1/playlist/focused');
+    if (!d || typeof d !== 'object' || !d.playlist) { this._playlistFocused = null; return null; }
+    this._playlistFocused = { name: d.playlist.name || null, uuid: d.playlist.uuid || null, index: d.item?.index ?? null, item: d.item?.name || null };
     return this._playlistFocused;
   }
 
-  // ─── LIBRARY BROWSING ────────────────────────────────────────────────
+  async _layers() { return this._fetch('/v1/status/layers'); }
+
+  // ─── LIBRARIES / THUMBNAILS ────────────────────────────────────────────
 
   async getLibraries() {
-    const data = await this._fetch('/v1/libraries');
-    if (!data) return [];
-    const libraries = data.libraries || data || [];
+    const libs = await this._fetch('/v1/libraries');
+    if (!Array.isArray(libs)) return [];
     const result = [];
-    for (const lib of (Array.isArray(libraries) ? libraries : [])) {
-      const libId = lib.id?.uuid || lib.id;
-      const libName = lib.id?.name || lib.name || 'Untitled';
-      try {
-        const items = await this._fetch(`/v1/library/${encodeURIComponent(libId)}`);
-        result.push({
-          id: libId,
-          name: libName,
-          presentations: ((items?.items || items || [])).map(p => ({
-            id: p.id?.uuid || p.id,
-            name: p.id?.name || p.name || 'Untitled',
-          })),
-        });
-      } catch {
-        result.push({ id: libId, name: libName, presentations: [] });
-      }
+    for (const lib of libs) {
+      const libId = idOf(lib);
+      const items = await this._fetch(`/v1/library/${encodeURIComponent(libId)}`);
+      result.push({ id: libId, name: nameOf(lib), presentations: (items?.items || []).map((p) => ({ id: idOf(p), name: nameOf(p) })) });
     }
     return result;
   }
 
-  // ─── THUMBNAILS ──────────────────────────────────────────────────────
-
   async getThumbnail(presentationUUID, slideIndex) {
     try {
-      const resp = await fetch(
-        `${this.baseUrl}/v1/presentation/${encodeURIComponent(presentationUUID)}/thumbnail/${slideIndex}`,
-        { signal: AbortSignal.timeout(5000) }
-      );
+      const resp = await fetch(`${this.baseUrl}/v1/presentation/${encodeURIComponent(presentationUUID)}/thumbnail/${slideIndex}`, { signal: AbortSignal.timeout(5000) });
       if (!resp.ok) return null;
-      const buffer = await resp.arrayBuffer();
-      return Buffer.from(buffer).toString('base64');
-    } catch {
-      return null;
+      return Buffer.from(await resp.arrayBuffer()).toString('base64');
+    } catch { return null; }
+  }
+
+  // ─── CLEAR ─────────────────────────────────────────────────────────────
+
+  async _clearLayers(layers, label) {
+    for (const l of layers) await this._cmd('GET', `/v1/clear/layer/${l}`, { label: `clear ${l}` });
+    const r = await this._until(() => this._layers(), (s) => s && layers.every((l) => s[l] === false));
+    if (!r.ok) {
+      if (!r.v) throw new PPError(`ProPresenter did not report its layers — cannot confirm ${label}`);
+      throw new PPError(`ProPresenter accepted ${label} but still shows: ${layers.filter((l) => r.v[l]).join(', ')}`);
     }
-  }
-
-  // ─── EXTENDED PP7 API ────────────────────────────────────────────────
-
-  async clearAll() {
-    const layers = ['slide', 'media', 'props', 'messages'];
-    await Promise.allSettled(layers.map(l => this._fire(`/v1/clear/layer/${l}`)));
-    for (const l of layers) this._mirror(`/v1/clear/layer/${l}`);
     return true;
   }
+  async clearAll()          { return this._clearLayers(['slide', 'media', 'props', 'messages'], 'clear all'); }
+  async clearSlide()        { return this._clearLayers(['slide'], 'clear slide'); }
+  async clearMessages()     { return this._clearLayers(['messages'], 'clear messages'); }
+  async clearProps()        { return this._clearLayers(['props'], 'clear props'); }
+  async clearMedia()        { return this._clearLayers(['media'], 'clear media'); }
+  async clearAudio()        { return this._clearLayers(['audio'], 'clear audio'); }
+  async clearAnnouncements() { return this._clearLayers(['announcements'], 'clear announcements'); }
 
-  async clearSlide() {
-    await this._fire('/v1/clear/layer/slide');
-    this._mirror('/v1/clear/layer/slide');
-    return true;
-  }
+  // ─── MESSAGES ──────────────────────────────────────────────────────────
 
   async getMessages() {
-    const data = await this._fetch('/v1/messages');
-    if (!data) return [];
-    return (data.messages || data || []).map(m => ({
-      id: m.id?.uuid || m.id || m.uuid,
-      name: m.id?.name || m.name || 'Untitled',
-    }));
+    const d = await this._fetch('/v1/messages');
+    return Array.isArray(d) ? d.map((m) => ({ id: idOf(m), name: nameOf(m), active: m.is_active === true })) : [];
+  }
+
+  async _find(listFn, nameOrId, what) {
+    const list = await listFn();
+    const found = matchName(list, nameOrId);
+    if (!found) throw new Error(`${what} "${nameOrId}" not found in ProPresenter${list.length ? `. Available: ${list.map((x) => x.name).join(', ')}` : ' (or ProPresenter is not answering)'}`);
+    return found;
   }
 
   async triggerMessage(idOrName, tokens = []) {
-    const messages = await this.getMessages();
-    let msgId = idOrName;
-    if (messages.length > 0) {
-      const found = messages.find(m =>
-        (m.name || '').toLowerCase() === String(idOrName).toLowerCase() ||
-        m.id === idOrName
-      );
-      if (found) msgId = found.id;
-    }
-    const body = tokens.length > 0 ? JSON.stringify(tokens) : undefined;
-    const fetchOpts = body ? { body, headers: { 'Content-Type': 'application/json' } } : {};
-    await this._fire(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
-    this._mirror(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
-    return true;
-  }
-
-  async clearMessages() {
-    await this._fire('/v1/clear/layer/messages');
-    this._mirror('/v1/clear/layer/messages');
-    return true;
-  }
-
-  async getLooks() {
-    const data = await this._fetch('/v1/looks');
-    if (!data) return [];
-    return (data.looks || data || []).map(l => ({
-      id: l.id?.uuid || l.id || l.uuid,
-      name: l.id?.name || l.name || 'Untitled',
-    }));
-  }
-
-  async setLook(nameOrId) {
-    const looks = await this.getLooks();
-    const found = looks.find(l =>
-      (l.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      l.id === nameOrId
-    );
-    if (!found) throw new Error(`Look "${nameOrId}" not found. Available: ${looks.map(l => l.name).join(', ')}`);
-    const body = JSON.stringify({ id: { uuid: found.id, name: found.name } });
-    const headers = { 'Content-Type': 'application/json' };
-    await this._fire('/v1/looks/current', { method: 'PUT', body, headers });
-    this._mirror('/v1/looks/current', { method: 'PUT', body, headers });
-    return found.name;
-  }
-
-  async getTimers() {
-    const data = await this._fetch('/v1/timers');
-    if (!data) return [];
-    return (data.timers || data || []).map(t => ({
-      id: t.id?.uuid || t.id || t.uuid,
-      name: t.id?.name || t.name || 'Untitled',
-      allows_overrun: !!t.allows_overrun,
-    }));
-  }
-
-  async startTimer(nameOrId) {
-    const timers = await this.getTimers();
-    const found = timers.find(t =>
-      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      t.id === nameOrId
-    );
-    if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
-    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/start`);
-    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/start`);
-    return found.name;
-  }
-
-  async stopTimer(nameOrId) {
-    const timers = await this.getTimers();
-    const found = timers.find(t =>
-      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      t.id === nameOrId
-    );
-    if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
-    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/stop`);
-    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/stop`);
-    return found.name;
-  }
-
-  // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
-
-  // ─── COMPANION PARITY: Presentation & Playlist Trigger ─────────────
-
-  async triggerPresentation(nameOrUUID) {
-    // Find in libraries, then trigger by UUID
-    const libs = await this.getLibraries();
-    for (const lib of libs) {
-      const found = lib.presentations.find(p =>
-        (p.name || '').toLowerCase() === String(nameOrUUID).toLowerCase() ||
-        p.id === nameOrUUID
-      );
-      if (found) {
-        await this._fire(`/v1/presentation/${encodeURIComponent(found.id)}/0/trigger`);
-        this._mirror(`/v1/presentation/${encodeURIComponent(found.id)}/0/trigger`);
-        return found.name;
-      }
-    }
-    // Try direct UUID trigger
-    await this._fire(`/v1/presentation/${encodeURIComponent(nameOrUUID)}/0/trigger`);
-    this._mirror(`/v1/presentation/${encodeURIComponent(nameOrUUID)}/0/trigger`);
-    return nameOrUUID;
-  }
-
-  async triggerPlaylistItem(playlistName, itemIndex = 0) {
-    const data = await this._fetch('/v1/playlists');
-    if (!data) throw new Error('Could not fetch playlists');
-    const playlists = data.playlists || data || [];
-    const findPlaylist = (list) => {
-      for (const item of (Array.isArray(list) ? list : [])) {
-        if ((item.name || '').toLowerCase() === String(playlistName).toLowerCase() ||
-            (item.id?.name || '').toLowerCase() === String(playlistName).toLowerCase()) {
-          return item;
-        }
-        if (item.items) {
-          const found = findPlaylist(item.items);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    const playlist = findPlaylist(playlists);
-    if (!playlist) throw new Error(`Playlist "${playlistName}" not found`);
-    const playlistId = playlist.id?.uuid || playlist.id;
-    await this._fire(`/v1/playlist/${encodeURIComponent(playlistId)}/${itemIndex}/trigger`);
-    this._mirror(`/v1/playlist/${encodeURIComponent(playlistId)}/${itemIndex}/trigger`);
-    return playlist.name || playlist.id?.name || playlistName;
-  }
-
-  // ─── COMPANION PARITY: Props ──────────────────────────────────────────
-
-  async getProps() {
-    const data = await this._fetch('/v1/props');
-    if (!data) return [];
-    return (data.props || data || []).map(p => ({
-      id: p.id?.uuid || p.id || p.uuid,
-      name: p.id?.name || p.name || 'Untitled',
-    }));
-  }
-
-  async triggerProp(nameOrId) {
-    const props = await this.getProps();
-    const found = props.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    if (!found) throw new Error(`Prop "${nameOrId}" not found. Available: ${props.map(p => p.name).join(', ')}`);
-    await this._fire(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
-    this._mirror(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
-    return found.name;
-  }
-
-  async clearProps() {
-    await this._fire('/v1/clear/layer/props');
-    this._mirror('/v1/clear/layer/props');
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Timer Reset & Configure ────────────────────────
-
-  async resetTimer(nameOrId) {
-    const timers = await this.getTimers();
-    const found = timers.find(t =>
-      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      t.id === nameOrId
-    );
-    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
-    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/reset`);
-    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/reset`);
-    return found.name;
-  }
-
-  async createTimer(name, settings = {}) {
-    const body = {
-      id: { name },
-      allows_overrun: settings.allowsOverrun || false,
-    };
-    if (settings.countdownDuration) {
-      body.countdown = { duration: settings.countdownDuration };
-    }
-    await this._fire('/v1/timers', {
-      method: 'POST',
-      body: JSON.stringify(body),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return name;
-  }
-
-  // ─── COMPANION PARITY: Groups ─────────────────────────────────────────
-
-  async getGroups() {
-    const data = await this._fetch('/v1/groups');
-    if (!data) return [];
-    return (data.groups || data || []).map(g => ({
-      id: g.id?.uuid || g.id || g.uuid,
-      name: g.id?.name || g.name || 'Untitled',
-      color: g.color || null,
-    }));
-  }
-
-  async triggerGroup(nameOrId) {
-    const groups = await this.getGroups();
-    const found = groups.find(g =>
-      (g.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      g.id === nameOrId
-    );
-    if (!found) throw new Error(`Group "${nameOrId}" not found. Available: ${groups.map(g => g.name).join(', ')}`);
-    await this._fire(`/v1/group/${encodeURIComponent(found.id)}/trigger`);
-    this._mirror(`/v1/group/${encodeURIComponent(found.id)}/trigger`);
-    return found.name;
-  }
-
-  // ─── COMPANION PARITY: Announcements ──────────────────────────────────
-
-  async nextAnnouncement() {
-    await this._fire('/v1/announcement/active/next/trigger');
-    this._mirror('/v1/announcement/active/next/trigger');
-    return true;
-  }
-
-  async previousAnnouncement() {
-    await this._fire('/v1/announcement/active/previous/trigger');
-    this._mirror('/v1/announcement/active/previous/trigger');
-    return true;
-  }
-
-  async getAnnouncementStatus() {
-    const data = await this._fetch('/v1/announcement/active');
-    if (!data) return null;
-    return {
-      presentationName: data.presentation?.name || data.id?.name || null,
-      slideIndex: data.slideIndex ?? 0,
-      slideCount: data.slideCount ?? 0,
-    };
-  }
-
-  // ─── COMPANION PARITY: Macros ─────────────────────────────────────────
-
-  async getMacros() {
-    const data = await this._fetch('/v1/macros');
-    if (!data) return [];
-    return (data.macros || data || []).map(m => ({
-      id: m.id?.uuid || m.id || m.uuid,
-      name: m.id?.name || m.name || 'Untitled',
-    }));
-  }
-
-  async triggerMacro(nameOrId) {
-    const macros = await this.getMacros();
-    const found = macros.find(m =>
-      (m.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      m.id === nameOrId
-    );
-    if (!found) throw new Error(`Macro "${nameOrId}" not found. Available: ${macros.map(m => m.name).join(', ')}`);
-    await this._fire(`/v1/macro/${encodeURIComponent(found.id)}/trigger`);
-    this._mirror(`/v1/macro/${encodeURIComponent(found.id)}/trigger`);
-    return found.name;
-  }
-
-  // ─── COMPANION PARITY: Stage Layouts ──────────────────────────────────
-
-  async getStageLayouts() {
-    const data = await this._fetch('/v1/stage/layouts');
-    if (!data) return [];
-    return (data.layouts || data || []).map(l => ({
-      id: l.id?.uuid || l.id || l.uuid,
-      name: l.id?.name || l.name || 'Untitled',
-    }));
-  }
-
-  async setStageLayout(nameOrId, screenIndex = 0) {
-    const layouts = await this.getStageLayouts();
-    const found = layouts.find(l =>
-      (l.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      l.id === nameOrId
-    );
-    if (!found) throw new Error(`Stage layout "${nameOrId}" not found`);
-    await this._fire(`/v1/stage/layout/${encodeURIComponent(found.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ screen: screenIndex }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    this._mirror(`/v1/stage/layout/${encodeURIComponent(found.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ screen: screenIndex }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return found.name;
-  }
-
-  // ─── COMPANION PARITY: Clear Specific Layers ─────────────────────────
-
-  async clearMedia() {
-    await this._fire('/v1/clear/layer/media');
-    this._mirror('/v1/clear/layer/media');
-    return true;
-  }
-
-  async clearAudio() {
-    await this._fire('/v1/clear/layer/audio');
-    this._mirror('/v1/clear/layer/audio');
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Video Input ────────────────────────────────────
-
-  async triggerVideoInput(name) {
-    await this._fire(`/v1/video_input/${encodeURIComponent(name)}/trigger`);
-    this._mirror(`/v1/video_input/${encodeURIComponent(name)}/trigger`);
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Audio Playlists ─────────────────────────────
-
-  async getAudioPlaylists() {
-    const data = await this._fetch('/v1/audio/playlists');
-    if (!data) return [];
-    return (data.playlists || data || []).map(p => ({
-      id: p.id?.uuid || p.id || p.uuid,
-      name: p.id?.name || p.name || 'Untitled',
-    }));
-  }
-
-  async activeAudioPlaylistTrigger(action = 'next') {
-    const path = `/v1/audio/playlists/active/${encodeURIComponent(action)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return true;
-  }
-
-  async focusedAudioPlaylistTrigger(action = 'next') {
-    const path = `/v1/audio/playlists/focused/${encodeURIComponent(action)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return true;
-  }
-
-  async audioPlaylistFocus(nameOrId) {
-    const playlists = await this.getAudioPlaylists();
-    const found = playlists.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    const id = found ? found.id : nameOrId;
-    await this._fire(`/v1/audio/playlists/${encodeURIComponent(id)}/focus`, { method: 'PUT' });
-    return found ? found.name : nameOrId;
-  }
-
-  async audioPlaylistTrigger(nameOrId) {
-    const playlists = await this.getAudioPlaylists();
-    const found = playlists.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    const id = found ? found.id : nameOrId;
-    const path = `/v1/audio/playlists/${encodeURIComponent(id)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return found ? found.name : nameOrId;
-  }
-
-  // ─── COMPANION PARITY: Media Playlists ────────────────────────────
-
-  async getMediaPlaylists() {
-    const data = await this._fetch('/v1/media/playlists');
-    if (!data) return [];
-    return (data.playlists || data || []).map(p => ({
-      id: p.id?.uuid || p.id || p.uuid,
-      name: p.id?.name || p.name || 'Untitled',
-    }));
-  }
-
-  async activeMediaPlaylistTrigger(action = 'next') {
-    const path = `/v1/media/playlists/active/${encodeURIComponent(action)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return true;
-  }
-
-  async focusedMediaPlaylistTrigger(action = 'next') {
-    const path = `/v1/media/playlists/focused/${encodeURIComponent(action)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return true;
-  }
-
-  async mediaPlaylistFocus(nameOrId) {
-    const playlists = await this.getMediaPlaylists();
-    const found = playlists.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    const id = found ? found.id : nameOrId;
-    await this._fire(`/v1/media/playlists/${encodeURIComponent(id)}/focus`, { method: 'PUT' });
-    return found ? found.name : nameOrId;
-  }
-
-  async mediaPlaylistTrigger(nameOrId) {
-    const playlists = await this.getMediaPlaylists();
-    const found = playlists.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    const id = found ? found.id : nameOrId;
-    const path = `/v1/media/playlists/${encodeURIComponent(id)}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
-    return found ? found.name : nameOrId;
-  }
-
-  // ─── COMPANION PARITY: Transport Layer Control ────────────────────
-
-  async transportPlay(layer = 'presentation') {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/play`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async transportPause(layer = 'presentation') {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/pause`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async transportSkipForward(layer = 'presentation', seconds = 10) {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/skip_forward/${seconds}`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async transportSkipBackward(layer = 'presentation', seconds = 10) {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/skip_backward/${seconds}`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async transportGoToTime(layer = 'presentation', time = 0) {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/go_to_time/${time}`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async transportGoToEnd(layer = 'presentation') {
-    const path = `/v1/transport/${encodeURIComponent(layer)}/go_to_end`;
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Timeline ───────────────────────────────────
-
-  async timelinePlay() {
-    const path = '/v1/presentation/active/timeline/play';
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async timelinePause() {
-    const path = '/v1/presentation/active/timeline/pause';
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  async timelineRewind() {
-    const path = '/v1/presentation/active/timeline/rewind';
-    await this._fire(path, { method: 'PUT' });
-    this._mirror(path, { method: 'PUT' });
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Capture ────────────────────────────────────
-
-  async captureStart() {
-    await this._fire('/v1/capture/start', { method: 'POST' });
-    this._mirror('/v1/capture/start', { method: 'POST' });
-    return true;
-  }
-
-  async captureStop() {
-    await this._fire('/v1/capture/stop', { method: 'POST' });
-    this._mirror('/v1/capture/stop', { method: 'POST' });
-    return true;
-  }
-
-  // ─── COMPANION PARITY: Timer Enhancements ─────────────────────────
-
-  async incrementTimer(nameOrId, seconds = 30) {
-    const timers = await this.getTimers();
-    const found = timers.find(t =>
-      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      t.id === nameOrId
-    );
-    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
-    const body = JSON.stringify({ seconds });
-    const headers = { 'Content-Type': 'application/json' };
-    await this._fire(`/v1/timers/${encodeURIComponent(found.id)}/increment`, { method: 'PUT', body, headers });
-    this._mirror(`/v1/timers/${encodeURIComponent(found.id)}/increment`, { method: 'PUT', body, headers });
-    return found.name;
-  }
-
-  async setTimerValue(nameOrId, settings = {}) {
-    const timers = await this.getTimers();
-    const found = timers.find(t =>
-      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      t.id === nameOrId
-    );
-    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
-    const body = {};
-    if (settings.type) body.type = settings.type;
-    if (settings.duration) body.duration = settings.duration;
-    if (settings.overrun !== undefined) body.allows_overrun = settings.overrun;
-    if (settings.name) body.id = { name: settings.name, uuid: found.id };
-    const headers = { 'Content-Type': 'application/json' };
-    await this._fire(`/v1/timers/${encodeURIComponent(found.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-      headers,
-    });
-    return found.name;
-  }
-
-  // ─── COMPANION PARITY: Toggles ────────────────────────────────────
-
-  async toggleProp(nameOrId) {
-    // Check if the prop is currently active by checking the clear state
-    // If triggering, it shows; if clearing, it hides
-    const props = await this.getProps();
-    const found = props.find(p =>
-      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
-      p.id === nameOrId
-    );
-    if (!found) throw new Error(`Prop "${nameOrId}" not found. Available: ${props.map(p => p.name).join(', ')}`);
-    // PP doesn't expose an "is prop active" endpoint, so we trigger it (toggle behavior)
-    await this._fire(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
-    this._mirror(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
-    return found.name;
+    const msg = await this._find(() => this.getMessages(), idOrName, 'Message');
+    const body = Array.isArray(tokens) && tokens.length ? tokens : undefined;
+    await this._cmd('POST', `/v1/message/${encodeURIComponent(msg.id)}/trigger`, { body, label: `message "${msg.name}"` });
+    const r = await this._until(() => this.getMessages(), (l) => l.some((m) => m.id === msg.id && m.active));
+    if (!r.ok) throw new PPError(`ProPresenter accepted message "${msg.name}" but does not report it as showing`);
+    return msg.name;
   }
 
   async toggleStageMessage(nameOrId) {
-    // Similar toggle: trigger the message (PP handles toggle internally)
-    await this.triggerMessage(nameOrId);
-    return nameOrId;
-  }
-
-  async toggleAudienceScreens() {
-    const status = await this.getAudienceScreenStatus();
-    const newState = !(status?.audience ?? true);
-    await this.setAudienceScreens(newState);
-    return newState ? 'Audience screens ON' : 'Audience screens OFF';
-  }
-
-  async toggleStageScreens() {
-    // Try dedicated toggle endpoint first
-    const ok = await this._fire('/v1/screens/stage/toggle', { method: 'PUT' });
-    if (ok) {
-      this._mirror('/v1/screens/stage/toggle', { method: 'PUT' });
-      return 'Stage screens toggled';
+    const msg = await this._find(() => this.getMessages(), nameOrId, 'Message');
+    if (msg.active) {
+      await this._cmd('GET', `/v1/message/${encodeURIComponent(msg.id)}/clear`, { label: `clear message "${msg.name}"` });
+      const r = await this._until(() => this.getMessages(), (l) => l.some((m) => m.id === msg.id && !m.active));
+      if (!r.ok) throw new PPError(`ProPresenter accepted clearing "${msg.name}" but still shows it`);
+      return `Message "${msg.name}" hidden`;
     }
-    // Fallback: read current state and flip
-    const status = await this.getAudienceScreenStatus();
-    const newState = !(status?.stage ?? true);
-    await this._fire('/v1/status/stage_screens', {
-      method: 'PUT',
-      body: JSON.stringify(!!newState),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return newState ? 'Stage screens ON' : 'Stage screens OFF';
+    await this.triggerMessage(msg.id);
+    return `Message "${msg.name}" showing`;
   }
 
-  // ─── COMPANION PARITY: Library Cue Trigger ────────────────────────
+  // ─── LOOKS ─────────────────────────────────────────────────────────────
+
+  async getLooks() {
+    const d = await this._fetch('/v1/looks');
+    return Array.isArray(d) ? d.map((l) => ({ id: idOf(l), name: nameOf(l) })) : [];
+  }
+
+  async setLook(nameOrId) {
+    const look = await this._find(() => this.getLooks(), nameOrId, 'Look');
+    await this._cmd('GET', `/v1/look/${encodeURIComponent(look.id)}/trigger`, { label: `look "${look.name}"` });
+    const r = await this._until(() => this.getActiveLook(), (l) => l && l.id === look.id);
+    if (!r.ok) throw new PPError(`ProPresenter accepted look "${look.name}" but reports "${r.v?.name ?? 'unknown'}"`);
+    return look.name;
+  }
+
+  // ─── TIMERS ────────────────────────────────────────────────────────────
+
+  async getTimers() {
+    const d = await this._fetch('/v1/timers');
+    return Array.isArray(d) ? d.map((t) => ({ id: idOf(t), name: nameOf(t), allows_overrun: !!t.allows_overrun })) : [];
+  }
+
+  async _timerOp(nameOrId, op, want) {
+    const t = await this._find(() => this.getTimers(), nameOrId, 'Timer');
+    await this._cmd('GET', `/v1/timer/${encodeURIComponent(t.id)}/${op}`, { label: `${op} timer "${t.name}"` });
+    if (want) {
+      const r = await this._until(() => this.getTimerStatus(), (l) => l.some((x) => x.id === t.id && want.includes(x.state)));
+      if (!r.ok) throw new PPError(`ProPresenter accepted ${op} for timer "${t.name}" but reports it ${(r.v || []).find((x) => x.id === t.id)?.state || 'unknown'}`);
+    }
+    return t.name;
+  }
+  async startTimer(nameOrId) { return this._timerOp(nameOrId, 'start', ['Running', 'Overrun']); }
+  async stopTimer(nameOrId)  { return this._timerOp(nameOrId, 'stop', ['Stopped', 'Complete', 'Overran']); }
+  async resetTimer(nameOrId) { return this._timerOp(nameOrId, 'reset', null); }
+
+  async createTimer(name, settings = {}) {
+    const n = String(name ?? '').trim();
+    if (!n) throw new Error('Timer name required');
+    const body = { name: n, allows_overrun: !!settings.allowsOverrun };
+    if (settings.countdownDuration != null) {
+      const d = Number(settings.countdownDuration);
+      if (!Number.isInteger(d) || d <= 0) throw new Error(`Invalid duration "${settings.countdownDuration}" (whole seconds)`);
+      body.countdown = { duration: d };
+    }
+    await this._req('POST', '/v1/timers', { body, label: `create timer "${n}"` });
+    const r = await this._until(() => this.getTimers(), (l) => l.some((t) => t.name === n));
+    if (!r.ok) throw new PPError(`ProPresenter accepted timer "${n}" but it is not in the timer list`);
+    return n;
+  }
+
+  async incrementTimer(nameOrId, seconds = 30) {
+    const s = Number(seconds);
+    if (!Number.isInteger(s)) throw new Error(`Invalid seconds "${seconds}"`);
+    const t = await this._find(() => this.getTimers(), nameOrId, 'Timer');
+    await this._cmd('GET', `/v1/timer/${encodeURIComponent(t.id)}/increment/${s}`, { label: `increment timer "${t.name}"` });
+    return t.name;
+  }
+
+  async setTimerValue(nameOrId, settings = {}) {
+    const t = await this._find(() => this.getTimers(), nameOrId, 'Timer');
+    const body = { id: { uuid: t.id, name: settings.name || t.name }, allows_overrun: settings.overrun !== undefined ? !!settings.overrun : t.allows_overrun };
+    if (settings.duration != null) {
+      const d = Number(settings.duration);
+      if (!Number.isInteger(d) || d <= 0) throw new Error(`Invalid duration "${settings.duration}" (whole seconds)`);
+      body.countdown = { duration: d };
+    }
+    await this._cmd('PUT', `/v1/timer/${encodeURIComponent(t.id)}`, { body, label: `update timer "${t.name}"` });
+    return body.id.name;
+  }
+
+  // ─── PRESENTATIONS / PLAYLISTS ─────────────────────────────────────────
+
+  async triggerPresentation(nameOrUUID) {
+    const libs = await this.getLibraries();
+    const all = libs.flatMap((l) => l.presentations);
+    const found = matchName(all, nameOrUUID);
+    if (!found) throw new Error(`Presentation "${nameOrUUID}" not found in any ProPresenter library${all.length ? '' : ' (or ProPresenter is not answering)'}`);
+    await this._cmd('GET', `/v1/presentation/${encodeURIComponent(found.id)}/trigger`, { label: `presentation "${found.name}"` });
+    const r = await this._until(() => this._slideIndex(), (s) => s && s.uuid === found.id);
+    if (!r.ok) throw new PPError(`ProPresenter accepted "${found.name}" but it is not on screen`);
+    return found.name;
+  }
+
+  async triggerPlaylistItem(playlistName, itemIndex = 0) {
+    const i = Number(itemIndex);
+    if (!Number.isInteger(i) || i < 0) throw new Error(`Invalid playlist item "${itemIndex}"`);
+    const pl = await this._find(() => this.getPlaylist(), playlistName, 'Playlist');
+    await this._cmd('GET', `/v1/playlist/${encodeURIComponent(pl.id)}/${i}/trigger`, { label: `playlist "${pl.name}" item ${i}` });
+    const r = await this._until(() => this.getPlaylistFocused(), (f) => f && f.uuid === pl.id && f.index === i);
+    if (!r.ok) throw new PPError(`ProPresenter accepted playlist "${pl.name}" item ${i} but reports ${r.v ? `"${r.v.name}" item ${r.v.index}` : 'no focused playlist'}`);
+    return pl.name;
+  }
 
   async triggerLibraryCue(libraryId, presentationId, cueIndex = 0) {
-    const path = `/v1/libraries/${encodeURIComponent(libraryId)}/presentations/${encodeURIComponent(presentationId)}/${cueIndex}/trigger`;
-    await this._fire(path, { method: 'POST' });
-    this._mirror(path, { method: 'POST' });
+    const i = Number(cueIndex);
+    if (!Number.isInteger(i) || i < 0) throw new Error(`Invalid cue "${cueIndex}"`);
+    await this._cmd('GET', `/v1/library/${encodeURIComponent(libraryId)}/${encodeURIComponent(presentationId)}/${i}/trigger`, { label: 'library cue' });
+    const r = await this._until(() => this._slideIndex(), (s) => s && s.uuid === presentationId && s.index === i);
+    if (!r.ok) throw new PPError('ProPresenter accepted the library cue but it is not on screen');
     return true;
   }
 
-  // ─── COMPANION PARITY: Clear Announcements ────────────────────────
+  // ─── PROPS / GROUPS / MACROS ───────────────────────────────────────────
 
-  async clearAnnouncements() {
-    await this._fire('/v1/clear/announcements', { method: 'POST' });
-    this._mirror('/v1/clear/announcements', { method: 'POST' });
+  async getProps() {
+    const d = await this._fetch('/v1/props');
+    return Array.isArray(d) ? d.map((p) => ({ id: idOf(p), name: nameOf(p), active: p.is_active === true })) : [];
+  }
+
+  async _propSet(nameOrId, on) {
+    const p = await this._find(() => this.getProps(), nameOrId, 'Prop');
+    await this._cmd('GET', `/v1/prop/${encodeURIComponent(p.id)}/${on ? 'trigger' : 'clear'}`, { label: `${on ? 'show' : 'clear'} prop "${p.name}"` });
+    const r = await this._until(() => this.getProps(), (l) => l.some((x) => x.id === p.id && x.active === on));
+    if (!r.ok) throw new PPError(`ProPresenter accepted prop "${p.name}" but reports it ${on ? 'not showing' : 'still showing'}`);
+    return p;
+  }
+  async triggerProp(nameOrId) { return (await this._propSet(nameOrId, true)).name; }
+  async toggleProp(nameOrId) {
+    const p = await this._find(() => this.getProps(), nameOrId, 'Prop');
+    await this._propSet(p.id, !p.active);
+    return p.name;
+  }
+
+  async getGroups() {
+    const d = await this._fetch('/v1/groups');
+    return Array.isArray(d) ? d.map((g) => ({ id: idOf(g), name: nameOf(g), color: g.color || null })) : [];
+  }
+
+  /** Name of the group the given cue index falls in (from /v1/presentation/{uuid}), or null. */
+  async _groupAt(uuid, index) {
+    const d = await this._fetch(`/v1/presentation/${encodeURIComponent(uuid)}`);
+    const p = d?.presentation || d;
+    if (!p || !Array.isArray(p.groups)) return null;
+    let i = 0;
+    for (const g of p.groups) { const n = Array.isArray(g.slides) ? g.slides.length : 0; if (index >= i && index < i + n) return g.name ?? null; i += n; }
+    return null;
+  }
+
+  async triggerGroup(nameOrId) {
+    const g = await this._find(() => this.getGroups(), nameOrId, 'Group');
+    await this._cmd('GET', `/v1/presentation/focused/group/${encodeURIComponent(g.id)}/trigger`, { label: `group "${g.name}"` });
+    // Confirmed only when the cue on screen belongs to that group.
+    const r = await this._until(async () => { const s = await this._slideIndex(); return s ? { s, group: await this._groupAt(s.uuid, s.index) } : s; },
+      (v) => v && v.group === g.name);
+    if (!r.ok) throw new PPError(`ProPresenter accepted group "${g.name}" but ${r.v ? `slide ${r.v.s.index + 1} (${r.v.group || 'no group'}) is on screen` : r.v === null ? 'nothing is on screen' : 'stopped answering'}`);
+    return g.name;
+  }
+
+  async getMacros() {
+    const d = await this._fetch('/v1/macros');
+    return Array.isArray(d) ? d.map((m) => ({ id: idOf(m), name: nameOf(m) })) : [];
+  }
+
+  /** Macros have no readable state in the API — success means PP accepted it (HTTP 204). */
+  async triggerMacro(nameOrId) {
+    const m = await this._find(() => this.getMacros(), nameOrId, 'Macro');
+    await this._cmd('GET', `/v1/macro/${encodeURIComponent(m.id)}/trigger`, { label: `macro "${m.name}"` });
+    return m.name;
+  }
+
+  // ─── ANNOUNCEMENTS ─────────────────────────────────────────────────────
+
+  async nextAnnouncement()     { await this._cmd('GET', '/v1/announcement/active/next/trigger', { label: 'next announcement' }); return true; }
+  async previousAnnouncement() { await this._cmd('GET', '/v1/announcement/active/previous/trigger', { label: 'previous announcement' }); return true; }
+
+  async getAnnouncementStatus() {
+    const a = await this._fetch('/v1/announcement/active');
+    const p = a?.announcement;
+    if (!p) return null;
+    const si = await this._fetch('/v1/announcement/slide_index');
+    return {
+      presentationName: nameOf(p),
+      slideIndex: si?.announcement_index?.index ?? 0,
+      slideCount: (p.groups || []).reduce((n, g) => n + (g.slides?.length || 0), 0),
+    };
+  }
+
+  // ─── STAGE ─────────────────────────────────────────────────────────────
+
+  async getStageLayouts() {
+    const d = await this._fetch('/v1/stage/layouts');
+    return Array.isArray(d) ? d.map((l) => ({ id: idOf(l), name: nameOf(l) })) : [];
+  }
+
+  async setStageLayout(nameOrId, screenIndex = 0) {
+    const layout = await this._find(() => this.getStageLayouts(), nameOrId, 'Stage layout');
+    const screens = await this._fetch('/v1/stage/screens');
+    const list = Array.isArray(screens) ? screens.map((s) => ({ id: idOf(s), name: nameOf(s), index: s.id?.index ?? s.index })) : [];
+    const si = Number(screenIndex);
+    const screen = list.find((s) => s.index === si) || list[si];
+    if (!screen) throw new Error(`Stage screen ${screenIndex} not found${list.length ? ` (have: ${list.map((s, i) => `${i}=${s.name}`).join(', ')})` : ''}`);
+    await this._cmd('GET', `/v1/stage/screen/${encodeURIComponent(screen.id)}/layout/${encodeURIComponent(layout.id)}`, { label: `stage layout "${layout.name}" on ${screen.name}` });
+    const r = await this._until(() => this._fetch(`/v1/stage/screen/${encodeURIComponent(screen.id)}/layout`), (l) => l && idOf(l) === layout.id);
+    if (!r.ok) throw new PPError(`ProPresenter accepted stage layout "${layout.name}" but ${screen.name} reports "${r.v ? nameOf(r.v) : 'unknown'}"`);
+    return layout.name;
+  }
+
+  // ─── SCREENS ───────────────────────────────────────────────────────────
+
+  async _setScreens(kind, on) {
+    const v = !!on;
+    const path = `/v1/status/${kind}_screens`;
+    await this._cmd('PUT', path, { body: v, label: `${kind} screens ${v ? 'on' : 'off'}` });
+    const r = await this._until(() => this._fetch(path), (x) => x === v);
+    if (!r.ok) throw new PPError(`ProPresenter accepted ${kind} screens ${v ? 'on' : 'off'} but reports ${typeof r.v === 'boolean' ? (r.v ? 'on' : 'off') : 'unknown'}`);
+    return v;
+  }
+  async setAudienceScreens(on) { const v = await this._setScreens('audience', on); return v ? 'Audience screens ON' : 'Audience screens OFF'; }
+  async toggleAudienceScreens() {
+    const cur = await this._fetch('/v1/status/audience_screens');
+    if (typeof cur !== 'boolean') throw new PPError('ProPresenter did not report the audience screen state — not toggled');
+    return this.setAudienceScreens(!cur);
+  }
+  async toggleStageScreens() {
+    const cur = await this._fetch('/v1/status/stage_screens');
+    if (typeof cur !== 'boolean') throw new PPError('ProPresenter did not report the stage screen state — not toggled');
+    const v = await this._setScreens('stage', !cur);
+    return v ? 'Stage screens ON' : 'Stage screens OFF';
+  }
+
+  // ─── VIDEO INPUTS ──────────────────────────────────────────────────────
+
+  async triggerVideoInput(nameOrId) {
+    const d = await this._fetch('/v1/video_inputs');
+    const list = Array.isArray(d) ? d.map((v) => ({ id: idOf(v), name: nameOf(v) })) : [];
+    const vi = matchName(list, nameOrId);
+    if (!vi) throw new Error(`Video input "${nameOrId}" not found in ProPresenter${list.length ? `. Available: ${list.map((x) => x.name).join(', ')}` : ''}`);
+    await this._cmd('GET', `/v1/video_inputs/${encodeURIComponent(vi.id)}/trigger`, { label: `video input "${vi.name}"` });
+    const r = await this._until(() => this._layers(), (s) => s && s.video_input === true);
+    if (!r.ok) throw new PPError(`ProPresenter accepted video input "${vi.name}" but the video input layer is not active`);
     return true;
   }
 
-  // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
+  // ─── AUDIO / MEDIA PLAYLISTS ───────────────────────────────────────────
 
-  async setAudienceScreens(on) {
-    await this._fire('/v1/status/audience_screens', {
-      method: 'PUT',
-      body: JSON.stringify(!!on),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    this._mirror('/v1/status/audience_screens', {
-      method: 'PUT',
-      body: JSON.stringify(!!on),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return on ? 'Audience screens ON' : 'Audience screens OFF';
+  async _playlists(kind) {
+    const d = await this._fetch(`/v1/${kind}/playlists`);
+    const out = [];
+    const walk = (l) => { for (const p of l || []) { out.push({ id: idOf(p), name: nameOf(p) }); if (Array.isArray(p.children)) walk(p.children); } };
+    if (Array.isArray(d)) walk(d);
+    return out;
   }
+  static _action(action) {
+    const a = String(action || 'next').trim().toLowerCase();
+    if (!['next', 'previous'].includes(a)) throw new Error(`Invalid action "${action}" (next or previous)`);
+    return a;
+  }
+  async _plTrigger(kind, which, action) {
+    const a = ProPresenter._action(action);
+    await this._cmd('GET', `/v1/${kind}/playlist/${which}/${a}/trigger`, { label: `${which} ${kind} playlist ${a}` });
+    return true;
+  }
+  async _plById(kind, nameOrId, op) {
+    const pl = await this._find(() => this._playlists(kind), nameOrId, `${kind === 'audio' ? 'Audio' : 'Media'} playlist`);
+    await this._cmd('GET', `/v1/${kind}/playlist/${encodeURIComponent(pl.id)}/${op}`, { label: `${op} ${kind} playlist "${pl.name}"` });
+    return pl.name;
+  }
+  async getAudioPlaylists()                  { return this._playlists('audio'); }
+  async activeAudioPlaylistTrigger(action)   { return this._plTrigger('audio', 'active', action); }
+  async focusedAudioPlaylistTrigger(action)  { return this._plTrigger('audio', 'focused', action); }
+  async audioPlaylistFocus(nameOrId)         { return this._plById('audio', nameOrId, 'focus'); }
+  async audioPlaylistTrigger(nameOrId)       { return this._plById('audio', nameOrId, 'trigger'); }
+  async getMediaPlaylists()                  { return this._playlists('media'); }
+  async activeMediaPlaylistTrigger(action)   { return this._plTrigger('media', 'active', action); }
+  async focusedMediaPlaylistTrigger(action)  { return this._plTrigger('media', 'focused', action); }
+  async mediaPlaylistFocus(nameOrId)         { return this._plById('media', nameOrId, 'focus'); }
+  async mediaPlaylistTrigger(nameOrId)       { return this._plById('media', nameOrId, 'trigger'); }
 
-  // ─── STATUS POLLING CONNECTION ───────────────────────────────────────
-  // PP 21 removed the old WebSocket "Remote Classic" protocol.
-  // We poll /v1/status/slide + /v1/presentation/slide_index every 2s
-  // (same proven pattern as Tally Clicker).
+  // ─── TRANSPORT / TIMELINE / CAPTURE ────────────────────────────────────
+
+  static _layer(layer) {
+    const l = String(layer || 'presentation').trim().toLowerCase();
+    if (!TRANSPORT_LAYERS.includes(l)) throw new Error(`Invalid transport layer "${layer}" (presentation, announcement or audio)`);
+    return l;
+  }
+  async _transportPlaying(l, want, label) {
+    const r = await this._until(() => this._fetch(`/v1/transport/${l}/current`), (c) => c && c.is_playing === want);
+    if (!r.ok) throw new PPError(`ProPresenter accepted ${label} but reports ${r.v ? (r.v.is_playing ? 'playing' : 'paused') : 'nothing loaded on that layer'}`);
+  }
+  async transportPlay(layer = 'presentation') {
+    const l = ProPresenter._layer(layer);
+    await this._cmd('GET', `/v1/transport/${l}/play`, { label: `${l} play` });
+    await this._transportPlaying(l, true, `${l} play`);
+    return true;
+  }
+  async transportPause(layer = 'presentation') {
+    const l = ProPresenter._layer(layer);
+    await this._cmd('GET', `/v1/transport/${l}/pause`, { label: `${l} pause` });
+    await this._transportPlaying(l, false, `${l} pause`);
+    return true;
+  }
+  async _seconds(v, what = 'seconds') {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) throw new Error(`Invalid ${what} "${v}"`);
+    return n;
+  }
+  async transportSkipForward(layer = 'presentation', seconds = 10) {
+    const l = ProPresenter._layer(layer); const s = Math.round(await this._seconds(seconds));
+    await this._cmd('GET', `/v1/transport/${l}/skip_forward/${s}`, { label: `${l} skip forward` }); return true;
+  }
+  async transportSkipBackward(layer = 'presentation', seconds = 10) {
+    const l = ProPresenter._layer(layer); const s = Math.round(await this._seconds(seconds));
+    await this._cmd('GET', `/v1/transport/${l}/skip_backward/${s}`, { label: `${l} skip backward` }); return true;
+  }
+  async transportGoToTime(layer = 'presentation', time = 0) {
+    const l = ProPresenter._layer(layer); const t = await this._seconds(time, 'time');
+    await this._cmd('PUT', `/v1/transport/${l}/time`, { body: t, label: `${l} go to ${t}s` });
+    const r = await this._until(() => this._fetch(`/v1/transport/${l}/time`), (x) => Number.isFinite(x) && Math.abs(x - t) < 1.5);
+    if (!r.ok) throw new PPError(`ProPresenter accepted go to ${t}s but reports ${Number.isFinite(r.v) ? `${r.v}s` : 'unknown'}`);
+    return true;
+  }
+  async transportGoToEnd(layer = 'presentation') {
+    const l = ProPresenter._layer(layer);
+    await this._cmd('GET', `/v1/transport/${l}/go_to_end`, { label: `${l} go to end` }); return true;
+  }
+  async timelinePlay()   { await this._cmd('GET', '/v1/presentation/active/timeline/play', { label: 'timeline play' }); return true; }
+  async timelinePause()  { await this._cmd('GET', '/v1/presentation/active/timeline/pause', { label: 'timeline pause' }); return true; }
+  async timelineRewind() { await this._cmd('GET', '/v1/presentation/active/timeline/rewind', { label: 'timeline rewind' }); return true; }
+
+  async _capture(op, want) {
+    await this._cmd('GET', `/v1/capture/${op}`, { label: `capture ${op}` });
+    const r = await this._until(() => this._fetch('/v1/capture/status'), (s) => s && s.status === want);
+    if (!r.ok) throw new PPError(`ProPresenter accepted capture ${op} but reports ${r.v?.status || 'unknown'}${r.v?.status_description ? ` (${r.v.status_description})` : ''}`);
+    return true;
+  }
+  async captureStart() { return this._capture('start', 'active'); }
+  async captureStop()  { return this._capture('stop', 'inactive'); }
+
+  // ─── POLLING CONNECTION ────────────────────────────────────────────────
 
   async connect() {
     if (this._pollAbort) return;
-
     const running = await this.isRunning();
     if (!running) {
-      console.log('⛪ ProPresenter not reachable, will retry in 30s...');
-      this._scheduleReconnect(30000);
+      console.log('⛪ ProPresenter not reachable (no ProPresenter /version answer), will retry...');
+      this._scheduleReconnect(this._isBackup ? 15000 : 10000);
       return;
     }
-
     console.log('✅ ProPresenter connected (REST API)');
     this.connected = true;
     this.running = true;
     this._reconnectDelay = 5000;
     this.emit('connected');
-
-    // Start slide polling (2s interval, same as proven Tally Clicker pattern)
     this._startSlidePoll();
-
-    // Also connect backup if configured (no status, just ready for mirroring)
-    if (this._backup) {
-      this._backup.connect().catch(() => {});
-    }
+    if (this._backup) this._backup.connect().catch(() => {});
   }
 
-  /** Poll /v1/status/slide + /v1/presentation/slide_index every 2s for slide changes */
   _startSlidePoll() {
     this._stopPolling();
     this._lastSlideUuid = null;
     this._lastSlideIndex = null;
     this._pollAbort = new AbortController();
-
+    const abort = this._pollAbort;
+    let misses = 0;
     const poll = async () => {
-      while (this._pollAbort && !this._pollAbort.signal.aborted) {
+      while (!abort.signal.aborted) {
+        let slideData = null, indexData = null, answered = false;
         try {
-          const [slideRes, indexRes] = await Promise.all([
-            fetch(`${this.baseUrl}/v1/status/slide`, { signal: AbortSignal.timeout(3000) }),
-            fetch(`${this.baseUrl}/v1/presentation/slide_index`, { signal: AbortSignal.timeout(3000) }),
+          const [s, i] = await Promise.all([
+            fetch(`${this.baseUrl}/v1/status/slide`, { signal: AbortSignal.timeout(2500) }),
+            fetch(`${this.baseUrl}/v1/presentation/slide_index`, { signal: AbortSignal.timeout(2500) }),
           ]);
+          if (s.ok) { try { slideData = await s.json(); } catch { /* */ } } else await s.text();
+          if (i.ok) { try { indexData = await i.json(); } catch { /* */ } } else await i.text();
+          answered = !!(s.ok || i.ok);   // a 404 web page is not ProPresenter
+        } catch { answered = false; }
+        if (abort.signal.aborted) return;
 
-          // Connection is alive
-          if (!this.connected) {
-            this.connected = true;
-            this.running = true;
-            this.emit('connected');
-          }
-
-          let slideData = null, indexData = null;
-          if (slideRes.ok) {
-            try { slideData = await slideRes.json(); } catch { /* empty */ }
-          } else { await slideRes.text(); }
-          if (indexRes.ok) {
-            try { indexData = await indexRes.json(); } catch { /* empty */ }
-          } else { await indexRes.text(); }
-          // Log once for debugging PP 21 response format
-          if (!this._pollFormatLogged && (slideData || indexData)) {
-            if (slideData) console.log('[ProPresenter] /v1/status/slide keys:', JSON.stringify(Object.keys(slideData)));
-            if (indexData) console.log('[ProPresenter] /v1/presentation/slide_index:', JSON.stringify(indexData).slice(0, 500));
-            this._pollFormatLogged = true;
-          }
-
-          const uuid = slideData?.current?.uuid;
-          const currentIndex = indexData?.presentation_index?.index ?? null;
-
-          // Extract presentation info from both endpoints
-          const presIndex = indexData?.presentation_index;
-          const presName = presIndex?.presentation_id?.name || null;
-          const presUuid = presIndex?.presentation_id?.uuid || null;
-          const slideCount = presIndex?.slide_count ?? slideData?.current?.slide_count ?? null;
-
-          // Always update _currentSlide from poll data (more reliable than /v1/presentation/active in PP 21)
-          if (presName || currentIndex != null) {
-            this._currentSlide = {
-              presentationName: presName || this._currentSlide?.presentationName || null,
-              presentationUUID: presUuid || this._currentSlide?.presentationUUID || null,
-              slideIndex: currentIndex ?? this._currentSlide?.slideIndex ?? 0,
-              slideTotal: slideCount ?? this._currentSlide?.slideTotal ?? 0,
-              slideNotes: slideData?.current?.notes || this._currentSlide?.slideNotes || '',
-            };
-          }
-
-          if ((uuid && uuid !== this._lastSlideUuid) || (currentIndex != null && currentIndex !== this._lastSlideIndex)) {
-            this._lastSlideUuid = uuid || this._lastSlideUuid;
-            this._lastSlideIndex = currentIndex;
-            this.emit('slideChanged', {
-              current: slideData?.current || {},
-              next: slideData?.next || {},
-              slideIndex: currentIndex,
-              slideCount,
-              presentationName: presName,
-              presentationUuid: presUuid,
-            });
-          }
-        } catch (err) {
-          if (this._pollAbort?.signal.aborted) return;
-          // Connection lost
-          if (this.connected) {
-            console.warn('⚠️  ProPresenter disconnected:', err.message);
+        if (!answered) {
+          misses++;
+          if (misses >= 2 && this.connected) {
+            console.warn('⚠️  ProPresenter stopped answering');
             this.connected = false;
             this.running = false;
+            this._currentSlide = null;
             this.emit('disconnected');
             this._stopPolling();
             this._scheduleReconnect();
             return;
           }
+        } else {
+          misses = 0;
+          if (!this.connected) { this.connected = true; this.running = true; this.emit('connected'); }
+          const pi = indexData ? indexData.presentation_index : undefined;
+          if (pi === null) {
+            if (this._currentSlide) { this._currentSlide = null; this._lastSlideIndex = null; this._lastSlideUuid = null; this.emit('slideChanged', { cleared: true }); }
+          } else if (pi) {
+            const presUuid = pi.presentation_id?.uuid || null;
+            const presName = pi.presentation_id?.name || null;
+            const idx = pi.index ?? null;
+            let total = this._currentSlide?.presentationUUID === presUuid ? this._currentSlide.slideTotal : null;
+            if (presUuid && total == null) total = await this._slideCount(presUuid);
+            this._currentSlide = { presentationName: presName, presentationUUID: presUuid, slideIndex: idx, slideTotal: total, slideNotes: slideData?.current?.notes || '', onScreen: true };
+            const uuid = slideData?.current?.uuid;
+            if ((uuid && uuid !== this._lastSlideUuid) || idx !== this._lastSlideIndex || presUuid !== this._lastPresUuid) {
+              this._lastSlideUuid = uuid || this._lastSlideUuid;
+              this._lastSlideIndex = idx;
+              this._lastPresUuid = presUuid;
+              this.emit('slideChanged', { current: slideData?.current || {}, next: slideData?.next || {}, slideIndex: idx, slideCount: total, presentationName: presName, presentationUuid: presUuid });
+            }
+          }
         }
-
-        // Wait 2 seconds before next poll
-        await new Promise(r => setTimeout(r, 2000));
+        await sleep(misses ? 1000 : 2000);
       }
     };
     poll();
   }
 
   _stopPolling() {
-    if (this._pollInterval) {
-      clearInterval(this._pollInterval);
-      this._pollInterval = null;
-    }
-    if (this._pollAbort) {
-      this._pollAbort.abort();
-      this._pollAbort = null;
-    }
+    if (this._pollInterval) { clearInterval(this._pollInterval); this._pollInterval = null; }
+    if (this._pollAbort) { this._pollAbort.abort(); this._pollAbort = null; }
   }
 
   _scheduleReconnect(delayOverride) {
     if (this._reconnectTimer) return;
     const delay = delayOverride || this._reconnectDelay;
-    this._reconnectTimer = setTimeout(() => {
-      this._reconnectTimer = null;
-      this.connect();
-    }, delay);
-    this._reconnectDelay = Math.min(this._reconnectDelay * 2, 60000);
+    this._reconnectTimer = setTimeout(() => { this._reconnectTimer = null; this.connect(); }, delay);
+    this._reconnectDelay = Math.min(this._reconnectDelay * 2, 30000);
   }
 
   disconnect() {
-    if (this._reconnectTimer) {
-      clearTimeout(this._reconnectTimer);
-      this._reconnectTimer = null;
-    }
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     this._stopPolling();
     this.connected = false;
     if (this._backup) this._backup.disconnect();
   }
 
   toStatus() {
+    const cs = this.connected ? this._currentSlide : null;
     return {
       connected: this.connected,
       running: this.running,
       version: this._version || null,
-      // Slide info
-      currentSlide: this._currentSlide?.presentationName || null,
-      presentationUUID: this._currentSlide?.presentationUUID || null,
-      slideIndex: this._currentSlide?.slideIndex ?? null,
-      slideTotal: this._currentSlide?.slideTotal ?? null,
-      slideNotes: this._currentSlide?.slideNotes || null,
-      // Active look
-      activeLook: this._activeLook || null,
-      // Timers — inject video countdown as a synthetic timer entry
-      timers: [
-        ...(this._videoCountdown ? [{
-          id: '__video_countdown__',
-          name: `Video: ${this._videoCountdown.name}`,
-          time: this._videoCountdown.time,
-          state: this._videoCountdown.isPlaying ? 'Running' : 'Stopped',
-        }] : []),
+      currentSlide: cs?.presentationName || null,
+      presentationUUID: cs?.presentationUUID || null,
+      slideIndex: cs?.slideIndex ?? null,
+      slideTotal: cs?.slideTotal ?? null,
+      slideNotes: cs?.slideNotes || null,
+      activeLook: this.connected ? this._activeLook || null : null,
+      timers: this.connected ? [
+        ...(this._videoCountdown ? [{ id: '__video_countdown__', name: `Video: ${this._videoCountdown.name}`, time: this._videoCountdown.time, state: this._videoCountdown.isPlaying ? 'Running' : 'Stopped' }] : []),
         ...(this._activeTimers || []),
-      ],
-      // Audience screens
-      screens: this._screenStatus || null,
-      // Playlist position
-      playlistFocused: this._playlistFocused || null,
-      // Trigger mode
+      ] : [],
+      screens: this.connected ? this._screenStatus || null : null,
+      playlistFocused: this.connected ? this._playlistFocused || null : null,
       triggerMode: this.triggerMode,
-      // Backup status
-      backup: this._backup ? { connected: this._backup.connected, running: this._backup.running } : null,
+      backup: this._backup ? { connected: this._backup.connected, running: this._backup.running, lastMirror: this.lastMirror } : null,
     };
   }
 }
 
-module.exports = { ProPresenter };
+module.exports = { ProPresenter, PPError, _internals: { TIMER_STATES, LAYERS } };

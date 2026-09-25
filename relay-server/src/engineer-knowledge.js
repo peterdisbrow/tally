@@ -80,12 +80,13 @@ PTZ Cameras:
 - Controls: pan, tilt, zoom, presets (recall/save), home, stop
 
 ProPresenter:
-- Protocol: HTTP REST API + WebSocket on same port (default 1025)
+- Protocol: the official ProPresenter HTTP REST API (/v1, openapi.propresenter.com), polled by Tally; no WebSocket. Port = the one shown in ProPresenter → Settings → Network (Tally default 1025)
 - Config: proPresenter.host, proPresenter.port
+- Results: slides, looks, timers, props, messages, stage layouts, screens, video input, transport play/pause, capture are confirmed by reading ProPresenter's state back. Macros, announcement next/previous, audio/media playlist triggers, timer reset/increment, transport skip and timeline are "accepted by ProPresenter (not confirmed)" because the API does not report them back
 - Versioning: ProPresenter rebranded from "ProPresenter 7.x" to year-based versions starting in 2025 (e.g. 21.2, 22.x). Versions 21.x+ are the successor to PP7 and use the same /v1/ REST API. "ProPresenter 21.2" is valid and current — do NOT tell users it doesn't exist.
 - Controls: next/previous slide, go to slide, playlist, looks, timers, stage messages, clear all
-- Stage App must be enabled in PP Network settings for WebSocket events to work
-- ProPresenter Remote must be enabled (with a password) for the REST API to accept connections
+- Enable Network in ProPresenter → Settings → Network; the REST API has no password. (ProPresenter Remote/Stage App passwords are for Renewed Vision's own apps, not this API)
+- Offline means ProPresenter did not answer GET /version; a different web server on the port is not treated as ProPresenter
 
 Companion (Bitfocus):
 - Protocol: HTTP API on port 8000
@@ -166,7 +167,7 @@ mixer: status, mute, unmute, channelStatus, recallScene, saveScene, clearSolos, 
 
 ptz: pan, tilt, zoom, preset, setPreset, stop, home
 
-propresenter: next, previous, goToSlide, status, playlist, isRunning, clearAll, clearSlide, stageMessage, clearMessage, getLooks, setLook, getTimers, startTimer, stopTimer, version, messages
+propresenter: next, previous, goToSlide, lastSlide, status, playlist, isRunning, clearAll, clearSlide, clearProps, clearMedia, clearAudio, clearAnnouncements, stageMessage, toggleStageMessage, clearMessage, messages, getLooks, activeLook, setLook, getTimers, timerStatus, startTimer, stopTimer, resetTimer, createTimer, incrementTimer, setTimerValue, triggerPresentation, triggerPlaylistItem, triggerLibraryCue, libraries, getProps, triggerProp, toggleProp, getGroups, triggerGroup, getMacros, triggerMacro, nextAnnouncement, previousAnnouncement, announcementStatus, getStageLayouts, setStageLayout, audienceScreens, toggleAudienceScreens, toggleStageScreens, screenStatus, triggerVideoInput, audio/media playlist (get/focus/trigger), transport (play/pause/skip/goToTime/goToEnd), timeline (play/pause/rewind), captureStart, captureStop, version
 
 companion: press, pressNamed, getGrid, connections
 

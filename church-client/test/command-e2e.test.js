@@ -117,19 +117,20 @@ e2e('videohub.route → mock applies new routing', async () => {
 
 e2e('propresenter.next → mock advances slide', async () => {
   await h.resetMocks();
-  const before = (await h.mocks.propresenter.readState()).slide.slideIndex;
+  // Nothing on screen after reset (slideIndex null) → next shows the focused presentation's first cue.
+  const before = (await h.mocks.propresenter.readState()).slideIndex ?? -1;
 
   const result = await h.dispatch('propresenter.next', {});
   assert.equal(result.sent, true);
 
   await waitFor(async () => {
     const s = await h.mocks.propresenter.readState();
-    return s.slide.slideIndex === before + 1 || s.triggerLog.length >= 1;
+    return s.slideIndex === before + 1 || s.triggerLog.length >= 1;
   }, { timeoutMs: 4000, label: 'propresenter slide to advance' });
 
   const state = await h.mocks.propresenter.readState();
-  assert.equal(state.slide.slideIndex, before + 1,
-    `slideIndex should advance by exactly 1 (got ${state.slide.slideIndex - before})`);
+  assert.equal(state.slideIndex, before + 1,
+    `slideIndex should advance by exactly 1 (got ${state.slideIndex - before})`);
   assert.equal(state.triggerLog.length, 1,
     'exactly one trigger should have fired (no double-dispatch)');
 });
@@ -137,14 +138,14 @@ e2e('propresenter.next → mock advances slide', async () => {
 e2e('propresenter.previous → mock goes back one slide', async () => {
   await h.resetMocks();
   // Push to slide index 3 first.
-  await h.mocks.propresenter.action('setSlide', { slideIndex: 3 });
+  await h.mocks.propresenter.action('operatorShow', { uuid: 'pres-worship', index: 3 });
 
   const result = await h.dispatch('propresenter.previous', {});
   assert.equal(result.sent, true);
 
   await waitFor(async () => {
     const s = await h.mocks.propresenter.readState();
-    return s.slide.slideIndex === 2;
+    return s.slideIndex === 2;
   }, { timeoutMs: 4000, label: 'propresenter slide to go back' });
 });
 
@@ -158,7 +159,7 @@ e2e('propresenter.goToSlide → mock jumps to target index', async () => {
 
   await waitFor(async () => {
     const s = await h.mocks.propresenter.readState();
-    return s.slide.slideIndex === 6;
+    return s.slideIndex === 6;
   }, { timeoutMs: 4000, label: 'propresenter slide jump' });
 });
 

@@ -69,34 +69,35 @@ test('integration-mocks: CompanionBridge connects to mock and reads/presses butt
 
 // ─── ProPresenter ───────────────────────────────────────────────────────────
 
-test('integration-mocks: ProPresenter bridge reads version + slide and triggers next', async (t) => {
+test('integration-mocks: ProPresenter bridge reads version + slide and triggers next (confirmed by read-back)', async (t) => {
   const mock = await propresenterMock.start({ port: 0, controlPort: 0 });
   t.after(() => mock.stop());
 
-  // Seed a known slide state.
+  // Operator puts slide 4 of "Sermon" (8 cues) on screen via the control API.
   await fetch(`${mock.control.url}/action`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'setSlide', args: { presentationName: 'Sermon', slideIndex: 3, slideTotal: 20 } }),
+    body: JSON.stringify({ action: 'operatorShow', args: { uuid: 'pres-sermon', index: 3 } }),
   });
 
   const pp = new ProPresenter({ host: '127.0.0.1', port: mock.port });
-  const running = await pp.isRunning();
-  assert.equal(running, true);
-
-  const version = await pp.getVersion();
-  assert.ok(version, 'expected a version string from /version');
+  assert.equal(await pp.isRunning(), true);
+  assert.match(await pp.getVersion(), /ProPresenter 7/);
 
   const slide = await pp.getCurrentSlide();
   assert.equal(slide.presentationName, 'Sermon');
   assert.equal(slide.slideIndex, 3);
-  assert.equal(slide.slideTotal, 20);
+  assert.equal(slide.slideTotal, 8);
+  assert.equal(slide.onScreen, true);
 
-  const before = mock.state.slide.slideIndex;
-  await pp.nextSlide();
-  // Mock advances slideIndex on trigger; allow a tick for the fire-and-forget POST to land.
-  await new Promise((r) => setTimeout(r, 50));
-  assert.equal(mock.state.slide.slideIndex, before + 1, 'next slide should advance mock state');
+  const moved = await pp.nextSlide();
+  assert.equal(moved.index, 4, 'nextSlide resolves with the read-back slide');
+  assert.equal(mock.state.slideIndex, 4, 'next slide should advance mock state');
+  assert.equal(mock.state.triggerLog.length, 1, 'exactly one trigger');
+
+  // A server that is not ProPresenter must not count as running.
+  mock.setMode('not-pp');
+  assert.equal(await pp.isRunning(), false);
 });
 
 // ─── VideoHub ───────────────────────────────────────────────────────────────

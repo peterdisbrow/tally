@@ -50,7 +50,7 @@ EQUIPMENT INTEGRATIONS:
 - OBS Studio: WebSocket v5 on port 4455. Controls: start/stop stream, recording, scene switching, bitrate, monitor stream.
 - Audio Mixers: Behringer X32 / Midas M32 (OSC; Wing not supported), Allen & Heath SQ/dLive/Avantis (MIDI over TCP only — mute/fader/DCA/scene; no EQ/dynamics), Yamaha CL/QL/TF (RCP over TCP 49280 — mute/fader/name/pan/DCA/mute groups/scene recall, all read back; no EQ/dynamics/HPF). Full control set on X32/M32: mute/unmute, faders, EQ, compressor, gate, HPF, channel names, scene recall, DCA, bus sends.
 - PTZ Cameras: VISCA-over-IP, ONVIF, NDI. Controls: pan, tilt, zoom, presets.
-- ProPresenter: HTTP REST API + WebSocket on port 1025. Year-based versions starting 2025 (21.x+). Controls: next/prev slide, playlist, looks, timers, stage messages.
+- ProPresenter: official HTTP REST API (/v1) on the port set in ProPresenter → Settings → Network (Tally default 1025); polled, no WebSocket, no password. Year-based versions starting 2025 (21.x+). Controls: next/prev slide, playlist, looks, timers, stage messages.
 - Companion (Bitfocus): HTTP API port 8000. Controls 600+ device types via button presses.
 - vMix: HTTP REST API. Controls: start/stop stream/recording, cut, fade, inputs, volume, mute.
 - Resolume Arena: REST API. Controls: play/stop clips, trigger columns, layers, opacity, BPM.

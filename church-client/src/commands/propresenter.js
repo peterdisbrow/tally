@@ -1,45 +1,46 @@
+/** ProPresenter's API has no read-back for these actions: say so instead of claiming success. */
+const UNCONFIRMED = ' — accepted by ProPresenter (not confirmed: ProPresenter does not report this back)';
 const { toInt } = require('./helpers');
+
+const where = (si) => (si && si.index != null ? ` — now slide ${si.index + 1}${si.name ? ` of "${si.name}"` : ''}` : '');
 
 async function propresenterNext(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
-  await agent.proPresenter.nextSlide();
-  if (agent.proPresenterBackup) agent.proPresenterBackup.nextSlide().catch(() => {});
-  return 'Next slide';
+  const si = await agent.proPresenter.nextSlide();
+  return `Next slide${where(si)}`;
 }
 
 async function propresenterPrevious(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
-  await agent.proPresenter.previousSlide();
-  if (agent.proPresenterBackup) agent.proPresenterBackup.previousSlide().catch(() => {});
-  return 'Previous slide';
+  const si = await agent.proPresenter.previousSlide();
+  return `Previous slide${where(si)}`;
 }
 
 async function propresenterGoToSlide(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
-  // Users provide 1-based slide numbers ("slide 5" = the 5th slide shown in PP).
-  // The PP API uses 0-based indices, so subtract 1. Clamp to 0 to avoid negatives.
-  const userSlide = params.index || 0;
-  const apiIndex = Math.max(0, userSlide - 1);
-  await agent.proPresenter.goToSlide(apiIndex);
-  if (agent.proPresenterBackup) agent.proPresenterBackup.goToSlide(apiIndex).catch(() => {});
-  return `Jumped to slide ${userSlide}`;
+  // Users give 1-based slide numbers ("slide 5" = the 5th slide in PP); the API is 0-based.
+  const userSlide = Number(params.index ?? params.slide);
+  if (!Number.isInteger(userSlide) || userSlide < 1) throw new Error(`Invalid slide "${params.index ?? params.slide ?? ''}" (1 = first slide)`);
+  const si = await agent.proPresenter.goToSlide(userSlide - 1);
+  return `Jumped to slide ${userSlide}${si?.name ? ` of "${si.name}"` : ''}`;
 }
 
 async function propresenterStatus(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
-  const slide = await agent.proPresenter.getCurrentSlide();
+  const pp = agent.proPresenter;
+  const slide = pp.connected ? await pp.getCurrentSlide() : null;
 
   if (!slide) {
     return '📺 ProPresenter — ❌ Offline\n\nProPresenter is not responding. Check that it is running.';
   }
 
-  const pp = agent.proPresenter;
-  const lines = [
-    '📺 ProPresenter — ✅ Running',
-    '',
-    `🎬 Presentation: ${slide.presentationName || 'Untitled'}`,
-    `📄 Slide: ${slide.slideIndex + 1} of ${slide.slideTotal}`,
-  ];
+  const lines = ['📺 ProPresenter — ✅ Running', ''];
+  if (slide.onScreen === false || slide.slideIndex == null) {
+    lines.push('🎬 Nothing on screen (slide layer clear)');
+  } else {
+    lines.push(`🎬 Presentation: ${slide.presentationName || 'Untitled'}`);
+    lines.push(`📄 Slide: ${slide.slideIndex + 1}${slide.slideTotal ? ` of ${slide.slideTotal}` : ''}`);
+  }
 
   // Active look
   if (pp._activeLook) {
@@ -58,7 +59,7 @@ async function propresenterStatus(agent) {
 
   // Audience screens
   if (pp._screenStatus) {
-    lines.push(`📺 Audience Screen: ${pp._screenStatus.audience ? 'ON' : 'OFF'}`);
+    lines.push(`📺 Audience Screen: ${pp._screenStatus.audience == null ? 'unknown' : pp._screenStatus.audience ? 'ON' : 'OFF'}`);
   }
 
   // Slide notes (truncated)
@@ -77,7 +78,7 @@ async function propresenterStatus(agent) {
 
   // Backup status
   if (pp._backup) {
-    lines.push(`🔄 Backup PP: ${pp._backup.connected ? '✅ Connected' : '❌ Disconnected'}`);
+    lines.push(`🔄 Backup PP: ${pp._backup.connected ? '✅ Connected' : '❌ Disconnected'}${pp.lastMirror && !pp.lastMirror.ok ? ` — last command did not reach it (${pp.lastMirror.error})` : ''}`);
   }
 
   return lines.join('\n');
@@ -93,7 +94,7 @@ async function propresenterPlaylist(agent) {
 async function propresenterIsRunning(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const running = await agent.proPresenter.isRunning();
-  return running ? '📺 ProPresenter — ✅ Running' : '📺 ProPresenter — ❌ Not reachable';
+  return running ? '📺 ProPresenter — ✅ Running' : '📺 ProPresenter — ❌ Not reachable (no ProPresenter answer on its API port)';
 }
 
 async function propresenterClearAll(agent) {
@@ -111,8 +112,8 @@ async function propresenterClearSlide(agent) {
 async function propresenterStageMessage(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   if (!params.name) throw new Error('Message name required');
-  await agent.proPresenter.triggerMessage(params.name, params.tokens || []);
-  return `Stage message "${params.name}" triggered`;
+  const name = await agent.proPresenter.triggerMessage(params.name, params.tokens || []);
+  return `Message "${name}" showing`;
 }
 
 async function propresenterClearMessage(agent) {
@@ -192,8 +193,9 @@ async function propresenterTimerStatus(agent) {
 async function propresenterScreenStatus(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const screens = await agent.proPresenter.getAudienceScreenStatus();
-  if (!screens) return 'Screen status not available';
-  return `📺 Audience: ${screens.audience ? 'ON' : 'OFF'}\n🖥️ Stage: ${screens.stage ? 'ON' : 'OFF'}`;
+  if (!screens) throw new Error('ProPresenter did not report its screen state (not reachable?)');
+  const f = (v) => (v == null ? 'unknown' : v ? 'ON' : 'OFF');
+  return `📺 Audience: ${f(screens.audience)}\n🖥️ Stage: ${f(screens.stage)}`;
 }
 
 async function propresenterLibraries(agent) {
@@ -216,10 +218,8 @@ async function propresenterLibraries(agent) {
 async function propresenterLastSlide(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const slide = await agent.proPresenter.getCurrentSlide();
-  if (!slide || !slide.slideTotal) throw new Error('Could not determine slide count from ProPresenter');
-  const lastIndex = Math.max(0, slide.slideTotal - 1); // 0-based API index of last slide
-  await agent.proPresenter.goToSlide(lastIndex);
-  if (agent.proPresenterBackup) agent.proPresenterBackup.goToSlide(lastIndex).catch(() => {});
+  if (!slide || !slide.slideTotal) throw new Error('Could not determine slide count from ProPresenter (nothing on screen, or not reachable)');
+  await agent.proPresenter.goToSlide(slide.slideTotal - 1);
   return `Jumped to last slide (slide ${slide.slideTotal})`;
 }
 
@@ -228,7 +228,10 @@ async function propresenterAudienceScreens(agent, params) {
   if (params.on === undefined && params.state === undefined) {
     throw new Error('Specify on: true/false');
   }
-  const on = params.on ?? params.state ?? true;
+  const raw = params.on ?? params.state;
+  const on = raw === true || raw === 'true' || raw === 'on' || raw === 1 || raw === '1' ? true
+    : raw === false || raw === 'false' || raw === 'off' || raw === 0 || raw === '0' ? false : null;
+  if (on === null) throw new Error(`Invalid value "${raw}" (on or off)`);
   const result = await agent.proPresenter.setAudienceScreens(on);
   return result;
 }
@@ -281,7 +284,7 @@ async function propresenterResetTimer(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   if (!params.name) throw new Error('Timer name required');
   const name = await agent.proPresenter.resetTimer(params.name);
-  return `Timer "${name}" reset`;
+  return `Timer "${name}" reset` + UNCONFIRMED;
 }
 
 async function propresenterCreateTimer(agent, params) {
@@ -316,13 +319,13 @@ async function propresenterTriggerGroup(agent, params) {
 async function propresenterNextAnnouncement(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   await agent.proPresenter.nextAnnouncement();
-  return 'Next announcement slide';
+  return 'Next announcement slide' + UNCONFIRMED;
 }
 
 async function propresenterPreviousAnnouncement(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   await agent.proPresenter.previousAnnouncement();
-  return 'Previous announcement slide';
+  return 'Previous announcement slide' + UNCONFIRMED;
 }
 
 async function propresenterAnnouncementStatus(agent) {
@@ -346,7 +349,7 @@ async function propresenterTriggerMacro(agent, params) {
   const name = String(params.name || '').trim();
   if (!name) throw new Error('macro name required');
   const result = await agent.proPresenter.triggerMacro(name);
-  return `Macro "${result}" triggered`;
+  return `Macro "${result}" accepted by ProPresenter (macros have no readable state — check the screen)`;
 }
 
 // ─── COMPANION PARITY: Stage Layouts ──────────────────────────────────
@@ -387,7 +390,7 @@ async function propresenterTriggerVideoInput(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const name = String(params.name || '').trim();
   if (!name) throw new Error('video input name required');
-  await agent.proPresenter.triggerVideoInput(name);
+  await agent.proPresenter.triggerVideoInput(name);  // throws unless PP reports the video input layer active
   return `Video input "${name}" triggered`;
 }
 
@@ -404,14 +407,14 @@ async function propresenterActiveAudioPlaylistTrigger(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const action = String(params.action || 'next').trim();
   await agent.proPresenter.activeAudioPlaylistTrigger(action);
-  return `Active audio playlist: ${action}`;
+  return `Active audio playlist: ${action}` + UNCONFIRMED;
 }
 
 async function propresenterFocusedAudioPlaylistTrigger(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const action = String(params.action || 'next').trim();
   await agent.proPresenter.focusedAudioPlaylistTrigger(action);
-  return `Focused audio playlist: ${action}`;
+  return `Focused audio playlist: ${action}` + UNCONFIRMED;
 }
 
 async function propresenterAudioPlaylistFocus(agent, params) {
@@ -419,7 +422,7 @@ async function propresenterAudioPlaylistFocus(agent, params) {
   const name = String(params.name || params.id || '').trim();
   if (!name) throw new Error('playlist name or ID required');
   const result = await agent.proPresenter.audioPlaylistFocus(name);
-  return `Audio playlist "${result}" focused`;
+  return `Audio playlist "${result}" focused` + UNCONFIRMED;
 }
 
 async function propresenterAudioPlaylistTrigger(agent, params) {
@@ -427,7 +430,7 @@ async function propresenterAudioPlaylistTrigger(agent, params) {
   const name = String(params.name || params.id || '').trim();
   if (!name) throw new Error('playlist name or ID required');
   const result = await agent.proPresenter.audioPlaylistTrigger(name);
-  return `Audio playlist "${result}" triggered`;
+  return `Audio playlist "${result}" triggered` + UNCONFIRMED;
 }
 
 // ─── COMPANION PARITY: Media Playlists ────────────────────────────────
@@ -443,14 +446,14 @@ async function propresenterActiveMediaPlaylistTrigger(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const action = String(params.action || 'next').trim();
   await agent.proPresenter.activeMediaPlaylistTrigger(action);
-  return `Active media playlist: ${action}`;
+  return `Active media playlist: ${action}` + UNCONFIRMED;
 }
 
 async function propresenterFocusedMediaPlaylistTrigger(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const action = String(params.action || 'next').trim();
   await agent.proPresenter.focusedMediaPlaylistTrigger(action);
-  return `Focused media playlist: ${action}`;
+  return `Focused media playlist: ${action}` + UNCONFIRMED;
 }
 
 async function propresenterMediaPlaylistFocus(agent, params) {
@@ -458,7 +461,7 @@ async function propresenterMediaPlaylistFocus(agent, params) {
   const name = String(params.name || params.id || '').trim();
   if (!name) throw new Error('playlist name or ID required');
   const result = await agent.proPresenter.mediaPlaylistFocus(name);
-  return `Media playlist "${result}" focused`;
+  return `Media playlist "${result}" focused` + UNCONFIRMED;
 }
 
 async function propresenterMediaPlaylistTrigger(agent, params) {
@@ -466,7 +469,7 @@ async function propresenterMediaPlaylistTrigger(agent, params) {
   const name = String(params.name || params.id || '').trim();
   if (!name) throw new Error('playlist name or ID required');
   const result = await agent.proPresenter.mediaPlaylistTrigger(name);
-  return `Media playlist "${result}" triggered`;
+  return `Media playlist "${result}" triggered` + UNCONFIRMED;
 }
 
 // ─── COMPANION PARITY: Transport Layer Control ────────────────────────
@@ -490,7 +493,7 @@ async function propresenterTransportSkipForward(agent, params) {
   const layer = String(params.layer || 'presentation').trim();
   const seconds = toInt(params.seconds || 10, 'seconds');
   await agent.proPresenter.transportSkipForward(layer, seconds);
-  return `Transport skip forward ${seconds}s (${layer})`;
+  return `Transport skip forward ${seconds}s (${layer})` + UNCONFIRMED;
 }
 
 async function propresenterTransportSkipBackward(agent, params) {
@@ -498,7 +501,7 @@ async function propresenterTransportSkipBackward(agent, params) {
   const layer = String(params.layer || 'presentation').trim();
   const seconds = toInt(params.seconds || 10, 'seconds');
   await agent.proPresenter.transportSkipBackward(layer, seconds);
-  return `Transport skip backward ${seconds}s (${layer})`;
+  return `Transport skip backward ${seconds}s (${layer})` + UNCONFIRMED;
 }
 
 async function propresenterTransportGoToTime(agent, params) {
@@ -513,7 +516,7 @@ async function propresenterTransportGoToEnd(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const layer = String(params.layer || 'presentation').trim();
   await agent.proPresenter.transportGoToEnd(layer);
-  return `Transport go to end (${layer})`;
+  return `Transport go to end (${layer})` + UNCONFIRMED;
 }
 
 // ─── COMPANION PARITY: Timeline ───────────────────────────────────────
@@ -521,19 +524,19 @@ async function propresenterTransportGoToEnd(agent, params) {
 async function propresenterTimelinePlay(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   await agent.proPresenter.timelinePlay();
-  return 'Timeline playing';
+  return 'Timeline playing' + UNCONFIRMED;
 }
 
 async function propresenterTimelinePause(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   await agent.proPresenter.timelinePause();
-  return 'Timeline paused';
+  return 'Timeline paused' + UNCONFIRMED;
 }
 
 async function propresenterTimelineRewind(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   await agent.proPresenter.timelineRewind();
-  return 'Timeline rewound';
+  return 'Timeline rewound' + UNCONFIRMED;
 }
 
 // ─── COMPANION PARITY: Capture ────────────────────────────────────────
@@ -557,7 +560,7 @@ async function propresenterIncrementTimer(agent, params) {
   if (!params.name) throw new Error('Timer name required');
   const seconds = toInt(params.seconds || 30, 'seconds');
   const name = await agent.proPresenter.incrementTimer(params.name, seconds);
-  return `Timer "${name}" incremented by ${seconds}s`;
+  return `Timer "${name}" incremented by ${seconds}s` + UNCONFIRMED;
 }
 
 async function propresenterSetTimerValue(agent, params) {
@@ -569,7 +572,7 @@ async function propresenterSetTimerValue(agent, params) {
     overrun: params.overrun,
     name: params.newName || null,
   });
-  return `Timer "${name}" updated`;
+  return `Timer "${name}" updated` + UNCONFIRMED;
 }
 
 // ─── COMPANION PARITY: Toggles ───────────────────────────────────────
@@ -586,8 +589,7 @@ async function propresenterToggleStageMessage(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const name = String(params.name || '').trim();
   if (!name) throw new Error('message name required');
-  await agent.proPresenter.toggleStageMessage(name);
-  return `Stage message "${name}" toggled`;
+  return agent.proPresenter.toggleStageMessage(name);
 }
 
 async function propresenterToggleAudienceScreens(agent) {
@@ -623,7 +625,7 @@ async function propresenterClearAnnouncements(agent) {
   return 'Announcements cleared';
 }
 
-module.exports = {
+const handlers = {
   'propresenter.next': propresenterNext,
   'propresenter.previous': propresenterPrevious,
   'propresenter.goToSlide': propresenterGoToSlide,
@@ -732,3 +734,18 @@ module.exports = {
   // Companion parity: clear announcements
   'propresenter.clearAnnouncements': propresenterClearAnnouncements,
 };
+
+// Every command: when a backup ProPresenter is configured, say whether it followed.
+function withBackupNote(fn) {
+  return async (agent, params = {}) => {
+    const pp = agent?.proPresenter;
+    if (pp) pp.lastMirror = null;
+    const result = await fn(agent, params);
+    if (pp && pp._backup && pp.lastMirror && !pp.lastMirror.ok && typeof result === 'string') {
+      return `${result}\n⚠️ Backup ProPresenter did not follow: ${pp.lastMirror.error}`;
+    }
+    return result;
+  };
+}
+
+module.exports = Object.fromEntries(Object.entries(handlers).map(([k, fn]) => [k, withBackupNote(fn)]));

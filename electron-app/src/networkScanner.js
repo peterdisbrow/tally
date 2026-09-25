@@ -252,6 +252,21 @@ function isLikelyResolume(data) {
   return nameField.includes('resolume');
 }
 
+/**
+ * ProPresenter 7 answers GET /version with { api_version, host_description: "ProPresenter …", … }
+ * (official OpenAPI spec). Any other web server on :1025 — or a 404 — is not ProPresenter.
+ */
+function isProPresenterVersion(data) {
+  if (!data || typeof data !== 'object') return false;
+  return !!(data.api_version || /propresenter/i.test(String(data.host_description || '')));
+}
+
+async function tryProPresenterProbe(ip, port = 1025, timeoutMs = 2000) {
+  const resp = await tryHttpGet(`http://${ip}:${port}/version`, timeoutMs);
+  if (!resp.success || resp.statusCode !== 200 || !isProPresenterVersion(resp.data)) return null;
+  return { version: resp.data.host_description || `API ${resp.data.api_version}`, name: resp.data.name || null };
+}
+
 function isLikelyVmixXml(xml) {
   return typeof xml === 'string' && /<edition>/.test(xml);
 }
@@ -585,10 +600,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           onProgress(4, 'Found Companion on localhost (found)');
         }
       } else if (check.type === 'propresenter') {
-        // Try /v1/version first, fall back to /v1/status/slide (more reliable on PP 21)
-        let resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
-        if (!resp.success) resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/status/slide`, 2000);
-        if (resp.success) {
+        // GET /version must answer like ProPresenter (a 404 or another web server does not count)
+        const pp = await tryProPresenterProbe('127.0.0.1', check.port, 2000);
+        if (pp) {
           results.propresenter.push({ ip: '127.0.0.1', port: check.port });
           onProgress(4, 'Found ProPresenter on localhost (found)');
         }
@@ -741,9 +755,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 onProgress(null, `Found HyperDeck at ${ip} (found)`);
               }
             } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
-              let vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
-              if (!vResp.success) vResp = await tryHttpGet(`http://${ip}:${port}/v1/status/slide`, 2000);
-              if (vResp.success) {
+              const pp = await tryProPresenterProbe(ip, port, 2000);
+              if (pp) {
                 results.propresenter.push({ ip, port });
                 onProgress(null, `Found ProPresenter at ${ip} (found)`);
               }
@@ -873,4 +886,6 @@ module.exports = {
   OSC_INFO_PACKET,
   OSC_SQ_ALIVE_PACKET,
   tryYamahaRcpProbe,
+  isProPresenterVersion,
+  tryProPresenterProbe,
 };

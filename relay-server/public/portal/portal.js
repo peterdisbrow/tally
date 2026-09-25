@@ -2248,34 +2248,49 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── ProPresenter Detail Card ────────────────────────────────────────────
+    /**
+     * What the ProPresenter card should say, from the agent's status only.
+     * slideIndex is 0-based from the agent; offline shows "Not reachable" (never the last slide);
+     * timer state comes as 'Running' / 'Overrun' / 'Stopped'.
+     */
+    function _ppDetailView(pp) {
+      if (!pp || typeof pp !== 'object') return { show: false };
+      if (!pp.connected) return { show: true, offline: true, name: 'ProPresenter not reachable', slideLine: '', timers: [] };
+      var slide = pp.currentSlide;
+      // pp.currentSlide is a string (the presentation name) from the church-client; objects kept for old agents.
+      var presName = (typeof slide === 'string' ? slide : (slide && slide.presentationName)) || pp.currentPresentation || pp.presentationName || null;
+      var sIdx = (typeof slide === 'object' && slide) ? slide.slideIndex : pp.slideIndex;
+      var sCnt = (typeof slide === 'object' && slide) ? slide.slideCount : pp.slideTotal;
+      var slideLine = sIdx != null ? ('Slide ' + (Number(sIdx) + 1) + (sCnt != null ? ' of ' + sCnt : '')) : '';
+      var timers = (Array.isArray(pp.timers) ? pp.timers : []).map(function(t) {
+        var st = String(t.state || '');
+        return { name: t.name || 'Timer', value: t.value || t.time || '—', running: st === 'Running' || st === 'Overrun' || !!t.running || !!t.isRunning, overrun: st === 'Overrun' };
+      });
+      return { show: true, offline: false, name: presName || 'Nothing on screen', slideLine: slideLine, timers: timers };
+    }
+
     function updateProPresenterDetailCard(status) {
       var card = document.getElementById('propresenter-detail-card');
       if (!card) return;
 
       var pp = status.proPresenter || status.propresenter;
-      if (!pp || !pp.connected) { card.style.display = 'none'; return; }
+      var view = _ppDetailView(pp);
+      if (!view.show) { card.style.display = 'none'; return; }
       card.style.display = '';
 
       var verEl = document.getElementById('pp-version-label');
-      if (verEl) verEl.textContent = pp.version || 'ProPresenter';
+      if (verEl) verEl.textContent = view.offline ? 'Offline' : (pp.version || 'ProPresenter');
 
-      var slide = pp.currentSlide;
-      // pp.currentSlide is a string (the presentation name) from the church-client,
-      // not an object. Handle both for backward compat.
-      var presName = (typeof slide === 'string' ? slide : (slide && slide.presentationName)) || pp.currentPresentation || pp.presentationName || null;
       var nameEl = document.getElementById('pp-presentation-name');
-      if (nameEl) nameEl.textContent = presName || 'No presentation';
-
+      if (nameEl) nameEl.textContent = view.name;
       var indexEl = document.getElementById('pp-slide-index');
-      if (indexEl) {
-        var sIdx = (typeof slide === 'object' && slide) ? slide.slideIndex : pp.slideIndex;
-        var sCnt = (typeof slide === 'object' && slide) ? slide.slideCount : pp.slideTotal;
-        if (sIdx != null && sCnt != null) {
-          indexEl.textContent = 'Slide ' + sIdx + ' of ' + sCnt;
-        } else {
-          indexEl.textContent = '';
-        }
+      if (indexEl) indexEl.textContent = view.slideLine;
+      if (view.offline) {
+        ['pp-active-look', 'pp-audience-screen', 'pp-stage-screen'].forEach(function(id) { var el = document.getElementById(id); if (el) { el.textContent = '—'; el.style.color = '#8B9DAF'; } });
+        ['pp-slide-notes-row', 'pp-timers-row'].forEach(function(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+        return;
       }
+      var slide = pp.currentSlide;
 
       // Slide notes
       var notesRow = document.getElementById('pp-slide-notes-row');
@@ -2313,16 +2328,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var timersRow = document.getElementById('pp-timers-row');
       var timersList = document.getElementById('pp-timers-list');
       if (timersRow && timersList) {
-        var timers = pp.timers;
-        if (Array.isArray(timers) && timers.length > 0) {
+        var timers = view.timers;
+        if (timers.length > 0) {
           timersRow.style.display = '';
           timersList.innerHTML = timers.map(function(t) {
-            var name = t.name || 'Timer';
-            var value = t.value || t.time || '—';
-            var running = t.running || t.isRunning;
-            var cls = running ? 'badge-green' : 'badge-gray';
+            var cls = t.overrun ? 'badge-red' : t.running ? 'badge-green' : 'badge-gray';
             return '<span class="badge ' + cls + '" style="font-size:13px;padding:6px 12px">'
-              + escapeHtml(name) + ': <strong>' + escapeHtml(String(value)) + '</strong></span>';
+              + escapeHtml(t.name) + ': <strong>' + escapeHtml(String(t.value)) + '</strong>' + (t.overrun ? ' (OVERRUN)' : '') + '</span>';
           }).join('');
         } else {
           timersRow.style.display = 'none';

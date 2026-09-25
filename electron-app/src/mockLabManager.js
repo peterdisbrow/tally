@@ -1370,56 +1370,66 @@ class MockLabManager {
     res.end(JSON.stringify(payload));
   }
 
+  /**
+   * Mock Lab ProPresenter over HTTP — a subset of the official ProPresenter 7 API
+   * (openapi.propresenter.com) so the real Tally driver can connect to it:
+   * GET /version, slide_index, status/slide, presentation/{uuid}, focused/active
+   * next|previous|N trigger, looks, timers/current, audience/stage screen booleans.
+   * Unknown paths are 404, exactly like ProPresenter.
+   */
   async _handleProPresenterHttp(req, res) {
     const method = String(req.method || 'GET').toUpperCase();
-    const url = String(req.url || '/');
+    const url = String(req.url || '/').split('?')[0];
+    const fp = this.fakeProPresenter;
+    const presId = () => ({ uuid: fp._presentationUUID, name: fp._presentationName, index: 0 });
+    const slides = () => Array.from({ length: Math.max(0, fp._slideTotal || 0) }, (_, i) => ({ enabled: true, notes: '', text: `${fp._presentationName} ${i + 1}`, label: '' }));
+    let m;
 
-    if (method === 'HEAD' && url === '/v1/version') {
-      res.statusCode = 200;
-      return res.end();
+    if (!fp || fp.running === false) { res.statusCode = 503; return res.end(); }
+    if (method === 'GET' && url === '/version') {
+      return this._sendJson(res, 200, { name: 'Mock Lab', platform: 'mock', os_version: '', host_description: `ProPresenter ${fp._version || '7'} (Mock Lab)`, api_version: 'v1' });
     }
-
-    if (method === 'GET' && url === '/v1/version') {
-      return this._sendJson(res, 200, { version: '7.13.0-mock', apiVersion: 'v1', mock: true });
+    if (method === 'GET' && url === '/v1/presentation/slide_index') {
+      return this._sendJson(res, 200, { presentation_index: { index: fp._slideIndex, presentation_id: presId() } });
     }
-
-    if (method === 'GET' && url === '/v1/presentation/active') {
-      const slide = await this.fakeProPresenter.getCurrentSlide();
-      return this._sendJson(res, 200, {
-        name: slide?.presentationName || 'Sunday Service',
-        slideIndex: slide?.slideIndex ?? 0,
-        slideCount: slide?.slideTotal ?? 0,
-        notes: slide?.slideNotes || '',
-        presentation: {
-          name: slide?.presentationName || 'Sunday Service',
-          slideIndex: slide?.slideIndex ?? 0,
-          slideCount: slide?.slideTotal ?? 0,
-        },
-      });
+    if (method === 'GET' && url === '/v1/status/slide') {
+      const cur = fp._slideIndex; const n = fp._slideTotal || 0;
+      const at = (i) => (i >= 0 && i < n ? { text: `${fp._presentationName} ${i + 1}`, notes: '', uuid: `${fp._presentationUUID}-${i}` } : { text: '', notes: '', uuid: '' });
+      return this._sendJson(res, 200, { current: at(cur), next: at(cur + 1) });
     }
-
-    if (method === 'GET' && url === '/v1/trigger/next') {
-      await this.fakeProPresenter.nextSlide();
-      return this._sendJson(res, 200, { ok: true });
+    if (method === 'GET' && (url === '/v1/presentation/active' || url === '/v1/presentation/focused' || url === `/v1/presentation/${fp._presentationUUID}`)) {
+      const p = { id: presId(), groups: [{ name: 'Slides', color: null, slides: slides() }], has_timeline: false };
+      return this._sendJson(res, 200, url === '/v1/presentation/focused' ? presId() : { presentation: p });
     }
-
-    if (method === 'GET' && url === '/v1/trigger/previous') {
-      await this.fakeProPresenter.previousSlide();
-      return this._sendJson(res, 200, { ok: true });
+    if (method === 'GET' && (m = /^\/v1\/presentation\/(?:focused|active)\/(next|previous|\d+)\/trigger$/.exec(url))) {
+      if (m[1] === 'next') await fp.nextSlide();
+      else if (m[1] === 'previous') await fp.previousSlide();
+      else { const i = Number(m[1]); if (i >= (fp._slideTotal || 0)) return this._sendJson(res, 404, null); await fp.goToSlide(i); }
+      res.statusCode = 204; return res.end();
     }
-
-    const gotoMatch = url.match(/^\/v1\/presentation\/active\/(\d+)\/trigger$/);
-    if (method === 'GET' && gotoMatch) {
-      await this.fakeProPresenter.goToSlide(Number(gotoMatch[1]));
-      return this._sendJson(res, 200, { ok: true });
+    if (method === 'GET' && (m = /^\/v1\/trigger\/(next|previous)$/.exec(url))) {
+      if (m[1] === 'next') await fp.nextSlide(); else await fp.previousSlide();
+      res.statusCode = 204; return res.end();
     }
-
     if (method === 'GET' && url === '/v1/playlists') {
-      const playlists = await this.fakeProPresenter.getPlaylist();
-      return this._sendJson(res, 200, { playlists });
+      const list = await fp.getPlaylist();
+      return this._sendJson(res, 200, list.map((x, i) => ({ id: { uuid: `mock-pl-${i}`, name: x.name, index: i }, field_type: 'playlist', children: [] })));
     }
+    if (method === 'GET' && url === '/v1/looks') {
+      const l = fp._activeLook || { id: 'look-1', name: 'Default' };
+      return this._sendJson(res, 200, [{ id: { uuid: l.id, name: l.name, index: 0 }, screens: [] }]);
+    }
+    if (method === 'GET' && url === '/v1/look/current') {
+      const l = fp._activeLook || { id: 'look-1', name: 'Default' };
+      return this._sendJson(res, 200, { id: { uuid: l.id, name: l.name, index: 0 }, screens: [] });
+    }
+    if (method === 'GET' && url === '/v1/timers/current') {
+      return this._sendJson(res, 200, (fp._activeTimers || []).map((t, i) => ({ id: { uuid: t.id, name: t.name, index: i }, time: t.time, state: String(t.state || 'stopped').toLowerCase() })));
+    }
+    if (method === 'GET' && url === '/v1/status/audience_screens') return this._sendJson(res, 200, fp._screenStatus?.audience !== false);
+    if (method === 'GET' && url === '/v1/status/stage_screens') return this._sendJson(res, 200, fp._screenStatus?.stage !== false);
 
-    return this._sendJson(res, 404, { error: 'not found' });
+    return this._sendJson(res, 404, null);
   }
 
   _listen(server, ip, port) {
