@@ -11,7 +11,7 @@
  *   'allenheath'→ Allen & Heath SQ-5/6/7 (TCP MIDI 51325 — the SQ has no OSC)
  *   'avantis'   → Allen & Heath Avantis (TCP MIDI port 51325)
  *   'dlive'     → Allen & Heath dLive (TCP MIDI port 51325, same as Avantis)
- *   'yamaha'    → Yamaha CL / QL / TF (port 8765 or 49280)
+ *   'yamaha'    → Yamaha CL / QL / TF (RCP, TCP 49280)
  */
 
 const { EventEmitter }    = require('events');
@@ -62,7 +62,7 @@ class MixerBridge extends EventEmitter {
         // dLive uses identical TCP MIDI protocol to Avantis (128 inputs vs 64)
         return new AvantisMixer({ host, port: port || 51325, model: model || 'dLive', midiChannel });
       case 'yamaha':
-        return new YamahaMixer({ host, port, model: model || 'CL' });
+        return new YamahaMixer({ host, port: port || 49280, model: model || 'CL' });
       default:
         throw new Error(`Unknown mixer type: "${type}". Use x32, behringer, midas, allenheath, avantis, dlive, or yamaha.`);
     }

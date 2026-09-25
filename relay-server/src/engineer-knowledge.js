@@ -68,10 +68,10 @@ OBS Studio:
 - Controls: start/stop stream, start/stop recording, scene switching, bitrate adjustment, monitor stream config
 
 Audio Mixers:
-- Behringer X32/M32/Wing, Midas: OSC protocol
+- Behringer X32 / Midas M32: OSC protocol (UDP 10023). Behringer Wing is NOT supported yet
 - Allen & Heath SQ/dLive/Avantis: MIDI over TCP only (port 51325, no OSC). SQ and dLive read values back (confirmed); Avantis cannot read mutes/levels back, so its mutes/faders are "sent, not confirmed". No EQ/compressor/gate/pan/scene-save over MIDI on any A&H desk; HPF on dLive only; channel names SQ: no, dLive/Avantis: yes
-- Yamaha CL/QL: OSC; Yamaha TF: TCP MIDI
-- Config: mixer.type (x32, m32, sq, dlive, avantis, yamaha-cl, yamaha-tf, wing), mixer.host
+- Yamaha CL/QL/TF: Yamaha Remote Control Protocol (RCP, text over TCP 49280 — no OSC, no MIDI). Every mute/fader/name/pan/DCA/mute-group change is read back (confirmed); scene recall is confirmed by reading the current scene back. No EQ/compressor/gate/HPF/scene-save/solo-clear over RCP
+- Config: mixer.type (behringer/x32, midas, allenheath (SQ), dlive, avantis, yamaha), mixer.host, mixer.port, mixer.model
 - Controls: mute/unmute, faders, EQ, compressor, gate, HPF, channel names, scene recall, DCA assignment, bus sends, pan, phantom power, preamp gain, meters
 
 PTZ Cameras:
@@ -301,7 +301,7 @@ Key fields:
 - proPresenter: { host, port }
 - vmix: { host, port }
 - resolume: { host, port }
-- mixer: { type, host } — type is x32, m32, sq, dlive, avantis, yamaha-cl, yamaha-tf, wing
+- mixer: { type, host, port?, model? } — type is behringer (x32), midas, allenheath (SQ), dlive, avantis, or yamaha (CL/QL/TF)
 - hyperdecks: array of IPs
 - ptzCameras: array of { ip, protocol, port }
 - encoders: array of { type, host, port }

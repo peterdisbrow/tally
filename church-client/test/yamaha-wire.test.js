@@ -1,583 +1,172 @@
 /**
- * Yamaha CL/QL/TF Mixer Driver Tests
- *
- * Covers the YamahaMixer facade, YamahaCLQL (OSC), and YamahaTF (TCP MIDI) drivers.
+ * Yamaha CL / QL / TF — RCP wire format (TCP 49280).
+ * Replaces the old OSC ("/ymhss/state" on 8765) and TF-MIDI tests: neither
+ * protocol exists on these consoles. Exact lines are checked against Yamaha's
+ * RCP parameter lists (CL/QL and TF dumps in companion-module-yamaha-rcp).
  */
-
 'use strict';
-
-const test   = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
+const net = require('node:net');
+const { YamahaMixer, RCP_PORT, _internals } = require('../src/mixers/yamaha');
+for (const k of ['log', 'info', 'warn']) console[k] = (...a) => process.stderr.write(a.join(' ') + '\n');
 
-const { YamahaMixer } = require('../src/mixers/yamaha');
-
-// ─── HELPERS ───────────────────────────────────────────────────────────────────
-
-/** Create a mock OSC client that records send() calls. */
-function makeMockOsc() {
-  const sent = [];
-  return {
-    sent,
-    send(address, args = []) { sent.push({ address, args: [...(args || [])] }); },
-    async query() { return null; },
-    close() {},
-  };
+/** Minimal RCP peer: records every line, answers OK with a reply that echoes the set value. */
+async function recorder(product = 'CL5') {
+  const lines = [];
+  const values = {};
+  const srv = net.createServer((s) => {
+    let buf = '';
+    s.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        lines.push(line);
+        const t = line.match(/(?:[^\s"]+|"[^"]*")+/g);
+        if (t[0] === 'devinfo') s.write(`OK devinfo productname "${product}"\n`);
+        else if (t[0] === 'devstatus') s.write('OK devstatus runmode "normal"\n');
+        else if (t[0] === 'set') { values[`${t[1]} ${t[2]}`] = t.slice(4).join(' '); s.write(`OK ${line}\n`); }
+        else if (t[0] === 'get') s.write(`OK get ${t[1]} ${t[2]} ${t[3]} ${values[`${t[1]} ${t[2]}`] ?? 0}\n`);
+        else if (t[0] === 'ssrecall_ex') { values.scene = t[2]; s.write(`OK ssrecall_ex ${t[1]} ${t[2]}\n`); }
+        else if (t[0] === 'sscurrent_ex') s.write(`OK sscurrent_ex ${t[1]} ${values.scene ?? 0}\n`);
+      }
+    });
+    s.on('error', () => {});
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return { port: srv.address().port, lines, sets: () => lines.filter((l) => l.startsWith('set ') || l.startsWith('ssrecall')), close: () => new Promise((r) => { srv.close(r); }) };
+}
+async function withMixer(product, fn) {
+  const rec = await recorder(product);
+  const m = new YamahaMixer({ host: '127.0.0.1', port: rec.port });
+  await m.connect();
+  try { await fn(m, rec); } finally { await m.disconnect(); await rec.close(); }
 }
 
-/** Create a YamahaMixer (CL model) with the OSC layer pre-mocked. */
-function makeCLMixer() {
-  const mixer = new YamahaMixer({ host: '192.168.1.1', model: 'CL' });
-  const mockOsc = makeMockOsc();
-  mixer._impl._osc = mockOsc;
-  return { mixer, impl: mixer._impl, sent: mockOsc.sent, mockOsc };
-}
-
-/** Create a YamahaMixer (TF model) with the socket layer pre-mocked. */
-function makeTFMixer() {
-  const mixer = new YamahaMixer({ host: '192.168.1.1', model: 'TF' });
-  const written = [];
-  mixer._impl._socket = {
-    destroyed: false,
-    write(buf) { written.push(Buffer.from(buf)); },
-    destroy() { this.destroyed = true; },
-  };
-  return { mixer, impl: mixer._impl, written };
-}
-
-const last = (arr) => arr[arr.length - 1];
-
-// ─── SECTION 1: YamahaMixer facade — model routing ──────────────────────────
-
-test('YamahaMixer defaults to CL model', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1' });
-  assert.equal(mixer.model, 'CL');
-});
-
-test('YamahaMixer with model=TF uses TF implementation', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  assert.equal(mixer.model, 'TF');
-  // TF impl has _socket property, not _osc
-  assert.equal(mixer._impl._socket, null);
-});
-
-test('YamahaMixer with model=QL uses CL/QL implementation', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'QL' });
-  assert.equal(mixer.model, 'QL');
-});
-
-test('YamahaMixer with custom port for TF', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF', port: 50000 });
-  assert.equal(mixer._impl.port, 50000);
-});
-
-test('YamahaMixer with custom port for CL', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL', port: 9999 });
-  assert.equal(mixer._impl.port, 9999);
-});
-
-test('YamahaMixer default port for TF is 49280', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  assert.equal(mixer._impl.port, 49280);
-});
-
-test('YamahaMixer default port for CL is 8765', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  assert.equal(mixer._impl.port, 8765);
-});
-
-// ─── SECTION 2: YamahaCLQL — muteChannel / unmuteChannel / setFader ─────────
-
-test('CL/QL muteChannel sends correct OSC', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.muteChannel(3);
-  assert.equal(last(sent).address, '/ymhss/ch/3/to_st/on');
-  assert.equal(last(sent).args[0].value, 0);
-});
-
-test('CL/QL unmuteChannel sends correct OSC', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.unmuteChannel(5);
-  assert.equal(last(sent).address, '/ymhss/ch/5/to_st/on');
-  assert.equal(last(sent).args[0].value, 1);
-});
-
-test('CL/QL setFader sends correct OSC with clamped value', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.setFader(1, 0.5);
-  assert.equal(last(sent).address, '/ymhss/fader/1');
-  assert.equal(last(sent).args[0].type, 'f');
-  assert.ok(Math.abs(last(sent).args[0].value - 0.5) < 0.0001);
-});
-
-test('CL/QL setFader clamps above 1', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.setFader(1, 2.0);
-  assert.equal(last(sent).args[0].value, 1.0);
-});
-
-test('CL/QL setFader clamps below 0', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.setFader(1, -1.0);
-  assert.equal(last(sent).args[0].value, 0.0);
-});
-
-test('CL/QL muteMaster sends fader/0 with value 0', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.muteMaster();
-  assert.equal(last(sent).address, '/ymhss/fader/0');
-  assert.equal(last(sent).args[0].value, 0);
-});
-
-test('CL/QL unmuteMaster sends fader/0 with value 0.75', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.unmuteMaster();
-  assert.equal(last(sent).address, '/ymhss/fader/0');
-  assert.equal(last(sent).args[0].value, 0.75);
-});
-
-test('CL/QL recallScene sends scene/recall', async () => {
-  const { mixer, sent } = makeCLMixer();
-  await mixer.recallScene(10);
-  assert.equal(last(sent).address, '/ymhss/scene/recall');
-  assert.equal(last(sent).args[0].value, 10);
-});
-
-// ─── SECTION 3: YamahaCLQL — error guards ────────────────────────────────────
-
-test('CL/QL muteChannel throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.muteChannel(1), /not connected/);
-});
-
-test('CL/QL unmuteChannel throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.unmuteChannel(1), /not connected/);
-});
-
-test('CL/QL setFader throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.setFader(1, 0.5), /not connected/);
-});
-
-test('CL/QL muteMaster throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.muteMaster(), /not connected/);
-});
-
-test('CL/QL unmuteMaster throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.unmuteMaster(), /not connected/);
-});
-
-test('CL/QL recallScene throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.recallScene(1), /not connected/);
-});
-
-test('CL/QL getChannelStatus throws when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await assert.rejects(() => mixer.getChannelStatus(1), /not connected/);
-});
-
-// ─── SECTION 4: YamahaCLQL — getChannelStatus ───────────────────────────────
-
-test('CL/QL getChannelStatus returns fader and mute values', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async (addr) => {
-    if (addr.includes('fader')) return { args: [{ value: 0.8 }] };
-    if (addr.includes('to_st/on')) return { args: [{ value: 0 }] };
-    return null;
-  };
-  const status = await mixer.getChannelStatus(2);
-  assert.equal(status.fader, 0.8);
-  assert.equal(status.muted, true);
-});
-
-test('CL/QL getChannelStatus with null responses uses defaults', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => null;
-  const status = await mixer.getChannelStatus(1);
-  assert.equal(status.fader, 0);
-  assert.equal(status.muted, false);
-});
-
-test('CL/QL getChannelStatus catch path returns defaults', async () => {
-  const { mixer, impl } = makeCLMixer();
-  // Force the outer try to catch by making both queries reject
-  const origQuery = impl._osc.query;
-  impl._osc.query = async () => { throw new Error('fail'); };
-  const status = await mixer.getChannelStatus(1);
-  assert.equal(status.fader, 0);
-  assert.equal(status.muted, false);
-});
-
-// ─── SECTION 5: YamahaCLQL — getStatus ──────────────────────────────────────
-
-test('CL/QL getStatus when not connected returns offline', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  const status = await mixer.getStatus();
-  assert.equal(status.online, false);
-  assert.equal(status.model, 'Yamaha CL/QL');
-});
-
-test('CL/QL getStatus with successful query', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => ({ args: [{ value: 'online' }] });
-  const status = await mixer.getStatus();
-  assert.equal(status.online, true);
-  assert.equal(status.model, 'Yamaha CL/QL');
-});
-
-test('CL/QL getStatus with null query response', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => null;
-  const status = await mixer.getStatus();
-  assert.equal(status.online, false);
-});
-
-test('CL/QL getStatus catch branch returns offline', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => { throw new Error('fail'); };
-  const status = await mixer.getStatus();
-  assert.equal(status.online, false);
-});
-
-// ─── SECTION 6: YamahaCLQL — isOnline ────────────────────────────────────────
-
-test('CL/QL isOnline returns false when not connected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  assert.equal(await mixer.isOnline(), false);
-});
-
-test('CL/QL isOnline returns true on success', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => ({ args: [] });
-  assert.equal(await mixer.isOnline(), true);
-});
-
-test('CL/QL isOnline returns false on failure', async () => {
-  const { mixer, impl } = makeCLMixer();
-  impl._osc.query = async () => { throw new Error('timeout'); };
-  assert.equal(await mixer.isOnline(), false);
-});
-
-// ─── SECTION 7: YamahaCLQL — disconnect ──────────────────────────────────────
-
-test('CL/QL disconnect clears osc', async () => {
-  const { mixer, impl } = makeCLMixer();
-  await mixer.disconnect();
-  assert.equal(impl._osc, null);
-  assert.equal(impl._online, false);
-});
-
-test('CL/QL disconnect when already disconnected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'CL' });
-  await mixer.disconnect(); // should not throw
-});
-
-// ─── SECTION 8: YamahaCLQL — clearSolos (no-op) ─────────────────────────────
-
-test('CL/QL clearSolos does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  await mixer.clearSolos(); // no-op, should not throw
-});
-
-// ─── SECTION 9: YamahaCLQL — stub methods ────────────────────────────────────
-
-test('CL/QL setChannelName warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.setChannelName(1, 'Test');
-  console.warn = orig;
-  assert.ok(warns.length > 0);
-});
-
-test('CL/QL setHpf warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setHpf(1, {});
-  console.warn = orig;
-});
-
-test('CL/QL setEq warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setEq(1, {});
-  console.warn = orig;
-});
-
-test('CL/QL setCompressor warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setCompressor(1, {});
-  console.warn = orig;
-});
-
-test('CL/QL setGate warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setGate(1, {});
-  console.warn = orig;
-});
-
-test('CL/QL saveScene warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.saveScene(1, 'Test');
-  console.warn = orig;
-});
-
-// ─── SECTION 10: YamahaCLQL — setFullChannelStrip ───────────────────────────
-
-test('CL/QL setFullChannelStrip applies fader and mute=true', async () => {
-  const { mixer, sent } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setFullChannelStrip(1, { fader: 0.5, mute: true });
-  console.warn = orig;
-  assert.ok(sent.some(m => m.address.includes('fader')));
-  assert.ok(sent.some(m => m.address.includes('to_st/on') && m.args[0].value === 0));
-});
-
-test('CL/QL setFullChannelStrip applies mute=false (unmute)', async () => {
-  const { mixer, sent } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setFullChannelStrip(1, { mute: false });
-  console.warn = orig;
-  assert.ok(sent.some(m => m.address.includes('to_st/on') && m.args[0].value === 1));
-});
-
-test('CL/QL setFullChannelStrip with no fader/mute sends nothing', async () => {
-  const { mixer, sent } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setFullChannelStrip(1, {});
-  console.warn = orig;
-  assert.equal(sent.length, 0);
-});
-
-// ─── SECTION 11: YamahaTF — muteChannel / unmuteChannel ────────────────────
-
-test('TF muteChannel sends correct MIDI bytes', async () => {
-  const { mixer, written } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.muteChannel(1);
-  console.warn = orig;
-  assert.equal(written.length, 1);
-  assert.equal(written[0][0], 0x90); // Note On
-  assert.equal(written[0][1], 0);    // ch 1 -> note 0
-  assert.equal(written[0][2], 127);
-});
-
-test('TF unmuteChannel sends correct MIDI bytes', async () => {
-  const { mixer, written } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.unmuteChannel(5);
-  console.warn = orig;
-  assert.equal(written[0][0], 0x80); // Note Off
-  assert.equal(written[0][1], 4);    // ch 5 -> note 4
-  assert.equal(written[0][2], 0);
-});
-
-test('TF recallScene sends Program Change MIDI', async () => {
-  const { mixer, written } = makeTFMixer();
-  await mixer.recallScene(3);
-  assert.equal(written[0][0], 0xC0); // Program Change
-  assert.equal(written[0][1], 2);    // scene 3 -> value 2 (1-indexed to 0-indexed)
-});
-
-// ─── SECTION 12: YamahaTF — _sendMidi edge cases ───────────────────────────
-
-test('TF _sendMidi does nothing when socket is null', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  mixer._impl._socket = null;
-  mixer._impl._sendMidi([0x90, 0, 127]); // should not throw
-});
-
-test('TF _sendMidi does nothing when socket is destroyed', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  mixer._impl._socket = { destroyed: true, write() {} };
-  mixer._impl._sendMidi([0x90, 0, 127]); // should not throw
-});
-
-test('TF _sendMidi handles write error gracefully', () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  mixer._impl._socket = {
-    destroyed: false,
-    write() { throw new Error('broken pipe'); },
-  };
-  mixer._impl._sendMidi([0x90, 0, 127]); // should not throw
-});
-
-// ─── SECTION 13: YamahaTF — stub methods ────────────────────────────────────
-
-test('TF getChannelStatus returns defaults with warning', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  const status = await mixer.getChannelStatus(1);
-  console.warn = orig;
-  assert.equal(status.fader, 0);
-  assert.equal(status.muted, false);
-});
-
-test('TF setFader warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setFader(1, 0.5);
-  console.warn = orig;
-});
-
-test('TF muteMaster warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.muteMaster();
-  console.warn = orig;
-});
-
-test('TF unmuteMaster warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.unmuteMaster();
-  console.warn = orig;
-});
-
-test('TF clearSolos does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  await mixer.clearSolos();
-});
-
-test('TF setChannelName warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setChannelName(1, 'Test');
-  console.warn = orig;
-});
-
-test('TF setHpf warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setHpf(1, {});
-  console.warn = orig;
-});
-
-test('TF setEq warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setEq(1, {});
-  console.warn = orig;
-});
-
-test('TF setCompressor warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setCompressor(1, {});
-  console.warn = orig;
-});
-
-test('TF setGate warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setGate(1, {});
-  console.warn = orig;
-});
-
-test('TF setFullChannelStrip warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setFullChannelStrip(1, { fader: 0.5 });
-  console.warn = orig;
-});
-
-test('TF saveScene warns but does not throw', async () => {
-  const { mixer } = makeTFMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.saveScene(1, 'Test');
-  console.warn = orig;
-});
-
-// ─── SECTION 14: YamahaTF — disconnect ──────────────────────────────────────
-
-test('TF disconnect destroys socket', async () => {
-  const { mixer, impl } = makeTFMixer();
-  await mixer.disconnect();
-  assert.equal(impl._socket, null);
-  assert.equal(impl._online, false);
-});
-
-test('TF disconnect when already disconnected', async () => {
-  const mixer = new YamahaMixer({ host: '10.0.0.1', model: 'TF' });
-  await mixer.disconnect(); // should not throw
-});
-
-// ─── SECTION 15: YamahaMixer facade — DCA/mute group stubs ─────────────────
-
-test('YamahaMixer muteDca warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  const warns = [];
-  console.warn = (...a) => warns.push(a.join(' '));
-  await mixer.muteDca(1);
-  console.warn = orig;
-  assert.ok(warns.some(w => w.includes('Yamaha')));
-});
-
-test('YamahaMixer unmuteDca warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.unmuteDca(1);
-  console.warn = orig;
-});
-
-test('YamahaMixer setDcaFader warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.setDcaFader(1, 0.5);
-  console.warn = orig;
-});
-
-test('YamahaMixer activateMuteGroup warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.activateMuteGroup(1);
-  console.warn = orig;
-});
-
-test('YamahaMixer deactivateMuteGroup warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.deactivateMuteGroup(1);
-  console.warn = orig;
-});
-
-test('YamahaMixer pressSoftKey warns but does not throw', async () => {
-  const { mixer } = makeCLMixer();
-  const orig = console.warn;
-  console.warn = () => {};
-  await mixer.pressSoftKey(1);
-  console.warn = orig;
+test('default and legacy ports map to RCP 49280', () => {
+  assert.equal(RCP_PORT, 49280);
+  assert.equal(new YamahaMixer({ host: 'h' }).port, 49280);
+  assert.equal(new YamahaMixer({ host: 'h', port: 8765 }).port, 49280);
+  assert.equal(new YamahaMixer({ host: 'h', port: 9765 }).port, 49280);
+  assert.equal(new YamahaMixer({ host: 'h', port: 50000 }).port, 50000);
+});
+
+test('model hint picks the family limits until the console reports its product name', () => {
+  assert.equal(new YamahaMixer({ host: 'h', model: 'TF' }).F.inputs, 40);
+  assert.equal(new YamahaMixer({ host: 'h', model: 'QL1' }).F.inputs, 32);
+  assert.equal(new YamahaMixer({ host: 'h', model: 'CL1' }).F.inputs, 48);
+  assert.equal(new YamahaMixer({ host: 'h', model: 'TF' }).F.dcas, 8);
+  assert.equal(new YamahaMixer({ host: 'h' }).F.dcas, 16);
+});
+
+test('fader law: X32 positions ↔ dB×100 (0.75 = 0 dB, 1.0 = +10 dB, 0 = −∞)', () => {
+  const { normalToLevel, levelToNormal, levelMatches } = _internals;
+  assert.equal(normalToLevel(0.75), 0);
+  assert.equal(normalToLevel(1), 1000);
+  assert.equal(normalToLevel(0.5), -1000);
+  assert.equal(normalToLevel(0), -32768);
+  assert.equal(levelToNormal(0), 0.75);
+  assert.equal(levelToNormal(-32768), 0);
+  assert.equal(levelToNormal(1000), 1);
+  assert.equal(levelToNormal(null), null);
+  assert.ok(levelMatches(-1000, -1005));
+  assert.ok(!levelMatches(-1000, -1300));
+  assert.ok(levelMatches(-32768, -13800));
+});
+
+test('exact RCP lines: channel mute/unmute, fader, stereo master, DCA, mute group, pan, name', async () => {
+  await withMixer('CL5', async (m, rec) => {
+    await m.muteChannel(1);
+    await m.unmuteChannel(72);
+    await m.setFader(3, 0.75);
+    await m.muteMaster();
+    await m.muteDca(16);
+    await m.setDcaFader(1, 0);
+    await m.activateMuteGroup(8);
+    await m.setPan(4, 1);
+    await m.setChannelName(5, 'Kick In');
+    await m.setPan(6, -0.5);
+    assert.deepEqual(rec.sets(), [
+      'set MIXER:Current/InCh/Fader/On 0 0 0',
+      'set MIXER:Current/InCh/Fader/On 71 0 1',
+      'set MIXER:Current/InCh/Fader/Level 2 0 0',
+      'set MIXER:Current/St/Fader/On 0 0 0',
+      'set MIXER:Current/DCA/Fader/On 15 0 0',
+      'set MIXER:Current/DCA/Fader/Level 0 0 -32768',
+      'set MIXER:Current/MuteMaster/On 7 0 1',
+      'set MIXER:Current/InCh/ToSt/Pan 3 0 63',
+      'set MIXER:Current/InCh/Label/Name 4 0 "Kick In"',
+      'set MIXER:Current/InCh/ToSt/Pan 5 0 -32',
+    ]);
+    // every set is followed by a get of the same address (read-back)
+    for (const s of rec.sets()) {
+      const [, addr, x] = s.split(' ');
+      const i = rec.lines.indexOf(s);
+      assert.equal(rec.lines[i + 1], `get ${addr} ${x} 0`, `read-back after ${s}`);
+    }
+  });
+});
+
+test('scene recall: CL/QL use MIXER:Lib/Scene 1–300 and read back sscurrent_ex; TF uses scene_a/scene_b', async () => {
+  await withMixer('QL5', async (m, rec) => {
+    const r = await m.recallScene(12);
+    assert.deepEqual(r, { confirmed: true, scene: '12' });
+    assert.ok(rec.lines.includes('ssrecall_ex MIXER:Lib/Scene 12'));
+    assert.ok(rec.lines.includes('sscurrent_ex MIXER:Lib/Scene'));
+    await assert.rejects(m.recallScene(0), /Invalid scene/);
+    await assert.rejects(m.recallScene(301), /Invalid scene/);
+  });
+  await withMixer('TF5', async (m, rec) => {
+    await m.recallScene('b07');
+    assert.ok(rec.lines.includes('ssrecall_ex scene_b 7'));
+    assert.ok(rec.lines.includes('sscurrent_ex scene_b'));
+    await m.recallScene(3);
+    assert.ok(rec.lines.includes('ssrecall_ex scene_a 3'));
+    await assert.rejects(m.recallScene('A100'), /Invalid scene/);
+  });
+});
+
+test('product name from the console sets the model and limits (TF5 → 40 inputs, 8 DCAs)', async () => {
+  await withMixer('TF5', async (m) => {
+    assert.equal(m.model, 'TF5');
+    assert.equal(m.family, 'TF');
+    await assert.rejects(m.muteChannel(41), /Invalid channel/);
+    await assert.rejects(m.muteDca(9), /Invalid DCA/);
+    await assert.rejects(m.activateMuteGroup(7), /Invalid mute group/);
+  });
+});
+
+test('validation happens before anything is sent', async () => {
+  await withMixer('CL5', async (m, rec) => {
+    for (const bad of [() => m.muteChannel(0), () => m.muteChannel('1a'), () => m.setFader(1, -0.1), () => m.setFader(1, ''),
+      () => m.setPan(1, 2), () => m.setChannelName(1, 'TooLongName'), () => m.setChannelName(1, 'a"b'), () => m.setChannelName(1, '')]) {
+      await assert.rejects(bad(), /Invalid/);
+    }
+    assert.deepEqual(rec.sets(), []);
+  });
+});
+
+test('functions RCP cannot confirm refuse with an error (never silently succeed)', async () => {
+  const m = new YamahaMixer({ host: 'h' });
+  for (const f of ['setHpf', 'setEq', 'setCompressor', 'setGate', 'saveScene', 'clearSolos', 'pressSoftKey', 'setChannelColor', 'setPreampGain', 'setPhantom', 'setSendLevel', 'getMeters']) {
+    await assert.rejects(m[f](1, {}), /not available on Yamaha/, f);
+  }
+});
+
+test('not connected → commands fail, status is offline with unknown (null) values', async () => {
+  const m = new YamahaMixer({ host: '127.0.0.1', port: 1 });
+  await assert.rejects(m.muteChannel(1), /not connected/);
+  const s = await m.getStatus();
+  assert.equal(s.online, false);
+  assert.equal(s.mainMuted, null);
+  assert.equal(s.mainFader, null);
+  const c = await m.getChannelStatus(1);
+  assert.equal(c.muted, null);
+  assert.equal(c.fader, null);
+});
+
+test('tokenizer keeps quoted names with spaces together', () => {
+  assert.deepEqual(_internals.tokenize('OK get MIXER:Current/InCh/Label/Name 0 0 "Lead Vox"'),
+    ['OK', 'get', 'MIXER:Current/InCh/Label/Name', '0', '0', '"Lead Vox"']);
 });

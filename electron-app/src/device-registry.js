@@ -246,7 +246,7 @@ const DEVICE_REGISTRY = {
         options: [{ value: '', label: 'MIDI ch: console default (SQ 1 · dLive/Avantis 12)' }].concat(Array.from({ length: 16 }, (_, i) => ({ value: String(i + 1), label: i >= 12 ? `MIDI ch ${i + 1} (SQ only)` : `MIDI ch ${i + 1}` }))) },
     ],
     testType: 'mixer',
-    detailHint: 'Default ports: X32/M32=10023, A&H SQ/dLive/Avantis=51325 (TCP MIDI), Yamaha CL/QL=8765, TF=49280',
+    detailHint: 'Default ports: X32/M32=10023, A&H SQ/dLive/Avantis=51325 (TCP MIDI), Yamaha CL/QL/TF=49280 (RCP)',
   },
 };
 

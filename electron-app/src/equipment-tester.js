@@ -5,7 +5,7 @@
  *  - ATEM: UDP port 9910 (Blackmagic proprietary protocol)
  *  - Behringer/Midas X32/M32: OSC over UDP port 10023
  *  - Allen & Heath SQ/dLive: OSC over UDP port 51326
- *  - Yamaha CL/QL: OSC over UDP port 8765
+ *  - Yamaha CL/QL/TF: RCP text over TCP port 49280 (asks devinfo productname)
  *  - OBS, HyperDeck, Companion, ProPresenter, vMix, TriCaster, BirdDog: TCP/HTTP
  */
 
@@ -16,22 +16,22 @@ const dgram = require('dgram');
 let _tryTcpConnect = async () => false;
 let _tryHttpGet = async () => ({ success: false });
 let _tryUdpProbe = async () => false;
+let _tryYamahaRcp = async () => false;
 
 // Pre-computed UDP probe packets
 let ATEM_SYN_PACKET = Buffer.from('101453AB00000000003A00000100000000000000', 'hex');
 let OSC_INFO_PACKET = Buffer.from('2F696E666F0000002C000000', 'hex');
 let OSC_SQ_ALIVE_PACKET = Buffer.from('2F73712F616C6976650000002C000000', 'hex');
-let OSC_YAMAHA_STATE_PACKET = Buffer.from('2F796D6873732F7374617465000000002C000000', 'hex');
 
-function init({ tryTcpConnect, tryHttpGet, tryUdpProbe, packets }) {
+function init({ tryTcpConnect, tryHttpGet, tryUdpProbe, tryYamahaRcpProbe, packets }) {
   if (typeof tryTcpConnect === 'function') _tryTcpConnect = tryTcpConnect;
   if (typeof tryHttpGet === 'function') _tryHttpGet = tryHttpGet;
   if (typeof tryUdpProbe === 'function') _tryUdpProbe = tryUdpProbe;
+  if (typeof tryYamahaRcpProbe === 'function') _tryYamahaRcp = tryYamahaRcpProbe;
   if (packets) {
     if (packets.ATEM_SYN_PACKET) ATEM_SYN_PACKET = packets.ATEM_SYN_PACKET;
     if (packets.OSC_INFO_PACKET) OSC_INFO_PACKET = packets.OSC_INFO_PACKET;
     if (packets.OSC_SQ_ALIVE_PACKET) OSC_SQ_ALIVE_PACKET = packets.OSC_SQ_ALIVE_PACKET;
-    if (packets.OSC_YAMAHA_STATE_PACKET) OSC_YAMAHA_STATE_PACKET = packets.OSC_YAMAHA_STATE_PACKET;
   }
 }
 
@@ -253,11 +253,20 @@ async function testEquipmentConnection(params) {
               : `Cannot reach ${mixerType} console at ${ip}:${targetPort} — check IP and power`,
           };
         }
-        const defaultPort = mixerType === 'yamaha' ? 8765 : 10023; // behringer / midas
-        const targetPort = port || defaultPort;
-        // Behringer / Midas / Yamaha use OSC over UDP — send the appropriate query and wait for response
-        const packet = mixerType === 'yamaha' ? OSC_YAMAHA_STATE_PACKET : OSC_INFO_PACKET;
-        const ok = await tryUdpProbeLocal(ip, targetPort, packet, 3000);
+        if (mixerType === 'yamaha') {
+          // CL/QL/TF speak RCP over TCP 49280 (no OSC). Configs from older builds hold 8765.
+          const targetPort = (!port || [8765, 9765].includes(Number(port))) ? 49280 : port;
+          const product = await _tryYamahaRcp(ip, targetPort, 3000);
+          return {
+            success: !!product,
+            details: product
+              ? `Yamaha ${product} answering at ${ip}:${targetPort} (RCP)`
+              : `Cannot reach a Yamaha console at ${ip}:${targetPort} — check IP, power, and that nothing else holds the console's remote port`,
+          };
+        }
+        const targetPort = port || 10023; // behringer / midas
+        // Behringer / Midas use OSC over UDP — send /info and wait for response
+        const ok = await tryUdpProbeLocal(ip, targetPort, OSC_INFO_PACKET, 3000);
         return {
           success: ok,
           details: ok

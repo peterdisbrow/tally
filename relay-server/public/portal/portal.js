@@ -3116,7 +3116,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // so they're intentionally omitted. Surface the fact briefly in details.
         if (audio.monitoring) details.push('Monitoring: ATEM meters (console has no meter feed)');
       } else {
-        // X32 / Behringer / Midas / Yamaha — OSC-based mixers expose richer data
+        // X32 / Behringer / Midas (OSC) and Yamaha (RCP) report master mute back
         var xMute = _muteTileState(mixer.connected ? mixer.mainMuted : null, 'OK');
         tiles.push(_audioTile('Master Mute', xMute.html, xMute.color));
 

@@ -13,9 +13,11 @@ const MIXER_CAPABILITIES = {
   DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', channelColor: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: 'full', pan: false, softKey: false },
   // Avantis: no mute/level Get in its protocol → mutes/faders are 'sent, not confirmed' (partial). No HPF, no pan.
   AVANTIS: { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: 'full', channelColor: 'full', muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'partial', muteGroup: 'partial', pan: false, softKey: false },
-  CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
-  QL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
-  TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
+  // Yamaha CL/QL/TF — RCP (TCP 49280): every set is read back with get; scene recall is read back
+  // with sscurrent_ex. RCP has no HPF / EQ / dynamics / scene save / solo clear / user-key control.
+  CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: false, channelColor: false },
+  QL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: false, channelColor: false },
+  TF:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: false, channelColor: false },
 };
 
 /** Map console variants to their capability family (X32C/X32RACK/X32P/X32CORE → X32, M32C/M32R → M32). */
@@ -24,6 +26,9 @@ function capsFor(model) {
   if (MIXER_CAPABILITIES[m]) return MIXER_CAPABILITIES[m];
   if (/^X32/.test(m)) return MIXER_CAPABILITIES.X32;
   if (/^M32/.test(m)) return MIXER_CAPABILITIES.M32;
+  if (/^CL/.test(m)) return MIXER_CAPABILITIES.CL;      // CL5 / CL3 / CL1
+  if (/^QL/.test(m)) return MIXER_CAPABILITIES.QL;      // QL5 / QL1
+  if (/^TF/.test(m)) return MIXER_CAPABILITIES.TF;      // TF5 / TF3 / TF1 / TF-RACK
   return null;
 }
 
@@ -52,7 +57,7 @@ function mixerBrandName(type, model) {
     case 'allenheath':               return m ? `Allen & Heath ${m}` : 'Allen & Heath SQ';
     case 'avantis':                  return m ? `Allen & Heath ${m}` : 'Allen & Heath Avantis';
     case 'dlive':                    return m ? `Allen & Heath ${m}` : 'Allen & Heath dLive';
-    case 'yamaha':                   return m ? `Yamaha ${m}` : 'Yamaha CL/QL';
+    case 'yamaha':                   return m ? `Yamaha ${m}` : 'Yamaha CL/QL/TF';
     default:                         return m || type || 'Audio Console';
   }
 }

@@ -347,7 +347,7 @@ async function parsePatchList(textInput, imageBase64 = null, mimeType = 'image/j
  * @returns {{ channels: Array<{channel, name, hpf, eq, compressor, gate, fader, mute}> }}
  */
 async function generateMixerSetup(patchList, mixerType = 'behringer', { churchId } = {}) {
-  const prompt = MIXER_SETUP_PROMPT.replace('{MIXER_TYPE}', mixerType === 'behringer' || mixerType === 'midas' ? 'Behringer X32 / Midas M32' : mixerType === 'allenheath' ? 'Allen & Heath SQ' : 'Yamaha CL/QL');
+  const prompt = MIXER_SETUP_PROMPT.replace('{MIXER_TYPE}', mixerType === 'behringer' || mixerType === 'midas' ? 'Behringer X32 / Midas M32' : mixerType === 'allenheath' ? 'Allen & Heath SQ' : 'Yamaha CL/QL/TF');
   const input = JSON.stringify(patchList, null, 2);
   const { text: raw, usage } = await callAnthropic(prompt, input);
   if (_logAiUsage && usage) {

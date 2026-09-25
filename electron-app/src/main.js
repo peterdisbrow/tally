@@ -233,13 +233,16 @@ equipmentTester.init({
     const { tryUdpProbe } = require('./networkScanner');
     return tryUdpProbe(...args);
   },
+  tryYamahaRcpProbe: (...args) => {
+    const { tryYamahaRcpProbe } = require('./networkScanner');
+    return tryYamahaRcpProbe(...args);
+  },
   packets: (() => {
     const ns = require('./networkScanner');
     return {
       ATEM_SYN_PACKET: ns.ATEM_SYN_PACKET,
       OSC_INFO_PACKET: ns.OSC_INFO_PACKET,
       OSC_SQ_ALIVE_PACKET: ns.OSC_SQ_ALIVE_PACKET,
-      OSC_YAMAHA_STATE_PACKET: ns.OSC_YAMAHA_STATE_PACKET,
     };
   })(),
 });

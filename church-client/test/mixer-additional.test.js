@@ -83,12 +83,9 @@ test('mixer.setChannelName calls setChannelName and returns label', async () => 
   assert.ok(result.includes('3'));
 });
 
-test('mixer.setChannelName throws on Yamaha TF (channelName: false)', async () => {
+test('mixer.setChannelName is allowed on Yamaha TF (names are read back over RCP)', async () => {
   const agent = mockMixer('TF');
-  await assert.rejects(
-    () => commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'Drum' }),
-    /not supported on TF/
-  );
+  await commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'Drum' });
 });
 
 // ─── mixer.setHpf ─────────────────────────────────────────────────────────────

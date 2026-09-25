@@ -8,7 +8,7 @@
  *  - Blackmagic Web Presenter: HTTP port 80 (REST API v1 fingerprint)
  *  - Behringer/Midas X32/M32: OSC over UDP port 10023
  *  - Allen & Heath SQ/dLive/Avantis: MIDI over TCP port 51325 (no OSC)
- *  - Yamaha CL/QL: OSC over UDP port 8765
+ *  - Yamaha CL/QL/TF: Remote Control Protocol (RCP) text over TCP port 49280 (no OSC)
  *  - OBS, HyperDeck, Companion, ProPresenter, vMix, TriCaster, BirdDog: TCP/HTTP
  */
 
@@ -29,9 +29,6 @@ const OSC_INFO_PACKET = Buffer.from('2F696E666F0000002C000000', 'hex');
 
 // OSC "/sq/alive" query (Allen & Heath SQ) — 16 bytes
 const OSC_SQ_ALIVE_PACKET = Buffer.from('2F73712F616C6976650000002C000000', 'hex');
-
-// OSC "/ymhss/state" query (Yamaha CL/QL) — 20 bytes
-const OSC_YAMAHA_STATE_PACKET = Buffer.from('2F796D6873732F7374617465000000002C000000', 'hex');
 
 // ─── Network helpers ─────────────────────────────────────────────────────────
 
@@ -90,6 +87,37 @@ function _isRealHyperdeck(ip, port, timeoutMs = 1500) {
       data += chunk.toString();
       if (data.includes('500 connection info')) done(true);
       else if (data.length > 200) done(false); // too much data, not a HyperDeck
+    });
+    socket.on('timeout', () => done(false));
+    socket.on('error', () => done(false));
+    socket.on('close', () => done(false));
+    socket.connect(port, ip);
+  });
+}
+
+/**
+ * Yamaha CL / QL / TF answer RCP text on TCP 49280. A bare TCP connect would
+ * accept anything listening there — ask the console for its product name and
+ * only report success when it answers like a Yamaha ("OK devinfo productname …").
+ */
+function tryYamahaRcpProbe(ip, port, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let resolved = false;
+    let buf = '';
+    const done = (v) => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      resolve(v);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.on('connect', () => socket.write('devinfo productname\n'));
+    socket.on('data', (d) => {
+      buf += d.toString('utf8');
+      const m = /^OK devinfo productname "?([^"\r\n]*)"?/m.exec(buf);
+      if (m) done(m[1] || 'Yamaha');
+      else if (/^ERROR/m.test(buf) || buf.length > 4096) done(false);
     });
     socket.on('timeout', () => done(false));
     socket.on('error', () => done(false));
@@ -386,7 +414,8 @@ function probeDevice(ip, port, type, timeoutMs) {
       // SQ/dLive/Avantis speak MIDI over TCP 51325 only — a UDP OSC probe never answers.
       return tryTcpConnect(ip, port, timeoutMs);
     case 'mixer-yamaha':
-      return tryUdpProbe(ip, port, OSC_YAMAHA_STATE_PACKET, timeoutMs);
+      // CL/QL/TF: RCP over TCP 49280 — must answer "devinfo productname".
+      return tryYamahaRcpProbe(ip, port, Math.max(timeoutMs, 600)).then((r) => !!r);
     default:
       return tryTcpConnect(ip, port, timeoutMs);
   }
@@ -530,7 +559,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'birddog', ip: '127.0.0.1', port: 8080 },
     { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
     { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51325 },
-    { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
+    { type: 'mixer-yamaha', ip: '127.0.0.1', port: 49280 },
     { type: 'videohub', ip: '127.0.0.1', port: 9990 },
     { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
     { type: 'blackmagic-webpresenter', ip: '127.0.0.1', port: 80 },
@@ -621,7 +650,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'allenheath (SQ/dLive)' });
         onProgress(5, 'Found possible Allen & Heath console on localhost (found)');
       } else if (check.type === 'mixer-yamaha') {
-        results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL)' });
+        results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL/TF)' });
         onProgress(5, 'Found possible Yamaha console on localhost (found)');
       } else if (check.type === 'videohub') {
         // Verify with protocol fingerprint — port 9990 alone is too common
@@ -668,7 +697,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 5952,  type: 'tricaster-http' },       // TCP — TriCaster HTTP
     { port: 10023, type: 'mixer-behringer' },      // UDP — Behringer X32 / Midas M32 OSC
     { port: 51325, type: 'mixer-allenheath' },     // TCP — Allen & Heath SQ/dLive/Avantis MIDI
-    { port: 8765,  type: 'mixer-yamaha' },         // UDP — Yamaha CL/QL OSC
+    { port: 49280, type: 'mixer-yamaha' },         // TCP — Yamaha CL/QL/TF RCP
     { port: 9990,  type: 'videohub' },              // TCP — Blackmagic Videohub protocol
     { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP
     { port: 80,    type: 'blackmagic-webpresenter' }, // TCP — Blackmagic Web Presenter REST API
@@ -785,7 +814,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               results.mixers.push({ ip, port, type: 'allenheath (SQ/dLive)' });
               onProgress(null, `Found possible Allen & Heath console at ${ip}:${port} (found)`);
             } else if (type === 'mixer-yamaha' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
-              results.mixers.push({ ip, port, type: 'yamaha (CL/QL)' });
+              results.mixers.push({ ip, port, type: 'yamaha (CL/QL/TF)' });
               onProgress(null, `Found possible Yamaha console at ${ip}:${port} (found)`);
             } else if (type === 'videohub' && !results.videohub.find((d) => d.ip === ip)) {
               // Verify with protocol fingerprint — port 9990 alone is too common
@@ -843,5 +872,5 @@ module.exports = {
   ATEM_SYN_PACKET,
   OSC_INFO_PACKET,
   OSC_SQ_ALIVE_PACKET,
-  OSC_YAMAHA_STATE_PACKET,
+  tryYamahaRcpProbe,
 };

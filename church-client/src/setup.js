@@ -346,7 +346,7 @@ async function stepOptional(config) {
     print('  6. Yamaha CL / QL / TF');
     const type = await ask('Choice:', '1');
     const types = ['behringer', 'midas', 'allenheath', 'dlive', 'avantis', 'yamaha'];
-    const defaultPorts = [10023, 10023, 51325, 51325, 51325, 8765];
+    const defaultPorts = [10023, 10023, 51325, 51325, 51325, 49280]; // Yamaha: RCP over TCP 49280 (CL/QL/TF)
     const idx = Math.max(0, Math.min(types.length - 1, parseInt(type) - 1));
     const consoleType = types[idx];
     const consoleIp = await ask('Console IP address:');

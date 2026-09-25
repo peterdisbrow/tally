@@ -93,39 +93,31 @@ test('SQ mixer allows fader', async () => {
   await commandHandlers['mixer.setFader'](agent, { channel: 1, level: 0.5 });
 });
 
-// ─── Capability gating: Yamaha CL/QL ───────────────────────────────────────
+// ─── Capability gating: Yamaha CL/QL/TF (RCP) ──────────────────────────────
+// RCP has no HPF / EQ / dynamics / scene save / solo clear / user keys.
 
-test('CL mixer blocks compressor, gate, HPF, EQ, channelName', async () => {
-  const agent = mockMixer('CL');
-  await assert.rejects(() => commandHandlers['mixer.setCompressor'](agent, { channel: 1 }), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.setGate'](agent, { channel: 1 }), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.setHpf'](agent, { channel: 1 }), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.setEq'](agent, { channel: 1 }), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'X' }), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.clearSolos'](agent, {}), /not supported on CL/);
-  await assert.rejects(() => commandHandlers['mixer.saveScene'](agent, { scene: 1 }), /not supported on CL/);
-});
-
-test('CL mixer allows fader (partial)', async () => {
-  const agent = mockMixer('CL');
-  // Partial — doesn't throw but may warn
-  await commandHandlers['mixer.setFader'](agent, { channel: 1, level: 0.7 });
-});
-
-// ─── Capability gating: Yamaha TF ──────────────────────────────────────────
-
-test('TF mixer blocks almost everything', async () => {
-  const agent = mockMixer('TF');
-  await assert.rejects(() => commandHandlers['mixer.setCompressor'](agent, { channel: 1 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setGate'](agent, { channel: 1 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setHpf'](agent, { channel: 1 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setEq'](agent, { channel: 1 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setFader'](agent, { channel: 1, level: 0.5 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'X' }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.clearSolos'](agent, {}), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.saveScene'](agent, { scene: 1 }), /not supported on TF/);
-  await assert.rejects(() => commandHandlers['mixer.setFullChannelStrip'](agent, { channel: 1 }), /not supported on TF/);
-});
+for (const model of ['CL', 'CL5', 'QL1', 'TF', 'TF5', 'TF-RACK']) {
+  test(`${model} blocks compressor, gate, HPF, EQ, solo clear, scene save, SoftKeys`, async () => {
+    const agent = mockMixer(model);
+    const re = new RegExp(`not supported on ${model}`);
+    await assert.rejects(() => commandHandlers['mixer.setCompressor'](agent, { channel: 1 }), re);
+    await assert.rejects(() => commandHandlers['mixer.setGate'](agent, { channel: 1 }), re);
+    await assert.rejects(() => commandHandlers['mixer.setHpf'](agent, { channel: 1 }), re);
+    await assert.rejects(() => commandHandlers['mixer.setEq'](agent, { channel: 1 }), re);
+    await assert.rejects(() => commandHandlers['mixer.clearSolos'](agent, {}), re);
+    await assert.rejects(() => commandHandlers['mixer.saveScene'](agent, { scene: 1 }), re);
+  });
+  test(`${model} allows fader, name, pan, DCA, mute groups, master (verified over RCP)`, async () => {
+    const ok = async () => ({ confirmed: true });
+    const agent = mockMixer(model, { setPan: ok, muteDca: ok, activateMuteGroup: ok });
+    await commandHandlers['mixer.setFader'](agent, { channel: 1, level: 0.7 });
+    await commandHandlers['mixer.setChannelName'](agent, { channel: 1, name: 'Vox' });
+    await commandHandlers['mixer.setPan'](agent, { channel: 1, pan: 0 });
+    await commandHandlers['mixer.muteDca'](agent, { dca: 1 });
+    await commandHandlers['mixer.activateMuteGroup'](agent, { group: 1 });
+    await commandHandlers['mixer.mute'](agent, { channel: 'master' });
+  });
+}
 
 // ─── mixer.capabilities command ─────────────────────────────────────────────
 
